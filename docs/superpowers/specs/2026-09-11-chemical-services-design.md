@@ -1,7 +1,7 @@
 # Chemical Services and Zones Design
 
 **Date:** 11 September 2026
-**Status:** Approved direction, awaiting written-spec review
+**Status:** Approved for implementation planning
 **Scope:** Phase 1 chemical-service recording, correction, presence observations, zones, and reported service heat. This design targets P1-AC-08 and P1-AC-09.
 
 ## Goal
