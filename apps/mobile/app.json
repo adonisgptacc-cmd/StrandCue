@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "StrandCue", "slug": "strandcue", "scheme": "strandcue", "version": "0.1.0",
+    "orientation": "portrait", "userInterfaceStyle": "light",
+    "ios": {"supportsTablet": true},
+    "web": {"bundler": "metro", "output": "single"},
+    "plugins": ["expo-router", "expo-secure-store"]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "schema": "ai-project-extensions-lock.v2",
+  "resolved_at": "2026-09-09T17:19:41.904Z",
+  "profile": "reuse-existing-codex",
+  "targets": [
+    "codex"
+  ],
+  "bootstrap_status": "not-run",
+  "observed": {
+    "superpowers": {
+      "resolved_ref": "6.3.0",
+      "entry_sha256": "30f2ab78e20ddc27ee7158ae8d4a2abe161c360981c7cc3548070913142d3dc3",
+      "codex": {
+        "scope": "existing-host-skill",
+        "pin_enforced": false,
+        "entry_path": "C:/Users/ABADO/.codex/plugins/cache/superpowers-dev/superpowers/6.3.0/skills/using-superpowers/SKILL.md"
+      },
+      "scan_status": "not-run",
+      "conformance": "not-run-in-fresh-session",
+      "auto_update": "host-managed-unverified"
+    },
+    "supabase-skill": {
+      "resolved_ref": "1.0.0",
+      "entry_sha256": "1171386737b231610fa42485707272765c3516a9bbc0bd2c6c161a8cee3d7d33",
+      "codex": {
+        "scope": "existing-host-skill",
+        "pin_enforced": false,
+        "entry_path": "C:/Users/ABADO/.codex/plugins/cache/openai-curated-remote/supabase/1.0.0/skills/supabase/SKILL.md"
+      },
+      "scan_status": "not-run",
+      "conformance": "not-run-in-fresh-session",
+      "auto_update": "host-managed-unverified"
+    },
+    "security-review": {
+      "resolved_ref": "local-file",
+      "entry_sha256": "e60a179eac26386cfc72d4bdebbe280f94a2d94ed889d6e221edbf1939f944d4",
+      "codex": {
+        "scope": "existing-host-skill",
+        "pin_enforced": false,
+        "entry_path": "C:/Users/ABADO/.agents/skills/security-review/SKILL.md"
+      },
+      "scan_status": "not-run",
+      "conformance": "not-run-in-fresh-session",
+      "auto_update": "host-managed-unverified"
+    }
+  }
+}
