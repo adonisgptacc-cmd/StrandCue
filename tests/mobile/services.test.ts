@@ -50,6 +50,7 @@ import {
 import { ServiceFactsView, ServiceOccurrenceFields, ServiceObservationFields } from '../../apps/mobile/src/service-editor';
 import * as serviceEditorModule from '../../apps/mobile/src/service-editor';
 import { Button } from '../../apps/mobile/src/ui';
+import { resolveAuthRefresh } from '../../apps/mobile/src/contracts';
 
 const operationId = '10000000-0000-4000-8000-000000000001';
 const serviceId = '10000000-0000-4000-8000-000000000002';
@@ -303,8 +304,48 @@ describe('service experience contracts', () => {
     const storage = memoryStorage();
     await transitionServiceDraftOwner(storage, ownerB);
     await saveServiceDraft(storage, ownerB, { ...createDraft(), command: { ...createDraft().command, serviceId: revisionId } });
+    let releaseLock: () => void = () => {};
+    let markLockEntered: () => void = () => {};
+    const lockEntered = new Promise<void>(resolve => { markLockEntered = resolve; });
+    const lockHeld = new Promise<void>(resolve => { releaseLock = resolve; });
+    let blockOwnerRead = true;
+    const queuedStorage = {
+      ...storage,
+      getItem: async (key: string) => {
+        if (key === serviceDraftOwnerKey && blockOwnerRead) {
+          blockOwnerRead = false;
+          markLockEntered();
+          await lockHeld;
+        }
+        return storage.getItem(key);
+      },
+    };
+    const holder = transitionServiceDraftOwner(queuedStorage, ownerB);
+    await lockEntered;
+    let current = true;
+    const staleRefresh = resolveAuthRefresh(
+      { data: { user: { id: ownerA } }, error: null },
+      (owner, guard) => transitionServiceDraftOwner(queuedStorage, owner, guard),
+      () => current,
+    );
+    current = false;
+    releaseLock();
+    await holder;
 
-    await transitionServiceDraftOwner(storage, ownerA, () => false);
+    await expect(staleRefresh).resolves.toBeNull();
+    expect(await storage.getItem(serviceDraftOwnerKey)).toBe(ownerB);
+    expect(await readServiceDrafts(storage, ownerB)).toHaveLength(1);
+  });
+  it('does not run owner cleanup when auth lookup returns an error with a null user', async () => {
+    const storage = memoryStorage();
+    await transitionServiceDraftOwner(storage, ownerB);
+    await saveServiceDraft(storage, ownerB, { ...createDraft(), command: { ...createDraft().command, serviceId: revisionId } });
+
+    await expect(resolveAuthRefresh(
+      { data: { user: null }, error: new Error('network') },
+      (owner, guard) => transitionServiceDraftOwner(storage, owner, guard),
+      () => true,
+    )).rejects.toThrow('auth-user-unavailable');
 
     expect(await storage.getItem(serviceDraftOwnerKey)).toBe(ownerB);
     expect(await readServiceDrafts(storage, ownerB)).toHaveLength(1);

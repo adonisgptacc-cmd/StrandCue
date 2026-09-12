@@ -8,6 +8,18 @@ export function authUserFromResult<T>(result: { data: { user: T | null }; error:
   if (result.error) throw new Error('auth-user-unavailable');
   return result.data.user;
 }
+export async function resolveAuthRefresh<T extends { id: string }>(
+  result: { data: { user: T | null }; error: unknown },
+  transitionOwner: (owner: string | null, isCurrent: () => boolean) => Promise<void>,
+  isCurrent: () => boolean,
+): Promise<{ user: T | null; cleanupFailed: boolean } | null> {
+  const user = authUserFromResult(result);
+  if (!isCurrent()) return null;
+  let cleanupFailed = false;
+  try { await transitionOwner(user?.id ?? null, isCurrent); }
+  catch { cleanupFailed = true; }
+  return isCurrent() ? { user, cleanupFailed } : null;
+}
 export const reviewRebase = (latest: Record<string, unknown>, submitted: Record<string, unknown>) => ({...latest, ...submitted});
 export function toggleSelection(selected: readonly string[], value: string): string[] {
   if (value === 'none' || value === 'unknown') return [value];
