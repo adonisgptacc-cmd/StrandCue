@@ -47,6 +47,8 @@ import {
   loadServiceScreenData,
 } from '../../apps/mobile/src/service-form';
 import { ServiceFactsView, ServiceOccurrenceFields, ServiceObservationFields } from '../../apps/mobile/src/service-editor';
+import * as serviceEditorModule from '../../apps/mobile/src/service-editor';
+import * as recordsModule from '../../apps/mobile/src/records';
 import { Button } from '../../apps/mobile/src/ui';
 
 const operationId = '10000000-0000-4000-8000-000000000001';
@@ -280,6 +282,47 @@ function memoryStorage() {
 const createDraft = () => ({ mode: 'add' as const, command: buildCreateServiceCommand(operationId, serviceId, nanoplastyFacts, observation) });
 
 describe('service experience contracts', () => {
+  it('clears service drafts only when the mounted records view changes owners', () => {
+    const ownerToClear = (recordsModule as unknown as {
+      serviceDraftOwnerToClear?: (intent:
+        | { kind: 'owner-switch'; previousOwner: string; nextOwner: string }
+        | { kind: 'logout'; owner: string }
+        | { kind: 'unmount'; owner: string }) => string | null;
+    }).serviceDraftOwnerToClear;
+
+    expect(ownerToClear?.({ kind: 'owner-switch', previousOwner: ownerA, nextOwner: ownerA })).toBeNull();
+    expect(ownerToClear?.({ kind: 'unmount', owner: ownerA })).toBeNull();
+    expect(ownerToClear?.({ kind: 'owner-switch', previousOwner: ownerA, nextOwner: ownerB })).toBe(ownerA);
+    expect(ownerToClear?.({ kind: 'logout', owner: ownerB })).toBe(ownerB);
+  });
+  it('loads the current service automatically after a revision conflict', async () => {
+    const recover = (serviceEditorModule as unknown as {
+      loadServiceConflict?: <T>(serviceId: string, loader: (id: string) => Promise<T | null>) => Promise<{ latest: T | null; message: string }>;
+    }).loadServiceConflict;
+    let requestedService = '';
+    const latest = { ...serviceSummary, userId: ownerA, revisions: [], observations: [] };
+
+    expect(recover).toBeTypeOf('function');
+    const result = await recover!(serviceId, async id => {
+      requestedService = id;
+      return latest;
+    });
+
+    expect(requestedService).toBe(serviceId);
+    expect(result.latest).toEqual(latest);
+    expect(result.message).toBe('');
+  });
+  it('keeps conflict review safe when the automatic current-service load fails', async () => {
+    const recover = (serviceEditorModule as unknown as {
+      loadServiceConflict?: <T>(serviceId: string, loader: (id: string) => Promise<T | null>) => Promise<{ latest: T | null; message: string }>;
+    }).loadServiceConflict;
+
+    expect(recover).toBeTypeOf('function');
+    await expect(recover!(serviceId, async () => { throw new Error('Offline'); })).resolves.toEqual({
+      latest: null,
+      message: 'The latest entry could not be loaded. Your submitted facts are still here.',
+    });
+  });
   it('keeps device recovery available when the service list is offline', async () => {
     const storage = memoryStorage();
     await saveServiceDraft(storage, ownerA, createDraft());

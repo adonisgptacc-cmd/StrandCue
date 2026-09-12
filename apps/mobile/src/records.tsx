@@ -18,6 +18,17 @@ const display = (value: unknown): string => {
 };
 const fieldLabel = (value: string) => value.replace(/([A-Z])/g,' $1').replace(/^./,char=>char.toUpperCase());
 
+type ServiceDraftCleanupIntent =
+  | { kind: 'owner-switch'; previousOwner: string; nextOwner: string }
+  | { kind: 'logout'; owner: string }
+  | { kind: 'unmount'; owner: string };
+
+export function serviceDraftOwnerToClear(intent: ServiceDraftCleanupIntent): string | null {
+  if (intent.kind === 'logout') return intent.owner;
+  if (intent.kind === 'unmount') return null;
+  return intent.previousOwner === intent.nextOwner ? null : intent.previousOwner;
+}
+
 export function Records({user}: {user: User}) {
   const [profile, setProfile] = useState<{username: string}|null>(null);
   const [record, setRecord] = useState<PassportRecord|null>(null);
@@ -33,6 +44,8 @@ export function Records({user}: {user: User}) {
   const [asOf, setAsOf] = useState('');
   const [historical, setHistorical] = useState<PassportRecord|null>(null);
   const generation = useRef(0);
+  const mounted = useRef(true);
+  const serviceDraftOwner = useRef(user.id);
   const refresh = async () => {
     const request = ++generation.current;
     setLoading(true); setError('');
@@ -44,10 +57,18 @@ export function Records({user}: {user: User}) {
     } catch (caught) {if (generation.current === request) setError(saveErrorMessage(caught));}
     finally {if (generation.current === request) setLoading(false);}
   };
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   useEffect(() => {void refresh(); return () => {++generation.current;};}, [user.id]);
-  useEffect(() => () => {
-    void clearServiceDrafts(secureStorage, user.id).catch(() => {
-      setError('Device drafts could not be cleared. Sign out before sharing this device.');
+  useEffect(() => {
+    const previousOwner = serviceDraftOwner.current;
+    serviceDraftOwner.current = user.id;
+    const ownerToClear = serviceDraftOwnerToClear({ kind: 'owner-switch', previousOwner, nextOwner: user.id });
+    if (!ownerToClear) return;
+    void clearServiceDrafts(secureStorage, ownerToClear).catch(() => {
+      if (mounted.current) setError('Device drafts could not be cleared. Sign out before sharing this device.');
     });
   }, [user.id]);
   const finishSetup = async () => {
@@ -60,7 +81,8 @@ export function Records({user}: {user: User}) {
     setBusy(true); setError('');
     try {
       await secureStorage.removeItem(`strandcue-draft-${user.id}`);
-      await clearServiceDrafts(secureStorage, user.id);
+      const serviceOwnerToClear = serviceDraftOwnerToClear({ kind: 'logout', owner: user.id });
+      if (serviceOwnerToClear) await clearServiceDrafts(secureStorage, serviceOwnerToClear);
       const {error: issue} = await supabase!.auth.signOut({scope:'local'});
       if (issue) throw issue;
     } catch {setError('Sign out could not finish. Please try again before sharing this device.');}

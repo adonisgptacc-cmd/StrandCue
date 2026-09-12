@@ -101,6 +101,20 @@ async function sendDraft(draft: ServiceDraft) {
   return observeService(draft.command);
 }
 
+export async function loadServiceConflict<T>(
+  serviceId: string,
+  loader: (id: string) => Promise<T | null>,
+): Promise<{ latest: T | null; message: string }> {
+  try {
+    const latest = await loader(serviceId);
+    return latest
+      ? { latest, message: '' }
+      : { latest: null, message: 'This service could not be found. Your draft is retained.' };
+  } catch {
+    return { latest: null, message: 'The latest entry could not be loaded. Your submitted facts are still here.' };
+  }
+}
+
 export function ServiceEditor({ owner, mode, detail, resume, onSaved, onCancel }: {
   owner: string; mode: ServiceEditorMode; detail?: ServiceDetail; resume?: ServiceDraft;
   onSaved: () => void; onCancel: () => void;
@@ -143,15 +157,22 @@ export function ServiceEditor({ owner, mode, detail, resume, onSaved, onCancel }
       if (!alive.current) return;
       const isConflict = String((error as { message?: string })?.message).includes('revision-conflict');
       setConflict(isConflict);
-      setMessage(isConflict ? 'This service changed elsewhere. Your submitted facts are retained. Load the current entry to review.' : 'The save was not confirmed. Your command is locked for an identical retry.');
+      if (isConflict) {
+        setMessage('This service changed elsewhere. Your submitted facts are retained while the current entry loads.');
+        const result = await loadServiceConflict(identity.serviceId, loadService);
+        if (!alive.current) return;
+        setLatest(result.latest);
+        setMessage(result.message || 'The current entry is loaded below. Review it before discarding the failed attempt.');
+      } else {
+        setMessage('The save was not confirmed. Your command is locked for an identical retry.');
+      }
     } finally { inFlight.current = false; if (alive.current) setBusy(false); }
   };
 
   const loadLatest = async () => {
     setBusy(true); setMessage('');
-    try { const result = await loadService(identity.serviceId); if (alive.current) { setLatest(result); if (!result) setMessage('This service could not be found. Your draft is retained.'); } }
-    catch { if (alive.current) setMessage('The latest entry could not be loaded. Your submitted facts are still here.'); }
-    finally { if (alive.current) setBusy(false); }
+    const result = await loadServiceConflict(identity.serviceId, loadService);
+    if (alive.current) { setLatest(result.latest); setMessage(result.message); setBusy(false); }
   };
   const discard = async (review: boolean) => {
     setBusy(true); setMessage('');
@@ -176,7 +197,7 @@ export function ServiceEditor({ owner, mode, detail, resume, onSaved, onCancel }
     {mode === 'correction' && <Field label="Reason for correction" value={reason} editable={!locked} maxLength={500} onChangeText={setReason} />}
     {mode === 'add' && <Choice label="Include an initial presence observation" value={includeObservation ? 'yes' : 'no'} options={['no', 'yes']} disabled={locked} onChange={value => setIncludeObservation(value === 'yes')} />}
     {(mode === 'observation' || (mode === 'add' && includeObservation)) && <ServiceObservationFields observation={observation} disabled={locked} onChange={setObservation} />}
-    {conflict && <Button title="Load current service for review" secondary disabled={busy} onPress={() => void loadLatest()} />}
+    {conflict && !latest && <Button title="Retry loading current service" secondary disabled={busy} onPress={() => void loadLatest()} />}
     {latest && <View style={styles.notice}>
       <Text style={styles.heading}>Current saved facts</Text><ServiceFactsView facts={latest.facts} />
       <Text style={styles.body}>Your submitted facts remain in the locked form above. Discarding this failed attempt starts a new correction against the current entry.</Text>
