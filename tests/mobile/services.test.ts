@@ -299,6 +299,16 @@ describe('service experience contracts', () => {
     expect(await readServiceDrafts(storage, ownerB)).toEqual([]);
     expect(await storage.getItem(serviceDraftOwnerKey)).toBeNull();
   });
+  it('cancels a stale owner transition after it reaches the serialized storage boundary', async () => {
+    const storage = memoryStorage();
+    await transitionServiceDraftOwner(storage, ownerB);
+    await saveServiceDraft(storage, ownerB, { ...createDraft(), command: { ...createDraft().command, serviceId: revisionId } });
+
+    await transitionServiceDraftOwner(storage, ownerA, () => false);
+
+    expect(await storage.getItem(serviceDraftOwnerKey)).toBe(ownerB);
+    expect(await readServiceDrafts(storage, ownerB)).toHaveLength(1);
+  });
   it('loads the current service automatically after a revision conflict', async () => {
     const recover = (serviceEditorModule as unknown as {
       loadServiceConflict?: <T>(serviceId: string, loader: (id: string) => Promise<T | null>) => Promise<{ latest: T | null; message: string }>;

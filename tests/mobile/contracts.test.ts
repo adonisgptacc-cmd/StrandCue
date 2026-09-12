@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedFields, parseRecoveryCallback, publicConfig, saveErrorMessage, toggleSelection, reviewRebase, authNeedsLoading, resolvedRefreshUser } from '../../apps/mobile/src/contracts';
+import { changedFields, parseRecoveryCallback, publicConfig, saveErrorMessage, toggleSelection, reviewRebase, authNeedsLoading, resolvedRefreshUser, authUserFromResult } from '../../apps/mobile/src/contracts';
 
 describe('mobile boundary contracts', () => {
   it('maps database validation and operation errors without exposing details', () => {
@@ -23,6 +23,11 @@ describe('mobile boundary contracts', () => {
     expect(resolvedRefreshUser(established, null, true)).toBe(established);
     expect(resolvedRefreshUser(established, {id:'owner-b'}, false)).toEqual({id:'owner-b'});
     expect(resolvedRefreshUser(established, null, false)).toBeNull();
+  });
+  it('does not interpret a failed auth lookup as a signed-out user', () => {
+    expect(() => authUserFromResult({ data: { user: null }, error: new Error('network') })).toThrow('auth-user-unavailable');
+    expect(authUserFromResult({ data: { user: null }, error: null })).toBeNull();
+    expect(authUserFromResult({ data: { user: { id: 'owner-a' } }, error: null })).toEqual({ id: 'owner-a' });
   });
   it('submits only explicitly changed fields, avoiding stale snapshot reassertion', () => {
     expect(changedFields({ goals: ['shine'], maximumProductBudgetZar: 100 }, { goals: ['shine'], maximumProductBudgetZar: 200 })).toEqual({ maximumProductBudgetZar: 200 });

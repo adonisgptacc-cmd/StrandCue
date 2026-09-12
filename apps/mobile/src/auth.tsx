@@ -3,7 +3,7 @@ import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import type { User } from '@supabase/supabase-js';
 import { RECOVERY_KEY, secureStorage, supabase } from './client';
-import { authNeedsLoading, parseRecoveryCallback, resolvedRefreshUser } from './contracts';
+import { authNeedsLoading, authUserFromResult, parseRecoveryCallback, resolvedRefreshUser } from './contracts';
 import { transitionServiceDraftOwner } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
@@ -23,13 +23,17 @@ export function useAccount() {
     const refresh = (hideExisting = false) => {
       const request = ++epoch.current;
       setLoading(hideExisting || authNeedsLoading(!!verifiedUser.current));
-      void client.auth.getUser().then(async ({data}) => {
+      void client.auth.getUser().then(async result => {
+        const nextUser = authUserFromResult(result);
+        if (!mounted || request !== epoch.current) return;
         let cleanupFailed = false;
-        try { await transitionServiceDraftOwner(secureStorage, data.user?.id ?? null); }
+        try {
+          await transitionServiceDraftOwner(secureStorage, nextUser?.id ?? null, () => mounted && request === epoch.current);
+        }
         catch { cleanupFailed = true; }
         if (mounted && request === epoch.current) {
-          verifiedUser.current = data.user;
-          setUser(data.user);
+          verifiedUser.current = nextUser;
+          setUser(nextUser);
           setNotice(current => cleanupFailed ? serviceDraftCleanupNotice : current === serviceDraftCleanupNotice ? '' : current);
           setLoading(false);
         }
@@ -48,7 +52,7 @@ export function useAccount() {
       if (event === 'SIGNED_OUT') {
         const request = ++epoch.current;
         verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false);
-        void transitionServiceDraftOwner(secureStorage, null).catch(() => {
+        void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch.current).catch(() => {
           if (mounted && request === epoch.current) setNotice(serviceDraftCleanupNotice);
         });
       } else setTimeout(() => { if (mounted) refresh(event === 'SIGNED_IN'); }, 0);

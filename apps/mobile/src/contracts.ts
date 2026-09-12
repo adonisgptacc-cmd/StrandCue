@@ -4,6 +4,10 @@ export function changedFields(before: Record<string, unknown>, after: Record<str
 export const authNeedsLoading = (hasVerifiedUser: boolean) => !hasVerifiedUser;
 export const resolvedRefreshUser = <T>(current: T | null, verified: T | null, requestFailed: boolean): T | null =>
   requestFailed && current ? current : verified;
+export function authUserFromResult<T>(result: { data: { user: T | null }; error: unknown }): T | null {
+  if (result.error) throw new Error('auth-user-unavailable');
+  return result.data.user;
+}
 export const reviewRebase = (latest: Record<string, unknown>, submitted: Record<string, unknown>) => ({...latest, ...submitted});
 export function toggleSelection(selected: readonly string[], value: string): string[] {
   if (value === 'none' || value === 'unknown') return [value];

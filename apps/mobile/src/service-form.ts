@@ -115,8 +115,15 @@ async function transitionServiceDraftOwnerUnlocked(storage: ServiceDraftStorage,
   else await storage.removeItem(serviceDraftOwnerKey);
 }
 
-export function transitionServiceDraftOwner(storage: ServiceDraftStorage, nextOwner: string | null): Promise<void> {
-  return withDraftLock(storage, serviceDraftOwnerKey, () => transitionServiceDraftOwnerUnlocked(storage, nextOwner));
+export function transitionServiceDraftOwner(
+  storage: ServiceDraftStorage,
+  nextOwner: string | null,
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
+  return withDraftLock(storage, serviceDraftOwnerKey, async () => {
+    if (!isCurrent()) return;
+    await transitionServiceDraftOwnerUnlocked(storage, nextOwner);
+  });
 }
 
 async function draftIndex(storage: ServiceDraftStorage, owner: string): Promise<string[]> {
