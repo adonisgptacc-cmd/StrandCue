@@ -10,7 +10,8 @@ import {
 import { supabase } from './client';
 
 const ServiceIdSchema = z.string().uuid();
-const RecordedAtSchema = z.iso.datetime({ offset: true });
+const RecordedAtSchema = z.iso.datetime({ offset: true, precision: 6 })
+  .refine(value => value.endsWith('Z'), 'Expected a UTC timestamp');
 const EffectStatusSchema = z.enum(['present', 'not-present', 'unknown']);
 const ObservationSourceSchema = z.enum(['user-reported', 'user-estimated']);
 
@@ -33,7 +34,15 @@ export const ServiceRevisionSchema = z.object({
   correctsId: ServiceIdSchema.nullable(),
   reason: z.string().nullable(),
   recordedAt: RecordedAtSchema,
-}).strict();
+}).strict().superRefine((revision, context) => {
+  const hasCorrectionMetadata = revision.correctsId !== null && revision.reason !== null;
+  if (revision.kind === 'baseline' && (revision.correctsId !== null || revision.reason !== null)) {
+    context.addIssue({ code: 'custom', message: 'Baseline revisions cannot include correction metadata' });
+  }
+  if (revision.kind === 'correction' && !hasCorrectionMetadata) {
+    context.addIssue({ code: 'custom', message: 'Correction revisions require correction metadata' });
+  }
+});
 
 export const ServiceSummarySchema = z.object({
   serviceId: ServiceIdSchema,
@@ -57,7 +66,7 @@ export const ServiceCursorSchema = z.object({
 }).strict();
 
 export const ServiceListSchema = z.object({
-  items: z.array(ServiceSummarySchema),
+  items: z.array(ServiceSummarySchema).max(100),
   nextCursor: ServiceCursorSchema.nullable(),
 }).strict();
 

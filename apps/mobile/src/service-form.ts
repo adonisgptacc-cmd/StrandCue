@@ -11,13 +11,18 @@ import {
 
 const zoneKey = (zone: ServiceZone): string => `${zone.region}:${zone.segment}`;
 
-const ZonesSchema = z.array(ServiceZoneSchema).min(1).max(36)
+const ZoneCollectionSchema = z.array(ServiceZoneSchema).max(36)
   .superRefine((zones, context) => {
     const keys = zones.map(zoneKey);
     if (new Set(keys).size !== keys.length) {
       context.addIssue({ code: 'custom', message: 'Service zone is already added' });
     }
-  })
+  });
+
+const ZonesSchema = ZoneCollectionSchema.min(1)
+  .transform(zones => [...zones].sort((left, right) => zoneKey(left).localeCompare(zoneKey(right))));
+
+const EditableZonesSchema = ZoneCollectionSchema
   .transform(zones => [...zones].sort((left, right) => zoneKey(left).localeCompare(zoneKey(right))));
 
 function parseZones(zones: readonly ServiceZone[]): ServiceZone[] {
@@ -34,7 +39,7 @@ function requireZone(zones: readonly ServiceZone[], zone: ServiceZone): ServiceZ
 
 export function addZone(zones: readonly ServiceZone[], zone: ServiceZone): readonly ServiceZone[] {
   const parsedZone = ServiceZoneSchema.parse(zone);
-  const parsedZones = parseZones(zones);
+  const parsedZones = EditableZonesSchema.parse(zones);
   if (parsedZones.some(item => zoneKey(item) === zoneKey(parsedZone))) {
     throw new Error('Service zone is already added');
   }

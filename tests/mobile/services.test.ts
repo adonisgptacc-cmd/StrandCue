@@ -123,6 +123,53 @@ describe('chemical services mobile boundary', () => {
     await expect(loadService(serviceId)).rejects.toThrow();
   });
 
+  it.each([
+    ['a non-UTC timestamp offset', {
+      ...serviceSummary,
+      currentObservation: { ...serviceSummary.currentObservation, recordedAt: '2026-02-05T10:00:00.000000+02:00' },
+    }],
+    ['a timestamp without microseconds', {
+      ...serviceSummary,
+      currentObservation: { ...serviceSummary.currentObservation, recordedAt: '2026-02-05T10:00:00Z' },
+    }],
+  ])('rejects a detail with %s', async (_description, malformedSummary) => {
+    rpc.mockResolvedValueOnce({
+      data: { ...malformedSummary, revisions: [], observations: [] },
+      error: null,
+    });
+
+    await expect(loadService(serviceId)).rejects.toThrow();
+  });
+
+  it.each([
+    ['baseline correction metadata', {
+      id: revisionId, serviceId, sequence: 1, baseRevision: 0, kind: 'baseline',
+      facts: nanoplastyFacts, correctsId: revisionId, reason: 'Unexpected correction metadata',
+      recordedAt: '2026-02-01T10:00:00.000000Z',
+    }],
+    ['correction without correction metadata', {
+      id: revisionId, serviceId, sequence: 2, baseRevision: 1, kind: 'correction',
+      facts: nanoplastyFacts, correctsId: null, reason: null,
+      recordedAt: '2026-02-01T10:00:00.000000Z',
+    }],
+  ])('rejects a detail revision with %s', async (_description, malformedRevision) => {
+    rpc.mockResolvedValueOnce({
+      data: { ...serviceSummary, revisions: [malformedRevision], observations: [] },
+      error: null,
+    });
+
+    await expect(loadService(serviceId)).rejects.toThrow();
+  });
+
+  it('rejects a page containing more than 100 service items', async () => {
+    rpc.mockResolvedValueOnce({
+      data: { items: Array.from({ length: 101 }, () => serviceSummary), nextCursor: null },
+      error: null,
+    });
+
+    await expect(loadServices('2026-09-01')).rejects.toThrow();
+  });
+
   it('submits a validated Nanoplasty command without inferred or owner fields', async () => {
     const command = buildCreateServiceCommand(operationId, serviceId, nanoplastyFacts, observation);
     rpc.mockResolvedValueOnce({ data: { serviceId, revision: 1, revisionId }, error: null });
@@ -173,6 +220,14 @@ describe('chemical services mobile boundary', () => {
     expect(replaced).toEqual([{ region: 'crown', segment: 'ends' }, { region: 'nape', segment: 'ends' }]);
     expect(updated).toEqual([{ region: 'crown', segment: 'ends' }, { region: 'front', segment: 'roots' }]);
     expect(removeZone(replaced, { region: 'crown', segment: 'ends' })).toEqual([{ region: 'nape', segment: 'ends' }]);
+  });
+
+  it('adds the first valid zone to an empty editor without mutating the empty array', () => {
+    const original: readonly [] = [];
+    const added = addZone(original, { region: 'front', segment: 'roots' });
+
+    expect(added).toEqual([{ region: 'front', segment: 'roots' }]);
+    expect(original).toEqual([]);
   });
 
   it('keeps injected retry IDs stable and requires complete correction facts', () => {
