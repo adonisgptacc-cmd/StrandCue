@@ -6,6 +6,8 @@ import {
   ObserveServiceCommandSchema,
   ServiceFactsSchema,
   ServiceHeatSchema,
+  ServiceObservationSchema,
+  ServiceZoneSchema,
 } from '../../packages/domain/src/index.ts';
 
 const operationId = '10000000-0000-4000-8000-000000000001';
@@ -167,5 +169,124 @@ describe('Chemical Service contracts', () => {
       serviceId,
       observation: { observedOn: { precision: 'unknown', value: null }, effectStatus: 'not-present' },
     });
+  });
+
+  it.each([
+    'permanent-colour', 'demi-permanent', 'semi-permanent', 'highlights',
+    'balayage', 'bleach-or-lightener', 'colour-remover', 'keratin',
+    'brazilian-smoothing', 'nanoplasty', 'relaxer', 'texturiser', 'perm',
+    'chemical-straightening',
+  ])('accepts the supported %s service type without an other label', (serviceType) => {
+    expect(ServiceFactsSchema.parse({ ...nanoplasty.facts, serviceType }))
+      .toMatchObject({ serviceType });
+  });
+
+  it('accepts the other service type with its required label', () => {
+    expect(ServiceFactsSchema.parse({
+      ...nanoplasty.facts,
+      serviceType: 'other',
+      otherLabel: 'Custom chemical service',
+    })).toMatchObject({ serviceType: 'other', otherLabel: 'Custom chemical service' });
+  });
+
+  it.each([
+    'whole-head', 'front', 'crown', 'nape', 'other', 'unknown',
+  ])('accepts the supported %s region', (region) => {
+    expect(ServiceZoneSchema.parse({ region, segment: 'roots' }))
+      .toMatchObject({ region, segment: 'roots' });
+  });
+
+  it.each([
+    'entire-strand', 'roots', 'mid-lengths', 'ends', 'other', 'unknown',
+  ])('accepts the supported %s segment', (segment) => {
+    expect(ServiceZoneSchema.parse({ region: 'front', segment }))
+      .toMatchObject({ region: 'front', segment });
+  });
+
+  it('retains explicit unknown region and segment values', () => {
+    expect(ServiceZoneSchema.parse({ region: 'unknown', segment: 'unknown' }))
+      .toEqual({ region: 'unknown', segment: 'unknown' });
+  });
+
+  it.each([
+    'flat-iron', 'blow-dryer', 'hood-dryer', 'other', 'unknown',
+  ])('accepts the supported %s heat method', (method) => {
+    expect(ServiceHeatSchema.parse({
+      method, temperatureC: null, passes: null, durationMinutes: null, source: 'user-reported',
+    })).toMatchObject({ method });
+  });
+
+  it.each(['user-reported', 'user-estimated'])('accepts the supported %s heat source', (source) => {
+    expect(ServiceHeatSchema.parse({
+      method: 'unknown', temperatureC: null, passes: null, durationMinutes: null, source,
+    })).toMatchObject({ source });
+  });
+
+  it.each(['present', 'not-present', 'unknown'])('accepts the supported %s observation status', (effectStatus) => {
+    expect(ServiceObservationSchema.parse({
+      observedOn: { precision: 'unknown', value: null }, effectStatus,
+    })).toMatchObject({ effectStatus });
+  });
+
+  it.each([
+    ['region', { region: 'temples', segment: 'roots' }],
+    ['segment', { region: 'front', segment: 'lengths' }],
+    ['heat method', { method: 'steamer', temperatureC: null, passes: null, durationMinutes: null, source: 'user-reported' }],
+    ['heat source', { method: 'unknown', temperatureC: null, passes: null, durationMinutes: null, source: 'catalogue' }],
+    ['observation status', { observedOn: { precision: 'unknown', value: null }, effectStatus: 'faded' }],
+  ])('rejects an unsupported %s enum value', (name, value) => {
+    const schema = name === 'region' || name === 'segment'
+      ? ServiceZoneSchema
+      : name.startsWith('heat')
+        ? ServiceHeatSchema
+        : ServiceObservationSchema;
+
+    expect(() => schema.parse(value)).toThrow();
+  });
+
+  it.each([
+    ['zone', ServiceZoneSchema, { region: 'front', segment: 'roots', extra: true }],
+    ['heat', ServiceHeatSchema, { method: 'unknown', temperatureC: null, passes: null, durationMinutes: null, source: 'user-estimated', extra: true }],
+    ['facts', ServiceFactsSchema, { ...nanoplasty.facts, extra: true }],
+    ['observation', ServiceObservationSchema, { observedOn: { precision: 'unknown', value: null }, effectStatus: 'unknown', extra: true }],
+    ['create command', CreateServiceCommandSchema, { ...nanoplasty, extra: true }],
+    ['correction command', CorrectServiceCommandSchema, { operationId, serviceId, expectedRevision: 1, correctsId: revisionId, reason: 'Correction', facts: nanoplasty.facts, extra: true }],
+    ['observe command', ObserveServiceCommandSchema, { operationId, serviceId, observation: { observedOn: { precision: 'unknown', value: null }, effectStatus: 'unknown' }, extra: true }],
+  ])('rejects unknown keys in the strict %s object', (_name, schema, value) => {
+    expect(() => schema.parse(value)).toThrow();
+  });
+
+  it.each([
+    ['otherLabel', '😀'.repeat(50), '😀'.repeat(51), { serviceType: 'other' }],
+    ['productOrSystem', '😀'.repeat(100), '😀'.repeat(101), {}],
+    ['notes', '😀'.repeat(1_000), '😀'.repeat(1_001), {}],
+  ])('measures %s in UTF-16 code units', (field, accepted, rejected, overrides) => {
+    expect(ServiceFactsSchema.parse({
+      ...nanoplasty.facts,
+      ...overrides,
+      [field]: accepted,
+    })).toHaveProperty(field, accepted);
+    expect(() => ServiceFactsSchema.parse({
+      ...nanoplasty.facts,
+      ...overrides,
+      [field]: rejected,
+    })).toThrow();
+  });
+
+  it('measures correction reasons in UTF-16 code units', () => {
+    const command = {
+      operationId,
+      serviceId,
+      expectedRevision: 1,
+      correctsId: revisionId,
+      facts: nanoplasty.facts,
+    };
+
+    expect(CorrectServiceCommandSchema.parse({ ...command, reason: '😀'.repeat(250) }))
+      .toHaveProperty('reason', '😀'.repeat(250));
+    expect(() => CorrectServiceCommandSchema.parse({
+      ...command,
+      reason: '😀'.repeat(251),
+    })).toThrow();
   });
 });

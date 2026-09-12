@@ -59,6 +59,19 @@ const ZonesSchema = z.array(ServiceZoneSchema).min(1).max(36)
     ),
   ));
 
+const utf16Max = (limit: number) => (value: string): boolean =>
+  value.length <= limit;
+
+const trimmedNonEmptyText = (limit: number) => z.string().trim().min(1)
+  .refine(utf16Max(limit), {
+    message: `Expected at most ${limit} UTF-16 code units`,
+  });
+
+const trimmedText = (limit: number) => z.string().trim()
+  .refine(utf16Max(limit), {
+    message: `Expected at most ${limit} UTF-16 code units`,
+  });
+
 export const ServiceHeatSchema = z.object({
   method: z.enum(['flat-iron', 'blow-dryer', 'hood-dryer', 'other', 'unknown']),
   temperatureC: z.number().finite().nonnegative().nullable().optional(),
@@ -98,10 +111,10 @@ function validateOtherLabel(
 
 const ServiceFactsSchemaBase = z.object({
   serviceType: ServiceTypeSchema,
-  otherLabel: z.string().trim().min(1).max(100).nullable().optional(),
+  otherLabel: trimmedNonEmptyText(100).nullable().optional(),
   occurredOn: EffectiveDateSchema,
-  productOrSystem: z.string().trim().min(1).max(200).nullable().optional(),
-  notes: z.string().trim().max(2_000).nullable().optional(),
+  productOrSystem: trimmedNonEmptyText(200).nullable().optional(),
+  notes: trimmedText(2_000).nullable().optional(),
   zones: ZonesSchema,
   heat: ServiceHeatSchema.nullable().optional(),
 }).strict();
@@ -127,7 +140,7 @@ export const CorrectServiceCommandSchema = z.object({
   serviceId: z.string().uuid(),
   expectedRevision: z.number().int().positive(),
   correctsId: z.string().uuid(),
-  reason: z.string().trim().min(1).max(500),
+  reason: trimmedNonEmptyText(500),
   facts: ServiceFactsSchema,
 }).strict();
 
