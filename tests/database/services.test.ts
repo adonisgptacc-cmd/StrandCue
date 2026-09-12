@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ServiceFactsSchema } from '../../packages/domain/src/services.ts';
 import {
   USER_A, USER_B, UNVERIFIED, asUser, complete, database, recordService,
@@ -26,6 +26,13 @@ describe('Chemical Service transactional history', () => {
     await asUser(db, USER_A);
   }, 60_000);
   afterAll(async () => { await db?.close(); });
+  beforeEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec(`truncate table public.chemical_services,public.service_revisions,
+      public.service_zones,public.heat_events,public.service_observations,
+      strandcue_private.service_operations`);
+    await asUser(db, USER_A);
+  });
 
   it('P1-AC-08 keeps smoothing services distinct and heat unknown without inferred chemistry', async () => {
     const keratin = command({ ...facts, serviceType: 'keratin', occurredOn: { precision: 'day', value: '2026-01-01' } });
@@ -102,7 +109,60 @@ describe('Chemical Service transactional history', () => {
     expect((await getService(db, create.serviceId)).currentPresence).toBe('not-present');
   });
 
+  it.each([
+    { label: 'overlapping year and day', earlier: { precision: 'year', value: '2025' }, later: { precision: 'day', value: '2025-06-01' } },
+    { label: 'unknown and day', earlier: { precision: 'unknown', value: null }, later: { precision: 'day', value: '2025-06-01' } },
+    { label: 'tied exact days', earlier: { precision: 'day', value: '2025-06-01' }, later: { precision: 'day', value: '2025-06-01' } },
+  ])('preserves uncertain current presence for $label despite recorded order', async ({ earlier, later }) => {
+    const create = command({ ...facts, occurredOn: { precision: 'year', value: '2024' } });
+    await recordService(db, create);
+    const observations = [
+      { observedOn: earlier, effectStatus: 'present' },
+      { observedOn: later, effectStatus: 'not-present' },
+    ];
+    for (const observation of observations) {
+      await observeService(db, { operationId: crypto.randomUUID(), serviceId: create.serviceId, observation });
+    }
+    const detail = await getService(db, create.serviceId, true);
+    expect(detail.currentPresence).toBe('unknown');
+    expect(detail.currentObservation).toBeNull();
+    expect(detail.observations).toHaveLength(2);
+    const item = (await listServices(db, '2026-09-01')).find((service: any) => service.serviceId === create.serviceId);
+    expect(item.currentPresence).toBe('unknown'); expect(item.currentObservation).toBeNull();
+    await db.exec('set session authorization postgres');
+    try {
+      await db.query("update public.service_observations set recorded_at=case effect_status when 'present' then '2026-08-02'::timestamptz else '2026-08-01'::timestamptz end where service_id=$1", [create.serviceId]);
+    } finally { await asUser(db, USER_A); }
+    expect((await getService(db, create.serviceId)).currentPresence).toBe('unknown');
+  });
+
+  it('only lets a definitely later interval supersede conflicting observations', async () => {
+    const create = command({ ...facts, occurredOn: { precision: 'year', value: '2024' } });
+    await recordService(db, create);
+    for (const observation of [
+      { observedOn: { precision: 'year', value: '2025' }, effectStatus: 'present' },
+      { observedOn: { precision: 'day', value: '2025-06-01' }, effectStatus: 'not-present' },
+      { observedOn: { precision: 'day', value: '2026-02-01' }, effectStatus: 'present' },
+    ]) await observeService(db, { operationId: crypto.randomUUID(), serviceId: create.serviceId, observation });
+    const current = await getService(db, create.serviceId);
+    expect(current.currentPresence).toBe('present');
+    expect(current.currentObservation.observedOn).toEqual({ precision: 'day', value: '2026-02-01' });
+    const historical = (await listServices(db, '2025-12-31')).find((service: any) => service.serviceId === create.serviceId);
+    expect(historical.currentPresence).toBe('unknown'); expect(historical.currentObservation).toBeNull();
+  });
+
+  it('preserves agreed presence across tied observations without inventing a latest observation', async () => {
+    const create = command(); await recordService(db, create);
+    for (let index = 0; index < 2; index += 1) {
+      await observeService(db, { operationId: crypto.randomUUID(), serviceId: create.serviceId,
+        observation: { observedOn: { precision: 'day', value: '2026-03-01' }, effectStatus: 'present' } });
+    }
+    const detail = await getService(db, create.serviceId);
+    expect(detail.currentPresence).toBe('present'); expect(detail.currentObservation).toBeNull();
+  });
+
   it('paginates tied dates deterministically without duplicates and enforces bounds', async () => {
+    for (let index = 0; index < 4; index += 1) await recordService(db, command());
     const first = await listServicePage(db, '2026-09-01', 2);
     expect(first.items).toHaveLength(2); expect(first.nextCursor).not.toBeNull();
     const second = await listServicePage(db, '2026-09-01', 2, first.nextCursor);

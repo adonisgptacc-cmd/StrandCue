@@ -341,18 +341,32 @@ returns jsonb language sql stable security invoker set search_path='' as $$
 $$;
 create function strandcue_private.service_summary(p_service_id uuid,p_as_of date)
 returns jsonb language plpgsql stable security invoker set search_path='' as $$
-declare service public.chemical_services; revision_row public.service_revisions; observation public.service_observations; observation_json jsonb; presence text:='unknown';
+declare service public.chemical_services; revision_row public.service_revisions; observation_json jsonb;
+  candidates jsonb; candidate_count integer; distinct_statuses integer; has_definite boolean;
+  agreed_status text; presence text:='unknown';
 begin
   select * into service from public.chemical_services where id=p_service_id and user_id=strandcue_private.request_uid();
   if not found then return null; end if;
   select * into strict revision_row from public.service_revisions where service_id=service.id and user_id=service.user_id and sequence=service.revision;
-  select * into observation from public.service_observations
-    where service_id=service.id and user_id=service.user_id and (effective_start is null or effective_start<=p_as_of)
-    order by effective_start desc nulls last,recorded_at desc,id desc limit 1;
-  if found then
-    observation_json:=strandcue_private.service_observation_json(observation);
-    if observation.effective_end<=p_as_of then presence:=observation.effect_status; end if;
-  end if;
+  -- An observation is superseded only by one definitely applicable after its
+  -- entire interval. Unknown/overlapping/tied dates cannot be ordered by
+  -- submission time or UUID: those are audit/pagination order, not fact order.
+  with applicable as (
+    select o.* from public.service_observations o
+    where o.service_id=service.id and o.user_id=service.user_id
+      and (o.effective_start is null or o.effective_start<=p_as_of)
+  ), current_candidates as (
+    select o.* from applicable o where not exists (
+      select 1 from applicable later
+      where later.effective_end<=p_as_of and o.effective_end<later.effective_start
+    )
+  )
+  select count(*),count(distinct o.effect_status),bool_or(o.effective_end<=p_as_of),
+    min(o.effect_status),jsonb_agg(strandcue_private.service_observation_json(o))
+    into candidate_count,distinct_statuses,has_definite,agreed_status,candidates
+    from current_candidates o;
+  if distinct_statuses=1 and has_definite then presence:=agreed_status; end if;
+  if candidate_count=1 then observation_json:=candidates->0; end if;
   return jsonb_build_object('serviceId',service.id,'revision',service.revision,'revisionId',revision_row.id,
     'facts',strandcue_private.service_facts(revision_row),'currentObservation',observation_json,'currentPresence',presence);
 end $$;

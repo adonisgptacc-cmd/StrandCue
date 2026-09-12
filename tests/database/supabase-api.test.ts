@@ -48,6 +48,12 @@ describeLocal('local Supabase Auth and PostgREST permissions', () => {
     userAId = a.id;
     userB = b.client;
     userBId = b.id;
+    // Every focused API test requires active owner profiles. Repeating the
+    // same completion in the onboarding test also checks its retry behavior.
+    for (const [client, username] of [[userA, `api_a_${suffix}`], [userB, `api_b_${suffix}`]] as const) {
+      const completion = await client.rpc('complete_account', { p_username: username, p_eligible: true });
+      if (completion.error) throw completion.error;
+    }
   }, 30_000);
 
   afterAll(async () => {
