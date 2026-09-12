@@ -1,8 +1,23 @@
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
+import { database } from './harness.ts';
 
 describe('Supabase migration compatibility', () => {
+  it('replays every SQL migration in lexical order and ignores other files', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'strandcue-migrations-'));
+    try {
+      await writeFile(join(directory, '002_second.sql'), 'insert into public.replay_probe values (42);');
+      await writeFile(join(directory, '001_first.sql'), 'create table public.replay_probe(value integer);');
+      await writeFile(join(directory, 'notes.md'), 'This is not SQL');
+      const db = await database(directory);
+      try {
+        expect((await db.query('select value from public.replay_probe')).rows).toEqual([{ value: 42 }]);
+      } finally { await db.close(); }
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it('applies through a non-superuser migration administrator without retaining mutator access', async () => {
     const db = new PGlite();
 
@@ -23,7 +38,9 @@ describe('Supabase migration compatibility', () => {
       `);
 
       await db.exec('set session authorization migration_admin');
-      await db.exec(await readFile('supabase/migrations/20260909172924_passport_foundation.sql', 'utf8'));
+      for (const migration of (await readdir('supabase/migrations')).filter((name) => name.endsWith('.sql')).sort()) {
+        await db.exec(await readFile(join('supabase/migrations', migration), 'utf8'));
+      }
       await db.exec('reset session authorization');
 
       const owners = await db.query<{ owner: string }>(`

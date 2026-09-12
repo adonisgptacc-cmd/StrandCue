@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
 export const USER_A = '11111111-1111-4111-8111-111111111111';
 export const USER_B = '22222222-2222-4222-8222-222222222222';
@@ -10,7 +11,7 @@ export const BASELINE = {
 };
 export const DAY = { precision: 'day', value: '2026-01-01' };
 
-export async function database() {
+export async function database(migrationDirectory = 'supabase/migrations') {
   const db = new PGlite();
   await db.exec(`
     create role anon nologin;
@@ -25,7 +26,10 @@ export async function database() {
     insert into auth.users values
       ('${USER_A}',now()), ('${USER_B}',now()), ('${UNVERIFIED}',null);
   `);
-  await db.exec(await readFile('supabase/migrations/20260909172924_passport_foundation.sql', 'utf8'));
+  const migrations = (await readdir(migrationDirectory)).filter((name) => name.endsWith('.sql')).sort();
+  for (const migration of migrations) {
+    await db.exec(await readFile(join(migrationDirectory, migration), 'utf8'));
+  }
   return db;
 }
 export async function asUser(db: PGlite, id: string | null) {
@@ -61,5 +65,49 @@ export async function mutate(db: PGlite, options: {
 
 export async function current(db: PGlite, asOf = '2026-09-01') {
   return (await db.query<{ result: any }>('select public.get_passport($1::date) result', [asOf])).rows[0].result;
+}
+
+export async function recordService(db: PGlite, command: {
+  operationId: string; serviceId: string; facts: unknown; initialObservation?: unknown;
+}) {
+  return (await db.query<{ result: any }>(
+    'select public.record_service($1,$2,$3::jsonb,$4::jsonb) result',
+    [command.operationId, command.serviceId, JSON.stringify(command.facts),
+      command.initialObservation === undefined ? null : JSON.stringify(command.initialObservation)],
+  )).rows[0].result;
+}
+
+export async function correctService(db: PGlite, command: {
+  operationId: string; serviceId: string; expectedRevision: number; correctsId: string; reason: string; facts: unknown;
+}) {
+  return (await db.query<{ result: any }>(
+    'select public.correct_service($1,$2,$3,$4,$5,$6::jsonb) result',
+    [command.operationId, command.serviceId, command.expectedRevision, command.correctsId, command.reason, JSON.stringify(command.facts)],
+  )).rows[0].result;
+}
+
+export async function observeService(db: PGlite, command: {
+  operationId: string; serviceId: string; observation: { observedOn: unknown; effectStatus: string };
+}) {
+  return (await db.query<{ result: any }>(
+    'select public.observe_service($1,$2,$3::jsonb,$4) result',
+    [command.operationId, command.serviceId, JSON.stringify(command.observation.observedOn), command.observation.effectStatus],
+  )).rows[0].result;
+}
+
+export async function listServicePage(db: PGlite, asOf = '2026-09-01', limit = 25, cursor: unknown = null) {
+  return (await db.query<{ result: any }>(
+    'select public.list_services($1::date,$2,$3::jsonb) result', [asOf, limit, JSON.stringify(cursor)],
+  )).rows[0].result;
+}
+
+export async function listServices(db: PGlite, asOf = '2026-09-01') {
+  return (await listServicePage(db, asOf)).items;
+}
+
+export async function getService(db: PGlite, serviceId: string, audit = false) {
+  return (await db.query<{ result: any }>(
+    'select public.get_service($1,$2) result', [serviceId, audit],
+  )).rows[0].result;
 }
 
