@@ -9,8 +9,8 @@ Fresh commands run in `C:\Users\ABADO\Desktop\StrandCue\.worktrees\codex-chemica
 | Command | Result |
 |---|---|
 | `npm run typecheck` | Pass. Domain `tsc --noEmit` and mobile `tsc --noEmit` exited 0. |
-| `npm test` | Pass. 11 files passed, 1 skipped; 239 tests passed, 3 skipped. |
-| `npm run test:coverage` | Pass. 11 files passed, 1 skipped; 239 tests passed, 3 skipped. Coverage: statements 94.97%, branches 90.43%, functions 100%, lines 94.8%. The configured coverage surface is the shared domain code, not TSX line coverage. |
+| `npm test` | Pass. 11 files passed, 1 skipped; 245 tests passed, 3 skipped. |
+| `npm run test:coverage` | Pass. 11 files passed, 1 skipped; 245 tests passed, 3 skipped. Coverage: statements 94.97%, branches 90.43%, functions 100%, lines 94.8%. The configured coverage surface is the shared domain code, not TSX line coverage. |
 | `npm run audit:control-plane` | Pass. Metadata audit returned `METADATA-PASS` with no findings. |
 | `npm run export:web --workspace @strandcue/mobile` | Pass. Expo web export completed and emitted `dist`. |
 | `npm audit` | Transport needed an escalated retry. The audit exits 1 because 13 moderate advisories remain in existing Expo/router dependency chains. No high or critical advisories were reported. |
@@ -30,6 +30,7 @@ Positive findings:
 - Embedded database tests cover anonymous/unverified/inactive access, foreign owner reads, direct consumer insert/update/delete denial, owner reassignment denial, operation-key conflicts, stale revision conflicts, cross-owner child attachment under `postgres`, and not-found parity for foreign service IDs.
 - Mobile adapters strictly parse responses and reject leaked owner fields, malformed timestamps, malformed revision metadata, oversized pages, and unknown command keys.
 - The UI does not call Supabase RPCs directly, does not render raw JSON/SQL/IDs/usernames, and keeps service drafts owner/service scoped with bounded secure-storage indexes.
+- A persisted draft-owner marker clears the departing owner's drafts at the authentication boundary. Auth lookup errors preserve the established owner, stale refreshes are rejected inside the serialized storage lock, and ordinary view/recovery unmounts do not delete pending commands.
 - Source inspection found no service recommendation, risk score, protocol, due-date, diagnosis, or Nanoplasty-derived chemistry/heat inference in the implemented slice.
 
 Limitations:
@@ -39,6 +40,12 @@ Limitations:
 - `npm audit` still lists 13 moderate advisories in existing dependency chains. Fixing them requires breaking Expo/router changes and was not done in this slice.
 
 No critical or high security/data-loss issue was found in the reviewed source and automated evidence. The limitations above are release blockers for marking the acceptance cases Complete.
+
+## Repository hygiene
+
+- `git diff --check`: pass; no whitespace errors.
+- `git status --short`: empty on the verified source tree before this evidence update; no generated export, local environment file, secret, or temporary artifact was tracked.
+- `git diff --stat 34418b3...HEAD`: pass; 24 planned source, migration, test, plan/spec, README, and verification files were present. No dependency lockfile or generated `dist` output was included.
 
 ## P1-AC-08 evidence
 
