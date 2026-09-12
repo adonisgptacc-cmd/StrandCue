@@ -129,4 +129,57 @@ describeLocal('local Supabase Auth and PostgREST permissions', () => {
     expect(bHistory.error).toBeNull();
     expect(bHistory.data).toEqual([]);
   });
+
+  it('preserves Chemical Service history through authenticated RPC and rejects foreign/anonymous access', async () => {
+    const serviceId = crypto.randomUUID();
+    const mutation = {
+      p_operation_id: crypto.randomUUID(), p_service_id: serviceId,
+      p_facts: { serviceType: 'nanoplasty', occurredOn: DAY,
+        zones: [{ region: 'front', segment: 'roots' }],
+        heat: { method: 'unknown', temperatureC: null, source: 'user-reported' } },
+      p_initial_observation: { observedOn: DAY, effectStatus: 'present' },
+    };
+    const first = await userA.rpc('record_service', mutation);
+    expect(first.error).toBeNull();
+    expect(first.data).toMatchObject({ serviceId, revision: 1 });
+    expect((await userA.rpc('record_service', mutation)).data).toEqual(first.data);
+    expect((await userA.rpc('record_service', { ...mutation, p_facts: { ...mutation.p_facts, notes: 'changed' } })).error?.code).toBe('23505');
+
+    const corrected = await userA.rpc('correct_service', {
+      p_operation_id: crypto.randomUUID(), p_service_id: serviceId, p_expected_revision: 1,
+      p_corrects_id: first.data.revisionId, p_reason: 'Correct zone',
+      p_facts: { ...mutation.p_facts, zones: [{ region: 'crown', segment: 'ends' }] },
+    });
+    expect(corrected.error).toBeNull(); expect(corrected.data.revision).toBe(2);
+    const observed = await userA.rpc('observe_service', { p_operation_id: crypto.randomUUID(),
+      p_service_id: serviceId, p_observed_on: { precision: 'day', value: '2026-02-01' }, p_effect_status: 'not-present' });
+    expect(observed.error).toBeNull(); expect(observed.data.revision).toBe(2);
+    const detail = await userA.rpc('get_service', { p_service_id: serviceId, p_include_audit: true });
+    expect(detail.error).toBeNull();
+    expect(detail.data.revisions).toHaveLength(2); expect(detail.data.currentPresence).toBe('not-present');
+    expect(detail.data.facts).not.toHaveProperty('chemicalSystem');
+    expect(detail.data).not.toHaveProperty('userId');
+    const page = await userA.rpc('list_services', { p_as_of: '2026-09-01', p_limit: 1, p_cursor: null });
+    expect(page.error).toBeNull(); expect(page.data.items).toHaveLength(1);
+
+    const foreign = await userB.rpc('get_service', { p_service_id: serviceId, p_include_audit: true });
+    expect(foreign.error).toBeNull(); expect(foreign.data).toBeNull();
+    const missing = await userB.rpc('get_service', { p_service_id: crypto.randomUUID(), p_include_audit: true });
+    expect(missing.error).toBeNull(); expect(missing.data).toBeNull();
+    const foreignObservation = await userB.rpc('observe_service', { p_operation_id: crypto.randomUUID(),
+      p_service_id: serviceId, p_observed_on: DAY, p_effect_status: 'unknown' });
+    const missingObservation = await userB.rpc('observe_service', { p_operation_id: crypto.randomUUID(),
+      p_service_id: crypto.randomUUID(), p_observed_on: DAY, p_effect_status: 'unknown' });
+    expect(foreignObservation.error?.code).toBe('22023');
+    expect(foreignObservation.error?.message).toBe(missingObservation.error?.message);
+    const anonymous = createClient(url, publishableKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    expect((await anonymous.rpc('get_service', { p_service_id: serviceId })).error?.code).toBe('42501');
+    expect((await anonymous.rpc('record_service', mutation)).error?.code).toBe('42501');
+    for (const table of ['chemical_services', 'service_revisions', 'service_zones', 'heat_events', 'service_observations']) {
+      expect((await userB.from(table).select('*')).data).toEqual([]);
+      expect((await userA.from(table).insert({ user_id: userAId })).error?.code).toBe('42501');
+      expect((await userA.from(table).update({ user_id: userBId }).eq('user_id', userAId)).error?.code).toBe('42501');
+      expect((await userA.from(table).delete().eq('user_id', userAId)).error?.code).toBe('42501');
+    }
+  });
 });

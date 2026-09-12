@@ -1,5 +1,6 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ServiceFactsSchema } from '../../packages/domain/src/services.ts';
 import {
   USER_A, USER_B, UNVERIFIED, asUser, complete, database, recordService,
   correctService, observeService, listServices, listServicePage, getService,
@@ -37,6 +38,7 @@ describe('Chemical Service transactional history', () => {
     expect(services[0].facts.heat).toMatchObject({ method: 'unknown', temperatureC: null, passes: null });
     const detail = await getService(db, nano.serviceId, true);
     expect(detail.revisions[0].facts.zones).toEqual([{ region: 'crown', segment: 'ends' }, { region: 'front', segment: 'roots' }]);
+    expect(ServiceFactsSchema.parse(detail.facts)).toEqual(detail.facts);
   });
 
   it('P1-AC-09 appends complete corrections and observations without rewriting occurrence history', async () => {
@@ -67,6 +69,9 @@ describe('Chemical Service transactional history', () => {
     await expect(recordService(db, { ...create, facts: { ...facts, notes: 'different' } })).rejects.toThrow(/operation-conflict/);
     await expect(recordService(db, { ...create, operationId: crypto.randomUUID(), facts: { ...facts, notes: 'different' } })).rejects.toThrow(/service-conflict/);
     expect((await getService(db, create.serviceId, true)).revisions).toHaveLength(1);
+    await correctService(db, correction(create.serviceId, first.revisionId));
+    expect(await recordService(db, { ...create, operationId: crypto.randomUUID() })).toEqual(first);
+    expect((await getService(db, create.serviceId)).revision).toBe(2);
   });
 
   it('serializes competing correction expectations and prevents branching or foreign targets', async () => {
@@ -150,6 +155,45 @@ describe('Chemical Service transactional history', () => {
     expect(detail.facts).toMatchObject({ otherLabel: 'Custom', notes: '😀', productOrSystem: null });
   });
 
+  it('accepts JSON integer numeric notation without losing optional heat fields', async () => {
+    const create = command();
+    const payload = JSON.stringify(facts).replace('"passes":null', '"passes":1.0');
+    await db.query('select public.record_service($1,$2,$3::jsonb,null)', [create.operationId, create.serviceId, payload]);
+    expect((await getService(db, create.serviceId)).facts.heat).toEqual({ method: 'unknown', temperatureC: null, passes: 1, source: 'user-reported' });
+  });
+
+  it('recomposes replacement heat and notes from each revision and preserves null heat', async () => {
+    const create = command({ ...facts, notes: 'Original note' }); const first = await recordService(db, create);
+    await correctService(db, { ...correction(create.serviceId, first.revisionId), facts: { ...facts, heat: null } });
+    const detail = await getService(db, create.serviceId, true);
+    expect(detail.facts.heat).toBeNull(); expect(detail.facts).not.toHaveProperty('notes');
+    expect(detail.revisions[0].facts).toMatchObject({ heat: facts.heat, notes: 'Original note' });
+    expect(ServiceFactsSchema.parse(detail.facts)).toEqual(detail.facts);
+    await db.exec('set session authorization postgres');
+    try {
+      await db.query("update public.service_zones set region='unknown' where service_revision_id=$1 and region='crown'", [first.revisionId]);
+      await db.query('update public.heat_events set temperature_c=123 where service_revision_id=$1', [first.revisionId]);
+    } finally { await asUser(db, USER_A); }
+    const audit = await getService(db, create.serviceId, true);
+    expect(audit.revisions[0].facts.heat.temperatureC).toBe(123);
+    expect(audit.revisions[0].facts.zones).toContainEqual({ region: 'unknown', segment: 'ends' });
+    expect(audit.facts.heat).toBeNull();
+  });
+
+  it('rejects correction text and observation boundaries without appending history', async () => {
+    const create = command(); const first = await recordService(db, create);
+    for (const reason of ['', '  ', '😀'.repeat(251)]) {
+      await expect(correctService(db, { ...correction(create.serviceId, first.revisionId), reason })).rejects.toThrow(/invalid-correction/);
+    }
+    for (const observation of [
+      { observedOn: { precision: 'day', value: '9999-01-01' }, effectStatus: 'present' },
+      { observedOn: { precision: 'unknown', value: null }, effectStatus: 'invented' },
+      { observedOn: { precision: 'year', value: 2025 }, effectStatus: 'unknown' },
+    ]) await expect(observeService(db, { operationId: crypto.randomUUID(), serviceId: create.serviceId, observation })).rejects.toThrow(/invalid-observation|invalid-effective-date/);
+    const detail = await getService(db, create.serviceId, true);
+    expect(detail.revisions).toHaveLength(1); expect(detail.observations).toEqual([]);
+  });
+
   it('denies anonymous, unverified, inactive and private-core calls without claims', async () => {
     try {
       await asUser(db, null); await expect(recordService(db, command())).rejects.toThrow(/permission denied/);
@@ -162,6 +206,9 @@ describe('Chemical Service transactional history', () => {
       await asUser(db, null); await db.exec('set session authorization postgres');
       await expect(db.query('select strandcue_private.record_service($1,$2,$3::jsonb,null)', [crypto.randomUUID(), crypto.randomUUID(), JSON.stringify(facts)])).rejects.toThrow(/authentication-required/);
       await expect(db.query('select strandcue_private.get_service($1,true)', [crypto.randomUUID()])).rejects.toThrow(/authentication-required/);
+      await expect(db.query("select strandcue_private.list_services('2026-09-01',25,null)")).rejects.toThrow(/authentication-required/);
+      await expect(db.query('select strandcue_private.correct_service($1,$2,1,$3,$4,$5::jsonb)', [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), 'fix', JSON.stringify(facts)])).rejects.toThrow(/authentication-required/);
+      await expect(db.query('select strandcue_private.observe_service($1,$2,$3::jsonb,$4)', [crypto.randomUUID(), crypto.randomUUID(), JSON.stringify(facts.occurredOn), 'unknown'])).rejects.toThrow(/authentication-required/);
     } finally {
       await db.exec('set session authorization postgres');
       await db.query("update public.profiles set account_status='active' where user_id=$1", [USER_A]);
@@ -174,6 +221,9 @@ describe('Chemical Service transactional history', () => {
     await asUser(db, USER_B);
     expect(await getService(db, create.serviceId, true)).toBeNull();
     expect((await db.query('select id from public.chemical_services')).rows).toEqual([]);
+    for (const table of ['service_revisions', 'service_zones', 'heat_events', 'service_observations']) {
+      expect((await db.query(`select * from public.${table}`)).rows).toEqual([]);
+    }
     await expect(correctService(db, correction(create.serviceId, first.revisionId))).rejects.toThrow(/service-not-found/);
     await expect(observeService(db, { operationId: crypto.randomUUID(), serviceId: create.serviceId, observation: { observedOn: facts.occurredOn, effectStatus: 'unknown' } })).rejects.toThrow(/service-not-found/);
     await expect(recordService(db, { ...create, operationId: crypto.randomUUID() })).rejects.toThrow(/service-conflict/);
@@ -187,11 +237,12 @@ describe('Chemical Service transactional history', () => {
   });
 
   it('composite foreign keys prevent cross-owner and cross-service history even under postgres', async () => {
-    const create = command(); const first = await recordService(db, create);
+    const { heat: _heat, ...withoutHeat } = facts;
+    const create = command(withoutHeat); const first = await recordService(db, create);
     const other = await recordService(db, command());
     await db.exec('set session authorization postgres');
     try {
-      await expect(db.query("insert into public.service_revisions(user_id,service_id,sequence,base_revision,kind,facts) values($1,$2,2,1,'correction','{}')", [USER_B, create.serviceId])).rejects.toThrow();
+      await expect(db.query("insert into public.service_revisions(user_id,service_id,sequence,base_revision,kind,facts,corrects_id,correction_reason) values($1,$2,2,1,'correction','{}',$3,'fix')", [USER_B, create.serviceId, first.revisionId])).rejects.toThrow(/foreign key/);
       await expect(db.query("insert into public.service_zones(user_id,service_id,service_revision_id,region,segment) values($1,$2,$3,'nape','roots')", [USER_B, create.serviceId, first.revisionId])).rejects.toThrow(/foreign key/);
       await expect(db.query("insert into public.service_zones(user_id,service_id,service_revision_id,region,segment) values($1,$2,$3,'nape','roots')", [USER_A, other.serviceId, first.revisionId])).rejects.toThrow(/foreign key/);
       await expect(db.query("insert into public.heat_events(user_id,service_id,service_revision_id,method,source) values($1,$2,$3,'unknown','user-reported')", [USER_B, create.serviceId, first.revisionId])).rejects.toThrow(/foreign key/);
@@ -199,4 +250,28 @@ describe('Chemical Service transactional history', () => {
       await expect(db.query("insert into public.service_revisions(user_id,service_id,sequence,base_revision,kind,facts,corrects_id,correction_reason) values($1,$2,2,1,'correction','{}',$3,'fix')", [USER_A, create.serviceId, other.revisionId])).rejects.toThrow(/foreign key/);
     } finally { await asUser(db, USER_A); }
   });
+
+  it('bounds default pages at 25 and maximum pages at 100 with complete keyset traversal', async () => {
+    const ids: string[] = [];
+    for (let index = 0; index < 101; index += 1) {
+      const create = command({ ...facts, occurredOn: { precision: 'day', value: '2026-08-01' } });
+      ids.push(create.serviceId); await recordService(db, create);
+    }
+    await db.exec('set session authorization postgres');
+    try {
+      await db.query("update public.service_revisions set recorded_at='2026-08-02T00:00:00Z' where service_id=any($1::uuid[])", [ids]);
+    } finally { await asUser(db, USER_A); }
+    const defaults = (await db.query<{ result: any }>("select public.list_services('2026-09-01') result")).rows[0].result;
+    expect(defaults.items).toHaveLength(25);
+    expect(defaults.items.map((s: any) => s.serviceId)).toEqual([...ids].sort().reverse().slice(0, 25));
+    const first = await listServicePage(db, '2026-09-01', 100);
+    expect(first.items).toHaveLength(100); expect(first.nextCursor).not.toBeNull();
+    const second = await listServicePage(db, '2026-09-01', 100, first.nextCursor);
+    expect(second.nextCursor).toBeNull();
+    const actualIds = [...first.items, ...second.items].map((s: any) => s.serviceId);
+    expect(new Set(actualIds).size).toBe(actualIds.length);
+    expect(ids.every((id) => actualIds.includes(id))).toBe(true);
+    const count = (await db.query<{ count: number }>('select count(*)::integer count from public.chemical_services')).rows[0].count;
+    expect(actualIds).toHaveLength(count);
+  }, 60_000);
 });

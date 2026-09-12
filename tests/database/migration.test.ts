@@ -17,7 +17,7 @@ describe('Supabase migration compatibility', () => {
         expect((await db.query('select value from public.replay_probe')).rows).toEqual([{ value: 42 }]);
       } finally { await db.close(); }
     } finally { await rm(directory, { recursive: true, force: true }); }
-  });
+  }, 60_000);
   it('applies through a non-superuser migration administrator without retaining mutator access', async () => {
     const db = new PGlite();
 
@@ -49,10 +49,16 @@ describe('Supabase migration compatibility', () => {
         join pg_namespace namespace on namespace.oid=function.pronamespace
         join pg_roles owner on owner.oid=function.proowner
         where namespace.nspname='strandcue_private'
-          and function.proname in ('complete_account','mutate_passport','get_passport')
+          and function.proname in ('complete_account','mutate_passport','get_passport',
+            'record_service','correct_service','observe_service','get_service','list_services')
         order by function.proname
       `);
       expect(owners.rows).toEqual([
+        { owner: 'strandcue_mutator' },
+        { owner: 'strandcue_mutator' },
+        { owner: 'strandcue_mutator' },
+        { owner: 'strandcue_mutator' },
+        { owner: 'strandcue_mutator' },
         { owner: 'strandcue_mutator' },
         { owner: 'strandcue_mutator' },
         { owner: 'strandcue_mutator' },
@@ -63,6 +69,23 @@ describe('Supabase migration compatibility', () => {
       expect((await db.query<{ can_create: boolean }>(
         "select has_schema_privilege('strandcue_mutator','strandcue_private','CREATE') can_create",
       )).rows).toEqual([{ can_create: false }]);
+      expect((await db.query(`
+        select relname from pg_class where relname in ('chemical_services','service_revisions',
+          'service_zones','heat_events','service_observations','service_operations')
+          and (not relrowsecurity or not relforcerowsecurity)
+      `)).rows).toEqual([]);
+      expect((await db.query(`
+        select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname in ('public','strandcue_private')
+          and p.proname in ('record_service','correct_service','observe_service','get_service','list_services')
+          and (has_function_privilege('anon',p.oid,'EXECUTE') or not p.proconfig @> array['search_path=""'])
+      `)).rows).toEqual([]);
+      expect((await db.query(`
+        select has_function_privilege('authenticated','strandcue_private.service_append_revision(uuid,integer,jsonb,uuid,text)','EXECUTE') can_append,
+          has_table_privilege('authenticated','public.chemical_services','INSERT,UPDATE,DELETE') can_write,
+          has_column_privilege('strandcue_mutator','public.chemical_services','user_id','UPDATE') can_reassign,
+          has_column_privilege('strandcue_mutator','public.chemical_services','revision','UPDATE') can_advance
+      `)).rows).toEqual([{ can_append: false, can_write: false, can_reassign: false, can_advance: true }]);
     } finally {
       await db.close();
     }
