@@ -33,15 +33,15 @@ export function Page({ children }: PropsWithChildren) {
   </ScrollView>;
 }
 export function Button({title, onPress, secondary = false, disabled = false}: {title: string; onPress: () => void; secondary?: boolean; disabled?: boolean}) {
-  return <Pressable accessibilityRole="button" accessibilityState={{disabled}} onPress={onPress} disabled={disabled} style={[styles.button, secondary && styles.secondary, disabled && {opacity: 0.5}]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{disabled}} onPress={onPress} disabled={disabled} style={[styles.button, secondary && styles.secondary, disabled && {opacity: 0.5}]}>
     <Text style={[styles.buttonText, secondary && {color: colors.ink}]}>{title}</Text>
   </Pressable>;
 }
 export function Field({label, ...props}: TextInputProps & {label: string}) {
   return <View><Text style={styles.label}>{label}</Text><TextInput accessibilityLabel={label} placeholderTextColor={colors.quiet} style={styles.input} {...props}/></View>;
 }
-export function Choice({label, value, options, onChange}: {label: string; value: string; options: readonly string[]; onChange: (value: string) => void}) {
-  return <View><Text style={styles.label}>{label}</Text><View style={styles.row}>{options.map(option => <Pressable key={option} accessibilityRole="radio" accessibilityLabel={`${label}: ${option.replaceAll('-', ' ')}`} accessibilityState={{selected: value === option}} onPress={() => onChange(option)} style={[styles.pill, value === option && styles.selected]}>
+export function Choice({label, value, options, onChange, disabled = false}: {label: string; value: string; options: readonly string[]; onChange: (value: string) => void; disabled?: boolean}) {
+  return <View><Text style={styles.label}>{label}</Text><View style={styles.row}>{options.map(option => <Pressable key={option} accessibilityRole="radio" accessibilityLabel={`${label}: ${option.replaceAll('-', ' ')}`} accessibilityState={{selected: value === option, disabled}} disabled={disabled} onPress={() => onChange(option)} style={[styles.pill, value === option && styles.selected]}>
     <Text style={[styles.body, value === option && {color: colors.white}]}>{option.replaceAll('-', ' ')}</Text>
   </Pressable>)}</View></View>;
 }

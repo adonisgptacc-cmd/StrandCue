@@ -6,6 +6,8 @@ import { supabase, secureStorage } from './client';
 import { saveErrorMessage } from './contracts';
 import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
+import { Services } from './services';
+import { clearServiceDrafts } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
 const display = (value: unknown): string => {
@@ -21,7 +23,7 @@ export function Records({user}: {user: User}) {
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'Passport'|'History'|'Settings'>('Passport');
+  const [tab, setTab] = useState<'Passport'|'Services'|'History'|'Settings'>('Passport');
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
   const [username, setUsername] = useState('');
@@ -43,6 +45,11 @@ export function Records({user}: {user: User}) {
     finally {if (generation.current === request) setLoading(false);}
   };
   useEffect(() => {void refresh(); return () => {++generation.current;};}, [user.id]);
+  useEffect(() => () => {
+    void clearServiceDrafts(secureStorage, user.id).catch(() => {
+      setError('Device drafts could not be cleared. Sign out before sharing this device.');
+    });
+  }, [user.id]);
   const finishSetup = async () => {
     if (!adult) {setError('You must be 18 or older to use StrandCue.'); return;}
     setBusy(true); setError('');
@@ -53,6 +60,7 @@ export function Records({user}: {user: User}) {
     setBusy(true); setError('');
     try {
       await secureStorage.removeItem(`strandcue-draft-${user.id}`);
+      await clearServiceDrafts(secureStorage, user.id);
       const {error: issue} = await supabase!.auth.signOut({scope:'local'});
       if (issue) throw issue;
     } catch {setError('Sign out could not finish. Please try again before sharing this device.');}
@@ -62,9 +70,10 @@ export function Records({user}: {user: User}) {
   if (loading) return <Page><Text style={styles.title}>Opening your record…</Text><Text style={styles.subtitle}>Bringing your saved information together.</Text></Page>;
   if (!profile) return <Page><Text style={styles.title}>Make it yours.</Text><View style={styles.card}><Text style={styles.body}>Choose a private username. Your email and username are never public profile listings.</Text><Field label="Username" value={username} onChangeText={setUsername} autoCapitalize="none" maxLength={24}/><Text style={styles.subtitle}>3–24 letters, numbers or underscores.</Text><Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
-  return <Page><View style={styles.row}>{(['Passport','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
-    <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text><Text style={styles.title}>{tab === 'Passport' ? 'Your Hair Passport' : tab === 'History' ? 'Every change has a story.' : 'Your account, your say.'}</Text>
+  return <Page><View style={styles.row}>{(['Passport','Services','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
+    <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text><Text style={styles.title}>{tab === 'Passport' ? 'Your Hair Passport' : tab === 'Services' ? 'Your chemical services' : tab === 'History' ? 'Every change has a story.' : 'Your account, your say.'}</Text>
     {!!error && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button title="Retry loading" secondary onPress={() => void refresh()}/></View>}
+    {tab === 'Services' && <Services owner={user.id} />}
     {tab === 'Passport' && !editing && <><Text style={styles.subtitle}>A picture of your hair, built from what you’ve recorded. It grows with you.</Text>
       {record ? <View style={styles.card}><Text style={styles.kicker}>CURRENT RECORD · {record.projection.asOf}</Text>{Object.entries(record.projection.values).map(([key,value]) => <View key={key}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>{display(value)}</Text></View>)}
         {Object.keys(record.projection.ambiguousFields).map(key => <View key={key} style={styles.notice}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>Dates overlap or are unknown. Review these entries in History to clarify which is current.</Text></View>)}
