@@ -1,8 +1,8 @@
 # StrandCue
 
-StrandCue is a private, factual cosmetic hair-care record for adults in South Africa. This repository currently implements the account and Hair Passport foundation: verified-email onboarding, a private username, current and historical Passport views, immutable changes, corrections, ambiguous-date handling, and owner-scoped database access.
+StrandCue is a private, factual cosmetic hair-care record for adults in South Africa. This repository currently implements the account and Hair Passport foundation plus a Chemical Services recording slice: verified-email onboarding, a private username, current and historical Passport views, immutable Passport changes, chemical service occurrences, corrections, presence observations, exact region/segment zones, and owner-scoped database access.
 
-The active product contract is [docs/PHASE_1.md](docs/PHASE_1.md). The older PRDs remain reference material. The current implementation is a development foundation and is not ready for real personal data or beta use; services, products, tools, activities, export/deletion, native recovery testing, and full acceptance evidence remain open.
+The active product contract is [docs/PHASE_1.md](docs/PHASE_1.md). The older PRDs remain reference material. The current implementation is a development foundation and is not ready for real personal data or beta use; products, tools, activities, export/deletion, native recovery testing, real Supabase Chemical Services smoke evidence, and full acceptance evidence remain open.
 
 ## Repository layout
 

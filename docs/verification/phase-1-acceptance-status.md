@@ -11,8 +11,8 @@ Release status: **HOLD**. This matrix records evidence for the current account/P
 | P1-AC-05 | Partial | Passport unknown values round-trip; product, chemistry, and heat unknowns do not exist yet. |
 | P1-AC-06 | Partial | Immutable Passport change/current/history is covered by domain and PostgreSQL tests; device flow remains. |
 | P1-AC-07 | Partial | Backdating, approximate dates, corrections, correction chains, and ambiguity are covered in domain/database tests; component/device flow remains. |
-| P1-AC-08 | Open | Chemical services and Nanoplasty are not implemented. |
-| P1-AC-09 | Open | Service regions and segments are not implemented. |
+| P1-AC-08 | Partial | Chemical service contracts, embedded database history, mobile RPC parsing, and Services UI contracts cover Keratin/Nanoplasty without inferred chemistry/heat; real Supabase API, native/UI smoke, and device accessibility evidence remain. |
+| P1-AC-09 | Partial | Region+segment zone pairs survive domain and embedded database storage/history tests, including corrections and cross-owner FK checks; real Supabase API and native/UI smoke remain. |
 | P1-AC-10 | Open | Product versions and successors are not implemented. |
 | P1-AC-11 | Open | Private manual products and later matching are not implemented. |
 | P1-AC-12 | Open | Field-scoped catalogue verification is not implemented. |
@@ -30,4 +30,4 @@ Release status: **HOLD**. This matrix records evidence for the current account/P
 | P1-AC-24 | Partial | Labels, roles, non-colour statuses, and 48px controls exist; screen-reader, large-text, poor-network, and pagination tests remain. |
 | P1-AC-25 | Partial | Fresh Supabase Postgres 17 rebuild and Auth/PostgREST permission checks pass; backup restore is not proven. |
 
-No case is marked complete until its full acceptance path has current evidence. Detailed foundation findings are in `docs/verification/foundation-review.md`.
+No case is marked complete until its full acceptance path has current evidence. Detailed foundation findings are in `docs/verification/foundation-review.md`; Chemical Services evidence is in `docs/verification/chemical-services-review.md`.
