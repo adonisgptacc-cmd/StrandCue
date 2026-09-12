@@ -18,18 +18,7 @@ const display = (value: unknown): string => {
 };
 const fieldLabel = (value: string) => value.replace(/([A-Z])/g,' $1').replace(/^./,char=>char.toUpperCase());
 
-type ServiceDraftCleanupIntent =
-  | { kind: 'owner-switch'; previousOwner: string; nextOwner: string }
-  | { kind: 'logout'; owner: string }
-  | { kind: 'unmount'; owner: string };
-
-export function serviceDraftOwnerToClear(intent: ServiceDraftCleanupIntent): string | null {
-  if (intent.kind === 'logout') return intent.owner;
-  if (intent.kind === 'unmount') return null;
-  return intent.previousOwner === intent.nextOwner ? null : intent.previousOwner;
-}
-
-export function Records({user}: {user: User}) {
+export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [profile, setProfile] = useState<{username: string}|null>(null);
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,8 +34,8 @@ export function Records({user}: {user: User}) {
   const [historical, setHistorical] = useState<PassportRecord|null>(null);
   const generation = useRef(0);
   const mounted = useRef(true);
-  const serviceDraftOwner = useRef(user.id);
   const refresh = async () => {
+    if (!mounted.current) return;
     const request = ++generation.current;
     setLoading(true); setError('');
     try {
@@ -62,31 +51,28 @@ export function Records({user}: {user: User}) {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {void refresh(); return () => {++generation.current;};}, [user.id]);
-  useEffect(() => {
-    const previousOwner = serviceDraftOwner.current;
-    serviceDraftOwner.current = user.id;
-    const ownerToClear = serviceDraftOwnerToClear({ kind: 'owner-switch', previousOwner, nextOwner: user.id });
-    if (!ownerToClear) return;
-    void clearServiceDrafts(secureStorage, ownerToClear).catch(() => {
-      if (mounted.current) setError('Device drafts could not be cleared. Sign out before sharing this device.');
-    });
-  }, [user.id]);
+  useEffect(() => { if (notice) setError(notice); }, [notice]);
   const finishSetup = async () => {
     if (!adult) {setError('You must be 18 or older to use StrandCue.'); return;}
     setBusy(true); setError('');
     try {const {error: issue} = await supabase!.rpc('complete_account',{p_username: username,p_eligible: adult});if(issue) throw issue; await refresh();}
-    catch(caught) {setError(saveErrorMessage(caught));} finally {setBusy(false);}
+    catch(caught) {if (mounted.current) setError(saveErrorMessage(caught));} finally {if (mounted.current) setBusy(false);}
   };
   const logout = async () => {
     setBusy(true); setError('');
     try {
       await secureStorage.removeItem(`strandcue-draft-${user.id}`);
-      const serviceOwnerToClear = serviceDraftOwnerToClear({ kind: 'logout', owner: user.id });
-      if (serviceOwnerToClear) await clearServiceDrafts(secureStorage, serviceOwnerToClear);
+      await clearServiceDrafts(secureStorage, user.id);
       const {error: issue} = await supabase!.auth.signOut({scope:'local'});
       if (issue) throw issue;
-    } catch {setError('Sign out could not finish. Please try again before sharing this device.');}
-    finally {setBusy(false);}
+    } catch {if (mounted.current) setError('Sign out could not finish. Please try again before sharing this device.');}
+    finally {if (mounted.current) setBusy(false);}
+  };
+  const viewHistory = async () => {
+    setBusy(true); setError('');
+    try { const next = await loadPassport(asOf); if (mounted.current) setHistorical(next); }
+    catch (caught) { if (mounted.current) setError(saveErrorMessage(caught)); }
+    finally { if (mounted.current) setBusy(false); }
   };
   if (!user.email_confirmed_at) return <Page><Text style={styles.title}>Confirm your email.</Text><Text style={styles.body}>Open your confirmation email, then sign in again to begin your private record.</Text><Button title="Sign out" onPress={() => void logout()}/></Page>;
   if (loading) return <Page><Text style={styles.title}>Opening your record…</Text><Text style={styles.subtitle}>Bringing your saved information together.</Text></Page>;
@@ -104,7 +90,7 @@ export function Records({user}: {user: User}) {
       <View style={styles.notice}><Text style={styles.body}>A real change creates a new entry. To fix an earlier mistake, use History → Correct this entry.</Text></View></>}
     {editing && <PassportEditor key={target?.id ?? `edit-${record?.revision ?? 0}`} owner={user.id} record={record} target={target} onSaved={() => {setEditing(false);setTarget(undefined);setHistorical(null);void refresh();}} onCancel={() => {setEditing(false);setTarget(undefined);}}/>}
     {tab === 'History' && !editing && <>
-      <View style={styles.card}><Text style={styles.heading}>Look back</Text><Field label="As-of date (YYYY-MM-DD)" value={asOf} onChangeText={setAsOf}/><Button title="View that date" secondary disabled={busy} onPress={() => {setBusy(true);void loadPassport(asOf).then(setHistorical).catch(caught=>setError(saveErrorMessage(caught))).finally(()=>setBusy(false));}}/><Button title={audit ? 'Hide correction audit' : 'Show correction audit'} secondary onPress={() => setAudit(!audit)}/></View>
+      <View style={styles.card}><Text style={styles.heading}>Look back</Text><Field label="As-of date (YYYY-MM-DD)" value={asOf} onChangeText={setAsOf}/><Button title="View that date" secondary disabled={busy} onPress={() => void viewHistory()}/><Button title={audit ? 'Hide correction audit' : 'Show correction audit'} secondary onPress={() => setAudit(!audit)}/></View>
       {historical && <View style={styles.card}><Text style={styles.heading}>Recorded facts as of {historical.projection.asOf}</Text>{Object.entries(historical.projection.values).map(([key,value])=><Text key={key} style={styles.body}>{fieldLabel(key)}: {display(value)}</Text>)}{Object.keys(historical.projection.ambiguousFields).map(key=><Text key={key} style={styles.body}>{fieldLabel(key)}: uncertain at this date</Text>)}</View>}
       {!visible && <Text style={styles.body}>Your history begins with your first Passport entry.</Text>}
       {visible?.revisions.filter(entry=>audit || !visible.projection.supersededRevisionIds.includes(entry.id)).slice().reverse().map(entry => <View style={styles.card} key={entry.id}><Text style={styles.kicker}>{entry.kind === 'correction' ? 'CORRECTION' : entry.kind === 'baseline' ? 'FIRST RECORD' : 'CHANGE'} · {entry.effectiveDate.value ?? 'DATE UNKNOWN'}</Text><Text style={styles.subtitle}>{entry.source.replaceAll('-',' ')} · {entry.effectiveDate.precision} precision</Text>{Object.entries(entry.patch).map(([key,value])=><Text key={key} style={styles.body}>{fieldLabel(key)}: {display(value)}</Text>)}{'correctionReason' in entry && <Text style={styles.body}>Reason: {entry.correctionReason}</Text>}{!record?.projection.supersededRevisionIds.includes(entry.id) && <Button title="Correct this entry" secondary onPress={() => {setTarget(entry);setEditing(true);}}/>}</View>)}

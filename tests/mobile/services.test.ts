@@ -43,12 +43,12 @@ import {
   appendServicePage, serviceDateLabel, servicePresenceLabel,
   saveServiceDraft, readServiceDrafts, clearServiceDrafts, removeServiceDraft,
   submitServiceDraft, retainCorrectionFacts,
+  serviceDraftOwnerKey, transitionServiceDraftOwner,
   type ServiceDraft,
   loadServiceScreenData,
 } from '../../apps/mobile/src/service-form';
 import { ServiceFactsView, ServiceOccurrenceFields, ServiceObservationFields } from '../../apps/mobile/src/service-editor';
 import * as serviceEditorModule from '../../apps/mobile/src/service-editor';
-import * as recordsModule from '../../apps/mobile/src/records';
 import { Button } from '../../apps/mobile/src/ui';
 
 const operationId = '10000000-0000-4000-8000-000000000001';
@@ -282,18 +282,22 @@ function memoryStorage() {
 const createDraft = () => ({ mode: 'add' as const, command: buildCreateServiceCommand(operationId, serviceId, nanoplastyFacts, observation) });
 
 describe('service experience contracts', () => {
-  it('clears service drafts only when the mounted records view changes owners', () => {
-    const ownerToClear = (recordsModule as unknown as {
-      serviceDraftOwnerToClear?: (intent:
-        | { kind: 'owner-switch'; previousOwner: string; nextOwner: string }
-        | { kind: 'logout'; owner: string }
-        | { kind: 'unmount'; owner: string }) => string | null;
-    }).serviceDraftOwnerToClear;
+  it('clears departing-owner drafts at the persisted auth boundary, not on view unmount', async () => {
+    const storage = memoryStorage();
+    await transitionServiceDraftOwner(storage, ownerA);
+    await saveServiceDraft(storage, ownerA, createDraft());
 
-    expect(ownerToClear?.({ kind: 'owner-switch', previousOwner: ownerA, nextOwner: ownerA })).toBeNull();
-    expect(ownerToClear?.({ kind: 'unmount', owner: ownerA })).toBeNull();
-    expect(ownerToClear?.({ kind: 'owner-switch', previousOwner: ownerA, nextOwner: ownerB })).toBe(ownerA);
-    expect(ownerToClear?.({ kind: 'logout', owner: ownerB })).toBe(ownerB);
+    await transitionServiceDraftOwner(storage, ownerA);
+    expect(await readServiceDrafts(storage, ownerA)).toEqual([createDraft()]);
+
+    await transitionServiceDraftOwner(storage, ownerB);
+    expect(await readServiceDrafts(storage, ownerA)).toEqual([]);
+    expect(await storage.getItem(serviceDraftOwnerKey)).toBe(ownerB);
+
+    await saveServiceDraft(storage, ownerB, { ...createDraft(), command: { ...createDraft().command, serviceId: revisionId } });
+    await transitionServiceDraftOwner(storage, null);
+    expect(await readServiceDrafts(storage, ownerB)).toEqual([]);
+    expect(await storage.getItem(serviceDraftOwnerKey)).toBeNull();
   });
   it('loads the current service automatically after a revision conflict', async () => {
     const recover = (serviceEditorModule as unknown as {

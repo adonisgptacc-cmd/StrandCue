@@ -4,7 +4,10 @@ import * as Linking from 'expo-linking';
 import type { User } from '@supabase/supabase-js';
 import { RECOVERY_KEY, secureStorage, supabase } from './client';
 import { authNeedsLoading, parseRecoveryCallback, resolvedRefreshUser } from './contracts';
+import { transitionServiceDraftOwner } from './service-form';
 import { Button, Field, Page, styles } from './ui';
+
+export const serviceDraftCleanupNotice = 'Device drafts from the previous account could not be cleared. Sign out before sharing this device.';
 
 export function useAccount() {
   const [user, setUser] = useState<User | null>(null);
@@ -17,13 +20,17 @@ export function useAccount() {
     if (!supabase) return;
     const client = supabase;
     let mounted = true;
-    const refresh = () => {
+    const refresh = (hideExisting = false) => {
       const request = ++epoch.current;
-      setLoading(authNeedsLoading(!!verifiedUser.current));
-      void client.auth.getUser().then(({data}) => {
+      setLoading(hideExisting || authNeedsLoading(!!verifiedUser.current));
+      void client.auth.getUser().then(async ({data}) => {
+        let cleanupFailed = false;
+        try { await transitionServiceDraftOwner(secureStorage, data.user?.id ?? null); }
+        catch { cleanupFailed = true; }
         if (mounted && request === epoch.current) {
           verifiedUser.current = data.user;
           setUser(data.user);
+          setNotice(current => cleanupFailed ? serviceDraftCleanupNotice : current === serviceDraftCleanupNotice ? '' : current);
           setLoading(false);
         }
       }).catch(() => {
@@ -38,8 +45,13 @@ export function useAccount() {
     };
     refresh();
     const {data: {subscription}} = client.auth.onAuthStateChange(event => {
-      if (event === 'SIGNED_OUT') { ++epoch.current; verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false); }
-      else setTimeout(() => { if (mounted) refresh(); }, 0);
+      if (event === 'SIGNED_OUT') {
+        const request = ++epoch.current;
+        verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false);
+        void transitionServiceDraftOwner(secureStorage, null).catch(() => {
+          if (mounted && request === epoch.current) setNotice(serviceDraftCleanupNotice);
+        });
+      } else setTimeout(() => { if (mounted) refresh(event === 'SIGNED_IN'); }, 0);
     });
     const state = AppState.addEventListener('change', value => {
       if (value === 'active') client.auth.startAutoRefresh(); else client.auth.stopAutoRefresh();

@@ -90,6 +90,7 @@ export type ServiceDraftStorage = {
 const uuid = z.string().uuid();
 export const serviceDraftKey = (owner: string, serviceId: string) => `strandcue-service-draft-${uuid.parse(owner)}-${uuid.parse(serviceId)}`;
 export const serviceDraftIndexKey = (owner: string) => `strandcue-service-drafts-${uuid.parse(owner)}`;
+export const serviceDraftOwnerKey = 'strandcue-service-draft-owner';
 
 // Serialize index edits per storage backend and owner, including logout cleanup.
 const storageQueues = new WeakMap<ServiceDraftStorage, Map<string, Promise<unknown>>>();
@@ -102,6 +103,22 @@ function withDraftLock<T>(storage: ServiceDraftStorage, owner: string, action: (
   return next;
 }
 
+async function transitionServiceDraftOwnerUnlocked(storage: ServiceDraftStorage, nextOwner: string | null): Promise<void> {
+  const validatedNextOwner = nextOwner === null ? null : uuid.parse(nextOwner);
+  const storedOwner = await storage.getItem(serviceDraftOwnerKey);
+  const parsedOwner = uuid.safeParse(storedOwner);
+  const previousOwner = parsedOwner.success ? parsedOwner.data : null;
+  if (storedOwner && !parsedOwner.success) await storage.removeItem(serviceDraftOwnerKey);
+  if (previousOwner && previousOwner !== validatedNextOwner) await clearServiceDrafts(storage, previousOwner);
+  if (validatedNextOwner === previousOwner) return;
+  if (validatedNextOwner) await storage.setItem(serviceDraftOwnerKey, validatedNextOwner);
+  else await storage.removeItem(serviceDraftOwnerKey);
+}
+
+export function transitionServiceDraftOwner(storage: ServiceDraftStorage, nextOwner: string | null): Promise<void> {
+  return withDraftLock(storage, serviceDraftOwnerKey, () => transitionServiceDraftOwnerUnlocked(storage, nextOwner));
+}
+
 async function draftIndex(storage: ServiceDraftStorage, owner: string): Promise<string[]> {
   const raw = await storage.getItem(serviceDraftIndexKey(owner));
   const keys = z.array(z.string()).max(20).parse(raw ? JSON.parse(raw) : []);
@@ -112,16 +129,19 @@ async function draftIndex(storage: ServiceDraftStorage, owner: string): Promise<
 
 export async function saveServiceDraft(storage: ServiceDraftStorage, owner: string, value: unknown): Promise<void> {
   const draft = ServiceDraftSchema.parse(value);
-  await withDraftLock(storage, owner, async () => {
-    const key = serviceDraftKey(owner, draft.command.serviceId);
-    const keys = await draftIndex(storage, owner);
-    const next = keys.includes(key) ? [...keys] : [...keys, key];
-    if (next.length > 20) throw new Error('Draft limit reached');
-    const existing = await storage.getItem(key);
-    if (existing && JSON.stringify(ServiceDraftSchema.parse(JSON.parse(existing))) !== JSON.stringify(draft)) throw new Error('A pending save already exists');
-    // Index first: an interrupted draft write is still discoverable at logout.
-    await storage.setItem(serviceDraftIndexKey(owner), JSON.stringify(next));
-    await storage.setItem(key, JSON.stringify(draft));
+  await withDraftLock(storage, serviceDraftOwnerKey, async () => {
+    await transitionServiceDraftOwnerUnlocked(storage, owner);
+    await withDraftLock(storage, owner, async () => {
+      const key = serviceDraftKey(owner, draft.command.serviceId);
+      const keys = await draftIndex(storage, owner);
+      const next = keys.includes(key) ? [...keys] : [...keys, key];
+      if (next.length > 20) throw new Error('Draft limit reached');
+      const existing = await storage.getItem(key);
+      if (existing && JSON.stringify(ServiceDraftSchema.parse(JSON.parse(existing))) !== JSON.stringify(draft)) throw new Error('A pending save already exists');
+      // Index first: an interrupted draft write is still discoverable at logout.
+      await storage.setItem(serviceDraftIndexKey(owner), JSON.stringify(next));
+      await storage.setItem(key, JSON.stringify(draft));
+    });
   });
 }
 
