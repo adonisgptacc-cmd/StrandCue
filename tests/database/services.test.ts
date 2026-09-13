@@ -276,7 +276,7 @@ describe('Chemical Service transactional history', () => {
     }
   });
 
-  it('hides foreign IDs and rejects all direct consumer writes and owner reassignment', async () => {
+  it('hides foreign IDs while allowing each owner to reuse the same client service ID independently', async () => {
     const create = command(); const first = await recordService(db, create);
     await asUser(db, USER_B);
     expect(await getService(db, create.serviceId, true)).toBeNull();
@@ -286,8 +286,28 @@ describe('Chemical Service transactional history', () => {
     }
     await expect(correctService(db, correction(create.serviceId, first.revisionId))).rejects.toThrow(/service-not-found/);
     await expect(observeService(db, { operationId: crypto.randomUUID(), serviceId: create.serviceId, observation: { observedOn: facts.occurredOn, effectStatus: 'unknown' } })).rejects.toThrow(/service-not-found/);
-    await expect(recordService(db, { ...create, operationId: crypto.randomUUID() })).rejects.toThrow(/service-conflict/);
+    const userBCreate = {
+      ...create,
+      operationId: crypto.randomUUID(),
+      facts: { ...facts, serviceType: 'keratin', zones: [{ region: 'nape', segment: 'ends' }] },
+      initialObservation: { observedOn: { precision: 'day', value: '2026-03-01' }, effectStatus: 'present' },
+    };
+    const userBFirst = await recordService(db, userBCreate);
+    await correctService(db, {
+      ...correction(create.serviceId, userBFirst.revisionId),
+      facts: { ...facts, serviceType: 'keratin', zones: [{ region: 'crown', segment: 'roots' }] },
+    });
+    await observeService(db, { operationId: crypto.randomUUID(), serviceId: create.serviceId,
+      observation: { observedOn: { precision: 'day', value: '2026-04-01' }, effectStatus: 'not-present' } });
+    const userBDetail = await getService(db, create.serviceId, true);
+    expect(userBDetail.facts.serviceType).toBe('keratin');
+    expect(userBDetail.revisions).toHaveLength(2);
+    expect(userBDetail.observations).toHaveLength(2);
     await asUser(db, USER_A);
+    const userADetail = await getService(db, create.serviceId, true);
+    expect(userADetail.facts.serviceType).toBe('nanoplasty');
+    expect(userADetail.revisions).toHaveLength(1);
+    expect(userADetail.observations).toEqual([]);
     for (const table of ['chemical_services', 'service_revisions', 'service_zones', 'heat_events', 'service_observations']) {
       await expect(db.query(`insert into public.${table}(user_id) values($1)`, [USER_A])).rejects.toThrow(/permission denied/);
       await expect(db.query(`update public.${table} set user_id=$1`, [USER_B])).rejects.toThrow(/permission denied/);

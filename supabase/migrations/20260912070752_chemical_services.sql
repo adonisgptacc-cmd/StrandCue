@@ -4,11 +4,11 @@ grant strandcue_mutator to current_user with set true;
 grant create on schema strandcue_private to strandcue_mutator;
 
 create table public.chemical_services (
-  id uuid primary key,
+  id uuid not null,
   user_id uuid not null references public.profiles(user_id) on delete cascade,
   revision integer not null default 1 check (revision > 0),
   created_at timestamptz not null default now(),
-  unique(id,user_id)
+  primary key(id,user_id)
 );
 create index chemical_services_owner on public.chemical_services(user_id,id);
 create table public.service_revisions (
@@ -27,7 +27,7 @@ create table public.service_revisions (
   corrects_id uuid,
   correction_reason text,
   unique(id,user_id,service_id),
-  unique(service_id,sequence),
+  unique(user_id,service_id,sequence),
   unique(corrects_id),
   foreign key(service_id,user_id) references public.chemical_services(id,user_id) on delete cascade,
   foreign key(corrects_id,user_id,service_id) references public.service_revisions(id,user_id,service_id),
@@ -35,7 +35,7 @@ create table public.service_revisions (
     or (kind='correction' and sequence>1 and corrects_id is not null
       and correction_reason is not null and length(btrim(correction_reason)) between 1 and 500))
 );
-create unique index service_one_baseline on public.service_revisions(service_id) where kind='baseline';
+create unique index service_one_baseline on public.service_revisions(user_id,service_id) where kind='baseline';
 create index service_revision_owner_history on public.service_revisions(user_id,service_id,sequence);
 create index service_revision_owner_time on public.service_revisions(user_id,(coalesce(effective_start,date '0001-01-01')) desc,recorded_at desc,service_id desc);
 create table public.service_zones (

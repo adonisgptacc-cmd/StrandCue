@@ -110,4 +110,3 @@ export async function getService(db: PGlite, serviceId: string, audit = false) {
     'select public.get_service($1,$2) result', [serviceId, audit],
   )).rows[0].result;
 }
-

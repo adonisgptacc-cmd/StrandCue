@@ -1,4 +1,4 @@
-# Chemical services review - 12 September 2026
+# Chemical services review - 13 September 2026
 
 Scope: Chemical Services vertical slice for P1-AC-08 and P1-AC-09, covering shared domain contracts, Supabase persistence/RLS, validated mobile RPC boundaries, the Services UI, and acceptance evidence. Review used synthetic fixtures only.
 
@@ -16,7 +16,7 @@ Fresh commands run in `C:\Users\ABADO\Desktop\StrandCue\.worktrees\codex-chemica
 | `npm audit` | Transport needed an escalated retry. The audit exits 1 because 13 moderate advisories remain in existing Expo/router dependency chains. No high or critical advisories were reported. |
 | `npm audit --audit-level=high` | Pass, exit 0. Confirms no high or critical advisories; the same 13 moderate advisories are still listed. |
 
-Environment deviation: verification ran on host Node v25.1.0. The project accepts Node `^22.13.0 || ^24.0.0 || >=26.0.0` in `package.json`, while the implementation plan requested Node 24. Treat Node 24 replay as a remaining release check.
+Follow-up verification on 13 September 2026 ran the complete `npm run verify` command under a temporary Node v24.21.0 runtime. Typechecking, 245 tests (with 3 explicitly skipped), the control-plane audit, and Expo web export all passed. This closes the Node 24 replay item without changing the host's system Node installation.
 
 ## Security review
 
@@ -35,11 +35,13 @@ Positive findings:
 
 Limitations:
 
-- Docker Desktop's Linux engine was unavailable during this work, so `npx supabase start`, `npx supabase db reset --local`, real PostgREST/Auth API checks with `STRANDCUE_SUPABASE_API_TEST=1`, and Supabase advisors were not rerun for this branch. The embedded PGlite tests remain the current database evidence.
+- No Docker-compatible runtime is installed or available on `PATH` on the verification host, so `npx supabase start`, `npx supabase db reset --local`, real PostgREST/Auth API checks with `STRANDCUE_SUPABASE_API_TEST=1`, and Supabase advisors were not rerun for this branch. The embedded PGlite tests remain the current database evidence.
 - Native/mobile smoke, screen-reader, large-text, poor-network, and shared-device secure-storage cleanup checks were not executed. The web bundle was exported, but no authenticated browser or native walkthrough was completed.
 - `npm audit` still lists 13 moderate advisories in existing dependency chains. Fixing them requires breaking Expo/router changes and was not done in this slice.
 
 No critical or high security/data-loss issue was found in the reviewed source and automated evidence. The limitations above are release blockers for marking the acceptance cases Complete.
+
+A 13 September 2026 independent pre-merge review found that the globally unique `chemical_services.id` let one authenticated owner distinguish another owner's client-generated service UUID through a create conflict. The fix scopes service identity, revision sequence uniqueness, and baseline uniqueness by owner. A regression test now proves two owners can independently use the same service UUID while their revisions and observations remain isolated. The focused 44-test database suite and scoped re-review pass with no remaining critical or important finding.
 
 ## Repository hygiene
 
@@ -83,7 +85,6 @@ Status: Partial. Storage/history behavior is covered in embedded tests, but the 
 
 ## Release blockers
 
-- Rerun on Node 24.
 - Bring up real local Supabase/PostgREST/Auth, reset migrations from empty, run `STRANDCUE_SUPABASE_API_TEST=1 npm test -- tests/database/supabase-api.test.ts`, and run Supabase security/performance advisors.
 - Complete the authenticated Services UI smoke path on web/native with synthetic data.
 - Resolve or explicitly accept the 13 moderate dependency advisories before beta.
