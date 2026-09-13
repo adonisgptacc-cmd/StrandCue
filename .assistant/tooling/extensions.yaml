@@ -1,0 +1,52 @@
+{
+  "extensions": [
+    {
+      "name": "superpowers",
+      "source": "existing Codex skill catalog",
+      "role": "primary-methodology",
+      "mode": "primary",
+      "targets": [
+        "codex"
+      ],
+      "requested_scope": "reuse-existing-host",
+      "approved_ref": "6.3.0",
+      "update_policy": "review-before-project-adoption",
+      "auto_update_policy": "no-agent-initiated-update",
+      "data_egress_policy": "task-authorized-tools-only",
+      "telemetry_policy": "no-additional-telemetry",
+      "expected_license": "not-independently-verified"
+    },
+    {
+      "name": "supabase-skill",
+      "source": "existing Codex skill catalog",
+      "role": "database-specialist",
+      "mode": "specialist",
+      "targets": [
+        "codex"
+      ],
+      "requested_scope": "reuse-existing-host",
+      "approved_ref": "1.0.0",
+      "update_policy": "review-before-project-adoption",
+      "auto_update_policy": "no-agent-initiated-update",
+      "data_egress_policy": "task-authorized-tools-only",
+      "telemetry_policy": "no-additional-telemetry",
+      "expected_license": "not-independently-verified"
+    },
+    {
+      "name": "security-review",
+      "source": "existing Codex skill catalog",
+      "role": "security-specialist",
+      "mode": "specialist",
+      "targets": [
+        "codex"
+      ],
+      "requested_scope": "reuse-existing-host",
+      "approved_ref": "local-file",
+      "update_policy": "review-before-project-adoption",
+      "auto_update_policy": "no-agent-initiated-update",
+      "data_egress_policy": "task-authorized-tools-only",
+      "telemetry_policy": "no-additional-telemetry",
+      "expected_license": "not-independently-verified"
+    }
+  ]
+}

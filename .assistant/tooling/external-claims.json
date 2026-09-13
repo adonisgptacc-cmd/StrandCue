@@ -1,0 +1,16 @@
+[
+  {
+    "id": "expo-compatible-sdk",
+    "source": "https://docs.expo.dev/versions/latest/",
+    "checked_at": "2026-09-11",
+    "review_after": "2026-10-11",
+    "claim": "Verify Expo dependencies from installed bundledNativeModules and Expo install check."
+  },
+  {
+    "id": "supabase-functions",
+    "source": "https://supabase.com/docs/guides/database/functions",
+    "checked_at": "2026-09-09",
+    "review_after": "2026-10-09",
+    "claim": "Functions require deliberate privileges and explicit grants; implementation must test ownership."
+  }
+]

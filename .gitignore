@@ -1,0 +1,15 @@
+node_modules/
+.npm-cache/
+.expo/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.superpowers/
+.worktrees/
+supabase/.temp/
+supabase/.branches/
+test-results/
+playwright-report/
+*.tsbuildinfo

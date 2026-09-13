@@ -1,0 +1,22 @@
+[
+  {
+    "path": "AGENTS.md",
+    "sha256": "ae53f32748e2f48c59b1510a5a7d95edd53c9cf4cbaa5688e81b4fdd8823afbf"
+  },
+  {
+    "path": "StrandCue-PRD.md",
+    "sha256": "497b6e85cca6c75ae77881c7790b70b5a99659ee606637a0060fa81f182fe49c"
+  },
+  {
+    "path": "StrandCue-PRD-v2.md",
+    "sha256": "87e9fa28c86cc6b7da197f0bc73770796797162ddcd7686bf801229b988c8fd7"
+  },
+  {
+    "path": "docs/PHASE_1.md",
+    "sha256": "22dc61821284e03197952a2d2995124ab825e7af4ba9e354c36d425138a428f9"
+  },
+  {
+    "path": "docs/DEVELOPER_INSTRUCTIONS.md",
+    "sha256": "75b40cf7b017dd5a22b0b7820833e43ba4162b4775656f78a7cf5bc26eb80e15"
+  }
+]
