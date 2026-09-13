@@ -18,6 +18,8 @@ Fresh commands run in `C:\Users\ABADO\Desktop\StrandCue\.worktrees\codex-chemica
 
 Follow-up verification on 13 September 2026 ran the complete `npm run verify` command under a temporary Node v24.21.0 runtime. Typechecking, 245 tests (with 3 explicitly skipped), the control-plane audit, and Expo web export all passed. This closes the Node 24 replay item without changing the host's system Node installation.
 
+Docker/Supabase follow-up verification on 13 September 2026 ran from `C:\Users\ABADO\Desktop\StrandCue\.worktrees\docker-local-env-fix` after adding Docker Desktop's CLI directory to the persistent current-user `PATH` and disabling optional local analytics. Docker client/server 29.7.2 resolved through the persisted path, the ten required StrandCue containers were running without an unhealthy container, and no analytics, Logflare, or Vector container remained. The focused local Auth/PostgREST suite passed all 3 tests, including the authenticated Chemical Services RPC/RLS path. Supabase security advisors reported no issues; performance advisors reported seven informational findings (six unindexed foreign keys and one unused private-schema index) and no warning/error finding.
+
 ## Security review
 
 Positive findings:
@@ -35,7 +37,6 @@ Positive findings:
 
 Limitations:
 
-- No Docker-compatible runtime is installed or available on `PATH` on the verification host, so `npx supabase start`, `npx supabase db reset --local`, real PostgREST/Auth API checks with `STRANDCUE_SUPABASE_API_TEST=1`, and Supabase advisors were not rerun for this branch. The embedded PGlite tests remain the current database evidence.
 - Native/mobile smoke, screen-reader, large-text, poor-network, and shared-device secure-storage cleanup checks were not executed. The web bundle was exported, but no authenticated browser or native walkthrough was completed.
 - `npm audit` still lists 13 moderate advisories in existing dependency chains. Fixing them requires breaking Expo/router changes and was not done in this slice.
 
@@ -59,7 +60,7 @@ Current evidence:
 - Database tests record Keratin and Nanoplasty as separate stable service events, preserve both in list/detail, retain old revisions in private audit after correction, keep Nanoplasty free of inferred chemistry, and preserve reported heat only when explicitly provided.
 - Mobile tests verify Nanoplasty commands contain no inferred values, list/detail parsing preserves explicit unknowns, service UI copy separates add/correction/observation, and presence observations are separate from occurrence facts.
 
-Status: Partial. The contract, embedded database, and mobile-boundary evidence exists, but the required production-like Supabase API path and authenticated UI smoke path were not executed.
+Status: Partial. The contract, embedded database, mobile-boundary, and authenticated Supabase RPC/RLS evidence exists, but the full authenticated UI smoke path was not executed.
 
 ## P1-AC-09 evidence
 
@@ -72,7 +73,7 @@ Current evidence:
 - Composite foreign-key tests prevent attaching one owner's zones to another owner's service/revision.
 - Mobile tests exercise deterministic zone helpers, readable zone labels, repeatable region/segment control contracts, and no occurrence-level presence leakage.
 
-Status: Partial. Storage/history behavior is covered in embedded tests, but the real Supabase API surface, native UI smoke, and accessibility walkthrough are still missing.
+Status: Partial. Storage/history behavior is covered in embedded tests and the real Supabase Chemical Services API path passed, but the complete two-zone UI scenario, native UI smoke, and accessibility walkthrough are still missing.
 
 ## UI smoke checklist still required
 
@@ -85,6 +86,5 @@ Status: Partial. Storage/history behavior is covered in embedded tests, but the 
 
 ## Release blockers
 
-- Bring up real local Supabase/PostgREST/Auth, reset migrations from empty, run `STRANDCUE_SUPABASE_API_TEST=1 npm test -- tests/database/supabase-api.test.ts`, and run Supabase security/performance advisors.
 - Complete the authenticated Services UI smoke path on web/native with synthetic data.
 - Resolve or explicitly accept the 13 moderate dependency advisories before beta.
