@@ -1,31 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createElement, type ReactElement, type ReactNode } from 'react';
-
-function renderControlContract(node: ReactNode): string {
-  if (node == null || typeof node === 'boolean') return '';
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (Array.isArray(node)) return node.map(renderControlContract).join('');
-  const element = node as ReactElement<any>;
-  if (typeof element.type === 'function') return renderControlContract((element.type as Function)(element.props));
-  return `${element.props['aria-label'] ? `aria-label="${element.props['aria-label']}"` : ''}${element.props.disabled ? 'disabled' : ''}${renderControlContract(element.props.children)}`;
-}
-
-vi.mock('react-native', () => {
-  const host = (tag: string) => ({ children, accessibilityLabel, accessibilityRole, accessibilityState, onPress, onChangeText, ...props }: any) => createElement(tag, {
-    'aria-label': accessibilityLabel, role: accessibilityRole,
-    disabled: accessibilityState?.disabled || props.disabled || props.editable === false,
-    value: props.value, onChange: () => undefined,
-  }, children);
-  return { Text: host('span'), View: host('div'), Pressable: host('button'), TextInput: host('input'), ScrollView: host('div'), StyleSheet: { create: (value: unknown) => value } };
-});
-vi.mock('expo-crypto', () => ({ randomUUID: () => '30000000-0000-4000-8000-000000000001' }));
-
-const rpc = vi.hoisted(() => vi.fn());
-
-vi.mock('../../apps/mobile/src/client.ts', () => ({
-  supabase: { rpc },
-}));
-
 import {
   correctService,
   loadService,
@@ -51,6 +25,37 @@ import { ServiceFactsView, ServiceOccurrenceFields, ServiceObservationFields } f
 import * as serviceEditorModule from '../../apps/mobile/src/service-editor';
 import { Button } from '../../apps/mobile/src/ui';
 import { resolveAuthRefresh } from '../../apps/mobile/src/contracts';
+
+function renderControlContract(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(renderControlContract).join('');
+  const element = node as ReactElement<any>;
+  if (typeof element.type === 'function') return renderControlContract((element.type as Function)(element.props));
+  return `${element.props['aria-label'] ? `aria-label="${element.props['aria-label']}"` : ''}${element.props.disabled ? 'disabled' : ''}${renderControlContract(element.props.children)}`;
+}
+
+vi.mock('react-native', () => {
+  const host = (tag: string) => {
+    function HostComponent({ children, accessibilityLabel, accessibilityRole, accessibilityState, onPress, onChangeText, ...props }: any) {
+      return createElement(tag, {
+        'aria-label': accessibilityLabel, role: accessibilityRole,
+        disabled: accessibilityState?.disabled || props.disabled || props.editable === false,
+        value: props.value, onChange: () => undefined,
+      }, children);
+    }
+    HostComponent.displayName = `Mock${tag}`;
+    return HostComponent;
+  };
+  return { Text: host('span'), View: host('div'), Pressable: host('button'), TextInput: host('input'), ScrollView: host('div'), StyleSheet: { create: (value: unknown) => value } };
+});
+vi.mock('expo-crypto', () => ({ randomUUID: () => '30000000-0000-4000-8000-000000000001' }));
+
+const rpc = vi.hoisted(() => vi.fn());
+
+vi.mock('../../apps/mobile/src/client.ts', () => ({
+  supabase: { rpc },
+}));
 
 const operationId = '10000000-0000-4000-8000-000000000001';
 const serviceId = '10000000-0000-4000-8000-000000000002';

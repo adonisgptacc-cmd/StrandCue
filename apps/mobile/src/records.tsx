@@ -22,7 +22,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [profile, setProfile] = useState<{username: string}|null>(null);
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [errorOverride, setErrorOverride] = useState<{notice: string; error: string}>();
   const [tab, setTab] = useState<'Passport'|'Services'|'History'|'Settings'>('Passport');
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
@@ -32,8 +32,11 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [audit, setAudit] = useState(false);
   const [asOf, setAsOf] = useState('');
   const [historical, setHistorical] = useState<PassportRecord|null>(null);
+  const [initialNotice] = useState(notice);
   const generation = useRef(0);
   const mounted = useRef(true);
+  const error = errorOverride?.notice === notice ? errorOverride.error : notice;
+  const setError = (nextError: string) => setErrorOverride({notice, error: nextError});
   const refresh = async () => {
     if (!mounted.current) return;
     const request = ++generation.current;
@@ -48,10 +51,29 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   };
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-  useEffect(() => {void refresh(); return () => {++generation.current;};}, [user.id]);
-  useEffect(() => { if (notice) setError(notice); }, [notice]);
+    const request = ++generation.current;
+    void (async () => {
+      try {
+        const response = await supabase!.from('profiles').select('username').maybeSingle();
+        if (response.error) throw response.error;
+        const next = response.data ? await loadPassport() : null;
+        if (mounted.current && generation.current === request) {
+          setProfile(response.data);
+          setRecord(next);
+        }
+      } catch (caught) {
+        if (mounted.current && generation.current === request) {
+          setErrorOverride({notice: initialNotice, error: saveErrorMessage(caught)});
+        }
+      } finally {
+        if (mounted.current && generation.current === request) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted.current = false;
+      generation.current = request + 1;
+    };
+  }, [initialNotice, user.id]);
   const finishSetup = async () => {
     if (!adult) {setError('You must be 18 or older to use StrandCue.'); return;}
     setBusy(true); setError('');

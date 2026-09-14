@@ -78,9 +78,34 @@ function OwnerServices({ owner }: { owner: string }) {
     finally { busy.current = false; if (mounted.current && request === generation.current) setLoading(false); }
   };
   useEffect(() => {
-    mounted.current = true; void refresh();
-    return () => { mounted.current = false; ++generation.current; };
-  }, [owner]);
+    mounted.current = true;
+    busy.current = true;
+    const request = ++generation.current;
+    void loadServiceScreenData(
+      () => loadServices(asOf, { cursor: null }),
+      () => readServiceDrafts(secureStorage, owner),
+    ).then(result => {
+      if (mounted.current && request === generation.current) {
+        if (result.page) {
+          setItems(result.page.items);
+          setCursor(result.page.nextCursor);
+        }
+        if (result.drafts) setDrafts(result.drafts);
+        setError(result.error);
+      }
+    }).catch(() => {
+      if (mounted.current && request === generation.current) {
+        setError('Services or device drafts could not be loaded. Please try again.');
+      }
+    }).finally(() => {
+      busy.current = false;
+      if (mounted.current && request === generation.current) setLoading(false);
+    });
+    return () => {
+      mounted.current = false;
+      generation.current = request + 1;
+    };
+  }, [asOf, owner]);
 
   const openService = async (serviceId: string) => {
     if (busy.current) return;
