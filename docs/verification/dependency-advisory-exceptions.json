@@ -1,0 +1,44 @@
+[
+  {
+    "advisoryId": "GHSA-vcc3-ghjq-m6fr",
+    "packages": [
+      "decode-uri-component",
+      "query-string",
+      "expo-router"
+    ],
+    "severity": "moderate",
+    "surfaces": [
+      "android",
+      "web",
+      "production"
+    ],
+    "reachable": "uncertain",
+    "assessment": "expo-router reaches decode-uri-component through query-string, and route or callback parsing may process attacker-controlled encoded input in production.",
+    "mitigation": "Strict callback and route allowlisting reduces exposure but is only a partial mitigation and does not fix the vulnerable decoder.",
+    "owner": "StrandCue maintainer",
+    "approvedOn": "2026-09-13",
+    "reviewOn": "2026-09-27",
+    "expiresOn": "2026-10-13",
+    "upgradePath": "Upgrade expo-router or query-string to a compatible release that removes the affected decode-uri-component version, then remove this exception."
+  },
+  {
+    "advisoryId": "GHSA-w5hq-g745-h8pq",
+    "packages": [
+      "uuid",
+      "xcode",
+      "@expo/cli"
+    ],
+    "severity": "moderate",
+    "surfaces": [
+      "development"
+    ],
+    "reachable": "no",
+    "assessment": "The affected uuid use is reached through Expo's xcode configuration tooling. That iOS configuration path is outside the Android-only Phase 1 runtime, while the installed build-tool dependency remains reviewed exposure.",
+    "mitigation": "Phase 1 excludes the affected iOS configuration path; this scope boundary limits current reachability but is not a dependency fix.",
+    "owner": "StrandCue maintainer",
+    "approvedOn": "2026-09-13",
+    "reviewOn": "2026-09-27",
+    "expiresOn": "2026-10-13",
+    "upgradePath": "Upgrade Expo's xcode tooling to a compatible release using a fixed uuid version, then remove this exception."
+  }
+]

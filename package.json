@@ -21,7 +21,7 @@
     "typecheck:domain": "tsc --noEmit",
     "typecheck": "npm run typecheck:domain && npm run typecheck --workspace @strandcue/mobile",
     "export:web": "npm run export:web --workspace @strandcue/mobile",
-    "audit:dependencies": "npm audit --omit=dev --audit-level=high",
+    "audit:dependencies": "node scripts/audit-dependencies-cli.ts",
     "audit:control-plane": "node scripts/audit-cli.ts",
     "verify": "npm run typecheck && npm test && npm run audit:control-plane && npm run export:web",
     "mobile": "npm run start --workspace @strandcue/mobile"
