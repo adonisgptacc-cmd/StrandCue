@@ -2,12 +2,18 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import {
   auditDependencyPolicy,
+  countDependencyVulnerabilities,
   summarizeDependencyAudit,
 } from './dependency-policy.ts';
 
 const MAX_AUDIT_OUTPUT_BYTES = 20 * 1024 * 1024;
 
-function runNpmAudit(): Promise<string> {
+type NpmAuditExecution = {
+  exitCode: 0 | 1;
+  output: string;
+};
+
+function runNpmAudit(): Promise<NpmAuditExecution> {
   const npmExecPath = process.env.npm_execpath;
   if (!npmExecPath?.trim()) {
     return Promise.reject(new Error('npm CLI path is unavailable'));
@@ -26,7 +32,7 @@ function runNpmAudit(): Promise<string> {
         const output = typeof stdout === 'string' ? stdout : '';
         if (!error || error.code === 1) {
           if (output.trim()) {
-            resolve(output);
+            resolve({ exitCode: error ? 1 : 0, output });
           } else {
             reject(new Error('npm audit returned no JSON'));
           }
@@ -49,8 +55,13 @@ async function readExceptionRegistry(): Promise<unknown> {
 
 async function main(): Promise<void> {
   try {
-    const auditOutput = await runNpmAudit();
-    const report = JSON.parse(auditOutput) as unknown;
+    const auditExecution = await runNpmAudit();
+    const report = JSON.parse(auditExecution.output) as unknown;
+    const vulnerabilityCount = countDependencyVulnerabilities(report);
+    if (vulnerabilityCount === undefined
+      || (auditExecution.exitCode === 1 && vulnerabilityCount === 0)) {
+      throw new Error('npm audit exit status does not match a supported report');
+    }
     const exceptions = await readExceptionRegistry();
     const today = new Date().toISOString().slice(0, 10);
     const findings = auditDependencyPolicy(report, exceptions, today);

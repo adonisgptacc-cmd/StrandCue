@@ -120,6 +120,58 @@ describe('dependency advisory policy', () => {
     );
   });
 
+  it('rejects a moderate node with one covered advisory branch and one dangling branch', () => {
+    const coveredAdvisory = auditReport().vulnerabilities['decode-uri-component'].via[0];
+    const report = {
+      auditReportVersion: 2,
+      vulnerabilities: {
+        'mixed-root': {
+          name: 'mixed-root',
+          severity: 'moderate',
+          via: [coveredAdvisory, 'missing-source'],
+        },
+      },
+    };
+
+    expect(auditDependencyPolicy(report, [currentException()], TODAY)).toContainEqual(
+      expect.objectContaining({
+        code: 'ADVISORY-UNIDENTIFIED',
+        message: expect.stringContaining('mixed-root'),
+      }),
+    );
+  });
+
+  it('rejects a moderate node with one covered advisory branch and one cyclic branch', () => {
+    const coveredAdvisory = auditReport().vulnerabilities['decode-uri-component'].via[0];
+    const report = {
+      auditReportVersion: 2,
+      vulnerabilities: {
+        'mixed-root': {
+          name: 'mixed-root',
+          severity: 'moderate',
+          via: [coveredAdvisory, 'cycle-a'],
+        },
+        'cycle-a': {
+          name: 'cycle-a',
+          severity: 'moderate',
+          via: ['cycle-b'],
+        },
+        'cycle-b': {
+          name: 'cycle-b',
+          severity: 'moderate',
+          via: ['cycle-a'],
+        },
+      },
+    };
+
+    expect(auditDependencyPolicy(report, [currentException()], TODAY)).toContainEqual(
+      expect.objectContaining({
+        code: 'ADVISORY-UNIDENTIFIED',
+        message: expect.stringContaining('mixed-root'),
+      }),
+    );
+  });
+
   it('rejects duplicate exception identities instead of silently choosing one', () => {
     expect(auditDependencyPolicy(
       auditReport(),
@@ -270,6 +322,18 @@ describe('dependency audit CLI', () => {
     expect(result.stdout).toContain('"reviewedAdvisories":2');
     expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
     expect(result.stderr).toBe('');
+  });
+
+  it('rejects npm exit 1 when a validated audit report contains no vulnerabilities', async () => {
+    const cleanReport = { auditReportVersion: 2, vulnerabilities: {} };
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cleanReport),
+      auditExitCode: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).not.toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
   });
 
   it.each([

@@ -53,6 +53,13 @@ const exceptionRegistrySchema = z.array(exceptionSchema);
 
 const finding = (code: string, message: string): DependencyFinding => ({ code, message });
 
+export function countDependencyVulnerabilities(report: unknown): number | undefined {
+  const parsedReport = auditReportSchema.safeParse(report);
+  return parsedReport.success
+    ? Object.keys(parsedReport.data.vulnerabilities).length
+    : undefined;
+}
+
 export function summarizeDependencyAudit(
   report: unknown,
   exceptions: unknown,
@@ -83,20 +90,36 @@ function advisoryIdFromUrl(url: string): string {
   return ghsaUrlPattern.exec(url)?.[1] ?? '';
 }
 
-function hasConcreteAdvisory(
+type AdvisoryBranchResolution = {
+  advisoryIds: string[];
+  unidentifiedPaths: string[][];
+};
+
+function resolveAdvisoryBranches(
   packageName: string,
   vulnerabilities: z.infer<typeof auditReportSchema>['vulnerabilities'],
   path: string[] = [],
-): boolean {
-  if (path.includes(packageName)) return false;
+): AdvisoryBranchResolution {
+  const currentPath = [...path, packageName];
+  if (path.includes(packageName)) {
+    return { advisoryIds: [], unidentifiedPaths: [currentPath] };
+  }
 
   const vulnerability = vulnerabilities[packageName];
-  if (!vulnerability) return false;
+  if (!vulnerability || vulnerability.via.length === 0) {
+    return { advisoryIds: [], unidentifiedPaths: [currentPath] };
+  }
 
-  return vulnerability.via.some(via => (
-    typeof via !== 'string'
-      || hasConcreteAdvisory(via, vulnerabilities, [...path, packageName])
-  ));
+  return vulnerability.via.reduce<AdvisoryBranchResolution>((resolution, via) => {
+    const branch = typeof via === 'string'
+      ? resolveAdvisoryBranches(via, vulnerabilities, currentPath)
+      : { advisoryIds: [advisoryIdFromUrl(via.url)], unidentifiedPaths: [] };
+
+    return {
+      advisoryIds: [...resolution.advisoryIds, ...branch.advisoryIds],
+      unidentifiedPaths: [...resolution.unidentifiedPaths, ...branch.unidentifiedPaths],
+    };
+  }, { advisoryIds: [], unidentifiedPaths: [] });
 }
 
 export function auditDependencyPolicy(
@@ -185,10 +208,13 @@ export function auditDependencyPolicy(
 
   const unidentifiedModerateFindings = Object.entries(parsedReport.data.vulnerabilities)
     .filter(([, vulnerability]) => vulnerability.severity === 'moderate')
-    .filter(([packageName]) => !hasConcreteAdvisory(
-      packageName,
-      parsedReport.data.vulnerabilities,
-    ))
+    .filter(([packageName]) => {
+      const resolution = resolveAdvisoryBranches(
+        packageName,
+        parsedReport.data.vulnerabilities,
+      );
+      return resolution.advisoryIds.length === 0 || resolution.unidentifiedPaths.length > 0;
+    })
     .map(([, vulnerability]) => finding(
       'ADVISORY-UNIDENTIFIED',
       `Moderate vulnerability has no concrete GHSA advisory: ${vulnerability.name}.`,
