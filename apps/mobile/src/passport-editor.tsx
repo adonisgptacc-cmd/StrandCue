@@ -31,11 +31,13 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
   const [pendingDraft, setPendingDraft] = useState<string|null>(null);
   const [lockedCommand, setLockedCommand] = useState<SaveCommand|null>(null);
   const command = useRef<SaveCommand|null>(null);
+  const submitting = useRef(false);
   const locked = lockedCommand !== null;
   const draftKey = `strandcue-draft-${owner}`;
   useEffect(() => {let mounted = true; void secureStorage.getItem(draftKey).then(value => {if (mounted) setPendingDraft(value);}).catch(() => {if(mounted) setMessage('The previous device draft could not be read.');}); return () => {mounted = false;};}, [draftKey]);
   const update = (key: string, value: unknown) => {if (!command.current) setForm(current => ({...current, [key]: value}));};
   const submit = async () => {
+    if (submitting.current) return;
     if (!command.current) {
       const patch = target ? PassportPatchSchema.safeParse(form) : baseRecord ? PassportPatchSchema.safeParse(changedFields(before, form)) : PassportSchema.safeParse(form);
       const effective = EffectiveDateSchema.safeParse({precision, value: precision === 'unknown' ? null : date});
@@ -47,6 +49,7 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
       command.current = nextCommand;
       setLockedCommand(nextCommand);
     }
+    submitting.current = true;
     setBusy(true); setMessage('');
     try {
       await secureStorage.setItem(draftKey, JSON.stringify(command.current));
@@ -54,7 +57,7 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
       await secureStorage.removeItem(draftKey);
       onSaved();
     } catch (error) {setConflict(String((error as {message?: string})?.message).includes('revision-conflict')); setMessage(saveErrorMessage(error));}
-    finally {setBusy(false);}
+    finally {submitting.current = false; setBusy(false);}
   };
   const retryDraft = async () => {
     if (!pendingDraft) return;

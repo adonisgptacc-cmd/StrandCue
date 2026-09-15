@@ -84,10 +84,11 @@ export function AuthScreen({notice = ''}: {notice?: string}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [adult, setAdult] = useState(false);
-  const [messageOverride, setMessageOverride] = useState<{notice: string; message: string}>();
+  const [messageState, setMessageState] = useState({notice, message: notice});
   const [busy, setBusy] = useState(false);
-  const message = messageOverride?.notice === notice ? messageOverride.message : notice;
-  const setMessage = (nextMessage: string) => setMessageOverride({notice, message: nextMessage});
+  if (messageState.notice !== notice) setMessageState({notice, message: notice});
+  const message = messageState.notice === notice ? messageState.message : notice;
+  const setMessage = (nextMessage: string) => setMessageState({notice, message: nextMessage});
   const submit = async () => {
     if (!supabase) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {setMessage('Enter a valid email address.'); return;}
