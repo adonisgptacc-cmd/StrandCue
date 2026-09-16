@@ -2,6 +2,8 @@
 
 Scope: Chemical Services vertical slice for P1-AC-08 and P1-AC-09, covering shared domain contracts, Supabase persistence/RLS, validated mobile RPC boundaries, the Services UI, and acceptance evidence. Review used synthetic fixtures only.
 
+Amendment note — 16 September 2026: Android-only native release scope is an approved Phase 1 amendment; iOS implementation and validation are deferred. Historical verification statements below continue to describe what the 13 September review actually ran. Outstanding native evidence now means real Android development/release-build evidence; the amendment does not mark any acceptance case Complete.
+
 ## Automated verification
 
 Fresh commands run in `C:\Users\ABADO\Desktop\StrandCue\.worktrees\codex-chemical-services`:
@@ -60,7 +62,7 @@ Current evidence:
 - Database tests record Keratin and Nanoplasty as separate stable service events, preserve both in list/detail, retain old revisions in private audit after correction, keep Nanoplasty free of inferred chemistry, and preserve reported heat only when explicitly provided.
 - Mobile tests verify Nanoplasty commands contain no inferred values, list/detail parsing preserves explicit unknowns, service UI copy separates add/correction/observation, and presence observations are separate from occurrence facts.
 
-Status: Partial. The contract, embedded database, mobile-boundary, and authenticated Supabase RPC/RLS evidence exists, but the full authenticated UI smoke path was not executed.
+Status: Partial. The contract, embedded database, mobile-boundary, and authenticated Supabase RPC/RLS evidence exists, but the full authenticated UI smoke path in an Android development/release build was not executed.
 
 ## P1-AC-09 evidence
 
@@ -73,7 +75,7 @@ Current evidence:
 - Composite foreign-key tests prevent attaching one owner's zones to another owner's service/revision.
 - Mobile tests exercise deterministic zone helpers, readable zone labels, repeatable region/segment control contracts, and no occurrence-level presence leakage.
 
-Status: Partial. Storage/history behavior is covered in embedded tests and the real Supabase Chemical Services API path passed, but the complete two-zone UI scenario, native UI smoke, and accessibility walkthrough are still missing.
+Status: Partial. Storage/history behavior is covered in embedded tests and the real Supabase Chemical Services API path passed, but the complete two-zone UI scenario, Android development/release-build UI smoke, and accessibility walkthrough are still missing.
 
 ## UI smoke checklist still required
 
@@ -86,5 +88,5 @@ Status: Partial. Storage/history behavior is covered in embedded tests and the r
 
 ## Release blockers
 
-- Complete the authenticated Services UI smoke path on web/native with synthetic data.
+- Complete the authenticated Services UI smoke path with synthetic data in an Android development/release build. Web remains a development smoke/export surface and is not native beta evidence.
 - Resolve or explicitly accept the 13 moderate dependency advisories before beta.

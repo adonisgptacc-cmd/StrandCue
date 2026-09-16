@@ -2,7 +2,9 @@
 
 StrandCue is a private, factual cosmetic hair-care record for adults in South Africa. This repository currently implements the account and Hair Passport foundation plus a Chemical Services recording slice: verified-email onboarding, a private username, current and historical Passport views, immutable Passport changes, chemical service occurrences, corrections, presence observations, exact region/segment zones, and owner-scoped database access.
 
-The active product contract is [docs/PHASE_1.md](docs/PHASE_1.md). The older PRDs remain reference material. The current implementation is a development foundation and is not ready for real personal data or beta use; products, tools, activities, export/deletion, native recovery testing, real Supabase Chemical Services smoke evidence, and full acceptance evidence remain open.
+The active product contract is [docs/PHASE_1.md](docs/PHASE_1.md). The older PRDs remain reference material. The current implementation is a development foundation and is not ready for real personal data or beta use; products, tools, activities, export/deletion, Android development/release-build recovery testing, real Supabase Chemical Services smoke evidence, and full acceptance evidence remain open.
+
+As approved on 16 September 2026, Android is the sole Phase 1 native release target and iOS implementation and validation are deferred beyond Phase 1. Web remains a development smoke/export surface, not the native beta target. A signed beta candidate will use a Google Play internal test track after the Android-only release gates pass; this scope amendment does not mark any acceptance case Complete.
 
 ## Repository layout
 
@@ -36,7 +38,7 @@ Copy the local API URL and public anon/publishable key into `apps/mobile/.env`. 
 npm run mobile
 ```
 
-The browser build keeps auth data in memory for preview purposes. Native secure storage, cold/warm password recovery, and real email redirects require a development build on supported devices.
+The browser build keeps auth data in memory for preview purposes. Android secure storage, cold/warm password recovery, and real email redirects require real Android development/release builds on supported devices.
 
 ## Verification
 
