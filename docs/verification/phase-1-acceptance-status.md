@@ -13,8 +13,8 @@ Amendment note — 16 September 2026: Android-only native release scope is an ap
 | P1-AC-05 | Partial | Passport unknown values round-trip; product, chemistry, and heat unknowns do not exist yet. |
 | P1-AC-06 | Partial | Immutable Passport change/current/history is covered by domain and PostgreSQL tests; Android development/release-build flow remains. |
 | P1-AC-07 | Partial | Backdating, approximate dates, corrections, correction chains, and ambiguity are covered in domain/database tests; Android component/device flow remains. |
-| P1-AC-08 | Partial | Chemical service contracts, embedded database history, mobile RPC parsing, and Services UI contracts cover Keratin/Nanoplasty without inferred chemistry/heat; real Supabase API, Android development/release-build UI smoke, and device accessibility evidence remain. |
-| P1-AC-09 | Partial | Region+segment zone pairs survive domain and embedded database storage/history tests, including corrections and cross-owner FK checks; real Supabase API and Android development/release-build UI smoke remain. |
+| P1-AC-08 | Partial | Chemical service contracts, embedded database history, mobile RPC parsing, and Services UI contracts cover Keratin/Nanoplasty without inferred chemistry/heat; the authenticated real Supabase Chemical Services RPC/RLS/API path has passed. Android development/release-build Chemical Services UI smoke and device accessibility evidence remain. |
+| P1-AC-09 | Partial | Region+segment zone pairs survive domain and embedded database storage/history tests, including corrections and cross-owner FK checks; the authenticated real Supabase Chemical Services RPC/RLS/API path has passed. Android development/release-build two-zone UI smoke and accessibility evidence remain. |
 | P1-AC-10 | Open | Product versions and successors are not implemented. |
 | P1-AC-11 | Open | Private manual products and later matching are not implemented. |
 | P1-AC-12 | Open | Field-scoped catalogue verification is not implemented. |
@@ -29,7 +29,7 @@ Amendment note — 16 September 2026: Android-only native release scope is an ap
 | P1-AC-21 | Partial | Adult eligibility is enforced in UI/RPC; optional analytics preference is not implemented. |
 | P1-AC-22 | Partial | Passport model supports the listed hair patterns, grey/mixed, extensions, and budgets; full journey fixtures remain. |
 | P1-AC-23 | Partial | Current source contains no recommendation or diagnostic engine; complete app/API scope inspection waits for remaining slices. |
-| P1-AC-24 | Partial | Labels, roles, non-colour statuses, and 48px controls exist; screen-reader, large-text, poor-network, and pagination tests on the Android-only release matrix remain. |
+| P1-AC-24 | Partial | Labels, roles, non-colour statuses, and Android 48 dp controls exist; screen-reader, large-text, poor-network, and pagination tests on the Android-only release matrix remain. |
 | P1-AC-25 | Partial | Fresh Supabase Postgres 17 rebuild and Auth/PostgREST permission checks pass; backup restore is not proven. |
 
 No case is marked complete until its full acceptance path has current evidence. Detailed foundation findings are in `docs/verification/foundation-review.md`; Chemical Services evidence is in `docs/verification/chemical-services-review.md`.
