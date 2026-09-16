@@ -40,14 +40,24 @@ The browser build keeps auth data in memory for preview purposes. Native secure 
 
 ## Verification
 
+Use the canonical verification gate locally and in CI:
+
 ```powershell
-npm run typecheck
-npm test
-npm run test:coverage
-npm run audit:control-plane
-npm run export:web --workspace @strandcue/mobile
+npm run verify
 ```
 
-`audit:control-plane` validates project-authored metadata only. It does not claim upstream v4.5 bootstrap execution, runtime conformance, security scanning, or release approval. See [the acceptance matrix](docs/verification/phase-1-acceptance-status.md) for current release gates.
+The gate requires Node 24 and registry access for the live dependency advisory and Expo compatibility checks. For focused diagnosis, run individual stages as needed:
+
+```powershell
+npm run typecheck
+npm run lint
+npm run test:coverage
+npm run audit:control-plane
+npm run audit:dependencies
+npm run check:expo
+npm run export:web
+```
+
+The configured percentage coverage thresholds apply to the shared domain surface in `packages/domain/src`. `audit:control-plane` validates project-authored metadata only. It does not claim upstream v4.5 bootstrap execution, runtime conformance, security scanning, or release approval. See [the acceptance matrix](docs/verification/phase-1-acceptance-status.md) for current release gates.
 
 The host protects the existing root `AGENTS.md`, so the reviewed project-specific routing addition is stored at [.assistant/tooling/agents-addition.md](.assistant/tooling/agents-addition.md). Load it with the root instructions until the host permits a direct merge.
