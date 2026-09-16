@@ -7,7 +7,7 @@ export default defineConfig([
     ignores: [
       '.worktrees/**',
       'coverage/**',
-      'dist/**',
+      '**/dist/**',
       'node_modules/**',
       'sources/**',
       'supabase/.temp/**',
