@@ -1,8 +1,8 @@
-# Phase 1A stabilization review — 16 September 2026
+# Phase 1A stabilization review — 17 September 2026
 
 ## Scope and tested revision
 
-This record covers the Phase 1A policy, tooling, configuration, and documentation changes on branch `codex/phase1a-stabilization`. The fresh Node 24 clean install and first complete verification run tested commit `f39c0c0f01bdd5ab48092bf1fef8d05b80f4cbb5` (`docs: correct Phase 1 release evidence`). The evidence document itself is committed separately and the complete branch gate is repeated after that commit.
+This record covers the Phase 1A policy, tooling, configuration, and documentation changes on branch `codex/phase1a-stabilization`. The fresh Node 24 clean install and complete verification run documented below tested security implementation commit `1cb0cedf61bd9f5e7ca82e06e8ca57bf8473402e` (`fix: enforce dependency exception surfaces`). The following evidence-only commit changes this document and no security implementation or policy input; this separation avoids claiming that an untested self-referential documentation HEAD was the tested implementation revision.
 
 Phase 1A is stabilization work, not product acceptance. It completes none of P1-AC-01 through P1-AC-25. The statuses in `docs/verification/phase-1-acceptance-status.md` remain Open or Partial; in particular, P1-AC-23, P1-AC-24, and P1-AC-25 remain Partial.
 
@@ -31,7 +31,7 @@ The controller also approved omitting source-text policy tests for lint configur
 | Domain typecheck | `tsc --noEmit` exited 0. |
 | Mobile typecheck | `tsc --noEmit` in `@strandcue/mobile` exited 0. |
 | Lint | ESLint covered `apps/mobile`, `packages/domain`, `scripts`, `tests`, `vitest.config.ts`, and `eslint.config.mjs` with `--max-warnings=0`; exit 0 and zero warnings. |
-| Tests | 14 files passed, 1 file skipped; 298 tests passed, 3 tests skipped; no failures. |
+| Tests | 14 files passed, 1 file skipped; 306 tests passed, 3 tests skipped; no failures. The focused dependency-policy file passed 52/52 tests and the complete tooling group passed 65/65 tests at the same implementation commit. |
 | Coverage | Statements 94.97% (227/239), branches 90.43% (104/115), functions 100% (66/66), lines 94.8% (219/231). |
 | Control-plane audit | `METADATA-PASS` with no findings. This local metadata audit does not verify installation, host-file integrity, malware safety, or fresh-session behaviour. |
 | Dependency policy | 0 critical, 0 high, 13 moderate vulnerability nodes, and 2 reviewed advisories; `DEPENDENCY-POLICY-PASS`. |
@@ -57,9 +57,9 @@ The npm summary's 13 moderate vulnerability nodes are derived dependency-tree no
 | Advisory | Exposure and assessment | Mitigation | Review / expiry |
 |---|---|---|---|
 | `GHSA-vcc3-ghjq-m6fr` | Three observed branches terminate at `decode-uri-component`: the leaf node, `query-string > decode-uri-component`, and `expo-router > query-string > decode-uri-component`. Route or callback parsing may process attacker-controlled encoded input on Android, web, or production, so reachability is recorded as uncertain. | Strict callback and route allowlisting reduces exposure. The registry explicitly records this as partial mitigation, not a decoder fix. | Approved 2026-09-13; review 2026-09-27; expires 2026-10-13. |
-| `GHSA-w5hq-g745-h8pq` | npm reports twenty-five branches: the affected `uuid` leaf path plus derived paths that enter it through `xcode` from Expo CLI, config, prebuild, Metro, and local-build-cache tooling. The installed packages are reviewed development/build-tool exposure; the affected iOS configuration code is not reachable from the Android or web application runtime. | Excluding the iOS configuration path limits current reachability. The registry explicitly records that this scope boundary is not a dependency fix. | Approved 2026-09-13; review 2026-09-27; expires 2026-10-13. |
+| `GHSA-w5hq-g745-h8pq` | npm reports twenty-five branches: the affected `uuid` leaf path plus derived paths that enter it through `xcode` from Expo CLI, config, prebuild, Metro, and local-build-cache tooling. All observed branches are classified as `ios-build-tooling`; the affected iOS configuration code is not reachable from the Android or web application runtime. | Excluding the iOS configuration path limits current reachability. The registry explicitly records that this scope boundary is not a dependency fix. | Approved 2026-09-13; review 2026-09-27; expires 2026-10-13. |
 
-The policy gate fails critical/high advisories, rejects a moderate vulnerability node unless it resolves to at least one moderate-or-higher concrete GHSA advisory, and requires every moderate GHSA branch to match an exact reviewed root-to-leaf package path with approved surfaces. A different or additional path is unreviewed even when its GHSA identifier already has an exception. Both current exceptions pass on their 27 September 2026 review date, fail beginning 28 September until deliberately renewed, and retain their separate expiry gate after 13 October 2026.
+The policy gate fails critical/high advisories, rejects a moderate vulnerability node unless it resolves to at least one moderate-or-higher concrete GHSA advisory, and requires every moderate GHSA branch to match an exact reviewed authorization tuple: GHSA identifier, root-to-leaf package path, and sorted observed surface set. Observed surfaces are derived independently from the validated npm audit `effects`/`via` graph, root/workspace manifests, and Expo runtime-platform configuration; the exception registry does not supply that evidence. The three route-parser branches resolve to `android`, `production`, and `web`, while the twenty-five current UUID/Xcode branches resolve to `ios-build-tooling`. A different or additional path, the same path gaining an Android/production or mixed surface, contradictory dependency evidence, or an unclassified exposure fails closed even when its GHSA identifier already has an exception. Both current exceptions pass on their 27 September 2026 review date, fail beginning 28 September until deliberately renewed, and retain their separate expiry gate after 13 October 2026.
 
 ## Android-only contract and configuration
 
