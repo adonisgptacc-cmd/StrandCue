@@ -2,16 +2,20 @@
   {
     "advisoryId": "GHSA-vcc3-ghjq-m6fr",
     "packages": [
-      "decode-uri-component",
-      "query-string",
-      "expo-router"
+      {
+        "path": ["decode-uri-component"],
+        "surfaces": ["android", "web", "production"]
+      },
+      {
+        "path": ["query-string", "decode-uri-component"],
+        "surfaces": ["android", "web", "production"]
+      },
+      {
+        "path": ["expo-router", "query-string", "decode-uri-component"],
+        "surfaces": ["android", "web", "production"]
+      }
     ],
     "severity": "moderate",
-    "surfaces": [
-      "android",
-      "web",
-      "production"
-    ],
     "reachable": "uncertain",
     "assessment": "expo-router reaches decode-uri-component through query-string, and route or callback parsing may process attacker-controlled encoded input in production.",
     "mitigation": "Strict callback and route allowlisting reduces exposure but is only a partial mitigation and does not fix the vulnerable decoder.",
@@ -24,16 +28,110 @@
   {
     "advisoryId": "GHSA-w5hq-g745-h8pq",
     "packages": [
-      "uuid",
-      "xcode",
-      "@expo/cli"
+      {
+        "path": ["uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      },
+      {
+        "path": ["expo", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
+        "surfaces": ["development"]
+      }
     ],
     "severity": "moderate",
-    "surfaces": [
-      "development"
-    ],
     "reachable": "no",
-    "assessment": "The affected uuid use is reached through Expo's xcode configuration tooling. That iOS configuration path is outside the Android-only Phase 1 runtime, while the installed build-tool dependency remains reviewed exposure.",
+    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Every non-leaf branch is configuration or build tooling; that iOS-only code is not reachable from the Android or web application runtime, while the installed development-tool packages remain reviewed exposure.",
     "mitigation": "Phase 1 excludes the affected iOS configuration path; this scope boundary limits current reachability but is not a dependency fix.",
     "owner": "StrandCue maintainer",
     "approvedOn": "2026-09-13",

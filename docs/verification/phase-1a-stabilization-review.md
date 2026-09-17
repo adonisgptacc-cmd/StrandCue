@@ -15,6 +15,12 @@ Phase 1A is stabilization work, not product acceptance. It completes none of P1-
 - `git diff --check`: exit 0 after the clean install and verification.
 - `git status --short --branch --untracked-files=all`: only `## codex/phase1a-stabilization`; generated `node_modules` and `apps/mobile/dist` output stayed ignored, with no environment or unrelated application changes.
 
+## Approved implementation deviations and validation
+
+The Phase 1A controller approved two Expo-compatible dependency deviations from the implementation plan. ESLint is pinned to `9.39.5`, not the planned ESLint 10, because Expo SDK 57's resolved lint plugins reject ESLint 10 in their peer/runtime compatibility ranges. The direct TypeScript import resolver remains pinned at `3.10.1`; the clean `npm ls --all` result and zero-warning lint gate verify the installed ESLint 9 toolchain. TypeScript is pinned to `~6.0.3`, not the planned TypeScript 7, because Expo SDK 57's dependency check requires that compatible TypeScript line. Both domain and mobile typechecks and `expo install --check` passed with the selected version.
+
+The controller also approved omitting source-text policy tests for lint configuration, the canonical verification script/workflow, and platform/prose scope. Those proposed tests could only detect intentional text edits rather than exercise behavior. Instead, Phase 1A used command-level RED evidence for the missing lint command and the former incomplete verification chain, then verified behavior through the real `npm run lint` and canonical `npm run verify` commands. Android/web platform scope was verified through Expo's resolved public configuration plus direct configuration and authoritative-document inspection. No source-text lint, verification, or platform policy test was added.
+
 ## Canonical verification
 
 `npm run verify` exited 0 under Node `v24.21.0` and ran the following single local/CI-equivalent chain:
@@ -25,7 +31,7 @@ Phase 1A is stabilization work, not product acceptance. It completes none of P1-
 | Domain typecheck | `tsc --noEmit` exited 0. |
 | Mobile typecheck | `tsc --noEmit` in `@strandcue/mobile` exited 0. |
 | Lint | ESLint covered `apps/mobile`, `packages/domain`, `scripts`, `tests`, `vitest.config.ts`, and `eslint.config.mjs` with `--max-warnings=0`; exit 0 and zero warnings. |
-| Tests | 14 files passed, 1 file skipped; 286 tests passed, 3 tests skipped; no failures. |
+| Tests | 14 files passed, 1 file skipped; 298 tests passed, 3 tests skipped; no failures. |
 | Coverage | Statements 94.97% (227/239), branches 90.43% (104/115), functions 100% (66/66), lines 94.8% (219/231). |
 | Control-plane audit | `METADATA-PASS` with no findings. This local metadata audit does not verify installation, host-file integrity, malware safety, or fresh-session behaviour. |
 | Dependency policy | 0 critical, 0 high, 13 moderate vulnerability nodes, and 2 reviewed advisories; `DEPENDENCY-POLICY-PASS`. |
@@ -50,10 +56,10 @@ The npm summary's 13 moderate vulnerability nodes are derived dependency-tree no
 
 | Advisory | Exposure and assessment | Mitigation | Review / expiry |
 |---|---|---|---|
-| `GHSA-vcc3-ghjq-m6fr` | `decode-uri-component` through `expo-router > query-string`; route or callback parsing may process attacker-controlled encoded input on Android, web, or production, so reachability is recorded as uncertain. | Strict callback and route allowlisting reduces exposure. The registry explicitly records this as partial mitigation, not a decoder fix. | Approved 2026-09-13; review 2026-09-27; expires 2026-10-13. |
-| `GHSA-w5hq-g745-h8pq` | `uuid` through Expo's `xcode` tooling; the affected iOS configuration path is outside the Android-only Phase 1 runtime, while the installed development/build-tool dependency remains reviewed exposure. | Excluding the iOS configuration path limits current reachability. The registry explicitly records that this scope boundary is not a dependency fix. | Approved 2026-09-13; review 2026-09-27; expires 2026-10-13. |
+| `GHSA-vcc3-ghjq-m6fr` | Three observed branches terminate at `decode-uri-component`: the leaf node, `query-string > decode-uri-component`, and `expo-router > query-string > decode-uri-component`. Route or callback parsing may process attacker-controlled encoded input on Android, web, or production, so reachability is recorded as uncertain. | Strict callback and route allowlisting reduces exposure. The registry explicitly records this as partial mitigation, not a decoder fix. | Approved 2026-09-13; review 2026-09-27; expires 2026-10-13. |
+| `GHSA-w5hq-g745-h8pq` | npm reports twenty-five branches: the affected `uuid` leaf path plus derived paths that enter it through `xcode` from Expo CLI, config, prebuild, Metro, and local-build-cache tooling. The installed packages are reviewed development/build-tool exposure; the affected iOS configuration code is not reachable from the Android or web application runtime. | Excluding the iOS configuration path limits current reachability. The registry explicitly records that this scope boundary is not a dependency fix. | Approved 2026-09-13; review 2026-09-27; expires 2026-10-13. |
 
-The policy gate fails critical/high advisories and fails any observed moderate advisory without a complete, matching, current GHSA exception. Both current exceptions require review on 27 September 2026 and expire after 13 October 2026 unless removed or renewed through review.
+The policy gate fails critical/high advisories, rejects a moderate vulnerability node unless it resolves to at least one moderate-or-higher concrete GHSA advisory, and requires every moderate GHSA branch to match an exact reviewed root-to-leaf package path with approved surfaces. A different or additional path is unreviewed even when its GHSA identifier already has an exception. Both current exceptions pass on their 27 September 2026 review date, fail beginning 28 September until deliberately renewed, and retain their separate expiry gate after 13 October 2026.
 
 ## Android-only contract and configuration
 

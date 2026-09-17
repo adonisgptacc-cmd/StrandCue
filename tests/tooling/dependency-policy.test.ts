@@ -9,25 +9,48 @@ import { auditDependencyPolicy } from '../../scripts/dependency-policy';
 const TODAY = '2026-09-13';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
 const ADVISORY_URL = `https://github.com/advisories/${ADVISORY_ID}`;
+const UUID_ADVISORY_ID = 'GHSA-w5hq-g745-h8pq';
+const UUID_ADVISORY_URL = `https://github.com/advisories/${UUID_ADVISORY_ID}`;
+type AuditSeverity = 'info' | 'low' | 'moderate' | 'high' | 'critical';
+
+type AdvisoryFixture = {
+  source: number;
+  name: string;
+  dependency: string;
+  title: string;
+  url: string;
+  severity: AuditSeverity;
+  cwe: string[];
+  cvss: { score: number; vectorString: string };
+  range: string;
+};
+
+function approvedBranch(
+  path: string[],
+  surfaces: ('android' | 'web' | 'development' | 'production')[],
+) {
+  return { path, surfaces };
+}
 
 function auditReport(severity: 'moderate' | 'high' | 'critical' = 'moderate') {
+  const advisory: AdvisoryFixture = {
+    source: 1,
+    name: 'decode-uri-component',
+    dependency: 'decode-uri-component',
+    title: 'Improper input validation',
+    url: ADVISORY_URL,
+    severity,
+    cwe: ['CWE-20'],
+    cvss: { score: 5.3, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L' },
+    range: '<0.2.2',
+  };
   return {
     auditReportVersion: 2,
     vulnerabilities: {
       'decode-uri-component': {
         name: 'decode-uri-component',
         severity,
-        via: [{
-          source: 1,
-          name: 'decode-uri-component',
-          dependency: 'decode-uri-component',
-          title: 'Improper input validation',
-          url: ADVISORY_URL,
-          severity,
-          cwe: ['CWE-20'],
-          cvss: { score: 5.3, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L' },
-          range: '<0.2.2',
-        }],
+        via: [advisory],
         effects: ['query-string'],
         range: '<0.2.2',
         nodes: ['node_modules/decode-uri-component'],
@@ -40,9 +63,13 @@ function auditReport(severity: 'moderate' | 'high' | 'critical' = 'moderate') {
 function currentException(overrides: Record<string, unknown> = {}) {
   return {
     advisoryId: ADVISORY_ID,
-    packages: ['decode-uri-component', 'query-string', 'expo-router'],
+    packages: [
+      approvedBranch(
+        ['decode-uri-component'],
+        ['production', 'android'],
+      ),
+    ],
     severity: 'moderate',
-    surfaces: ['production', 'android'],
     reachable: 'uncertain',
     assessment: 'Route parsing can process attacker-controlled callback input.',
     mitigation: 'Strict callback and route allowlists reduce, but do not eliminate, exposure.',
@@ -53,6 +80,60 @@ function currentException(overrides: Record<string, unknown> = {}) {
     upgradePath: 'Upgrade query-string or expo-router when a compatible fix is available.',
     ...overrides,
   };
+}
+
+function uuidException(overrides: Record<string, unknown> = {}) {
+  return currentException({
+    advisoryId: UUID_ADVISORY_ID,
+    packages: [
+      approvedBranch(['uuid'], ['development']),
+      approvedBranch(['xcode', 'uuid'], ['development']),
+    ],
+    reachable: 'no',
+    assessment: 'The affected UUID use is limited to reviewed Xcode tooling branches.',
+    mitigation: 'The iOS tooling branch is outside the Android-only release runtime.',
+    upgradePath: 'Upgrade Expo Xcode tooling to a compatible fixed UUID release.',
+    ...overrides,
+  });
+}
+
+function uuidAuditReport(options: { includeAndroid: boolean; includeXcode: boolean }) {
+  const vulnerabilities: Record<string, {
+    name: string;
+    severity: 'moderate';
+    via: (string | {
+      name: string;
+      severity: 'moderate';
+      url: string;
+    })[];
+  }> = {
+    uuid: {
+      name: 'uuid',
+      severity: 'moderate',
+      via: [{
+        name: 'uuid',
+        severity: 'moderate',
+        url: UUID_ADVISORY_URL,
+      }],
+    },
+  };
+
+  if (options.includeXcode) {
+    vulnerabilities.xcode = {
+      name: 'xcode',
+      severity: 'moderate',
+      via: ['uuid'],
+    };
+  }
+  if (options.includeAndroid) {
+    vulnerabilities['android-runtime'] = {
+      name: 'android-runtime',
+      severity: 'moderate',
+      via: ['uuid'],
+    };
+  }
+
+  return { auditReportVersion: 2, vulnerabilities };
 }
 
 describe('dependency advisory policy', () => {
@@ -85,6 +166,8 @@ describe('dependency advisory policy', () => {
     ['review-before-approval', { reviewOn: '2026-09-12' }, 'EXCEPTION-DATE'],
     ['review-after-expiry', { reviewOn: '2026-10-14' }, 'EXCEPTION-DATE'],
     ['incomplete', { mitigation: '' }, 'EXCEPTION-SCHEMA'],
+    ['missing branch path', { packages: [{ path: [], surfaces: ['development'] }] }, 'EXCEPTION-SCHEMA'],
+    ['missing branch surface', { packages: [{ path: ['uuid'], surfaces: [] }] }, 'EXCEPTION-SCHEMA'],
   ])('fails %s exceptions', (_caseName, override, expectedCode) => {
     const findings = auditDependencyPolicy(
       auditReport(),
@@ -101,6 +184,36 @@ describe('dependency advisory policy', () => {
       [currentException()],
       TODAY,
     )).toEqual([]);
+  });
+
+  it('allows an exception on its review date', () => {
+    expect(auditDependencyPolicy(
+      auditReport(),
+      [currentException()],
+      '2026-09-27',
+    )).toEqual([]);
+  });
+
+  it('requires deliberate renewal on the day after reviewOn', () => {
+    expect(auditDependencyPolicy(
+      auditReport(),
+      [currentException()],
+      '2026-09-28',
+    )).toContainEqual({
+      code: 'EXCEPTION-REVIEW-DUE',
+      message: `Exception review is due: ${ADVISORY_ID}.`,
+    });
+  });
+
+  it('retains the separate expiry gate after expiresOn', () => {
+    expect(auditDependencyPolicy(
+      auditReport(),
+      [currentException()],
+      '2026-10-14',
+    )).toContainEqual({
+      code: 'EXCEPTION-DATE',
+      message: `Exception dates are invalid or not current: ${ADVISORY_ID}.`,
+    });
   });
 
   it('rejects a moderate vulnerability graph with no concrete GHSA advisory', () => {
@@ -190,6 +303,65 @@ describe('dependency advisory policy', () => {
     expect(auditDependencyPolicy(report, [currentException()], TODAY)).toContainEqual(
       expect.objectContaining({ code: 'ADVISORY-SEVERITY' }),
     );
+  });
+
+  it('rejects a moderate vulnerability node that resolves only to a low advisory', () => {
+    const report = auditReport();
+    report.vulnerabilities['decode-uri-component'].via[0] = {
+      ...report.vulnerabilities['decode-uri-component'].via[0],
+      severity: 'low',
+    };
+
+    expect(auditDependencyPolicy(report, [], TODAY)).toContainEqual({
+      code: 'ADVISORY-RESOLUTION-SEVERITY',
+      message: 'Moderate vulnerability must resolve to a moderate-or-higher concrete GHSA advisory.',
+    });
+  });
+
+  it('accepts a moderate node when at least one moderate advisory is excepted alongside a low advisory', () => {
+    const report = auditReport();
+    report.vulnerabilities['decode-uri-component'].via.push({
+      ...report.vulnerabilities['decode-uri-component'].via[0],
+      name: 'lower-severity-leaf',
+      url: 'https://github.com/advisories/GHSA-2345-2345-2345',
+      severity: 'low',
+    });
+
+    expect(auditDependencyPolicy(report, [currentException()], TODAY)).toEqual([]);
+  });
+
+  it('rejects an excepted GHSA when it moves from Xcode tooling to an Android production path', () => {
+    const findings = auditDependencyPolicy(
+      uuidAuditReport({ includeAndroid: true, includeXcode: false }),
+      [uuidException()],
+      TODAY,
+    );
+
+    expect(findings).toContainEqual({
+      code: 'ADVISORY-PATH-UNREVIEWED',
+      message: 'Observed advisory dependency path has not been reviewed.',
+    });
+  });
+
+  it('rejects a mixed graph containing both approved and new paths for an excepted GHSA', () => {
+    const findings = auditDependencyPolicy(
+      uuidAuditReport({ includeAndroid: true, includeXcode: true }),
+      [uuidException()],
+      TODAY,
+    );
+
+    expect(findings.filter(({ code }) => code === 'ADVISORY-PATH-UNREVIEWED')).toEqual([{
+      code: 'ADVISORY-PATH-UNREVIEWED',
+      message: 'Observed advisory dependency path has not been reviewed.',
+    }]);
+  });
+
+  it('accepts every observed branch when its path and surface are explicitly approved', () => {
+    expect(auditDependencyPolicy(
+      uuidAuditReport({ includeAndroid: false, includeXcode: true }),
+      [uuidException()],
+      TODAY,
+    )).toEqual([]);
   });
 
   it('does not mutate the audit report or exception registry', () => {
@@ -389,6 +561,58 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('ADVISORY-SEVERITY');
+    expect(result.stdout).not.toContain(untrustedPackageName);
+  });
+
+  it('reports a severity contradiction with a fixed code and no untrusted details', async () => {
+    const untrustedPackageName = 'attacker-controlled-moderate-package';
+    const report = {
+      auditReportVersion: 2,
+      vulnerabilities: {
+        hostile: {
+          name: untrustedPackageName,
+          severity: 'moderate',
+          via: [{
+            name: untrustedPackageName,
+            severity: 'low',
+            url: 'https://github.com/advisories/GHSA-2345-2345-2345',
+          }],
+        },
+      },
+    };
+
+    const result = await runAuditCli({
+      stdout: JSON.stringify(report),
+      auditExitCode: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('ADVISORY-RESOLUTION-SEVERITY');
+    expect(result.stdout).not.toContain(untrustedPackageName);
+  });
+
+  it('reports an unreviewed branch with a fixed code and no untrusted path details', async () => {
+    const untrustedPackageName = 'attacker-controlled-android-runtime';
+    const baseline = cliAuditReport();
+    const report = {
+      ...baseline,
+      vulnerabilities: {
+        ...baseline.vulnerabilities,
+        hostile: {
+          name: untrustedPackageName,
+          severity: 'moderate',
+          via: ['uuid'],
+        },
+      },
+    };
+
+    const result = await runAuditCli({
+      stdout: JSON.stringify(report),
+      auditExitCode: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('ADVISORY-PATH-UNREVIEWED');
     expect(result.stdout).not.toContain(untrustedPackageName);
   });
 });

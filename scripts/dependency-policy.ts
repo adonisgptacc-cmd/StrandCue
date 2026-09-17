@@ -16,6 +16,7 @@ const ghsaIdPattern = /^GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}
 const ghsaUrlPattern = /^https:\/\/github\.com\/advisories\/(GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4})$/;
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 const severitySchema = z.enum(['info', 'low', 'moderate', 'high', 'critical']);
+const surfaceSchema = z.enum(['android', 'web', 'development', 'production']);
 
 const advisorySchema = z.object({
   name: z.string().trim().min(1),
@@ -34,11 +35,15 @@ const auditReportSchema = z.object({
   vulnerabilities: z.record(z.string().min(1), vulnerabilitySchema),
 }).passthrough();
 
+const approvedPackageBranchSchema = z.object({
+  path: z.array(z.string().trim().min(1)).min(1),
+  surfaces: z.array(surfaceSchema).min(1),
+}).strict();
+
 const exceptionSchema = z.object({
   advisoryId: z.string().regex(ghsaIdPattern),
-  packages: z.array(z.string().trim().min(1)).min(1),
+  packages: z.array(approvedPackageBranchSchema).min(1),
   severity: z.literal('moderate'),
-  surfaces: z.array(z.enum(['android', 'web', 'development', 'production'])).min(1),
   reachable: z.enum(['yes', 'no', 'uncertain']),
   assessment: z.string().trim().min(1),
   mitigation: z.string().trim().min(1),
@@ -90,8 +95,14 @@ function advisoryIdFromUrl(url: string): string {
   return ghsaUrlPattern.exec(url)?.[1] ?? '';
 }
 
+type ResolvedAdvisoryBranch = {
+  advisoryId: string;
+  severity: z.infer<typeof severitySchema>;
+  path: string[];
+};
+
 type AdvisoryBranchResolution = {
-  advisoryIds: string[];
+  advisoryBranches: ResolvedAdvisoryBranch[];
   unidentifiedPaths: string[][];
 };
 
@@ -102,24 +113,40 @@ function resolveAdvisoryBranches(
 ): AdvisoryBranchResolution {
   const currentPath = [...path, packageName];
   if (path.includes(packageName)) {
-    return { advisoryIds: [], unidentifiedPaths: [currentPath] };
+    return { advisoryBranches: [], unidentifiedPaths: [currentPath] };
   }
 
   const vulnerability = vulnerabilities[packageName];
   if (!vulnerability || vulnerability.via.length === 0) {
-    return { advisoryIds: [], unidentifiedPaths: [currentPath] };
+    return { advisoryBranches: [], unidentifiedPaths: [currentPath] };
   }
 
   return vulnerability.via.reduce<AdvisoryBranchResolution>((resolution, via) => {
     const branch = typeof via === 'string'
       ? resolveAdvisoryBranches(via, vulnerabilities, currentPath)
-      : { advisoryIds: [advisoryIdFromUrl(via.url)], unidentifiedPaths: [] };
+      : {
+          advisoryBranches: [{
+            advisoryId: advisoryIdFromUrl(via.url),
+            severity: via.severity,
+            path: currentPath.at(-1) === via.name
+              ? currentPath
+              : [...currentPath, via.name],
+          }],
+          unidentifiedPaths: [],
+        };
 
     return {
-      advisoryIds: [...resolution.advisoryIds, ...branch.advisoryIds],
+      advisoryBranches: [
+        ...resolution.advisoryBranches,
+        ...branch.advisoryBranches,
+      ],
       unidentifiedPaths: [...resolution.unidentifiedPaths, ...branch.unidentifiedPaths],
     };
-  }, { advisoryIds: [], unidentifiedPaths: [] });
+  }, { advisoryBranches: [], unidentifiedPaths: [] });
+}
+
+function packagePathSignature(path: string[]): string {
+  return JSON.stringify(path);
 }
 
 export function auditDependencyPolicy(
@@ -179,6 +206,22 @@ export function auditDependencyPolicy(
       : [finding('EXCEPTION-DATE', `Exception dates are invalid or not current: ${exception.advisoryId}.`)];
   });
 
+  const exceptionReviewFindings = parsedExceptions.data
+    .filter(exception => (
+      isIsoDate(exception.approvedOn)
+      && isIsoDate(exception.reviewOn)
+      && isIsoDate(exception.expiresOn)
+      && exception.approvedOn <= exception.reviewOn
+      && exception.reviewOn <= exception.expiresOn
+      && exception.approvedOn <= today
+      && today <= exception.expiresOn
+      && today > exception.reviewOn
+    ))
+    .map(exception => finding(
+      'EXCEPTION-REVIEW-DUE',
+      `Exception review is due: ${exception.advisoryId}.`,
+    ));
+
   const advisoryFindings = uniqueAdvisories.flatMap(advisory => {
     if (advisory.severity === 'high' || advisory.severity === 'critical') {
       return [finding(
@@ -206,19 +249,61 @@ export function auditDependencyPolicy(
       `${vulnerability.severity} vulnerability cannot be excepted: ${vulnerability.name}.`,
     ));
 
-  const unidentifiedModerateFindings = Object.entries(parsedReport.data.vulnerabilities)
+  const moderateResolutions = Object.entries(parsedReport.data.vulnerabilities)
     .filter(([, vulnerability]) => vulnerability.severity === 'moderate')
-    .filter(([packageName]) => {
-      const resolution = resolveAdvisoryBranches(
+    .map(([packageName, vulnerability]) => ({
+      vulnerability,
+      resolution: resolveAdvisoryBranches(
         packageName,
         parsedReport.data.vulnerabilities,
-      );
-      return resolution.advisoryIds.length === 0 || resolution.unidentifiedPaths.length > 0;
-    })
-    .map(([, vulnerability]) => finding(
+      ),
+    }));
+
+  const unidentifiedModerateFindings = moderateResolutions
+    .filter(({ resolution }) => (
+      resolution.advisoryBranches.length === 0
+      || resolution.unidentifiedPaths.length > 0
+    ))
+    .map(({ vulnerability }) => finding(
       'ADVISORY-UNIDENTIFIED',
       `Moderate vulnerability has no concrete GHSA advisory: ${vulnerability.name}.`,
     ));
+
+  const inadequateResolutionFindings = moderateResolutions
+    .filter(({ resolution }) => (
+      resolution.advisoryBranches.length > 0
+      && resolution.advisoryBranches.every(({ severity }) => (
+        severity === 'info' || severity === 'low'
+      ))
+    ))
+    .map(() => finding(
+      'ADVISORY-RESOLUTION-SEVERITY',
+      'Moderate vulnerability must resolve to a moderate-or-higher concrete GHSA advisory.',
+    ));
+
+  const relevantModerateBranches = [...new Map(
+    moderateResolutions.flatMap(({ resolution }) => resolution.advisoryBranches)
+      .filter(({ severity }) => severity === 'moderate')
+      .map(branch => [
+        `${branch.advisoryId}:${packagePathSignature(branch.path)}`,
+        branch,
+      ]),
+  ).values()];
+
+  const unreviewedPathFindings = relevantModerateBranches.flatMap(branch => {
+    const exception = exceptionById.get(branch.advisoryId);
+    if (!exception) return [];
+
+    const approvedPaths = new Set(
+      exception.packages.map(({ path }) => packagePathSignature(path)),
+    );
+    return approvedPaths.has(packagePathSignature(branch.path))
+      ? []
+      : [finding(
+          'ADVISORY-PATH-UNREVIEWED',
+          'Observed advisory dependency path has not been reviewed.',
+        )];
+  });
 
   const staleExceptionFindings = parsedExceptions.data
     .filter(exception => !observedAdvisoryIds.has(exception.advisoryId))
@@ -230,9 +315,12 @@ export function auditDependencyPolicy(
   return [
     ...duplicateExceptionFindings,
     ...exceptionDateFindings,
+    ...exceptionReviewFindings,
     ...advisoryFindings,
     ...severeNodeFindings,
     ...unidentifiedModerateFindings,
+    ...inadequateResolutionFindings,
+    ...unreviewedPathFindings,
     ...staleExceptionFindings,
   ];
 }
