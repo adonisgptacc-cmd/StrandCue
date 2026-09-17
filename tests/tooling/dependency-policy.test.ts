@@ -51,23 +51,47 @@ function manifestContext(options: {
   rootDevDependencies?: string[];
   mobileDependencies?: string[];
   mobilePlatforms?: ('android' | 'web')[];
+  additionalWorkspaces?: {
+    path: `apps/${string}/package.json` | `packages/${string}/package.json`;
+    name: string;
+    dependencies?: string[];
+    devDependencies?: string[];
+    runtimePlatforms?: readonly ('android' | 'web')[];
+  }[];
 } = {}) {
   const versions = (packages: string[]) => Object.fromEntries(
     packages.map(packageName => [packageName, '1.0.0']),
   );
 
+  const workspaces = [{
+    path: 'apps/mobile/package.json',
+    manifest: {
+      name: '@fixture/mobile',
+      dependencies: versions(options.mobileDependencies ?? []),
+      devDependencies: {},
+    },
+    runtimePlatforms: options.mobilePlatforms ?? ['android', 'web'],
+  }, ...(options.additionalWorkspaces ?? []).map(workspace => ({
+    path: workspace.path,
+    manifest: {
+      name: workspace.name,
+      dependencies: versions(workspace.dependencies ?? []),
+      devDependencies: versions(workspace.devDependencies ?? []),
+    },
+    ...(workspace.path.startsWith('apps/')
+      ? { runtimePlatforms: workspace.runtimePlatforms ?? ['android', 'web'] }
+      : {}),
+  }))];
+
   return {
     root: {
+      name: 'fixture-root',
+      workspaces: ['apps/*', 'packages/*'],
       dependencies: versions(options.rootDependencies ?? []),
       devDependencies: versions(options.rootDevDependencies ?? []),
     },
-    workspaces: [{
-      manifest: {
-        dependencies: versions(options.mobileDependencies ?? []),
-        devDependencies: {},
-      },
-      runtimePlatforms: options.mobilePlatforms ?? ['android', 'web'],
-    }],
+    workspaceManifestPaths: workspaces.map(({ path }) => path),
+    workspaces,
   };
 }
 
@@ -182,6 +206,29 @@ function uuidAuditReport(options: { includeAndroid: boolean; includeXcode: boole
   ];
 
   return { auditReportVersion: 2, vulnerabilities };
+}
+
+function xcodeChainAuditReport(higherRoots: string[]) {
+  const leafToRoot = ['uuid', 'xcode', ...higherRoots];
+  const vulnerabilities = Object.fromEntries(leafToRoot.map((packageName, index) => [
+    packageName,
+    {
+      name: packageName,
+      severity: 'moderate' as const,
+      via: index === 0
+        ? [{ name: 'uuid', severity: 'moderate' as const, url: UUID_ADVISORY_URL }]
+        : [leafToRoot[index - 1]],
+      effects: index === leafToRoot.length - 1 ? [] : [leafToRoot[index + 1]],
+    },
+  ]));
+  const approvedPaths = leafToRoot.map((_, index) => (
+    approvedBranch([...leafToRoot.slice(0, index + 1)].reverse(), ['ios-build-tooling'])
+  ));
+  return {
+    report: { auditReportVersion: 2, vulnerabilities },
+    exception: uuidException({ packages: approvedPaths }),
+    branchRoot: leafToRoot.at(-1)!,
+  };
 }
 
 describe('dependency advisory policy', () => {
@@ -503,6 +550,31 @@ describe('dependency advisory policy', () => {
     });
   });
 
+  it.each([
+    ['@expo/config-plugins', ['@expo/config-plugins'], false],
+    ['@expo/config-plugins mixed', ['@expo/config-plugins'], true],
+    ['@expo/config', ['@expo/config-plugins', '@expo/config'], false],
+    ['@expo/config mixed', ['@expo/config-plugins', '@expo/config'], true],
+  ] as const)(
+    'rejects higher Xcode root %s when the exact approved path gains runtime exposure',
+    (_caseName, higherRoots, includeDevelopment) => {
+      const { report, exception, branchRoot } = xcodeChainAuditReport([...higherRoots]);
+
+      expect(auditDependencyPolicy(
+        report,
+        [exception],
+        TODAY,
+        manifestContext({
+          rootDevDependencies: includeDevelopment ? [branchRoot] : [],
+          mobileDependencies: [branchRoot],
+        }),
+      )).toContainEqual({
+        code: 'ADVISORY-SURFACE-UNREVIEWED',
+        message: 'Observed advisory dependency surfaces have not been reviewed.',
+      });
+    },
+  );
+
   it('fails closed when an observed GHSA path has no manifest surface classification', () => {
     const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
 
@@ -558,17 +630,89 @@ describe('dependency advisory policy', () => {
     });
   });
 
-  it('fails closed when workspace manifest surface evidence is omitted', () => {
+  it('fails closed when a discovered workspace manifest is omitted from surface evidence', () => {
     const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+    const completeContext = manifestContext({ rootDevDependencies: ['uuid'] });
 
     expect(auditDependencyPolicyImplementation(
       report,
       [uuidException({ packages: [approvedBranch(['uuid'], ['development'])] })],
       TODAY,
-      { root: { dependencies: {}, devDependencies: {} }, workspaces: [] },
+      completeContext,
+    )).toEqual([]);
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [uuidException({ packages: [approvedBranch(['uuid'], ['development'])] })],
+      TODAY,
+      { ...completeContext, workspaces: [] },
     )).toContainEqual({
       code: 'SURFACE-CONTEXT-SCHEMA',
       message: 'Dependency manifest surface context is malformed or incomplete.',
+    });
+  });
+
+  it('fails closed when app platform evidence contains duplicates', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+    const context = manifestContext({ rootDevDependencies: ['uuid'] });
+    const mobile = context.workspaces[0];
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [uuidException({ packages: [approvedBranch(['uuid'], ['development'])] })],
+      TODAY,
+      {
+        ...context,
+        workspaces: [{ ...mobile, runtimePlatforms: ['android', 'android'] }],
+      },
+    )).toContainEqual({
+      code: 'SURFACE-CONTEXT-SCHEMA',
+      message: 'Dependency manifest surface context is malformed or incomplete.',
+    });
+  });
+
+  it.each([
+    {
+      label: 'a new apps workspace',
+      workspace: {
+        path: 'apps/companion/package.json' as const,
+        name: '@fixture/companion',
+        dependencies: ['uuid'],
+        runtimePlatforms: ['android', 'web'] as const,
+      },
+    },
+    {
+      label: 'a new packages workspace',
+      workspace: {
+        path: 'packages/runtime/package.json' as const,
+        name: '@fixture/runtime',
+        dependencies: ['uuid'],
+      },
+    },
+  ])('includes $label when deriving dependency exposure', ({ workspace }) => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+    const exception = uuidException({
+      packages: [approvedBranch(['uuid'], ['development'])],
+    });
+
+    expect(auditDependencyPolicy(
+      report,
+      [exception],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['uuid'] }),
+    )).toEqual([]);
+
+    expect(auditDependencyPolicy(
+      report,
+      [exception],
+      TODAY,
+      manifestContext({
+        rootDevDependencies: ['uuid'],
+        additionalWorkspaces: [workspace],
+      }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
     });
   });
 

@@ -90,48 +90,48 @@
       },
       {
         "path": ["expo", "@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       },
       {
         "path": ["expo", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "surfaces": ["android", "ios-build-tooling", "production", "web"]
       }
     ],
     "severity": "moderate",
     "reachable": "no",
-    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Every non-leaf branch is configuration or build tooling; that iOS-only code is not reachable from the Android or web application runtime, while the installed development-tool packages remain reviewed exposure.",
+    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Ten signatures rooted at the direct Expo application dependency are conservatively classified across Android, web, production, and iOS build tooling; the remaining fifteen signatures are iOS build tooling only. The affected UUID call remains in iOS configuration code rather than the Android or web application runtime.",
     "mitigation": "Phase 1 excludes the affected iOS configuration path; this scope boundary limits current reachability but is not a dependency fix.",
     "owner": "StrandCue maintainer",
     "approvedOn": "2026-09-13",

@@ -1,10 +1,15 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { lstat, readdir, readFile } from 'node:fs/promises';
 import {
   auditDependencyPolicy,
   countDependencyVulnerabilities,
   summarizeDependencyAudit,
 } from './dependency-policy.ts';
+import {
+  validateWorkspaceManifestPaths,
+  workspaceManifestCandidates,
+  workspaceManifestGlobs,
+} from './workspace-manifests.ts';
 
 const MAX_AUDIT_OUTPUT_BYTES = 20 * 1024 * 1024;
 
@@ -57,6 +62,26 @@ async function readJson(relativePath: string): Promise<unknown> {
   return JSON.parse(await readFile(new URL(relativePath, import.meta.url), 'utf8')) as unknown;
 }
 
+function isMissingFile(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+async function readRegularJson(
+  fileUrl: URL,
+  optional = false,
+): Promise<unknown | undefined> {
+  try {
+    const metadata = await lstat(fileUrl);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error('Workspace metadata must be a regular file');
+    }
+    return JSON.parse(await readFile(fileUrl, 'utf8')) as unknown;
+  } catch (error) {
+    if (optional && isMissingFile(error)) return undefined;
+    throw error;
+  }
+}
+
 function readRuntimePlatforms(appConfig: unknown): ('android' | 'web')[] {
   if (!appConfig || typeof appConfig !== 'object' || !('expo' in appConfig)) {
     throw new Error('Expo runtime surface configuration is unavailable');
@@ -76,18 +101,57 @@ function readRuntimePlatforms(appConfig: unknown): ('android' | 'web')[] {
 }
 
 async function readDependencySurfaceContext(): Promise<unknown> {
-  const [root, mobile, domain, appConfig] = await Promise.all([
-    readJson('../package.json'),
-    readJson('../apps/mobile/package.json'),
-    readJson('../packages/domain/package.json'),
-    readJson('../apps/mobile/app.json'),
-  ]);
+  const repositoryUrl = new URL('../', import.meta.url);
+  const root = await readJson('../package.json');
+  const workspaceRoots = workspaceManifestGlobs(root)
+    .map(pattern => pattern.split('/')[0]);
+  const directoryNamesByRoot: Record<string, string[]> = {};
+  const discoveredManifests = new Map<string, unknown>();
+
+  for (const workspaceRoot of workspaceRoots) {
+    const entries = await readdir(new URL(`${workspaceRoot}/`, repositoryUrl), {
+      withFileTypes: true,
+    });
+    for (const entry of [...entries].sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.isSymbolicLink()) {
+        throw new Error('Workspace roots cannot contain symbolic links');
+      }
+      if (entry.isDirectory()) {
+        directoryNamesByRoot[workspaceRoot] = [
+          ...(directoryNamesByRoot[workspaceRoot] ?? []),
+          entry.name,
+        ];
+      }
+    }
+  }
+
+  const candidates = workspaceManifestCandidates(root, directoryNamesByRoot);
+  await Promise.all(candidates.map(async manifestPath => {
+    const manifest = await readRegularJson(
+      new URL(manifestPath, repositoryUrl),
+      true,
+    );
+    if (manifest !== undefined) discoveredManifests.set(manifestPath, manifest);
+  }));
+
+  const workspaceManifestPaths = validateWorkspaceManifestPaths(
+    root,
+    [...discoveredManifests.keys()],
+  );
+  const workspaces = await Promise.all(workspaceManifestPaths.map(async path => {
+    const manifest = discoveredManifests.get(path);
+    if (manifest === undefined) throw new Error('Workspace manifest inventory changed');
+    if (!path.startsWith('apps/')) return { path, manifest };
+
+    const appConfigPath = path.replace(/package\.json$/, 'app.json');
+    const appConfig = await readRegularJson(new URL(appConfigPath, repositoryUrl));
+    return { path, manifest, runtimePlatforms: readRuntimePlatforms(appConfig) };
+  }));
+
   return {
     root,
-    workspaces: [
-      { manifest: mobile, runtimePlatforms: readRuntimePlatforms(appConfig) },
-      { manifest: domain },
-    ],
+    workspaceManifestPaths,
+    workspaces,
   };
 }
 

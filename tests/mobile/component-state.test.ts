@@ -1,14 +1,17 @@
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { User } from '@supabase/supabase-js';
 
 import { AuthScreen, serviceDraftCleanupNotice } from '../../apps/mobile/src/auth';
 import { PassportEditor } from '../../apps/mobile/src/passport-editor';
+import { Records } from '../../apps/mobile/src/records';
 import { Services } from '../../apps/mobile/src/services';
 import type { ServiceCursor, ServiceList, ServiceSummary } from '../../apps/mobile/src/services-api';
 
 const componentMocks = vi.hoisted(() => ({
   loadPassport: vi.fn(),
+  loadProfile: vi.fn(),
   loadService: vi.fn(),
   loadServices: vi.fn(),
   randomUUID: vi.fn(() => '30000000-0000-4000-8000-000000000001'),
@@ -50,7 +53,11 @@ vi.mock('expo-crypto', () => ({ randomUUID: componentMocks.randomUUID }));
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   RECOVERY_KEY: 'strandcue-recovery',
   secureStorage: componentMocks.storage,
-  supabase: null,
+  supabase: {
+    from: () => ({
+      select: () => ({ maybeSingle: componentMocks.loadProfile }),
+    }),
+  },
 }));
 
 vi.mock('../../apps/mobile/src/passport-api.ts', () => ({
@@ -131,6 +138,11 @@ beforeEach(() => {
   componentMocks.storage.getItem.mockResolvedValue(null);
   componentMocks.storage.removeItem.mockResolvedValue(undefined);
   componentMocks.storage.setItem.mockResolvedValue(undefined);
+  componentMocks.loadProfile.mockResolvedValue({
+    data: { username: 'fixture-owner' },
+    error: null,
+  });
+  componentMocks.loadPassport.mockResolvedValue(null);
 });
 
 describe('mobile component state contracts', () => {
@@ -146,6 +158,35 @@ describe('mobile component state contracts', () => {
 
     await act(async () => { renderer.update(createElement(AuthScreen, { notice: '' })); });
     await act(async () => { renderer.update(createElement(AuthScreen, { notice: serviceDraftCleanupNotice })); });
+
+    expect(renderedText(renderer)).toContain(serviceDraftCleanupNotice);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('shows a renewed Records warning after retry dismissal and an empty notice transition', async () => {
+    const user = {
+      id: ownerA,
+      email_confirmed_at: '2026-09-01T00:00:00.000Z',
+    } as User;
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(Records, { user, notice: serviceDraftCleanupNotice }));
+      await Promise.resolve();
+    });
+    expect(renderedText(renderer)).toContain(serviceDraftCleanupNotice);
+
+    await act(async () => {
+      press(renderer, 'Retry loading');
+      await Promise.resolve();
+    });
+    expect(renderedText(renderer)).not.toContain(serviceDraftCleanupNotice);
+
+    await act(async () => {
+      renderer.update(createElement(Records, { user, notice: '' }));
+    });
+    await act(async () => {
+      renderer.update(createElement(Records, { user, notice: serviceDraftCleanupNotice }));
+    });
 
     expect(renderedText(renderer)).toContain(serviceDraftCleanupNotice);
     await act(async () => { renderer.unmount(); });

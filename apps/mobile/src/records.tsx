@@ -23,7 +23,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [profile, setProfile] = useState<{username: string}|null>(null);
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
-  const [errorOverride, setErrorOverride] = useState<{notice: string; error: string}>();
+  const [errorState, setErrorState] = useState({notice, error: notice});
   const [tab, setTab] = useState<'Passport'|'Services'|'History'|'Settings'>('Passport');
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
@@ -34,8 +34,9 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [asOf, setAsOf] = useState('');
   const [historical, setHistorical] = useState<PassportRecord|null>(null);
   const [initialNotice] = useState(notice);
-  const error = errorOverride?.notice === notice ? errorOverride.error : notice;
-  const setError = (nextError: string) => setErrorOverride({notice, error: nextError});
+  if (errorState.notice !== notice) setErrorState({notice, error: notice});
+  const error = errorState.notice === notice ? errorState.error : notice;
+  const setError = (nextError: string) => setErrorState({notice, error: nextError});
   const ownerLoad = useOwnerLoad({
     ownerKey: user.id,
     load: async () => {
@@ -46,7 +47,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     },
     apply: result => {setProfile(result.profile); setRecord(result.record);},
     handleError: (caught, mode) => {
-      if (mode === 'initial') setErrorOverride({notice: initialNotice, error: saveErrorMessage(caught)});
+      if (mode === 'initial') setErrorState({notice: initialNotice, error: saveErrorMessage(caught)});
       else setError(saveErrorMessage(caught));
     },
     clearError: () => setError(''),

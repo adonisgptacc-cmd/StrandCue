@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateWorkspaceManifestPaths } from './workspace-manifests.ts';
 
 export type DependencyFinding = {
   code: string;
@@ -52,15 +53,53 @@ const packageManifestSchema = z.object({
   devDependencies: dependencyMapSchema.optional().default({}),
 }).passthrough();
 
+const rootSurfaceManifestSchema = packageManifestSchema.extend({
+  name: z.string().trim().min(1),
+  workspaces: z.array(z.string().trim().min(1)).min(1),
+});
+
+const workspacePackageManifestSchema = packageManifestSchema.extend({
+  name: z.string().trim().min(1),
+});
+
 const workspaceSurfaceContextSchema = z.object({
-  manifest: packageManifestSchema,
-  runtimePlatforms: z.array(runtimePlatformSchema).min(1).optional(),
+  path: z.string().trim().min(1),
+  manifest: workspacePackageManifestSchema,
+  runtimePlatforms: z.array(runtimePlatformSchema).min(1)
+    .refine(platforms => new Set(platforms).size === platforms.length)
+    .optional(),
 }).strict();
 
 const dependencySurfaceContextSchema = z.object({
-  root: packageManifestSchema,
+  root: rootSurfaceManifestSchema,
+  workspaceManifestPaths: z.array(z.string().trim().min(1)),
   workspaces: z.array(workspaceSurfaceContextSchema).min(1),
-}).strict();
+}).strict().superRefine((context, refinement) => {
+  let discoveredPaths: string[];
+  try {
+    discoveredPaths = validateWorkspaceManifestPaths(
+      context.root,
+      context.workspaceManifestPaths,
+    );
+  } catch {
+    refinement.addIssue({ code: 'custom', message: 'Invalid workspace manifest inventory.' });
+    return;
+  }
+
+  const suppliedPaths = context.workspaces.map(({ path }) => path);
+  const suppliedNames = context.workspaces.map(({ manifest }) => manifest.name);
+  const setsMatch = discoveredPaths.length === suppliedPaths.length
+    && discoveredPaths.every(path => suppliedPaths.includes(path));
+  const identitiesAreUnique = new Set(suppliedPaths).size === suppliedPaths.length
+    && new Set(suppliedNames).size === suppliedNames.length
+    && !suppliedNames.includes(context.root.name);
+  const surfacesMatchPaths = context.workspaces.every(({ path, runtimePlatforms }) => (
+    path.startsWith('apps/') ? runtimePlatforms !== undefined : runtimePlatforms === undefined
+  ));
+  if (!setsMatch || !identitiesAreUnique || !surfacesMatchPaths) {
+    refinement.addIssue({ code: 'custom', message: 'Workspace manifest evidence is incomplete.' });
+  }
+});
 
 const approvedPackageBranchSchema = z.object({
   path: z.array(z.string().trim().min(1)).min(1),
@@ -324,7 +363,8 @@ function deriveObservedSurfaces(
     if ([...branch.path, ...exposure.path].includes('xcode')) {
       surfaces.add('ios-build-tooling');
       const classifiedPackage = exposure.path.at(-1);
-      if (classifiedPackage === 'xcode') {
+      const isDirectBranchRoot = exposure.path.length === 1;
+      if (classifiedPackage === 'xcode' || isDirectBranchRoot) {
         exposure.surfaces
           .filter(surface => surface !== 'development')
           .forEach(surface => surfaces.add(surface));
