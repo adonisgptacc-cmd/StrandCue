@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { auditDependencyPolicy } from '../../scripts/dependency-policy';
+import {
+  auditDependencyPolicy as auditDependencyPolicyImplementation,
+} from '../../scripts/dependency-policy';
 
 const TODAY = '2026-09-13';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
@@ -27,9 +29,46 @@ type AdvisoryFixture = {
 
 function approvedBranch(
   path: string[],
-  surfaces: ('android' | 'web' | 'development' | 'production')[],
+  surfaces: ('android' | 'web' | 'development' | 'ios-build-tooling' | 'production')[],
 ) {
   return { path, surfaces };
+}
+
+function auditDependencyPolicy(
+  report: unknown,
+  exceptions: unknown,
+  today: string,
+  surfaceContext: unknown = manifestContext({
+    mobileDependencies: ['decode-uri-component'],
+    mobilePlatforms: ['android'],
+  }),
+) {
+  return auditDependencyPolicyImplementation(report, exceptions, today, surfaceContext);
+}
+
+function manifestContext(options: {
+  rootDependencies?: string[];
+  rootDevDependencies?: string[];
+  mobileDependencies?: string[];
+  mobilePlatforms?: ('android' | 'web')[];
+} = {}) {
+  const versions = (packages: string[]) => Object.fromEntries(
+    packages.map(packageName => [packageName, '1.0.0']),
+  );
+
+  return {
+    root: {
+      dependencies: versions(options.rootDependencies ?? []),
+      devDependencies: versions(options.rootDevDependencies ?? []),
+    },
+    workspaces: [{
+      manifest: {
+        dependencies: versions(options.mobileDependencies ?? []),
+        devDependencies: {},
+      },
+      runtimePlatforms: options.mobilePlatforms ?? ['android', 'web'],
+    }],
+  };
 }
 
 function auditReport(severity: 'moderate' | 'high' | 'critical' = 'moderate') {
@@ -51,7 +90,7 @@ function auditReport(severity: 'moderate' | 'high' | 'critical' = 'moderate') {
         name: 'decode-uri-component',
         severity,
         via: [advisory],
-        effects: ['query-string'],
+        effects: [],
         range: '<0.2.2',
         nodes: ['node_modules/decode-uri-component'],
         fixAvailable: false,
@@ -66,7 +105,7 @@ function currentException(overrides: Record<string, unknown> = {}) {
     packages: [
       approvedBranch(
         ['decode-uri-component'],
-        ['production', 'android'],
+        ['android', 'production'],
       ),
     ],
     severity: 'moderate',
@@ -86,8 +125,8 @@ function uuidException(overrides: Record<string, unknown> = {}) {
   return currentException({
     advisoryId: UUID_ADVISORY_ID,
     packages: [
-      approvedBranch(['uuid'], ['development']),
-      approvedBranch(['xcode', 'uuid'], ['development']),
+      approvedBranch(['uuid'], ['ios-build-tooling']),
+      approvedBranch(['xcode', 'uuid'], ['ios-build-tooling']),
     ],
     reachable: 'no',
     assessment: 'The affected UUID use is limited to reviewed Xcode tooling branches.',
@@ -106,6 +145,7 @@ function uuidAuditReport(options: { includeAndroid: boolean; includeXcode: boole
       severity: 'moderate';
       url: string;
     })[];
+    effects: string[];
   }> = {
     uuid: {
       name: 'uuid',
@@ -115,6 +155,7 @@ function uuidAuditReport(options: { includeAndroid: boolean; includeXcode: boole
         severity: 'moderate',
         url: UUID_ADVISORY_URL,
       }],
+      effects: [],
     },
   };
 
@@ -123,6 +164,7 @@ function uuidAuditReport(options: { includeAndroid: boolean; includeXcode: boole
       name: 'xcode',
       severity: 'moderate',
       via: ['uuid'],
+      effects: [],
     };
   }
   if (options.includeAndroid) {
@@ -130,8 +172,14 @@ function uuidAuditReport(options: { includeAndroid: boolean; includeXcode: boole
       name: 'android-runtime',
       severity: 'moderate',
       via: ['uuid'],
+      effects: [],
     };
   }
+
+  vulnerabilities.uuid.effects = [
+    ...(options.includeXcode ? ['xcode'] : []),
+    ...(options.includeAndroid ? ['android-runtime'] : []),
+  ];
 
   return { auditReportVersion: 2, vulnerabilities };
 }
@@ -224,6 +272,7 @@ describe('dependency advisory policy', () => {
           name: 'decode-uri-component',
           severity: 'moderate',
           via: ['query-string'],
+          effects: [],
         },
       },
     };
@@ -242,6 +291,7 @@ describe('dependency advisory policy', () => {
           name: 'mixed-root',
           severity: 'moderate',
           via: [coveredAdvisory, 'missing-source'],
+          effects: [],
         },
       },
     };
@@ -263,16 +313,19 @@ describe('dependency advisory policy', () => {
           name: 'mixed-root',
           severity: 'moderate',
           via: [coveredAdvisory, 'cycle-a'],
+          effects: [],
         },
         'cycle-a': {
           name: 'cycle-a',
           severity: 'moderate',
           via: ['cycle-b'],
+          effects: ['cycle-b'],
         },
         'cycle-b': {
           name: 'cycle-b',
           severity: 'moderate',
           via: ['cycle-a'],
+          effects: ['cycle-a'],
         },
       },
     };
@@ -335,6 +388,7 @@ describe('dependency advisory policy', () => {
       uuidAuditReport({ includeAndroid: true, includeXcode: false }),
       [uuidException()],
       TODAY,
+      manifestContext({ mobileDependencies: ['android-runtime'] }),
     );
 
     expect(findings).toContainEqual({
@@ -348,6 +402,10 @@ describe('dependency advisory policy', () => {
       uuidAuditReport({ includeAndroid: true, includeXcode: true }),
       [uuidException()],
       TODAY,
+      manifestContext({
+        rootDevDependencies: ['xcode'],
+        mobileDependencies: ['android-runtime'],
+      }),
     );
 
     expect(findings.filter(({ code }) => code === 'ADVISORY-PATH-UNREVIEWED')).toEqual([{
@@ -361,7 +419,157 @@ describe('dependency advisory policy', () => {
       uuidAuditReport({ includeAndroid: false, includeXcode: true }),
       [uuidException()],
       TODAY,
+      manifestContext({ rootDevDependencies: ['xcode'] }),
     )).toEqual([]);
+  });
+
+  it('rejects the same GHSA path when it gains an Android production surface', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+    const exception = uuidException({
+      packages: [approvedBranch(['uuid'], ['development'])],
+    });
+
+    expect(auditDependencyPolicy(
+      report,
+      [exception],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['uuid'] }),
+    )).toEqual([]);
+
+    expect(auditDependencyPolicy(
+      report,
+      [exception],
+      TODAY,
+      manifestContext({ mobileDependencies: ['uuid'] }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('rejects the same GHSA path when approved runtime exposure gains a development surface', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+    const exception = uuidException({
+      packages: [approvedBranch(['uuid'], ['android', 'production', 'web'])],
+    });
+
+    expect(auditDependencyPolicy(
+      report,
+      [exception],
+      TODAY,
+      manifestContext({
+        rootDevDependencies: ['uuid'],
+        mobileDependencies: ['uuid'],
+      }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('rejects an approved Xcode path when that same root gains Android production exposure', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: true });
+
+    expect(auditDependencyPolicy(
+      report,
+      [uuidException()],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['xcode'] }),
+    )).toEqual([]);
+
+    expect(auditDependencyPolicy(
+      report,
+      [uuidException()],
+      TODAY,
+      manifestContext({ mobileDependencies: ['xcode'] }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('rejects an approved Xcode path with mixed development and runtime exposure', () => {
+    expect(auditDependencyPolicy(
+      uuidAuditReport({ includeAndroid: false, includeXcode: true }),
+      [uuidException()],
+      TODAY,
+      manifestContext({
+        rootDevDependencies: ['xcode'],
+        mobileDependencies: ['xcode'],
+      }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('fails closed when an observed GHSA path has no manifest surface classification', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+
+    expect(auditDependencyPolicy(
+      report,
+      [uuidException({ packages: [approvedBranch(['uuid'], ['development'])] })],
+      TODAY,
+      manifestContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNIDENTIFIED',
+      message: 'Advisory dependency surfaces could not be classified.',
+    });
+  });
+
+  it('fails closed when audit effects contradict dependency relationships', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+    report.vulnerabilities.uuid.effects = ['declared-parent'];
+    const inconsistentReport = {
+      ...report,
+      vulnerabilities: {
+        ...report.vulnerabilities,
+        'declared-parent': {
+          name: 'declared-parent',
+          severity: 'low' as const,
+          via: [],
+          effects: [],
+        },
+      },
+    };
+
+    expect(auditDependencyPolicy(
+      inconsistentReport,
+      [uuidException({ packages: [approvedBranch(['uuid'], ['development'])] })],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['declared-parent'] }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNIDENTIFIED',
+      message: 'Advisory dependency surfaces could not be classified.',
+    });
+  });
+
+  it('fails closed when dependency manifest surface context is missing', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [uuidException({ packages: [approvedBranch(['uuid'], ['development'])] })],
+      TODAY,
+      undefined,
+    )).toContainEqual({
+      code: 'SURFACE-CONTEXT-SCHEMA',
+      message: 'Dependency manifest surface context is malformed or incomplete.',
+    });
+  });
+
+  it('fails closed when workspace manifest surface evidence is omitted', () => {
+    const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [uuidException({ packages: [approvedBranch(['uuid'], ['development'])] })],
+      TODAY,
+      { root: { dependencies: {}, devDependencies: {} }, workspaces: [] },
+    )).toContainEqual({
+      code: 'SURFACE-CONTEXT-SCHEMA',
+      message: 'Dependency manifest surface context is malformed or incomplete.',
+    });
   });
 
   it('does not mutate the audit report or exception registry', () => {
@@ -417,6 +625,19 @@ function cliAuditReport() {
           severity: 'moderate',
           url: 'https://github.com/advisories/GHSA-vcc3-ghjq-m6fr',
         }],
+        effects: ['query-string'],
+      },
+      'query-string': {
+        name: 'query-string',
+        severity: 'moderate',
+        via: ['decode-uri-component'],
+        effects: ['expo-router'],
+      },
+      'expo-router': {
+        name: 'expo-router',
+        severity: 'moderate',
+        via: ['query-string'],
+        effects: [],
       },
       uuid: {
         name: 'uuid',
@@ -426,6 +647,25 @@ function cliAuditReport() {
           severity: 'moderate',
           url: 'https://github.com/advisories/GHSA-w5hq-g745-h8pq',
         }],
+        effects: ['xcode'],
+      },
+      xcode: {
+        name: 'xcode',
+        severity: 'moderate',
+        via: ['uuid'],
+        effects: ['@expo/config-plugins'],
+      },
+      '@expo/config-plugins': {
+        name: '@expo/config-plugins',
+        severity: 'moderate',
+        via: ['xcode'],
+        effects: ['expo'],
+      },
+      expo: {
+        name: 'expo',
+        severity: 'moderate',
+        via: ['@expo/config-plugins'],
+        effects: [],
       },
     },
   };
@@ -490,7 +730,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('"critical":0');
     expect(result.stdout).toContain('"high":0');
-    expect(result.stdout).toContain('"moderate":2');
+    expect(result.stdout).toContain('"moderate":7');
     expect(result.stdout).toContain('"reviewedAdvisories":2');
     expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
     expect(result.stderr).toBe('');
@@ -550,6 +790,7 @@ describe('dependency audit CLI', () => {
           name: untrustedPackageName,
           severity: 'high',
           via: ['missing-source'],
+          effects: [],
         },
       },
     };
@@ -577,6 +818,7 @@ describe('dependency audit CLI', () => {
             severity: 'low',
             url: 'https://github.com/advisories/GHSA-2345-2345-2345',
           }],
+          effects: [],
         },
       },
     };
@@ -602,6 +844,7 @@ describe('dependency audit CLI', () => {
           name: untrustedPackageName,
           severity: 'moderate',
           via: ['uuid'],
+          effects: [],
         },
       },
     };

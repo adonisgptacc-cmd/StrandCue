@@ -53,6 +53,44 @@ async function readExceptionRegistry(): Promise<unknown> {
   return JSON.parse(await readFile(registryUrl, 'utf8')) as unknown;
 }
 
+async function readJson(relativePath: string): Promise<unknown> {
+  return JSON.parse(await readFile(new URL(relativePath, import.meta.url), 'utf8')) as unknown;
+}
+
+function readRuntimePlatforms(appConfig: unknown): ('android' | 'web')[] {
+  if (!appConfig || typeof appConfig !== 'object' || !('expo' in appConfig)) {
+    throw new Error('Expo runtime surface configuration is unavailable');
+  }
+  const expo = appConfig.expo;
+  if (!expo || typeof expo !== 'object' || !('platforms' in expo)) {
+    throw new Error('Expo runtime surface configuration is unavailable');
+  }
+  const platforms = expo.platforms;
+  if (!Array.isArray(platforms)
+    || platforms.length === 0
+    || platforms.some(platform => platform !== 'android' && platform !== 'web')
+    || new Set(platforms).size !== platforms.length) {
+    throw new Error('Expo runtime surface configuration is invalid');
+  }
+  return [...platforms];
+}
+
+async function readDependencySurfaceContext(): Promise<unknown> {
+  const [root, mobile, domain, appConfig] = await Promise.all([
+    readJson('../package.json'),
+    readJson('../apps/mobile/package.json'),
+    readJson('../packages/domain/package.json'),
+    readJson('../apps/mobile/app.json'),
+  ]);
+  return {
+    root,
+    workspaces: [
+      { manifest: mobile, runtimePlatforms: readRuntimePlatforms(appConfig) },
+      { manifest: domain },
+    ],
+  };
+}
+
 async function main(): Promise<void> {
   try {
     const auditExecution = await runNpmAudit();
@@ -62,9 +100,12 @@ async function main(): Promise<void> {
       || (auditExecution.exitCode === 1 && vulnerabilityCount === 0)) {
       throw new Error('npm audit exit status does not match a supported report');
     }
-    const exceptions = await readExceptionRegistry();
+    const [exceptions, surfaceContext] = await Promise.all([
+      readExceptionRegistry(),
+      readDependencySurfaceContext(),
+    ]);
     const today = new Date().toISOString().slice(0, 10);
-    const findings = auditDependencyPolicy(report, exceptions, today);
+    const findings = auditDependencyPolicy(report, exceptions, today, surfaceContext);
     const summary = summarizeDependencyAudit(report, exceptions);
 
     if (findings.length > 0 || !summary) {

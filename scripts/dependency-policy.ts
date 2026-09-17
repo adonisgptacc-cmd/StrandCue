@@ -16,7 +16,18 @@ const ghsaIdPattern = /^GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}
 const ghsaUrlPattern = /^https:\/\/github\.com\/advisories\/(GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4})$/;
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 const severitySchema = z.enum(['info', 'low', 'moderate', 'high', 'critical']);
-const surfaceSchema = z.enum(['android', 'web', 'development', 'production']);
+const surfaceSchema = z.enum([
+  'android',
+  'development',
+  'ios-build-tooling',
+  'production',
+  'web',
+]);
+const runtimePlatformSchema = z.enum(['android', 'web']);
+const dependencyMapSchema = z.record(
+  z.string().trim().min(1),
+  z.string().trim().min(1),
+);
 
 const advisorySchema = z.object({
   name: z.string().trim().min(1),
@@ -28,6 +39,7 @@ const vulnerabilitySchema = z.object({
   name: z.string().trim().min(1),
   severity: severitySchema,
   via: z.array(z.union([z.string().trim().min(1), advisorySchema])),
+  effects: z.array(z.string().trim().min(1)),
 }).passthrough();
 
 const auditReportSchema = z.object({
@@ -35,9 +47,26 @@ const auditReportSchema = z.object({
   vulnerabilities: z.record(z.string().min(1), vulnerabilitySchema),
 }).passthrough();
 
+const packageManifestSchema = z.object({
+  dependencies: dependencyMapSchema.optional().default({}),
+  devDependencies: dependencyMapSchema.optional().default({}),
+}).passthrough();
+
+const workspaceSurfaceContextSchema = z.object({
+  manifest: packageManifestSchema,
+  runtimePlatforms: z.array(runtimePlatformSchema).min(1).optional(),
+}).strict();
+
+const dependencySurfaceContextSchema = z.object({
+  root: packageManifestSchema,
+  workspaces: z.array(workspaceSurfaceContextSchema).min(1),
+}).strict();
+
 const approvedPackageBranchSchema = z.object({
   path: z.array(z.string().trim().min(1)).min(1),
-  surfaces: z.array(surfaceSchema).min(1),
+  surfaces: z.array(surfaceSchema).min(1).refine(
+    surfaces => new Set(surfaces).size === surfaces.length,
+  ),
 }).strict();
 
 const exceptionSchema = z.object({
@@ -101,6 +130,18 @@ type ResolvedAdvisoryBranch = {
   path: string[];
 };
 
+type DependencySurface = z.infer<typeof surfaceSchema>;
+
+type SurfaceExposureBranch = {
+  path: string[];
+  surfaces: DependencySurface[];
+};
+
+type SurfaceExposureResolution = {
+  exposureBranches: SurfaceExposureBranch[];
+  unidentifiedPaths: string[][];
+};
+
 type AdvisoryBranchResolution = {
   advisoryBranches: ResolvedAdvisoryBranch[];
   unidentifiedPaths: string[][];
@@ -149,10 +190,161 @@ function packagePathSignature(path: string[]): string {
   return JSON.stringify(path);
 }
 
+function sortedSurfaceSignature(surfaces: DependencySurface[]): string {
+  return JSON.stringify([...new Set(surfaces)].sort());
+}
+
+function addSurfaceClassification(
+  classifications: Map<string, Set<DependencySurface>>,
+  packageName: string,
+  surfaces: DependencySurface[],
+): void {
+  const current = classifications.get(packageName) ?? new Set<DependencySurface>();
+  classifications.set(packageName, new Set([...current, ...surfaces]));
+}
+
+function buildSurfaceClassifications(
+  context: z.infer<typeof dependencySurfaceContextSchema>,
+): Map<string, Set<DependencySurface>> {
+  const classifications = new Map<string, Set<DependencySurface>>();
+  const addManifest = (
+    manifest: z.infer<typeof packageManifestSchema>,
+    productionSurfaces: DependencySurface[],
+  ) => {
+    Object.keys(manifest.dependencies).forEach(packageName => {
+      addSurfaceClassification(classifications, packageName, productionSurfaces);
+    });
+    Object.keys(manifest.devDependencies).forEach(packageName => {
+      addSurfaceClassification(classifications, packageName, ['development']);
+    });
+  };
+
+  addManifest(context.root, ['production']);
+  context.workspaces.forEach(({ manifest, runtimePlatforms }) => {
+    addManifest(
+      manifest,
+      runtimePlatforms
+        ? ['production', ...runtimePlatforms]
+        : ['production'],
+    );
+  });
+  return classifications;
+}
+
+function buildViaDependents(
+  vulnerabilities: z.infer<typeof auditReportSchema>['vulnerabilities'],
+): Map<string, Set<string>> {
+  const dependents = new Map<string, Set<string>>();
+  Object.entries(vulnerabilities).forEach(([parentName, vulnerability]) => {
+    vulnerability.via.forEach(via => {
+      if (typeof via !== 'string') return;
+      const current = dependents.get(via) ?? new Set<string>();
+      dependents.set(via, new Set([...current, parentName]));
+    });
+  });
+  return dependents;
+}
+
+function resolveSurfaceExposureBranches(
+  packageName: string,
+  vulnerabilities: z.infer<typeof auditReportSchema>['vulnerabilities'],
+  classifications: Map<string, Set<DependencySurface>>,
+  viaDependents: Map<string, Set<string>>,
+  path: string[] = [],
+): SurfaceExposureResolution {
+  const currentPath = [...path, packageName];
+  if (path.includes(packageName)) {
+    return { exposureBranches: [], unidentifiedPaths: [currentPath] };
+  }
+
+  const directSurfaces = classifications.get(packageName);
+  const directBranches = directSurfaces
+    ? [{ path: currentPath, surfaces: [...directSurfaces] }]
+    : [];
+  const vulnerability = vulnerabilities[packageName];
+  if (!vulnerability) {
+    return directBranches.length > 0
+      ? { exposureBranches: directBranches, unidentifiedPaths: [] }
+      : { exposureBranches: [], unidentifiedPaths: [currentPath] };
+  }
+
+  const effectNames = new Set([
+    ...vulnerability.effects,
+    ...(viaDependents.get(packageName) ?? []),
+  ]);
+  if (effectNames.size === 0) {
+    return directBranches.length > 0
+      ? { exposureBranches: directBranches, unidentifiedPaths: [] }
+      : { exposureBranches: [], unidentifiedPaths: [currentPath] };
+  }
+
+  return [...effectNames].reduce<SurfaceExposureResolution>((resolution, effectName) => {
+    const effect = vulnerabilities[effectName];
+    const hasReciprocalVia = effect?.via.some(via => via === packageName) ?? false;
+    const isManifestRoot = classifications.has(effectName);
+    const branch = effect && !hasReciprocalVia
+      ? { exposureBranches: [], unidentifiedPaths: [[...currentPath, effectName]] }
+      : resolveSurfaceExposureBranches(
+          effectName,
+          vulnerabilities,
+          classifications,
+          viaDependents,
+          currentPath,
+        );
+
+    if (!effect && !isManifestRoot) {
+      return {
+        exposureBranches: resolution.exposureBranches,
+        unidentifiedPaths: [...resolution.unidentifiedPaths, [...currentPath, effectName]],
+      };
+    }
+
+    return {
+      exposureBranches: [...resolution.exposureBranches, ...branch.exposureBranches],
+      unidentifiedPaths: [...resolution.unidentifiedPaths, ...branch.unidentifiedPaths],
+    };
+  }, { exposureBranches: directBranches, unidentifiedPaths: [] });
+}
+
+function deriveObservedSurfaces(
+  branch: ResolvedAdvisoryBranch,
+  vulnerabilities: z.infer<typeof auditReportSchema>['vulnerabilities'],
+  classifications: Map<string, Set<DependencySurface>>,
+  viaDependents: Map<string, Set<string>>,
+): { surfaces: DependencySurface[]; isComplete: boolean } {
+  const resolution = resolveSurfaceExposureBranches(
+    branch.path[0],
+    vulnerabilities,
+    classifications,
+    viaDependents,
+  );
+  const surfaces = new Set<DependencySurface>();
+
+  resolution.exposureBranches.forEach(exposure => {
+    if ([...branch.path, ...exposure.path].includes('xcode')) {
+      surfaces.add('ios-build-tooling');
+      const classifiedPackage = exposure.path.at(-1);
+      if (classifiedPackage === 'xcode') {
+        exposure.surfaces
+          .filter(surface => surface !== 'development')
+          .forEach(surface => surfaces.add(surface));
+      }
+      return;
+    }
+    exposure.surfaces.forEach(surface => surfaces.add(surface));
+  });
+
+  return {
+    surfaces: [...surfaces].sort(),
+    isComplete: surfaces.size > 0 && resolution.unidentifiedPaths.length === 0,
+  };
+}
+
 export function auditDependencyPolicy(
   report: unknown,
   exceptions: unknown,
   today: string,
+  surfaceContext: unknown,
 ): DependencyFinding[] {
   if (!isIsoDate(today)) {
     return [finding('POLICY-DATE', 'Dependency policy date must be a valid ISO calendar date.')];
@@ -167,6 +359,17 @@ export function auditDependencyPolicy(
   if (!parsedExceptions.success) {
     return [finding('EXCEPTION-SCHEMA', 'Dependency advisory exceptions are malformed or incomplete.')];
   }
+
+  const parsedSurfaceContext = dependencySurfaceContextSchema.safeParse(surfaceContext);
+  if (!parsedSurfaceContext.success) {
+    return [finding(
+      'SURFACE-CONTEXT-SCHEMA',
+      'Dependency manifest surface context is malformed or incomplete.',
+    )];
+  }
+
+  const surfaceClassifications = buildSurfaceClassifications(parsedSurfaceContext.data);
+  const viaDependents = buildViaDependents(parsedReport.data.vulnerabilities);
 
   const advisories = Object.values(parsedReport.data.vulnerabilities)
     .flatMap(vulnerability => vulnerability.via)
@@ -294,14 +497,36 @@ export function auditDependencyPolicy(
     const exception = exceptionById.get(branch.advisoryId);
     if (!exception) return [];
 
-    const approvedPaths = new Set(
-      exception.packages.map(({ path }) => packagePathSignature(path)),
+    const matchingPaths = exception.packages.filter(
+      ({ path }) => packagePathSignature(path) === packagePathSignature(branch.path),
     );
-    return approvedPaths.has(packagePathSignature(branch.path))
-      ? []
-      : [finding(
+    if (matchingPaths.length === 0) {
+      return [finding(
           'ADVISORY-PATH-UNREVIEWED',
           'Observed advisory dependency path has not been reviewed.',
+        )];
+    }
+
+    const observed = deriveObservedSurfaces(
+      branch,
+      parsedReport.data.vulnerabilities,
+      surfaceClassifications,
+      viaDependents,
+    );
+    if (!observed.isComplete) {
+      return [finding(
+        'ADVISORY-SURFACE-UNIDENTIFIED',
+        'Advisory dependency surfaces could not be classified.',
+      )];
+    }
+
+    return matchingPaths.some(({ surfaces }) => (
+      sortedSurfaceSignature(surfaces) === sortedSurfaceSignature(observed.surfaces)
+    ))
+      ? []
+      : [finding(
+          'ADVISORY-SURFACE-UNREVIEWED',
+          'Observed advisory dependency surfaces have not been reviewed.',
         )];
   });
 

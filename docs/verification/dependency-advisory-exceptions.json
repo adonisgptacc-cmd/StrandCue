@@ -4,15 +4,15 @@
     "packages": [
       {
         "path": ["decode-uri-component"],
-        "surfaces": ["android", "web", "production"]
+        "surfaces": ["android", "production", "web"]
       },
       {
         "path": ["query-string", "decode-uri-component"],
-        "surfaces": ["android", "web", "production"]
+        "surfaces": ["android", "production", "web"]
       },
       {
         "path": ["expo-router", "query-string", "decode-uri-component"],
-        "surfaces": ["android", "web", "production"]
+        "surfaces": ["android", "production", "web"]
       }
     ],
     "severity": "moderate",
@@ -30,103 +30,103 @@
     "packages": [
       {
         "path": ["uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       },
       {
         "path": ["expo", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["development"]
+        "surfaces": ["ios-build-tooling"]
       }
     ],
     "severity": "moderate",
