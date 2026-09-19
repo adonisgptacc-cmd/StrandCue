@@ -587,4 +587,20 @@ export const AccountInfoSchema = z.object({
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 export type AccountInfo = z.infer<typeof AccountInfoSchema>;
 
+// Recent-auth foundation schemas — Milestone 4: Settings and account completion
+
+export const RecentAuthCheckSchema = z.object({
+  maxAgeMinutes: z.number().int().positive().default(15),
+});
+
+export const RecentAuthRecordSchema = z.object({
+  authType: z.enum(['password', 'email_link', 'mfa', 'recovery']),
+  sessionId: z.string().uuid(),
+  ipAddress: z.string().nullable().optional(),
+  userAgent: z.string().nullable().optional(),
+});
+
+export type RecentAuthCheckInput = z.infer<typeof RecentAuthCheckSchema>;
+export type RecentAuthRecordInput = z.infer<typeof RecentAuthRecordSchema>;
+
 export type { EffectiveDate };

@@ -148,6 +148,7 @@ This design specifies a staged vertical-slice roadmap for completing StrandCue P
 - **Password changes enforce complexity requirements (min 12 chars, mixed case, numbers, symbols).**
 - **Analytics consent: opt-in boolean stored on profile, defaults to false, disabled state never blocks core functionality.**
 - **Account/session info: displays username, email, status, revision, last login, active sessions with revocation capability.**
+- **Recent-auth foundation: check_recent_auth() and record_recent_auth() RPCs for export/deletion gates, recent_auth_events table with 30-day retention.**
 
 **Design notes:**
 - Username policy: 3–24 lowercase ASCII letters, digits or underscores; trim and normalise before validation; reserve system/admin/brand-impersonation names.
@@ -157,6 +158,7 @@ This design specifies a staged vertical-slice roadmap for completing StrandCue P
 - Password complexity: minimum 12 characters, must contain uppercase, lowercase, numbers and special characters.
 - **Analytics consent: defaults to false; when false, no tracking events are emitted; when true, opt-in events may be sent; core app flows work identically in both states.**
 - **Account info screen: displays all profile fields, preferences toggles (analytics, cosmetic), session list with revocation.**
+- **Recent-auth foundation: check_recent_auth(max_age) and record_recent_auth() RPCs; recent_auth_events table with 30-day auto-cleanup; used by export/deletion gates to require recent auth.**
 
 ---
 
@@ -338,6 +340,7 @@ If these are not addressed in the current roadmap, they should be documented as 
 - **Task 4.3 — Analytics consent**: Added `analytics_consent` boolean column to `public.profiles` defaulting to false, RLS policy for owner updates. Zod schema `AnalyticsConsentSchema`. Disabled state never blocks core functionality. Migration: `20260919064318_analytics-consent.sql`.
 - **Task 4.4 — Cosmetic record boundary and support/help**: Added `cosmetic_mode` boolean to `public.profiles`, `support_requests` table with subject/body/status. Zod schemas `CosmeticModeSchema`, `SupportRequestSchema`, `SupportRequestStatusSchema`. UI: `SupportScreen` (submit requests, FAQ links), `CosmeticModeScreen` (toggle cosmetic mode). Migration: `20260919064840_cosmetic-boundary-support.sql`.
 - **Task 4.5 — Account/session info display**: Added `last_login_at`, `last_session_id` to profiles; `user_sessions` table with session tracking. Zod schemas `AccountInfoSchema`, `SessionInfoSchema`. UI: `AccountInfoScreen` (displays profile, preferences toggles, session list with revocation). Migration: `20260919065826_account-session-info.sql`.
+- **Task 4.6 — Recent-auth foundation**: Added `recent_auth_events` table; `check_recent_auth(max_age)` and `record_recent_auth()` RPCs for export/deletion gates; 30-day auto-cleanup. Zod schemas `RecentAuthCheckSchema`, `RecentAuthRecordSchema`. Migration: `20260919070841_recent-auth-foundation.sql`.
 - **UI fixes**: Fixed `HeatEventForm` to accept `activityId` prop and link heat events to activities. Fixed `ActivityVoidScreen` to deduplicate `canVoid` check logic into shared helper. Fixed `ActivityCorrectScreen` to include `user_id` in `activity_revisions` insert.
 
 ---
