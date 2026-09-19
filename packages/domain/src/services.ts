@@ -603,4 +603,52 @@ export const RecentAuthRecordSchema = z.object({
 export type RecentAuthCheckInput = z.infer<typeof RecentAuthCheckSchema>;
 export type RecentAuthRecordInput = z.infer<typeof RecentAuthRecordSchema>;
 
+// Export job schemas — Milestone 5: Account Export
+
+export const ExportJobFormatSchema = z.enum(['json', 'csv']);
+export const ExportJobStatusSchema = z.enum(['pending', 'processing', 'completed', 'failed']);
+
+export const CreateExportJobSchema = z.object({
+  format: ExportJobFormatSchema,
+});
+
+export const ExportJobStatusSchemaResponse = z.object({
+  id: z.string().uuid(),
+  status: ExportJobStatusSchema,
+  format: ExportJobFormatSchema,
+  file_url: z.string().url().nullable().optional(),
+  file_size_bytes: z.number().int().nonnegative().nullable().optional(),
+  record_count: z.number().int().nonnegative().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+  created_at: z.string().datetime(),
+  started_at: z.string().datetime().nullable().optional(),
+  completed_at: z.string().datetime().nullable().optional(),
+  expires_at: z.string().datetime(),
+});
+
+export const ExportJobListItemSchema = z.object({
+  id: z.string().uuid(),
+  status: ExportJobStatusSchema,
+  format: ExportJobFormatSchema,
+  file_url: z.string().url().nullable().optional(),
+  file_size_bytes: z.number().int().nonnegative().nullable().optional(),
+  record_count: z.number().int().nonnegative().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+  created_at: z.string().datetime(),
+  started_at: z.string().datetime().nullable().optional(),
+  completed_at: z.string().datetime().nullable().optional(),
+  expires_at: z.string().datetime(),
+});
+
+export const ExportJobListResponseSchema = z.object({
+  jobs: z.array(ExportJobListItemSchema),
+});
+
+export type ExportJobFormat = z.infer<typeof ExportJobFormatSchema>;
+export type ExportJobStatus = z.infer<typeof ExportJobStatusSchema>;
+export type CreateExportJobInput = z.infer<typeof CreateExportJobSchema>;
+export type ExportJobStatusResponse = z.infer<typeof ExportJobStatusSchemaResponse>;
+export type ExportJobListItem = z.infer<typeof ExportJobListItemSchema>;
+export type ExportJobListResponse = z.infer<typeof ExportJobListResponseSchema>;
+
 export type { EffectiveDate };
