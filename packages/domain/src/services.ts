@@ -528,4 +528,12 @@ export const ChangePasswordSchema = z.object({
 export type ChangeEmailInput = z.infer<typeof ChangeEmailSchema>;
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
 
+// Analytics consent schema — Milestone 4: Settings and account completion
+
+export const AnalyticsConsentSchema = z.object({
+  consent: z.boolean(),
+});
+
+export type AnalyticsConsentInput = z.infer<typeof AnalyticsConsentSchema>;
+
 export type { EffectiveDate };

@@ -146,6 +146,7 @@ This design specifies a staged vertical-slice roadmap for completing StrandCue P
 - Recent-auth export is private, download access expires after 24 hours, output removed within 7 days (defaults).
 - **Username change with 30-day rule: concurrent claims handled with conflict response and preserved form state.**
 - **Password changes enforce complexity requirements (min 12 chars, mixed case, numbers, symbols).**
+- **Analytics consent: opt-in boolean stored on profile, defaults to false, disabled state never blocks core functionality.**
 
 **Design notes:**
 - Username policy: 3–24 lowercase ASCII letters, digits or underscores; trim and normalise before validation; reserve system/admin/brand-impersonation names.
@@ -153,6 +154,7 @@ This design specifies a staged vertical-slice roadmap for completing StrandCue P
 - Store past handle changes only in the minimal private account audit; do not make them public.
 - Support logout, email/password changes and session expiry without losing history. UUID stays constant when credentials/username change.
 - Password complexity: minimum 12 characters, must contain uppercase, lowercase, numbers and special characters.
+- **Analytics consent: defaults to false; when false, no tracking events are emitted; when true, opt-in events may be sent; core app flows work identically in both states.**
 
 ---
 
@@ -331,6 +333,7 @@ If these are not addressed in the current roadmap, they should be documented as 
 **Implementation Summary (Milestone 4 — Settings and account completion):**
 - **Task 4.1 — Username change with 30-day rule**: Added `last_changed_at` column to `public.profiles`, RLS policy `profile_username_update`, Zod schema `UsernameChangeSchema` (3–24 lowercase ASCII letters/digits/underscores), conflict handling with preserved form state. Migration: `20260918162005_username-change-30day.sql`.
 - **Task 4.2 — Email and password changes**: Added migration `20260918162839_email-password-changes.sql` with `email_change_history` table, `last_email_change` column on profiles, RLS policies. Zod schemas `ChangeEmailSchema` and `ChangePasswordSchema` with email uniqueness validation and password complexity (min 12 chars, mixed case, numbers, symbols).
+- **Task 4.3 — Analytics consent**: Added `analytics_consent` boolean column to `public.profiles` defaulting to false, RLS policy for owner updates. Zod schema `AnalyticsConsentSchema`. Disabled state never blocks core functionality. Migration: `20260919064318_analytics-consent.sql`.
 - **UI fixes**: Fixed `HeatEventForm` to accept `activityId` prop and link heat events to activities. Fixed `ActivityVoidScreen` to deduplicate `canVoid` check logic into shared helper. Fixed `ActivityCorrectScreen` to include `user_id` in `activity_revisions` insert.
 
 ---
