@@ -553,4 +553,38 @@ export type CosmeticModeInput = z.infer<typeof CosmeticModeSchema>;
 export type SupportRequestInput = z.infer<typeof SupportRequestSchema>;
 export type SupportRequestStatus = z.infer<typeof SupportRequestStatusSchema>;
 
+// Session and account info schemas — Milestone 4: Settings and account completion
+
+export const SessionInfoSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  ipAddress: z.string().nullable().optional(),
+  userAgent: z.string().nullable().optional(),
+  createdAt: z.string().datetime(),
+  lastActiveAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  revokedAt: z.string().datetime().nullable().optional(),
+});
+
+export const AccountInfoSchema = z.object({
+  userId: z.string().uuid(),
+  username: z.string(),
+  email: z.string().email(),
+  eligible: z.boolean(),
+  country: z.string(),
+  currency: z.string(),
+  temperatureUnit: z.string(),
+  accountStatus: z.enum(['active', 'deleting']),
+  revision: z.number().int().positive(),
+  createdAt: z.string().datetime(),
+  lastLoginAt: z.string().datetime().nullable().optional(),
+  lastSessionId: z.string().uuid().nullable().optional(),
+  analyticsConsent: z.boolean(),
+  cosmeticMode: z.boolean(),
+});
+
+export type SessionInfo = z.infer<typeof SessionInfoSchema>;
+export type AccountInfo = z.infer<typeof AccountInfoSchema>;
+
 export type { EffectiveDate };
