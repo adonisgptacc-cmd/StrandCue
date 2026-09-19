@@ -536,4 +536,21 @@ export const AnalyticsConsentSchema = z.object({
 
 export type AnalyticsConsentInput = z.infer<typeof AnalyticsConsentSchema>;
 
+// Cosmetic mode and support request schemas — Milestone 4: Settings and account completion
+
+export const CosmeticModeSchema = z.object({
+  cosmeticMode: z.boolean(),
+});
+
+export const SupportRequestSchema = z.object({
+  subject: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(5000),
+});
+
+export const SupportRequestStatusSchema = z.enum(['open', 'in_progress', 'resolved', 'closed']);
+
+export type CosmeticModeInput = z.infer<typeof CosmeticModeSchema>;
+export type SupportRequestInput = z.infer<typeof SupportRequestSchema>;
+export type SupportRequestStatus = z.infer<typeof SupportRequestStatusSchema>;
+
 export type { EffectiveDate };
