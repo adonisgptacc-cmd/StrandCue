@@ -343,6 +343,16 @@ If these are not addressed in the current roadmap, they should be documented as 
 - **Task 4.6 — Recent-auth foundation**: Added `recent_auth_events` table; `check_recent_auth(max_age)` and `record_recent_auth()` RPCs for export/deletion gates; 30-day auto-cleanup. Zod schemas `RecentAuthCheckSchema`, `RecentAuthRecordSchema`. Migration: `20260919070841_recent-auth-foundation.sql`.
 - **UI fixes**: Fixed `HeatEventForm` to accept `activityId` prop and link heat events to activities. Fixed `ActivityVoidScreen` to deduplicate `canVoid` check logic into shared helper. Fixed `ActivityCorrectScreen` to include `user_id` in `activity_revisions` insert.
 
+**Implementation Summary (Milestone 5 — Account Export):**
+- **Task 5.1 — Export job state table**: `export_jobs` table with status, format, file refs, 24h expiry. RPCs: `create_export_job()` (recent-auth required), `get_export_job()`, `list_export_jobs()`. Migration: `20260919072155_export-jobs.sql`.
+- **Task 5.2 — JSON export generation**: `generate_export_json()` aggregates Passport, Shelf, Tools, Activities, Services with full provenance. Migration: `20260919072557_export-json-generation.sql`.
+- **Task 5.3 — CSV export generation**: `generate_export_csv()` produces base64-encoded CSVs per data type (shelf, tools, activities, services, passport). Migration: `20260919073216_export-csv-generation.sql`.
+- **Task 5.4 — Download authorization**: HMAC-signed URLs with 24-hour expiry. RPCs: `get_export_download_info()`, `get_export_download_url()`, `verify_export_download()`. Migration: `20260919073529_export-download-auth.sql`.
+- **Task 5.5 — Retention cleanup**: `run_daily_cleanup()` with 7-day export / 30-day auth / 90-day support / 30-day session retention. Migration: `20260919073818_export-retention-cleanup.sql`.
+- **Task 5.6 — Export UI**: `ExportScreen.tsx` — format selector (JSON/CSV), job history with status badges, download links, retry failed exports, pull-to-refresh.
+
+---
+
 ---
 
 ---
