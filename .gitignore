@@ -12,4 +12,5 @@ supabase/.temp/
 supabase/.branches/
 test-results/
 playwright-report/
+/test-result*.txt
 *.tsbuildinfo
