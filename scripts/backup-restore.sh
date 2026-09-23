@@ -59,9 +59,23 @@ EOF
 
 check_prereqs() {
     command -v pg_dump >/dev/null 2>&1 || error "pg_dump not found. Install postgresql-client."
-    command -v pg_restore >/devnull 2>&1 || error "pg_restore not found. Install postgresql-client."
+    command -v pg_restore >/dev/null 2>&1 || error "pg_restore not found. Install postgresql-client."
+    command -v psql >/dev/null 2>&1 || error "psql not found. Install postgresql-client."
     command -v gzip >/dev/null 2>&1 || error "gzip not found."
     command -v supabase >/dev/null 2>&1 || warn "supabase CLI not found. Install with: npm i -g supabase"
+}
+
+# Beta recovery targets (product authority): RPO <= 1 hour (3600s), RTO <= 4 hours (14400s).
+RPO_SLA_SECONDS=3600
+RTO_SLA_SECONDS=14400
+
+db_url_for() {
+    local project_ref="${1:-$SUPABASE_PROJECT_REF}"
+    local access_token="${2:-$SUPABASE_ACCESS_TOKEN}"
+    [[ -z "$project_ref" ]] && error "Project ref required (--project-ref or SUPABASE_PROJECT_REF)"
+    [[ -z "$access_token" ]] && error "Access token required (--access-token or SUPABASE_ACCESS_TOKEN)"
+    supabase db url --project-ref "$project_ref" --token "$access_token" 2>/dev/null || \
+        error "Failed to get database URL from Supabase"
 }
 
 backup() {
@@ -187,6 +201,39 @@ cleanup() {
     log "Cleanup complete. Deleted $deleted backup(s)."
 }
 
+reapply_tombstones() {
+    local project_ref="${1:-$SUPABASE_PROJECT_REF}"
+    local access_token="${2:-$SUPABASE_ACCESS_TOKEN}"
+
+    log "Reapplying deletion tombstones (restore survival)..."
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        log "DRY RUN: Would run select public.deletion_reapply() on project $project_ref"
+        return 0
+    fi
+    local db_url
+    db_url=$(db_url_for "$project_ref" "$access_token")
+    psql "$db_url" -tAX -c "select public.deletion_reapply()" || \
+        error "Tombstone reapplication failed - do not reopen service"
+    log "Tombstone reapplication complete"
+}
+
+validate_rls() {
+    local project_ref="${1:-$SUPABASE_PROJECT_REF}"
+    local access_token="${2:-$SUPABASE_ACCESS_TOKEN}"
+
+    log "Re-validating row level security before reopening..."
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        log "DRY RUN: Would count unprotected tables on project $project_ref"
+        return 0
+    fi
+    local db_url unprotected
+    db_url=$(db_url_for "$project_ref" "$access_token")
+    unprotected=$(psql "$db_url" -tAX -c "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relname in ('profiles','hair_passports','passport_revisions','chemical_services','service_revisions','activities','activity_revisions','user_products','user_product_revisions','user_tools','user_tool_revisions','export_jobs','deletion_tombstones') and (not c.relrowsecurity or not c.relforcerowsecurity)") || \
+        error "RLS validation query failed - do not reopen service"
+    [[ "$unprotected" == "0" ]] || error "RLS validation FAILED: $unprotected tables unprotected - do not reopen service"
+    log "RLS validation passed"
+}
+
 rehearse() {
     local project_ref="${1:-$SUPABASE_PROJECT_REF}"
     local access_token="${2:-$SUPABASE_ACCESS_TOKEN}"
@@ -194,7 +241,7 @@ rehearse() {
     [[ -z "$project_ref" ]] && error "Project ref required"
     [[ -z "$access_token" ]] && error "Access token required"
 
-    log "=== Starting RPO/RTO Rehearsal ==="
+    log "=== Starting RPO/RTO Rehearsal (RPO <= 1h, RTO <= 4h) ==="
     local start_time=$(date +%s)
 
     # 1. Backup
@@ -208,28 +255,40 @@ rehearse() {
     log "Step 2: Verifying backup..."
     BACKUP_FILE="$backup_file" verify
 
-    # 3. Restore to new project (or same project with different schema)
-    # For rehearsal, we restore to a temporary project or same project with prefix
-    log "Step 3: Testing restore..."
-    # Note: In real scenario, restore to a fresh Supabase project
-    # For now, just verify the backup can be read
-    verify
+    # 3. Restore to a fresh staging project, then reapply tombstones and
+    #    re-validate RLS BEFORE reopening service to users.
+    log "Step 3: Restoring to staging target..."
+    BACKUP_FILE="$backup_file" restore "$project_ref" "$access_token"
+
+    log "Step 4: Reapplying deletion tombstones..."
+    reapply_tombstones "$project_ref" "$access_token"
+
+    log "Step 5: Re-validating row level security..."
+    validate_rls "$project_ref" "$access_token"
 
     local end_time=$(date +%s)
     local rto=$((end_time - backup_time))
-    local rpo=0  # In real scenario, this would be time since last backup
+    local rpo=$((backup_time - start_time))
 
     log "=== Rehearsal Complete ==="
-    log "RTO (restore time): ${rto}s"
-    log "RPO (data loss window): ${rpo}s (depends on backup frequency)"
+    log "RTO (restore time): ${rto}s (SLA: <= ${RTO_SLA_SECONDS}s / 4 hours)"
+    log "RPO (data loss window): ${rpo}s (SLA: <= ${RPO_SLA_SECONDS}s / 1 hour)"
     log "Backup file: $backup_file"
 
-    # Check SLA
-    if [[ $rto -gt 28800 ]]; then  # 8 hours = 28800 seconds
-        warn "RTO exceeds 8-hour SLA: ${rto}s"
+    local failed=0
+    if [[ $rto -gt $RTO_SLA_SECONDS ]]; then
+        warn "RTO exceeds 4-hour SLA: ${rto}s"
+        failed=1
     else
-        log "RTO within SLA: ${rto}s < 28800s"
+        log "RTO within SLA: ${rto}s <= ${RTO_SLA_SECONDS}s"
     fi
+    if [[ $rpo -gt $RPO_SLA_SECONDS ]]; then
+        warn "RPO exceeds 1-hour SLA: ${rpo}s"
+        failed=1
+    else
+        log "RPO within SLA: ${rpo}s <= ${RPO_SLA_SECONDS}s"
+    fi
+    [[ $failed -eq 0 ]] || error "Rehearsal breached recovery targets"
 }
 
 # Parse arguments
@@ -260,5 +319,7 @@ case "$COMMAND" in
     verify) verify ;;
     cleanup) cleanup ;;
     rehearse) rehearse "$SUPABASE_PROJECT_REF" "$SUPABASE_ACCESS_TOKEN" ;;
+    reapply-tombstones) reapply_tombstones "$SUPABASE_PROJECT_REF" "$SUPABASE_ACCESS_TOKEN" ;;
+    validate-rls) validate_rls "$SUPABASE_PROJECT_REF" "$SUPABASE_ACCESS_TOKEN" ;;
     *) usage ;;
 esac
