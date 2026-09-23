@@ -32,3 +32,35 @@ Local evidence links to passing checks; anything unrun is a gate, not a pass.
 A gate moves to **Proven complete** only with current, reproducible evidence
 linked here. Provider responses, device runs and human sign-offs are
 attached to the release decision, not asserted in advance.
+
+## Review outcome — 24 September 2026
+
+**Reviewer:** Muse Spark (opencode) — baseline review on `codex/repo-recovery`
+**Date:** 2026-09-24
+**Scope:** Quality + Beta lanes on top of the 23 September baseline gate
+
+**Verification performed:**
+- `git status --short` — clean (generated `dist` removed, ignored)
+- `npm run verify` — exit 0 (39 files, 445 passed, coverage 91.82 stmts, METADATA-PASS, export smoke)
+- `git diff --check` — no whitespace errors
+- Security diff (`supabase`, `package.json`, mobile manifest): no service-role,
+  secret, token or password material added; `sources/` untouched
+- `tests/database/hardening.test.ts` — 5/5 (forced RLS, fixed search_path,
+  anon isolation, mutator containment, no consumer direct writes)
+- `tests/tooling/beta-readiness.test.ts` — 2/2 (named gates, HOLD, retired targets)
+
+**Findings (all resolved before this record):**
+- The hardening audit found 3 private cores retaining PostgreSQL PUBLIC
+  default execute rights (shelf/tools list cores, `recent_auth`); closed in
+  `20260924300000_function_grant_cleanup.sql`. Unexploitable (cores raise
+  without JWT), now least-privilege.
+- The final gate itself caught a follow-on break: the arity change in the
+  pagination migration had created ungranted 2-arg overloads, which the
+  cleanup then locked out entirely. Fixed in
+  `20260924310000_list_core_grants.sql`, which also drops the orphaned
+  1-arg overloads. This is the gate working as designed.
+- The rehearsal script carried a typo, a retired 8-hour RTO and no restore,
+  tombstone or RLS steps; corrected and contract-tested.
+
+**No Critical or High findings remain open.** Release status stays **HOLD**
+until provider, device and human gates clear with attached evidence.

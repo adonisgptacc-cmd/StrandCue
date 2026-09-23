@@ -32,7 +32,7 @@ Release status: **HOLD**
 | Performance and resilience | Implemented, unverified | Keyset pagination on all lists (`20260924240000_list_pagination.sql`: clamped limits, strict cursors, exact-once traversal tests); offline-tolerant drafts (persist-before-send, retained on failure, owner-keyed cleanup, tested per entity); conflict retain/review/rebase flows (tested); `npm run verify` exit 0 (413 passed) | Representative-device p95, poor-network and large-fixture measurements — Quality plan; then gate review for Proven complete |
 | Backup and disaster recovery | External gate | Restore script and archived tombstone candidates are not proof | Provider backups and rehearsal proving RPO ≤1h/RTO ≤4h — Beta plan |
 | POPIA and operating ownership | External gate | Product policy exists | Named officers/owners, retention validation, cross-border review and legal sign-off — Beta plan |
-| Beta release evidence | External gate | EAS configuration and device-matrix drafts exist | Signed build, internal track, complete device/security/accessibility/operations evidence and gate review — Beta plan |
+| Beta release evidence | External gate | EAS configuration and device-matrix drafts; `beta-readiness.md` gate ledger (HOLD) + contract test; `hardening.test.ts` structural audit; corrected rehearsal script + contract | Signed build, internal track, live rehearsal, providers, owners, reviews and gate review — Beta plan |
 
 ## Promotion rule
 
