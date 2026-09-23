@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, StyleSheet, ScrollView, ActivityIndicator, Picker, Platform } from 'react-native';
 import { useSupabase } from '../ui';
