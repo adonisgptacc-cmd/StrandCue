@@ -72,11 +72,15 @@ describe('export jobs immutable history and RLS', () => {
   it('generates a complete, owner-scoped dataset', async () => {
     await complete(db);
     await mutate(db);
+    await mutate(db, { kind: 'change', revision: 1, patch: { porosity: 'unknown' }, date: DAY });
     await freshAuth(db, USER_A);
     const receipt = await exportRequest(db);
     expect(receipt.recordCount).toBeGreaterThan(0);
     const status = await db.query<{ result: any }>(`select public.export_status($1) result`, [receipt.jobId]);
-    const document = status.rows[0].result.document;
+    expect(status.rows[0].result).toMatchObject({ status: 'completed', format: 'json' });
+    expect(status.rows[0].result).not.toHaveProperty('document');
+    const download = await db.query<{ result: any }>(`select public.export_download($1) result`, [receipt.jobId]);
+    const document = download.rows[0].result.document;
     expect(document.profile.username).toBeDefined();
     expect(document.passport.revisions.length).toBeGreaterThan(0);
     // Unknowns round-trip through the export without invented defaults.
@@ -122,7 +126,7 @@ describe('export jobs immutable history and RLS', () => {
     await freshAuth(db, USER_A);
     const receipt = await exportRequest(db);
     await db.exec('set session authorization postgres');
-    await db.exec(`update public.export_jobs set created_at = now() - interval '8 days', expires_at = now() - interval '7 days' where id = '${receipt.jobId}'`);
+    await db.exec(`update public.export_jobs set created_at = now() - interval '8 days', completed_at = now() - interval '8 days', expires_at = now() - interval '7 days' where id = '${receipt.jobId}'`);
     await db.exec(`select public.export_retention_cleanup()`);
     const row = await db.query<{ document: unknown; status: string }>(`select document, status from public.export_jobs where id = '${receipt.jobId}'`);
     expect(row.rows[0].document).toBeNull();
