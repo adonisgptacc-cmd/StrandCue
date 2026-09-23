@@ -1,3 +1,5 @@
+> **SUPERSEDED by `verification/phase-1-reconciliation.md` on 23 September 2026.** This draft contains stale completion claims and must not be used for release decisions.
+
 # Milestone 8 — Acceptance Matrix Template
 
 **Version:** 1.0  
@@ -75,7 +77,7 @@
 | **Accessibility** | TalkBack, large text, 48dp pass | ⬜ | QA |
 | **Performance** | Cold start < 2.5s, 60fps scroll | ⬜ | Dev |
 | **Security Suite** | Supabase security suite passes | ⬜ | Security |
-| **Backup/Restore** | RPO ≤24h, RTO ≤8h verified | ⬜ | DevOps |
+| **Backup/Restore** | RPO ≤1h, RTO ≤4h verified | ⬜ | DevOps |
 | **No Critical/High** | No open Critical/High defects | ⬜ | QA/Dev |
 | **Documentation** | Acceptance matrix 100% complete | ⬜ | QA |
 | **Sign-off** | Explicit review approval | ⬜ | Release Manager |
