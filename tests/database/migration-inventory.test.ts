@@ -19,6 +19,7 @@ const trustedMigrationNames = [
   '20260924270000_deletion.sql',
   '20260924280000_deletion_rpc.sql',
   '20260924290000_username_change.sql',
+  '20260924300000_function_grant_cleanup.sql',
 ] as const;
 
 const candidateMigrationNames = [
