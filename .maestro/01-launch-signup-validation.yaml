@@ -1,0 +1,14 @@
+# Signup validation without network submission.
+# appId is a placeholder: Beta replaces it with the real Android application
+# identifier before any device run. Emulator execution stays Beta-owned.
+appId: com.strandcue.dev
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Begin your hair record"
+- tapOn: "Create account"
+- assertVisible: "Enter a valid email address."
+- tapOn: "Email"
+- inputText: "not-an-email"
+- tapOn: "Create account"
+- assertVisible: "Enter a valid email address."

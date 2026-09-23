@@ -1,0 +1,14 @@
+# Recovery request navigation without submitting to the network.
+# appId is a placeholder: Beta replaces it with the real Android application
+# identifier before any device run. Emulator execution stays Beta-owned.
+appId: com.strandcue.dev
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Begin your hair record"
+- tapOn: "Already have an account? Sign in"
+- assertVisible: "Welcome back"
+- tapOn: "Forgot password?"
+- assertVisible: "Recover your account"
+- tapOn: "Send recovery link"
+- assertVisible: "Enter a valid email address."
