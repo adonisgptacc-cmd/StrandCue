@@ -10,13 +10,15 @@ import {
   statusExport,
   type ExportStatus,
 } from '../export-api';
-import { Button, styles } from '../ui';
+import { Button, Choice, styles } from '../ui';
+import type { ExportFormat } from '../export-api';
 
 const lastJobKey = (owner: string) => `strandcue-export-last-${owner}`;
 
 export function ExportScreen({ owner }: { owner: string }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<ExportStatus | null>(null);
+  const [format, setFormat] = useState<ExportFormat>('json');
   const [operationId, setOperationId] = useState(() => Crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -47,7 +49,8 @@ export function ExportScreen({ owner }: { owner: string }) {
     try {
       // The same operation ID is reused while this screen lives so an
       // interrupted request retries identically instead of duplicating.
-      const receipt = await requestExport(operationId, 'json');
+      // Changing format starts a new operation so payloads never mismatch.
+      const receipt = await requestExport(operationId, format);
       if (!alive.current) return;
       setJobId(receipt.jobId);
       await secureStorage.setItem(lastJobKey(owner), receipt.jobId);
@@ -76,6 +79,8 @@ export function ExportScreen({ owner }: { owner: string }) {
       <Text style={styles.body}>Download a complete copy of your record: Hair Passport and history, chemical services, activities, shelf, tools and catalogue facts. Exports are private to you.</Text>
       <Text style={styles.body}>Download access expires after 24 hours. Export files are removed within 7 days.</Text>
     </View>
+    <Choice label="Export format" value={format} options={['json', 'csv']} disabled={busy}
+      onChange={value => { setFormat(value as ExportFormat); setOperationId(Crypto.randomUUID()); }} />
     <Button title={busy ? 'Working…' : jobId ? 'Request a new export' : 'Create export'} disabled={busy} onPress={() => void request()} />
     {!!jobId && <View style={styles.card}>
       <Text style={styles.heading}>Latest export</Text>

@@ -32,9 +32,15 @@ describe('export mobile boundary', () => {
     expect(parameters).not.toHaveProperty('user_id');
   });
 
-  it('rejects unsupported formats before sending', async () => {
-    await expect(requestExport(operationId, 'csv' as unknown as 'json')).rejects.toThrow();
-    expect(rpc).not.toHaveBeenCalledWith('export_request', expect.anything());
+  it('requests CSV exports and rejects anything else before sending', async () => {
+    rpc.mockResolvedValueOnce({
+      data: { jobId, status: 'completed', recordCount: 12, expiresAt: '2024-03-02T10:00:00.000000Z' },
+      error: null,
+    });
+    await expect(requestExport(operationId, 'csv')).resolves.toMatchObject({ jobId });
+    expect(rpc).toHaveBeenLastCalledWith('export_request', { p_operation_id: operationId, p_format: 'csv' });
+    await expect(requestExport(operationId, 'xml' as never)).rejects.toThrow();
+    expect(rpc).not.toHaveBeenCalledWith('export_request', expect.objectContaining({ p_format: 'xml' }));
   });
 
   it('rejects a receipt that leaks an owner field', async () => {

@@ -42,9 +42,11 @@ async function callRpc(name: string, parameters: Record<string, unknown>): Promi
   return data;
 }
 
-const ExportFormatSchema = z.enum(['json']);
+const ExportFormatSchema = z.enum(['json', 'csv']);
 
-export async function requestExport(operationId: string, format: 'json'): Promise<ExportReceipt> {
+export type ExportFormat = z.output<typeof ExportFormatSchema>;
+
+export async function requestExport(operationId: string, format: ExportFormat): Promise<ExportReceipt> {
   const request = z.object({ operationId: z.string().uuid(), format: ExportFormatSchema }).strict().parse({ operationId, format });
   const data = await callRpc('export_request', {
     p_operation_id: request.operationId,
