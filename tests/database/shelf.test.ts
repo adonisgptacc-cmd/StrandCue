@@ -84,6 +84,34 @@ describe('shelf catalogue immutable history and RLS', () => {
     await expect(db.exec(`insert into public.product_verification_events(id, version_id, reviewer, reviewed_fields, status, reason) values (gen_random_uuid(), 'b0000000-0000-4000-8000-000000000003', 'self', '{name}', 'verified', 'self-approved')`)).rejects.toThrow(/permission denied|violates/i);
   });
 
+  it('denies direct authenticated writes to user product tables', async () => {
+    await complete(db);
+    await expect(db.exec(`insert into public.user_products(id, owner, availability) values (gen_random_uuid(), '${USER_A}', 'available')`)).rejects.toThrow(/permission denied|violates/i);
+    await expect(db.exec(`insert into public.user_product_revisions(id, owner, user_product_id, sequence, base_revision, kind, effective_date, source, patch) values (gen_random_uuid(), '${USER_A}', gen_random_uuid(), 1, 0, 'baseline', '{"precision":"day","value":"2024-01-01"}', 'user-reported', '{}')`)).rejects.toThrow(/permission denied|violates/i);
+    await asUser(db, USER_B);
+    expect((await db.query('select * from public.user_products')).rows).toEqual([]);
+    expect((await db.query('select * from public.user_product_revisions')).rows).toEqual([]);
+  });
+
+  it('enforces composite owner FK on user product children', async () => {
+    await complete(db);
+    await db.exec('set session authorization postgres');
+    const userProductId = crypto.randomUUID();
+    await db.exec(`insert into public.user_products(id, owner, manual_name, availability, revision) values ('${userProductId}', '${USER_A}', 'Gentle Shampoo', 'available', 0)`);
+    await expect(db.query(`insert into public.user_product_revisions(id, owner, user_product_id, sequence, base_revision, kind, effective_date, effective_start, effective_end, source, patch) values (gen_random_uuid(), '${USER_B}', '${userProductId}', 1, 0, 'baseline', '{"precision":"day","value":"2024-01-01"}', '2024-01-01', '2024-01-01', 'user-reported', '{}')`)).rejects.toThrow(/foreign key|violates/i);
+  });
+
+  it('keeps archived ownership rows with their history', async () => {
+    const rows = await db.query<{ tablename: string }>(
+      `select tablename from pg_tables where schemaname = 'public' and tablename in ('user_products', 'user_product_revisions')`,
+    );
+    expect(rows.rows.map((row) => row.tablename).sort()).toEqual(['user_product_revisions', 'user_products']);
+    const unprotected = await db.query(
+      `select relname from pg_class where relname in ('user_products', 'user_product_revisions') and (not relrowsecurity or not relforcerowsecurity)`,
+    );
+    expect(unprotected.rows).toEqual([]);
+  });
+
   it('preserves version payloads across successor links', async () => {
     await db.exec('set session authorization postgres');
     await db.exec(`insert into public.brands(id, name) values ('b0000000-0000-4000-8000-000000000101', 'House Brand')`);
