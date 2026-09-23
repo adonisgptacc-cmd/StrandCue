@@ -10,7 +10,11 @@ import { Services } from './services';
 import { Activities } from './activities';
 import { Shelf } from './shelf';
 import { Tools } from './tools';
+import { ExportScreen } from './screens/ExportScreen';
+import { DeletionScreen } from './screens/DeletionScreen';
+import { changeUsername, usernameErrorMessage } from './settings-api';
 import { clearServiceDrafts } from './service-form';
+import * as Crypto from 'expo-crypto';
 import { Button, Field, Page, styles } from './ui';
 
 const display = (value: unknown): string => {
@@ -20,6 +24,61 @@ const display = (value: unknown): string => {
   return String(value).replaceAll('-', ' ');
 };
 const fieldLabel = (value: string) => value.replace(/([A-Z])/g,' $1').replace(/^./,char=>char.toUpperCase());
+
+function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
+  owner: string; profile: { username: string }; busy: boolean; onLogout: () => void; onProfileChanged: () => void;
+}) {
+  const [section, setSection] = useState<'main' | 'username' | 'export' | 'delete'>('main');
+  const [username, setUsername] = useState('');
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  if (section === 'export') return <View style={{ gap: 20 }}>
+    <Button title="Back to settings" secondary onPress={() => setSection('main')} />
+    <ExportScreen owner={owner} />
+  </View>;
+  if (section === 'delete') return <View style={{ gap: 20 }}>
+    <Button title="Back to settings" secondary onPress={() => setSection('main')} />
+    <DeletionScreen />
+  </View>;
+  const saveUsername = async () => {
+    setSaving(true); setMessage('');
+    try {
+      const receipt = await changeUsername(Crypto.randomUUID(), username);
+      setMessage(`Username changed to @${receipt.username}.`);
+      setUsername('');
+      onProfileChanged();
+    } catch (caught) {
+      setMessage(usernameErrorMessage((caught as { message?: string })?.message ?? ''));
+    } finally { setSaving(false); }
+  };
+  return <View style={{ gap: 20 }}>
+    <View style={styles.card}>
+      <Text style={styles.heading}>@{profile.username}</Text>
+      <Text style={styles.body}>Your private record is linked to your account, even if your email changes.</Text>
+      <Text style={styles.body}>Market: South Africa · Currency: ZAR · Temperature: Celsius</Text>
+      <Button title={busy ? 'Signing out…' : 'Sign out of this device'} disabled={busy} onPress={onLogout} />
+    </View>
+    {section === 'username' ? <View style={styles.card}>
+      <Text style={styles.heading}>Change username</Text>
+      <Text style={styles.body}>Usernames can change once every 7 days. Your history stays linked to your account.</Text>
+      <Field label="New username" value={username} onChangeText={setUsername} autoCapitalize="none" maxLength={32} />
+      {!!message && <Text accessibilityRole="alert" style={styles.body}>{message}</Text>}
+      <Button title={saving ? 'Saving…' : 'Save username'} disabled={saving || busy} onPress={() => void saveUsername()} />
+      <Button title="Back to settings" secondary disabled={saving} onPress={() => { setSection('main'); setMessage(''); }} />
+    </View> : <View style={styles.card}>
+      <Text style={styles.heading}>Account</Text>
+      {!!message && <Text style={styles.body}>{message}</Text>}
+      <Button title="Change username" secondary disabled={busy} onPress={() => { setSection('username'); setMessage(''); }} />
+      <Button title="Export my data" secondary disabled={busy} onPress={() => setSection('export')} />
+      <Button title="Delete my account" secondary disabled={busy} onPress={() => setSection('delete')} />
+    </View>}
+    <View style={styles.card}>
+      <Text style={styles.heading}>About this development build</Text>
+      <Text style={styles.body}>Use synthetic information during testing.</Text>
+      {Platform.OS === 'web' && <Text style={styles.subtitle}>Browser preview keeps session data in memory only. Native secure storage and email recovery need device testing.</Text>}
+    </View>
+  </View>;
+}
 
 export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [profile, setProfile] = useState<{username: string}|null>(null);
@@ -101,7 +160,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
       {!visible && <Text style={styles.body}>Your history begins with your first Passport entry.</Text>}
       {visible?.revisions.filter(entry=>audit || !visible.projection.supersededRevisionIds.includes(entry.id)).slice().reverse().map(entry => <View style={styles.card} key={entry.id}><Text style={styles.kicker}>{entry.kind === 'correction' ? 'CORRECTION' : entry.kind === 'baseline' ? 'FIRST RECORD' : 'CHANGE'} · {entry.effectiveDate.value ?? 'DATE UNKNOWN'}</Text><Text style={styles.subtitle}>{entry.source.replaceAll('-',' ')} · {entry.effectiveDate.precision} precision</Text>{Object.entries(entry.patch).map(([key,value])=><Text key={key} style={styles.body}>{fieldLabel(key)}: {display(value)}</Text>)}{'correctionReason' in entry && <Text style={styles.body}>Reason: {entry.correctionReason}</Text>}{!record?.projection.supersededRevisionIds.includes(entry.id) && <Button title="Correct this entry" secondary onPress={() => {setTarget(entry);setEditing(true);}}/>}</View>)}
     </>}
-    {tab === 'Settings' && <><View style={styles.card}><Text style={styles.heading}>@{profile.username}</Text><Text style={styles.body}>Your private record is linked to your account, even if your email changes.</Text><Text style={styles.body}>Market: South Africa · Currency: ZAR · Temperature: Celsius</Text><Button title={busy ? 'Signing out…' : 'Sign out of this device'} disabled={busy} onPress={() => void logout()}/></View><View style={styles.card}><Text style={styles.heading}>About this development build</Text><Text style={styles.body}>This first slice covers your Passport and its history. Account export and deletion must be completed and tested before anyone uses it for real personal records.</Text><Text style={styles.body}>Use synthetic information during testing.</Text>{Platform.OS === 'web' && <Text style={styles.subtitle}>Browser preview keeps session data in memory only. Native secure storage and email recovery need device testing.</Text>}</View></>}
+    {tab === 'Settings' && <SettingsView owner={user.id} profile={profile} busy={busy} onLogout={() => void logout()} onProfileChanged={() => void refresh()} />}
     <Text style={styles.subtitle}>Your record, not a diagnosis. StrandCue records cosmetic hair-care information.</Text>
   </Page>;
 }
