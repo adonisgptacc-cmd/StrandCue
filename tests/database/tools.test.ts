@@ -2,6 +2,18 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { PGlite } from '@electric-sql/pglite';
 import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
 
+const DAY = { precision: 'day', value: '2024-01-15' };
+
+async function toolAdd(db: PGlite, opts: { operationId?: string; userToolId?: string; versionId?: string | null; manualModel?: string | null } = {}) {
+  return (await db.query<{ result: any }>(
+    `select public.tool_add($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) result`,
+    [opts.operationId ?? crypto.randomUUID(), opts.userToolId ?? crypto.randomUUID(),
+      opts.versionId === undefined ? null : opts.versionId,
+      'Salon Brand', opts.manualModel === undefined ? 'Pro Dryer' : opts.manualModel,
+      'dryer', 'available', null, JSON.stringify(DAY)],
+  )).rows[0].result;
+}
+
 const TOOL_CATALOGUE_TABLES = [
   'tool_brands',
   'tools',
@@ -112,6 +124,63 @@ describe('tools catalogue immutable history and RLS', () => {
       `select wattage_watts, temperature_max_celsius, adjustable_temp from public.tool_versions where id = 'd0000000-0000-4000-8000-000000000003'`,
     );
     expect(rows.rows).toEqual([{ wattage_watts: 2200, temperature_max_celsius: null, adjustable_temp: 'unknown' }]);
+  });
+
+  it('is idempotent on same operation key and payload, and rejects same key different payload', async () => {
+    await complete(db);
+    const op = crypto.randomUUID();
+    const tool = crypto.randomUUID();
+    const first = await toolAdd(db, { operationId: op, userToolId: tool });
+    expect(first.revision).toBe(1);
+    expect(await toolAdd(db, { operationId: op, userToolId: tool })).toEqual(first);
+    await expect(toolAdd(db, { operationId: op, userToolId: tool, manualModel: 'Different' })).rejects.toThrow(/operation-conflict/i);
+  });
+
+  it('rejects stale expected_revision with revision-conflict', async () => {
+    await complete(db);
+    const rec = await toolAdd(db, {});
+    await expect(db.query(`select public.tool_change($1, $2, 0, null, null, null, null, 'out_of_stock', null, $3::jsonb)`,
+      [crypto.randomUUID(), rec.userToolId, JSON.stringify(DAY)])).rejects.toThrow(/revision-conflict/i);
+  });
+
+  it('denies changing another owners tool', async () => {
+    await complete(db);
+    const rec = await toolAdd(db, {});
+    await asUser(db, USER_B);
+    await complete(db, 'user_b');
+    // RLS hides the foreign row; either denial preserves privacy.
+    await expect(db.query(`select public.tool_change($1, $2, 1, null, null, null, null, 'out_of_stock', null, $3::jsonb)`,
+      [crypto.randomUUID(), rec.userToolId, JSON.stringify(DAY)])).rejects.toThrow(/not-found|revision-conflict/i);
+  });
+
+  it('requires explicit confirmation to match and preserves manual identity', async () => {
+    await complete(db);
+    await db.exec('set session authorization postgres');
+    await db.exec(`insert into public.tool_brands(id, name) values ('e0000000-0000-4000-8000-000000000001', 'Salon Brand')`);
+    await db.exec(`insert into public.tools(id, brand_id, name, tool_type) values ('e0000000-0000-4000-8000-000000000002', 'e0000000-0000-4000-8000-000000000001', 'Pro Dryer', 'dryer')`);
+    await db.exec(`insert into public.tool_versions(id, tool_id, version_label, market, lifecycle) values ('e0000000-0000-4000-8000-000000000003', 'e0000000-0000-4000-8000-000000000002', 'v1', 'ZA', 'active')`);
+    await asUser(db, USER_A);
+    const rec = await toolAdd(db, { manualModel: 'My dryer guess' });
+    const versionId = 'e0000000-0000-4000-8000-000000000003';
+    await expect(db.query(`select public.tool_match($1, $2, 1, $3, false)`,
+      [crypto.randomUUID(), rec.userToolId, versionId])).rejects.toThrow(/confirmation-required/i);
+    const matched = await db.query<{ result: any }>(`select public.tool_match($1, $2, 1, $3, true) result`,
+      [crypto.randomUUID(), rec.userToolId, versionId]);
+    expect(matched.rows[0].result.revision).toBe(2);
+    const detail = await db.query<{ result: any }>(`select public.tool_history($1, true) result`, [rec.userToolId]);
+    expect(detail.rows[0].result.matched).toBe(true);
+    expect(detail.rows[0].result.manualModel).toBe('My dryer guess');
+  });
+
+  it('hides archived items from the default list but keeps their history', async () => {
+    await complete(db);
+    const rec = await toolAdd(db, {});
+    await db.query(`select public.tool_archive($1, $2, 1)`, [crypto.randomUUID(), rec.userToolId]);
+    const list = await db.query<{ result: any }>(`select public.tool_list(25) result`);
+    expect((list.rows[0].result.items as any[]).find((item: any) => item.id === rec.userToolId)).toBeUndefined();
+    const history = await db.query<{ result: any }>(`select public.tool_history($1, true) result`, [rec.userToolId]);
+    expect(history.rows[0].result.availability).toBe('archived');
+    expect((history.rows[0].result.revisions as any[]).some((r: any) => r.kind === 'archive')).toBe(true);
   });
 
   it('preserves version payloads across successor links', async () => {
