@@ -13,6 +13,7 @@ import { Tools } from './tools';
 import { ExportScreen } from './screens/ExportScreen';
 import { DeletionScreen } from './screens/DeletionScreen';
 import { changeUsername, usernameErrorMessage } from './settings-api';
+import { consentErrorMessage, consentPurposeLabel, listConsents, optionalPurposes, setConsent, type ConsentList, type ConsentPurpose } from './consent-api';
 import { clearServiceDrafts } from './service-form';
 import * as Crypto from 'expo-crypto';
 import { Button, Field, Page, styles } from './ui';
@@ -28,10 +29,28 @@ const fieldLabel = (value: string) => value.replace(/([A-Z])/g,' $1').replace(/^
 function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   owner: string; profile: { username: string }; busy: boolean; onLogout: () => void; onProfileChanged: () => void;
 }) {
-  const [section, setSection] = useState<'main' | 'username' | 'export' | 'delete'>('main');
+  const [section, setSection] = useState<'main' | 'username' | 'export' | 'delete' | 'privacy'>('main');
   const [username, setUsername] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
+  const [consents, setConsents] = useState<ConsentList | null>(null);
+  const openPrivacy = async () => {
+    setSection('privacy'); setMessage('');
+    try {
+      setConsents(await listConsents());
+    } catch (caught) {
+      setMessage(consentErrorMessage((caught as { message?: string })?.message ?? ''));
+    }
+  };
+  const toggleConsent = async (purpose: ConsentPurpose, granted: boolean) => {
+    setSaving(true); setMessage('');
+    try {
+      await setConsent(Crypto.randomUUID(), purpose, granted);
+      setConsents(await listConsents());
+    } catch (caught) {
+      setMessage(consentErrorMessage((caught as { message?: string })?.message ?? ''));
+    } finally { setSaving(false); }
+  };
   if (section === 'export') return <View style={{ gap: 20 }}>
     <Button title="Back to settings" secondary onPress={() => setSection('main')} />
     <ExportScreen owner={owner} />
@@ -39,6 +58,23 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   if (section === 'delete') return <View style={{ gap: 20 }}>
     <Button title="Back to settings" secondary onPress={() => setSection('main')} />
     <DeletionScreen />
+  </View>;
+  if (section === 'privacy') return <View style={{ gap: 20 }}>
+    <Button title="Back to settings" secondary onPress={() => setSection('main')} />
+    <View style={styles.card}>
+      <Text style={styles.heading}>Privacy choices</Text>
+      <Text style={styles.body}>Hair record processing is required while your account exists — stopping it means deleting your account. Optional choices take effect immediately and stop future collection.</Text>
+      <View style={styles.row}>
+        <Text style={styles.label}>{consentPurposeLabel('hair_passport_processing')}</Text>
+        <Text style={styles.body}>On (required)</Text>
+      </View>
+      {consents === null && <Text style={styles.body}>Loading choices…</Text>}
+      {optionalPurposes.map(purpose => <View key={purpose} style={styles.row}>
+        <Text style={styles.label}>{consentPurposeLabel(purpose)}</Text>
+        <Button title={consents?.[purpose] ? 'On — turn off' : 'Off — turn on'} secondary disabled={saving} onPress={() => void toggleConsent(purpose, !(consents?.[purpose] ?? false))} />
+      </View>)}
+      {!!message && <Text accessibilityRole="alert" style={styles.body}>{message}</Text>}
+    </View>
   </View>;
   const saveUsername = async () => {
     setSaving(true); setMessage('');
@@ -69,6 +105,7 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
       <Text style={styles.heading}>Account</Text>
       {!!message && <Text style={styles.body}>{message}</Text>}
       <Button title="Change username" secondary disabled={busy} onPress={() => { setSection('username'); setMessage(''); }} />
+      <Button title="Privacy choices" secondary disabled={busy} onPress={() => void openPrivacy()} />
       <Button title="Export my data" secondary disabled={busy} onPress={() => setSection('export')} />
       <Button title="Delete my account" secondary disabled={busy} onPress={() => setSection('delete')} />
     </View>}
