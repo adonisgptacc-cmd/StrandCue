@@ -233,6 +233,14 @@ function sortedSurfaceSignature(surfaces: DependencySurface[]): string {
   return JSON.stringify([...new Set(surfaces)].sort());
 }
 
+function advisoryTupleSignature(
+  advisoryId: string,
+  path: string[],
+  surfaces: DependencySurface[],
+): string {
+  return `${advisoryId}:${packagePathSignature(path)}:${sortedSurfaceSignature(surfaces)}`;
+}
+
 function addSurfaceClassification(
   classifications: Map<string, Set<DependencySurface>>,
   packageName: string,
@@ -532,8 +540,36 @@ export function auditDependencyPolicy(
         branch,
       ]),
   ).values()];
+  const observedModerateBranches = relevantModerateBranches.map(branch => ({
+    branch,
+    observed: deriveObservedSurfaces(
+      branch,
+      parsedReport.data.vulnerabilities,
+      surfaceClassifications,
+      viaDependents,
+    ),
+  }));
+  const observedModeratePathSignatures = new Set(
+    relevantModerateBranches.map(branch => (
+      `${branch.advisoryId}:${packagePathSignature(branch.path)}`
+    )),
+  );
+  const observedModerateTupleSignatures = new Set(
+    observedModerateBranches
+      .filter(({ observed }) => observed.isComplete)
+      .map(({ branch, observed }) => advisoryTupleSignature(
+        branch.advisoryId,
+        branch.path,
+        observed.surfaces,
+      )),
+  );
+  const incompleteObservedPathSignatures = new Set(
+    observedModerateBranches
+      .filter(({ observed }) => !observed.isComplete)
+      .map(({ branch }) => `${branch.advisoryId}:${packagePathSignature(branch.path)}`),
+  );
 
-  const unreviewedPathFindings = relevantModerateBranches.flatMap(branch => {
+  const unreviewedPathFindings = observedModerateBranches.flatMap(({ branch, observed }) => {
     const exception = exceptionById.get(branch.advisoryId);
     if (!exception) return [];
 
@@ -547,12 +583,6 @@ export function auditDependencyPolicy(
         )];
     }
 
-    const observed = deriveObservedSurfaces(
-      branch,
-      parsedReport.data.vulnerabilities,
-      surfaceClassifications,
-      viaDependents,
-    );
     if (!observed.isComplete) {
       return [finding(
         'ADVISORY-SURFACE-UNIDENTIFIED',
@@ -577,6 +607,39 @@ export function auditDependencyPolicy(
       `Exception no longer matches an observed advisory: ${exception.advisoryId}.`,
     ));
 
+  const staleExceptionPathFindings = parsedExceptions.data.flatMap(exception => (
+    observedAdvisoryIds.has(exception.advisoryId)
+      ? exception.packages
+        .filter(({ path }) => !observedModeratePathSignatures.has(
+          `${exception.advisoryId}:${packagePathSignature(path)}`,
+        ))
+        .map(({ path }) => finding(
+          'EXCEPTION-PATH-STALE',
+          `Exception path no longer matches an observed advisory path: ${exception.advisoryId}:${path.join(' > ')}.`,
+        ))
+      : []
+  ));
+
+  const staleExceptionTupleFindings = parsedExceptions.data.flatMap(exception => (
+    observedAdvisoryIds.has(exception.advisoryId)
+      ? exception.packages
+        .filter(({ path, surfaces }) => {
+          const pathSignature = `${exception.advisoryId}:${packagePathSignature(path)}`;
+          return observedModeratePathSignatures.has(pathSignature)
+            && !incompleteObservedPathSignatures.has(pathSignature)
+            && !observedModerateTupleSignatures.has(advisoryTupleSignature(
+              exception.advisoryId,
+              path,
+              surfaces,
+            ));
+        })
+        .map(({ path, surfaces }) => finding(
+          'EXCEPTION-TUPLE-STALE',
+          `Exception tuple no longer matches an observed advisory path and surfaces: ${exception.advisoryId}:${path.join(' > ')}:${[...surfaces].sort().join(',')}.`,
+        ))
+      : []
+  ));
+
   return [
     ...duplicateExceptionFindings,
     ...exceptionDateFindings,
@@ -587,5 +650,7 @@ export function auditDependencyPolicy(
     ...inadequateResolutionFindings,
     ...unreviewedPathFindings,
     ...staleExceptionFindings,
+    ...staleExceptionPathFindings,
+    ...staleExceptionTupleFindings,
   ];
 }

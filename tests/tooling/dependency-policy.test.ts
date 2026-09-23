@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -739,6 +740,34 @@ describe('dependency advisory policy', () => {
     );
   });
 
+  it('flags stale package paths within an otherwise observed advisory exception', () => {
+    const exception = currentException({
+      packages: [
+        approvedBranch(['decode-uri-component'], ['android', 'production']),
+        approvedBranch(['removed-parent', 'decode-uri-component'], ['android', 'production']),
+      ],
+    });
+
+    expect(auditDependencyPolicy(auditReport(), [exception], TODAY)).toContainEqual({
+      code: 'EXCEPTION-PATH-STALE',
+      message: `Exception path no longer matches an observed advisory path: ${ADVISORY_ID}:removed-parent > decode-uri-component.`,
+    });
+  });
+
+  it('flags stale surfaces on a package path that is still observed', () => {
+    const exception = currentException({
+      packages: [
+        approvedBranch(['decode-uri-component'], ['android', 'production']),
+        approvedBranch(['decode-uri-component'], ['development']),
+      ],
+    });
+
+    expect(auditDependencyPolicy(auditReport(), [exception], TODAY)).toContainEqual({
+      code: 'EXCEPTION-TUPLE-STALE',
+      message: `Exception tuple no longer matches an observed advisory path and surfaces: ${ADVISORY_ID}:decode-uri-component:development.`,
+    });
+  });
+
   it.each([
     null,
     {},
@@ -758,61 +787,48 @@ let fakeNpmDirectory = '';
 let fakeNpmPath = '';
 
 function cliAuditReport() {
-  return {
-    auditReportVersion: 2,
-    vulnerabilities: {
-      'decode-uri-component': {
-        name: 'decode-uri-component',
-        severity: 'moderate',
-        via: [{
-          name: 'decode-uri-component',
-          severity: 'moderate',
-          url: 'https://github.com/advisories/GHSA-vcc3-ghjq-m6fr',
-        }],
-        effects: ['query-string'],
-      },
-      'query-string': {
-        name: 'query-string',
-        severity: 'moderate',
-        via: ['decode-uri-component'],
-        effects: ['expo-router'],
-      },
-      'expo-router': {
-        name: 'expo-router',
-        severity: 'moderate',
-        via: ['query-string'],
-        effects: [],
-      },
-      uuid: {
-        name: 'uuid',
-        severity: 'moderate',
-        via: [{
-          name: 'uuid',
-          severity: 'moderate',
-          url: 'https://github.com/advisories/GHSA-w5hq-g745-h8pq',
-        }],
-        effects: ['xcode'],
-      },
-      xcode: {
-        name: 'xcode',
-        severity: 'moderate',
-        via: ['uuid'],
-        effects: ['@expo/config-plugins'],
-      },
-      '@expo/config-plugins': {
-        name: '@expo/config-plugins',
-        severity: 'moderate',
-        via: ['xcode'],
-        effects: ['expo'],
-      },
-      expo: {
-        name: 'expo',
-        severity: 'moderate',
-        via: ['@expo/config-plugins'],
-        effects: [],
-      },
-    },
+  type RegistryEntry = { advisoryId: string; packages: { path: string[] }[] };
+  type Vulnerability = {
+    name: string;
+    severity: 'moderate';
+    via: (string | { name: string; severity: 'moderate'; url: string })[];
+    effects: string[];
   };
+  const registry = JSON.parse(readFileSync(
+    resolve(repositoryRoot, 'docs/verification/dependency-advisory-exceptions.json'),
+    'utf8',
+  )) as RegistryEntry[];
+  const vulnerabilities: Record<string, Vulnerability> = {};
+  const ensureVulnerability = (name: string) => {
+    vulnerabilities[name] ??= { name, severity: 'moderate', via: [], effects: [] };
+    return vulnerabilities[name];
+  };
+
+  for (const exception of registry) {
+    for (const rootToLeafPath of exception.packages.map(({ path }) => path)) {
+      const leafToRootPath = [...rootToLeafPath].reverse();
+      leafToRootPath.forEach((packageName, index) => {
+        const vulnerability = ensureVulnerability(packageName);
+        if (index === 0) {
+          if (!vulnerability.via.some(via => typeof via !== 'string')) {
+            vulnerability.via.push({
+              name: packageName,
+              severity: 'moderate',
+              url: `https://github.com/advisories/${exception.advisoryId}`,
+            });
+          }
+          return;
+        }
+
+        const dependency = leafToRootPath[index - 1];
+        if (!vulnerability.via.includes(dependency)) vulnerability.via.push(dependency);
+        const dependent = ensureVulnerability(dependency);
+        if (!dependent.effects.includes(packageName)) dependent.effects.push(packageName);
+      });
+    }
+  }
+
+  return { auditReportVersion: 2, vulnerabilities };
 }
 
 function runAuditCli(options: {
@@ -874,11 +890,25 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('"critical":0');
     expect(result.stdout).toContain('"high":0');
-    expect(result.stdout).toContain('"moderate":7');
+    expect(result.stdout).toContain('"moderate":13');
     expect(result.stdout).toContain('"reviewedAdvisories":2');
     expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
     expect(result.stderr).toBe('');
-  });
+  }, 10_000);
+
+  it('rejects npm exit 1 when the registry retains a path absent from the audit report', async () => {
+    const report = cliAuditReport();
+    delete report.vulnerabilities['expo-router'];
+    report.vulnerabilities['query-string'].effects = [];
+    const result = await runAuditCli({
+      stdout: JSON.stringify(report),
+      auditExitCode: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('EXCEPTION-PATH-STALE');
+  }, 10_000);
 
   it('rejects npm exit 1 when a validated audit report contains no vulnerabilities', async () => {
     const cleanReport = { auditReportVersion: 2, vulnerabilities: {} };

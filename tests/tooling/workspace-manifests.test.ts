@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,7 +14,17 @@ const rootManifest = {
   workspaces: ['packages/*', 'apps/*'],
 };
 
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
 describe('workspace manifest inventory', () => {
+  it('does not claim a root uuid override while the reviewed Expo tooling path remains installed', () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(repositoryRoot, 'package.json'), 'utf8'),
+    ) as { overrides?: Record<string, unknown> };
+
+    expect(manifest.overrides?.uuid).toBeUndefined();
+  });
+
   it('builds deterministic manifest globs for the supported workspace roots', () => {
     expect(workspaceManifestGlobs(rootManifest)).toEqual([
       'apps/*/package.json',
