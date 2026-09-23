@@ -91,14 +91,25 @@ describe('tools mobile boundary', () => {
   });
 
   it('lists non-archived items and parses history with match state', async () => {
-    rpc.mockResolvedValueOnce({ data: { items: [{ id: userToolId, revision: 1, availability: 'available', manualModel: 'Pro dryer' }] }, error: null });
-    await expect(listUserTools()).resolves.toMatchObject({ items: [{ id: userToolId }] });
+    rpc.mockResolvedValueOnce({ data: { items: [{ id: userToolId, revision: 1, availability: 'available', manualModel: 'Pro dryer' }], nextCursor: null }, error: null });
+    await expect(listUserTools()).resolves.toMatchObject({ items: [{ id: userToolId }], nextCursor: null });
     rpc.mockResolvedValueOnce({
       data: { id: userToolId, revision: 2, availability: 'available', matched: true, matchConfirmed: true, manualModel: 'My dryer guess', versionId, revisions: [] },
       error: null,
     });
     const detail = await getUserTool(userToolId, true);
     expect(detail).toMatchObject({ matched: true, manualModel: 'My dryer guess' });
+  });
+
+  it('pages through cursors and rejects out-of-range limits before sending', async () => {
+    const cursor = { updatedAt: '2024-01-15T10:00:00.000000Z', id: userToolId };
+    rpc.mockResolvedValueOnce({ data: { items: [], nextCursor: cursor }, error: null });
+    await expect(listUserTools({ limit: 10 })).resolves.toMatchObject({ nextCursor: cursor });
+    expect(rpc).toHaveBeenLastCalledWith('tool_list', { p_limit: 10, p_cursor: null });
+    rpc.mockResolvedValueOnce({ data: { items: [], nextCursor: null }, error: null });
+    await expect(listUserTools({ limit: 10, cursor })).resolves.toMatchObject({ nextCursor: null });
+    expect(rpc).toHaveBeenLastCalledWith('tool_list', { p_limit: 10, p_cursor: cursor });
+    await expect(listUserTools({ limit: 101 })).rejects.toThrow();
   });
 
   it('rejects notes longer than 2000 characters before sending', async () => {

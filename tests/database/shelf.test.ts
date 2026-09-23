@@ -4,6 +4,10 @@ import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
 
 const DAY = { precision: 'day', value: '2024-01-15' };
 
+async function shelfList(db: PGlite, limit: number | null, cursor: unknown = null) {
+  return (await db.query<{ result: any }>(`select public.shelf_list($1, $2::jsonb) result`,
+    [limit, cursor === null ? null : JSON.stringify(cursor)])).rows[0].result;
+}
 async function shelfAdd(db: PGlite, opts: { operationId?: string; userProductId?: string; versionId?: string | null; manualName?: string | null; availability?: string; notes?: string | null; effectiveDate?: unknown } = {}) {
   return (await db.query<{ result: any }>(
     `select public.shelf_add($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) result`,
@@ -194,6 +198,46 @@ describe('shelf catalogue immutable history and RLS', () => {
       ['b0000000-0000-4000-8000-000000000003', 'verified', 'self-approved'])).rejects.toThrow(/not-authorized/i);
     const events = await db.query(`select * from public.product_verification_events where reviewer = 'self-approved'`);
     expect(events.rows).toEqual([]);
+  });
+
+  it.each([0, 101, -1])('rejects shelf page limit %s with invalid-page', async (limit) => {
+    await complete(db);
+    await expect(shelfList(db, limit)).rejects.toThrow(/invalid-page/i);
+  });
+
+  it('rejects malformed shelf cursors with invalid-cursor', async () => {
+    await complete(db);
+    await shelfAdd(db, {});
+    await expect(shelfList(db, 10, 'not-an-object')).rejects.toThrow(/invalid-cursor/i);
+    await expect(shelfList(db, 10, { updatedAt: '2024-01-01' })).rejects.toThrow(/invalid-cursor/i);
+  });
+
+  it('traverses the full shelf exactly once with keyset cursors', async () => {
+    await complete(db);
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const up = crypto.randomUUID();
+      ids.push(up);
+      await shelfAdd(db, { userProductId: up, manualName: `product ${i}` });
+    }
+    const seen: string[] = [];
+    let cursor: any = null;
+    let pages = 0;
+    do {
+      const page = await shelfList(db, 10, cursor);
+      expect(page.items.length).toBeLessThanOrEqual(10);
+      for (const item of page.items) {
+        expect(seen).not.toContain(item.id);
+        seen.push(item.id);
+      }
+      cursor = page.nextCursor;
+      pages++;
+      expect(pages).toBeLessThan(10);
+    } while (cursor !== null);
+    expect(seen.sort()).toEqual([...ids].sort());
+    expect(pages).toBe(3);
+    const def = await db.query<{ result: any }>(`select public.shelf_list() result`);
+    expect(def.rows[0].result.items).toHaveLength(25);
   });
 
   it('preserves version payloads across successor links', async () => {

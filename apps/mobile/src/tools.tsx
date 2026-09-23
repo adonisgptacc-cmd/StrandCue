@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { secureStorage } from './client';
-import { getUserTool, listUserTools, type ToolDetail, type ToolItem } from './tool-api';
+import { getUserTool, listUserTools, type ToolCursor, type ToolDetail, type ToolItem } from './tool-api';
 import {
   clearToolDrafts,
   readToolDrafts,
   type ToolDraft,
 } from './tool-drafts';
-import { availabilityLabel, capabilitySummary, toolEditorCopy, toolView, type ToolEditorMode } from './tool-history';
+import { appendToolPage, availabilityLabel, capabilitySummary, toolEditorCopy, toolView, type ToolEditorMode } from './tool-history';
 import { ToolEditor } from './tool-editor';
 import { Button, styles } from './ui';
 
@@ -52,6 +52,7 @@ export function Tools({ owner }: { owner: string }) {
 function OwnerTools({ owner }: { owner: string }) {
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
   const [items, setItems] = useState<ToolItem[]>([]);
+  const [cursor, setCursor] = useState<ToolCursor | null>(null);
   const [drafts, setDrafts] = useState<ToolDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -60,15 +61,16 @@ function OwnerTools({ owner }: { owner: string }) {
   const session = useRef(0);
   const busy = useRef(false);
 
-  const refresh = async () => {
+  const refresh = async (append = false) => {
     if (busy.current) return;
     busy.current = true;
     const request = ++generation.current;
     setLoading(true); setError('');
     try {
-      const [page, pending] = await Promise.all([listUserTools(), readToolDrafts(secureStorage, owner)]);
+      const [page, pending] = await Promise.all([listUserTools({ cursor: append ? cursor : null }), readToolDrafts(secureStorage, owner)]);
       if (mounted.current && request === generation.current) {
-        setItems(page.items);
+        setItems(previous => append ? appendToolPage(previous, page.items) : page.items);
+        setCursor(page.nextCursor);
         setDrafts(pending);
       }
     } catch {
@@ -122,6 +124,7 @@ function OwnerTools({ owner }: { owner: string }) {
         <Text style={styles.body}>{availabilityLabel(item.availability)}</Text>
         <Button title="View tool entry" secondary disabled={loading} onPress={() => void openTool(item.id)} />
       </View>)}
+      {cursor && <Button title={loading ? 'Loading more tools…' : 'Load more tools'} secondary disabled={loading} onPress={() => void refresh(true)} />}
       <Button title="Reload tools" secondary disabled={loading} onPress={() => void refresh()} />
       <Button title="Clear departing drafts" secondary disabled={loading} onPress={() => { void clearToolDrafts(secureStorage, owner).then(() => void refresh()); }} />
     </>}

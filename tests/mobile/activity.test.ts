@@ -93,8 +93,8 @@ describe('activity mobile boundary', () => {
   });
 
   it('lists activities excluding voided and parses audit detail', async () => {
-    rpc.mockResolvedValueOnce({ data: { items: [{ id: activityId, revision: 1 }] }, error: null });
-    await expect(listActivities('2024-03-01')).resolves.toEqual({ items: [{ id: activityId, revision: 1 }] });
+    rpc.mockResolvedValueOnce({ data: { items: [{ id: activityId, revision: 1 }], nextCursor: null }, error: null });
+    await expect(listActivities('2024-03-01')).resolves.toEqual({ items: [{ id: activityId, revision: 1 }], nextCursor: null });
     rpc.mockResolvedValueOnce({
       data: { id: activityId, revision: 2, voided: true, revisions: [{ id: revisionId, kind: 'void', precision: 'unknown', correctsId: null, voidReason: 'duplicate', patch: {} }] },
       error: null,
@@ -102,6 +102,18 @@ describe('activity mobile boundary', () => {
     const detail = await getActivity(activityId, true);
     expect(detail?.voided).toBe(true);
     expect(detail?.revisions[0]).toMatchObject({ kind: 'void' });
+  });
+
+  it('pages through cursors and rejects out-of-range limits before sending', async () => {
+    const cursor = { updatedAt: '2024-01-15T10:00:00.000000Z', id: activityId };
+    rpc.mockResolvedValueOnce({ data: { items: [{ id: activityId, revision: 1 }], nextCursor: cursor }, error: null });
+    await expect(listActivities('2024-03-01', { limit: 10 })).resolves.toMatchObject({ nextCursor: cursor });
+    expect(rpc).toHaveBeenLastCalledWith('list_activities', { p_as_of: '2024-03-01', p_limit: 10, p_cursor: null });
+    rpc.mockResolvedValueOnce({ data: { items: [], nextCursor: null }, error: null });
+    await expect(listActivities('2024-03-01', { limit: 10, cursor })).resolves.toMatchObject({ items: [], nextCursor: null });
+    expect(rpc).toHaveBeenLastCalledWith('list_activities', { p_as_of: '2024-03-01', p_limit: 10, p_cursor: cursor });
+    await expect(listActivities('2024-03-01', { limit: 101 })).rejects.toThrow();
+    await expect(listActivities('2024-03-01', { limit: 0 })).rejects.toThrow();
   });
 
   it('rejects notes longer than 2000 characters before sending', async () => {

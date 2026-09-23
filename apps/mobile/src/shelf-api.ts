@@ -30,8 +30,14 @@ const ShelfItemSchema = z.object({
   manualName: z.string().nullable(),
 }).strict();
 
+const ShelfCursorSchema = z.object({
+  updatedAt: z.iso.datetime({ offset: true, precision: 6 }).refine(value => value.endsWith('Z'), 'Expected a UTC timestamp'),
+  id: UserProductIdSchema,
+}).strict();
+
 const ShelfListSchema = z.object({
   items: z.array(ShelfItemSchema).max(100),
+  nextCursor: ShelfCursorSchema.nullable(),
 }).strict();
 
 const ShelfDetailSchema = z.object({
@@ -45,6 +51,7 @@ const ShelfDetailSchema = z.object({
   revisions: z.array(ShelfRevisionRecordSchema),
 }).strict();
 
+export type ShelfCursor = z.output<typeof ShelfCursorSchema>;
 export type ShelfReceipt = z.output<typeof ShelfReceiptSchema>;
 export type ShelfItem = z.output<typeof ShelfItemSchema>;
 export type ShelfList = z.output<typeof ShelfListSchema>;
@@ -126,8 +133,11 @@ export async function getUserProduct(userProductId: string, includeAudit = false
   return ShelfDetailSchema.nullable().parse(data);
 }
 
-export async function listUserProducts(limit = 25): Promise<ShelfList> {
-  const request = z.object({ limit: z.number().int().min(1).max(100) }).strict().parse({ limit });
-  const data = await callRpc('shelf_list', { p_limit: request.limit });
+export async function listUserProducts(options: { limit?: number; cursor?: ShelfCursor | null } = {}): Promise<ShelfList> {
+  const request = z.object({
+    limit: z.number().int().min(1).max(100),
+    cursor: ShelfCursorSchema.nullable(),
+  }).strict().parse({ limit: options.limit ?? 25, cursor: options.cursor ?? null });
+  const data = await callRpc('shelf_list', { p_limit: request.limit, p_cursor: request.cursor });
   return ShelfListSchema.parse(data);
 }

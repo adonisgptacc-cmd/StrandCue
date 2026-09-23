@@ -31,10 +31,17 @@ const ActivityDetailSchema = z.object({
   revisions: z.array(ActivityRevisionRecordSchema),
 }).strict();
 
-const ActivityListSchema = z.object({
-  items: z.array(z.object({ id: ActivityIdSchema, revision: z.number().int().nonnegative() }).strict()).max(100),
+const ActivityCursorSchema = z.object({
+  updatedAt: z.iso.datetime({ offset: true, precision: 6 }).refine(value => value.endsWith('Z'), 'Expected a UTC timestamp'),
+  id: ActivityIdSchema,
 }).strict();
 
+const ActivityListSchema = z.object({
+  items: z.array(z.object({ id: ActivityIdSchema, revision: z.number().int().nonnegative() }).strict()).max(100),
+  nextCursor: ActivityCursorSchema.nullable(),
+}).strict();
+
+export type ActivityCursor = z.output<typeof ActivityCursorSchema>;
 export type ActivityReceipt = z.output<typeof ActivityReceiptSchema>;
 export type ActivityDetail = z.output<typeof ActivityDetailSchema>;
 export type ActivityList = z.output<typeof ActivityListSchema>;
@@ -93,12 +100,16 @@ export async function getActivity(activityId: string, includeAudit = false): Pro
   return ActivityDetailSchema.nullable().parse(data);
 }
 
-export async function listActivities(asOf: string, limit = 25): Promise<ActivityList> {
-  const request = z.object({ asOf: z.iso.date(), limit: z.number().int().min(1).max(100) }).strict().parse({ asOf, limit });
+export async function listActivities(asOf: string, options: { limit?: number; cursor?: ActivityCursor | null } = {}): Promise<ActivityList> {
+  const request = z.object({
+    asOf: z.iso.date(),
+    limit: z.number().int().min(1).max(100),
+    cursor: ActivityCursorSchema.nullable(),
+  }).strict().parse({ asOf, limit: options.limit ?? 25, cursor: options.cursor ?? null });
   const data = await callRpc('list_activities', {
     p_as_of: request.asOf,
     p_limit: request.limit,
-    p_cursor: null,
+    p_cursor: request.cursor,
   });
   return ActivityListSchema.parse(data);
 }

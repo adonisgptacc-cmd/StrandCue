@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { secureStorage } from './client';
-import { getActivity, listActivities, type ActivityDetail } from './activity-api';
+import { getActivity, listActivities, type ActivityCursor, type ActivityDetail } from './activity-api';
 import {
   clearActivityDrafts,
   readActivityDrafts,
   type ActivityDraft,
 } from './activity-drafts';
-import { activityEditorCopy, activityView, type ActivityEditorMode } from './activity-history';
+import { activityEditorCopy, activityView, appendActivityPage, type ActivityEditorMode } from './activity-history';
 import { ActivityEditor } from './activity-editor';
 import { Button, styles } from './ui';
 
@@ -50,6 +50,7 @@ export function Activities({ owner }: { owner: string }) {
 function OwnerActivities({ owner }: { owner: string }) {
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
   const [items, setItems] = useState<ActivityItem[]>([]);
+  const [cursor, setCursor] = useState<ActivityCursor | null>(null);
   const [drafts, setDrafts] = useState<ActivityDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -58,16 +59,17 @@ function OwnerActivities({ owner }: { owner: string }) {
   const session = useRef(0);
   const busy = useRef(false);
 
-  const refresh = async () => {
+  const refresh = async (append = false) => {
     if (busy.current) return;
     busy.current = true;
     const request = ++generation.current;
     setLoading(true); setError('');
     try {
       const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-      const [page, pending] = await Promise.all([listActivities(today), readActivityDrafts(secureStorage, owner)]);
+      const [page, pending] = await Promise.all([listActivities(today, { cursor: append ? cursor : null }), readActivityDrafts(secureStorage, owner)]);
       if (mounted.current && request === generation.current) {
-        setItems(page.items);
+        setItems(previous => append ? appendActivityPage(previous, page.items) : page.items);
+        setCursor(page.nextCursor);
         setDrafts(pending);
       }
     } catch {
@@ -119,6 +121,7 @@ function OwnerActivities({ owner }: { owner: string }) {
         <Text style={styles.body}>Open the entry to review its recorded date, corrections and audit.</Text>
         <Button title="View activity entry" secondary disabled={loading} onPress={() => void openActivity(item.id)} />
       </View>)}
+      {cursor && <Button title={loading ? 'Loading more activities…' : 'Load more activities'} secondary disabled={loading} onPress={() => void refresh(true)} />}
       <Button title="Reload activities" secondary disabled={loading} onPress={() => void refresh()} />
       <Button title="Clear departing drafts" secondary disabled={loading} onPress={() => { void clearActivityDrafts(secureStorage, owner).then(() => void refresh()); }} />
     </>}

@@ -30,8 +30,14 @@ const ToolItemSchema = z.object({
   manualModel: z.string().nullable(),
 }).strict();
 
+const ToolCursorSchema = z.object({
+  updatedAt: z.iso.datetime({ offset: true, precision: 6 }).refine(value => value.endsWith('Z'), 'Expected a UTC timestamp'),
+  id: UserToolIdSchema,
+}).strict();
+
 const ToolListSchema = z.object({
   items: z.array(ToolItemSchema).max(100),
+  nextCursor: ToolCursorSchema.nullable(),
 }).strict();
 
 const ToolDetailSchema = z.object({
@@ -45,6 +51,7 @@ const ToolDetailSchema = z.object({
   revisions: z.array(ToolRevisionRecordSchema),
 }).strict();
 
+export type ToolCursor = z.output<typeof ToolCursorSchema>;
 export type ToolReceipt = z.output<typeof ToolReceiptSchema>;
 export type ToolItem = z.output<typeof ToolItemSchema>;
 export type ToolList = z.output<typeof ToolListSchema>;
@@ -126,8 +133,11 @@ export async function getUserTool(userToolId: string, includeAudit = false): Pro
   return ToolDetailSchema.nullable().parse(data);
 }
 
-export async function listUserTools(limit = 25): Promise<ToolList> {
-  const request = z.object({ limit: z.number().int().min(1).max(100) }).strict().parse({ limit });
-  const data = await callRpc('tool_list', { p_limit: request.limit });
+export async function listUserTools(options: { limit?: number; cursor?: ToolCursor | null } = {}): Promise<ToolList> {
+  const request = z.object({
+    limit: z.number().int().min(1).max(100),
+    cursor: ToolCursorSchema.nullable(),
+  }).strict().parse({ limit: options.limit ?? 25, cursor: options.cursor ?? null });
+  const data = await callRpc('tool_list', { p_limit: request.limit, p_cursor: request.cursor });
   return ToolListSchema.parse(data);
 }

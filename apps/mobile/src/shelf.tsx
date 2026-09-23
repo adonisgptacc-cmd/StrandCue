@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { secureStorage } from './client';
-import { getUserProduct, listUserProducts, type ShelfDetail, type ShelfItem } from './shelf-api';
+import { getUserProduct, listUserProducts, type ShelfCursor, type ShelfDetail, type ShelfItem } from './shelf-api';
 import {
   clearShelfDrafts,
   readShelfDrafts,
   type ShelfDraft,
 } from './shelf-drafts';
-import { availabilityLabel, shelfEditorCopy, shelfView, verificationBadge, type ShelfEditorMode } from './shelf-history';
+import { appendShelfPage, availabilityLabel, shelfEditorCopy, shelfView, verificationBadge, type ShelfEditorMode } from './shelf-history';
 import { ShelfEditor } from './shelf-editor';
 import { Button, styles } from './ui';
 
@@ -53,6 +53,7 @@ export function Shelf({ owner }: { owner: string }) {
 function OwnerShelf({ owner }: { owner: string }) {
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
   const [items, setItems] = useState<ShelfItem[]>([]);
+  const [cursor, setCursor] = useState<ShelfCursor | null>(null);
   const [drafts, setDrafts] = useState<ShelfDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,15 +62,16 @@ function OwnerShelf({ owner }: { owner: string }) {
   const session = useRef(0);
   const busy = useRef(false);
 
-  const refresh = async () => {
+  const refresh = async (append = false) => {
     if (busy.current) return;
     busy.current = true;
     const request = ++generation.current;
     setLoading(true); setError('');
     try {
-      const [page, pending] = await Promise.all([listUserProducts(), readShelfDrafts(secureStorage, owner)]);
+      const [page, pending] = await Promise.all([listUserProducts({ cursor: append ? cursor : null }), readShelfDrafts(secureStorage, owner)]);
       if (mounted.current && request === generation.current) {
-        setItems(page.items);
+        setItems(previous => append ? appendShelfPage(previous, page.items) : page.items);
+        setCursor(page.nextCursor);
         setDrafts(pending);
       }
     } catch {
@@ -121,6 +123,7 @@ function OwnerShelf({ owner }: { owner: string }) {
         <Text style={styles.body}>{availabilityLabel(item.availability)}</Text>
         <Button title="View product entry" secondary disabled={loading} onPress={() => void openProduct(item.id)} />
       </View>)}
+      {cursor && <Button title={loading ? 'Loading more products…' : 'Load more products'} secondary disabled={loading} onPress={() => void refresh(true)} />}
       <Button title="Reload shelf" secondary disabled={loading} onPress={() => void refresh()} />
       <Button title="Clear departing drafts" secondary disabled={loading} onPress={() => { void clearShelfDrafts(secureStorage, owner).then(() => void refresh()); }} />
     </>}

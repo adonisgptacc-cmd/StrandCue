@@ -91,14 +91,25 @@ describe('shelf mobile boundary', () => {
   });
 
   it('lists non-archived items and parses history with match state', async () => {
-    rpc.mockResolvedValueOnce({ data: { items: [{ id: userProductId, revision: 1, availability: 'available', manualName: 'Gentle shampoo' }] }, error: null });
-    await expect(listUserProducts()).resolves.toMatchObject({ items: [{ id: userProductId }] });
+    rpc.mockResolvedValueOnce({ data: { items: [{ id: userProductId, revision: 1, availability: 'available', manualName: 'Gentle shampoo' }], nextCursor: null }, error: null });
+    await expect(listUserProducts()).resolves.toMatchObject({ items: [{ id: userProductId }], nextCursor: null });
     rpc.mockResolvedValueOnce({
       data: { id: userProductId, revision: 2, availability: 'available', matched: true, matchConfirmed: true, manualName: 'My shampoo guess', versionId, revisions: [] },
       error: null,
     });
     const detail = await getUserProduct(userProductId, true);
     expect(detail).toMatchObject({ matched: true, manualName: 'My shampoo guess' });
+  });
+
+  it('pages through cursors and rejects out-of-range limits before sending', async () => {
+    const cursor = { updatedAt: '2024-01-15T10:00:00.000000Z', id: userProductId };
+    rpc.mockResolvedValueOnce({ data: { items: [], nextCursor: cursor }, error: null });
+    await expect(listUserProducts({ limit: 10 })).resolves.toMatchObject({ nextCursor: cursor });
+    expect(rpc).toHaveBeenLastCalledWith('shelf_list', { p_limit: 10, p_cursor: null });
+    rpc.mockResolvedValueOnce({ data: { items: [], nextCursor: null }, error: null });
+    await expect(listUserProducts({ limit: 10, cursor })).resolves.toMatchObject({ nextCursor: null });
+    expect(rpc).toHaveBeenLastCalledWith('shelf_list', { p_limit: 10, p_cursor: cursor });
+    await expect(listUserProducts({ limit: 101 })).rejects.toThrow();
   });
 
   it('rejects notes longer than 2000 characters before sending', async () => {

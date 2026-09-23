@@ -20,6 +20,10 @@ async function voidActivity(db: PGlite, opts: { operationId?: string; activityId
   const op = opts.operationId ?? crypto.randomUUID();
   return (await db.query<{ result: any }>(`select public.void_activity($1,$2,$3,$4) result`, [op, opts.activityId, opts.expectedRevision, opts.reason])).rows[0].result;
 }
+async function listActivities(db: PGlite, limit: number | null, cursor: unknown = null) {
+  return (await db.query<{ result: any }>(`select public.list_activities('2024-03-01'::date, $1, $2::jsonb) result`,
+    [limit, cursor === null ? null : JSON.stringify(cursor)])).rows[0].result;
+}
 
 describe('PostgreSQL Activity immutable history and RLS', () => {
   let db: PGlite;
@@ -113,5 +117,55 @@ describe('PostgreSQL Activity immutable history and RLS', () => {
     const get = await db.query<{ result: any }>(`select public.get_activity($1, true) result`, [act]);
     expect(get.rows[0].result.revisions.some((r: any) => r.kind === 'void')).toBe(true);
     expect(get.rows[0].result.voided).toBe(true);
+  });
+
+  it.each([0, 101, -1])('rejects page limit %s with invalid-page', async (limit) => {
+    await complete(db);
+    await expect(listActivities(db, limit)).rejects.toThrow(/invalid-page/i);
+  });
+
+  it('rejects malformed cursors with invalid-cursor', async () => {
+    await complete(db);
+    await recordActivity(db, {});
+    await expect(listActivities(db, 10, 'not-an-object')).rejects.toThrow(/invalid-cursor/i);
+    await expect(listActivities(db, 10, { updatedAt: '2024-01-01' })).rejects.toThrow(/invalid-cursor/i);
+    await expect(listActivities(db, 10, { updatedAt: '2024-01-15T10:00:00.000Z', id: 'not-a-uuid', extra: 1 })).rejects.toThrow(/invalid-cursor/i);
+  });
+
+  it('traverses the full list exactly once with keyset cursors', async () => {
+    await complete(db);
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const act = crypto.randomUUID();
+      ids.push(act);
+      await recordActivity(db, { activityId: act, notes: `activity ${i}` });
+    }
+    const seen: string[] = [];
+    let cursor: any = null;
+    let pages = 0;
+    do {
+      const page = await listActivities(db, 10, cursor);
+      expect(page.items.length).toBeLessThanOrEqual(10);
+      for (const item of page.items) {
+        expect(seen).not.toContain(item.id);
+        seen.push(item.id);
+      }
+      cursor = page.nextCursor;
+      pages++;
+      expect(pages).toBeLessThan(10);
+    } while (cursor !== null);
+    expect(seen.sort()).toEqual([...ids].sort());
+    expect(pages).toBe(3);
+  });
+
+  it('defaults to 25 items and caps explicit limits at 100', async () => {
+    await complete(db);
+    for (let i = 0; i < 30; i++) await recordActivity(db, { notes: `activity ${i}` });
+    const first = await db.query<{ result: any }>(`select public.list_activities('2024-03-01'::date) result`);
+    expect(first.rows[0].result.items).toHaveLength(25);
+    expect(first.rows[0].result.nextCursor).not.toBeNull();
+    const capped = await listActivities(db, 100);
+    expect(capped.items).toHaveLength(30);
+    expect(capped.nextCursor).toBeNull();
   });
 });

@@ -4,6 +4,10 @@ import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
 
 const DAY = { precision: 'day', value: '2024-01-15' };
 
+async function toolList(db: PGlite, limit: number | null, cursor: unknown = null) {
+  return (await db.query<{ result: any }>(`select public.tool_list($1, $2::jsonb) result`,
+    [limit, cursor === null ? null : JSON.stringify(cursor)])).rows[0].result;
+}
 async function toolAdd(db: PGlite, opts: { operationId?: string; userToolId?: string; versionId?: string | null; manualModel?: string | null } = {}) {
   return (await db.query<{ result: any }>(
     `select public.tool_add($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) result`,
@@ -181,6 +185,46 @@ describe('tools catalogue immutable history and RLS', () => {
     const history = await db.query<{ result: any }>(`select public.tool_history($1, true) result`, [rec.userToolId]);
     expect(history.rows[0].result.availability).toBe('archived');
     expect((history.rows[0].result.revisions as any[]).some((r: any) => r.kind === 'archive')).toBe(true);
+  });
+
+  it.each([0, 101, -1])('rejects tool page limit %s with invalid-page', async (limit) => {
+    await complete(db);
+    await expect(toolList(db, limit)).rejects.toThrow(/invalid-page/i);
+  });
+
+  it('rejects malformed tool cursors with invalid-cursor', async () => {
+    await complete(db);
+    await toolAdd(db, {});
+    await expect(toolList(db, 10, 'not-an-object')).rejects.toThrow(/invalid-cursor/i);
+    await expect(toolList(db, 10, { updatedAt: '2024-01-01' })).rejects.toThrow(/invalid-cursor/i);
+  });
+
+  it('traverses the full tool list exactly once with keyset cursors', async () => {
+    await complete(db);
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const tool = crypto.randomUUID();
+      ids.push(tool);
+      await toolAdd(db, { userToolId: tool, manualModel: `tool ${i}` });
+    }
+    const seen: string[] = [];
+    let cursor: any = null;
+    let pages = 0;
+    do {
+      const page = await toolList(db, 10, cursor);
+      expect(page.items.length).toBeLessThanOrEqual(10);
+      for (const item of page.items) {
+        expect(seen).not.toContain(item.id);
+        seen.push(item.id);
+      }
+      cursor = page.nextCursor;
+      pages++;
+      expect(pages).toBeLessThan(10);
+    } while (cursor !== null);
+    expect(seen.sort()).toEqual([...ids].sort());
+    expect(pages).toBe(3);
+    const def = await db.query<{ result: any }>(`select public.tool_list() result`);
+    expect(def.rows[0].result.items).toHaveLength(25);
   });
 
   it('preserves version payloads across successor links', async () => {
