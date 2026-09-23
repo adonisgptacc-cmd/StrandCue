@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
-import { asUser, complete, database, mutate, USER_A, USER_B } from './harness.ts';
+import { asUser, BASELINE, complete, current, database, mutate, USER_A, USER_B } from './harness.ts';
 
 const DAY = { precision: 'day', value: '2024-01-15' };
 
@@ -101,9 +101,54 @@ describe('export jobs immutable history and RLS', () => {
   it('rejects unsupported formats without creating jobs', async () => {
     await complete(db);
     await freshAuth(db, USER_A);
-    await expect(exportRequest(db, crypto.randomUUID(), 'csv')).rejects.toThrow(/invalid-format/i);
+    await expect(exportRequest(db, crypto.randomUUID(), 'xml')).rejects.toThrow(/invalid-format/i);
     const jobs = await db.query(`select * from public.export_jobs`);
     expect(jobs.rows).toEqual([]);
+  });
+
+  it('generates one CSV file per table with headers', async () => {
+    await complete(db);
+    await mutate(db);
+    await mutate(db, { kind: 'change', revision: 1, patch: { porosity: 'unknown' }, date: DAY });
+    await freshAuth(db, USER_A);
+    const receipt = await exportRequest(db, crypto.randomUUID(), 'csv');
+    expect(receipt.status).toBe('completed');
+    const download = await db.query<{ result: any }>(`select public.export_download($1) result`, [receipt.jobId]);
+    const files = download.rows[0].result.document.files;
+    for (const name of ['profile.csv', 'passport_revisions.csv', 'service_revisions.csv', 'activity_revisions.csv', 'user_products.csv', 'user_product_revisions.csv', 'user_tools.csv', 'user_tool_revisions.csv']) {
+      expect(Object.keys(files)).toContain(name);
+    }
+    expect(files['profile.csv'].split('\n')[0]).toBe('username,country,currency,temperature_unit,created_at');
+    expect(files['profile.csv']).toContain('user_a');
+    expect(files['passport_revisions.csv'].split('\n')[0]).toContain('kind');
+    // Two passport revisions exported, unknowns preserved.
+    expect(files['passport_revisions.csv']).toContain('unknown');
+  });
+
+  it('quotes commas, quotes and newlines in CSV fields', async () => {
+    await complete(db);
+    await mutate(db, { patch: { ...BASELINE, notes: 'plain, "quoted"' } });
+    // Text columns keep real newlines (unlike JSON-escaped patch text).
+    const up = crypto.randomUUID();
+    await db.query(`select public.shelf_add($1,$2,null,'Brand','Name','shampoo','available',$3,$4::jsonb)`,
+      [crypto.randomUUID(), up, 'a,"b\nc', JSON.stringify(DAY)]);
+    await freshAuth(db, USER_A);
+    const receipt = await exportRequest(db, crypto.randomUUID(), 'csv');
+    const download = await db.query<{ result: any }>(`select public.export_download($1) result`, [receipt.jobId]);
+    const files = download.rows[0].result.document.files;
+    // Embedded quotes are doubled inside a wrapped field (RFC 4180).
+    expect(files['passport_revisions.csv']).toContain('""');
+    // Real newline survives inside the quoted text field.
+    expect(files['user_products.csv']).toContain('"a,""b\nc"');
+  });
+
+  it('keeps CSV idempotent per operation key', async () => {
+    await complete(db);
+    await freshAuth(db, USER_A);
+    const op = crypto.randomUUID();
+    const first = await exportRequest(db, op, 'csv');
+    expect(await exportRequest(db, op, 'csv')).toEqual(first);
+    await expect(exportRequest(db, op, 'json')).rejects.toThrow(/operation-conflict/i);
   });
 
   it('hides other owners jobs and enforces download expiry', async () => {
