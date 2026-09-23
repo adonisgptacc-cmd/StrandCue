@@ -22,6 +22,7 @@ const trustedMigrationNames = [
   '20260924300000_function_grant_cleanup.sql',
   '20260924310000_list_core_grants.sql',
   '20260924320000_export_csv.sql',
+  '20260924330000_consent.sql',
 ] as const;
 
 const candidateMigrationNames = [
