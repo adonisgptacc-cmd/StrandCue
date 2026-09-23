@@ -14,6 +14,7 @@ const trustedMigrationNames = [
   '20260924220000_user_tools.sql',
   '20260924230000_tools_rpc.sql',
   '20260924240000_list_pagination.sql',
+  '20260924250000_export_jobs.sql',
 ] as const;
 
 const candidateMigrationNames = [
