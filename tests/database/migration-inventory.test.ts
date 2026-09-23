@@ -17,6 +17,7 @@ const trustedMigrationNames = [
   '20260924250000_export_jobs.sql',
   '20260924260000_export_rpc.sql',
   '20260924270000_deletion.sql',
+  '20260924280000_deletion_rpc.sql',
 ] as const;
 
 const candidateMigrationNames = [
