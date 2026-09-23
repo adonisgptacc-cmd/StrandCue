@@ -55,6 +55,41 @@ export function validateOperationKey(value: string): string {
   return OperationKeySchema.parse(value);
 }
 
+// --- Mobile commands (typed RPC inputs, no owner fields) ---
+
+const trimmedReason = z.string().trim().min(1).max(500);
+const occurredAtSchema = z.iso.datetime({ offset: true });
+
+export const CreateActivityCommandSchema = z.object({
+  operationId: z.string().uuid(),
+  activityId: z.string().uuid(),
+  kind: ActivityKindSchema,
+  occurredAt: occurredAtSchema,
+  precision: ActivityPrecisionSchema,
+  zones: z.array(ZoneSchema),
+  notes: z.string().max(2000).nullable(),
+}).strict();
+
+export const CorrectActivityCommandSchema = z.object({
+  operationId: z.string().uuid(),
+  activityId: z.string().uuid(),
+  expectedRevision: z.number().int().positive(),
+  correctsId: z.string().uuid(),
+  reason: trimmedReason,
+  notes: z.string().max(2000),
+}).strict();
+
+export const VoidActivityCommandSchema = z.object({
+  operationId: z.string().uuid(),
+  activityId: z.string().uuid(),
+  expectedRevision: z.number().int().positive(),
+  reason: trimmedReason,
+}).strict();
+
+export type CreateActivityCommand = z.output<typeof CreateActivityCommandSchema>;
+export type CorrectActivityCommand = z.output<typeof CorrectActivityCommandSchema>;
+export type VoidActivityCommand = z.output<typeof VoidActivityCommandSchema>;
+
 // --- Revision schemas ---
 
 const RevisionBaseSchema = z.object({
@@ -67,40 +102,40 @@ const RevisionBaseSchema = z.object({
   source: z.enum(['user-reported', 'user-estimated', 'verified-catalogue-reference']),
 });
 
-export const BaselineRevisionSchema = RevisionBaseSchema.extend({
+export const ActivityActivityBaselineRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('baseline'),
   patch: ActivitySchema,
 }).strict();
 
-export const ChangeRevisionSchema = RevisionBaseSchema.extend({
+export const ActivityActivityChangeRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('change'),
   patch: ActivityPatchSchema,
 }).strict();
 
-export const CorrectionRevisionSchema = RevisionBaseSchema.extend({
+export const ActivityActivityCorrectionRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('correction'),
   patch: ActivityPatchSchema,
   correctsId: z.string().uuid(),
   correctionReason: z.string().trim().min(1).max(500),
 }).strict();
 
-export const VoidRevisionSchema = RevisionBaseSchema.extend({
+export const ActivityActivityVoidRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('void'),
   patch: z.object({}).strict(),
   voidReason: z.string().trim().min(1).max(500),
 }).strict();
 
 export const ActivityRevisionSchema = z.discriminatedUnion('kind', [
-  BaselineRevisionSchema,
-  ChangeRevisionSchema,
-  CorrectionRevisionSchema,
-  VoidRevisionSchema,
+  ActivityActivityBaselineRevisionSchema,
+  ActivityActivityChangeRevisionSchema,
+  ActivityActivityCorrectionRevisionSchema,
+  ActivityActivityVoidRevisionSchema,
 ]);
 
-export type BaselineRevision = z.output<typeof BaselineRevisionSchema>;
-export type ChangeRevision = z.output<typeof ChangeRevisionSchema>;
-export type CorrectionRevision = z.output<typeof CorrectionRevisionSchema>;
-export type VoidRevision = z.output<typeof VoidRevisionSchema>;
+export type ActivityBaselineRevision = z.output<typeof ActivityActivityBaselineRevisionSchema>;
+export type ActivityChangeRevision = z.output<typeof ActivityActivityChangeRevisionSchema>;
+export type ActivityCorrectionRevision = z.output<typeof ActivityActivityCorrectionRevisionSchema>;
+export type ActivityVoidRevision = z.output<typeof ActivityActivityVoidRevisionSchema>;
 export type ActivityRevision = z.output<typeof ActivityRevisionSchema>;
 
 // --- Projection ---
@@ -109,17 +144,17 @@ export interface ProjectActivityHistoryOptions {
   readonly asOf?: string;
 }
 
-export type CandidateApplicability = 'definite' | 'possible';
+export type ActivityCandidateApplicability = 'definite' | 'possible';
 
-export interface AmbiguousFieldCandidate {
+export interface ActivityActivityAmbiguousFieldCandidate {
   readonly revisionId: string;
   readonly value: unknown;
-  readonly applicability: CandidateApplicability;
+  readonly applicability: ActivityCandidateApplicability;
 }
 
-export interface AmbiguousField {
+export interface ActivityAmbiguousField {
   readonly reason: 'overlapping-effective-intervals' | 'uncertain-as-of';
-  readonly candidates: readonly AmbiguousFieldCandidate[];
+  readonly candidates: readonly ActivityActivityAmbiguousFieldCandidate[];
 }
 
 export type ActivityField = keyof Activity;
@@ -127,14 +162,14 @@ export type ActivityField = keyof Activity;
 export interface ActivityHistoryProjection {
   readonly asOf: string;
   readonly values: Partial<Activity>;
-  readonly ambiguousFields: Partial<Record<ActivityField, AmbiguousField>>;
+  readonly ambiguousFields: Partial<Record<ActivityField, ActivityAmbiguousField>>;
   readonly appliedRevisionIds: readonly string[];
   readonly supersededRevisionIds: readonly string[];
   readonly voidedRevisionIds: readonly string[];
   readonly allRevisionIds: readonly string[];
 }
 
-export type HistoryValidationErrorCode =
+export type ActivityActivityHistoryValidationErrorCode =
   | 'missing-baseline'
   | 'multiple-baselines'
   | 'mixed-activities'
@@ -149,11 +184,11 @@ export type HistoryValidationErrorCode =
   | 'invalid-correction-order'
   | 'invalid-baseline-correction';
 
-export class HistoryValidationError extends Error {
-  readonly code: HistoryValidationErrorCode;
-  constructor(code: HistoryValidationErrorCode, message: string) {
+export class ActivityHistoryValidationError extends Error {
+  readonly code: ActivityActivityHistoryValidationErrorCode;
+  constructor(code: ActivityActivityHistoryValidationErrorCode, message: string) {
     super(message);
-    this.name = 'HistoryValidationError';
+    this.name = 'ActivityHistoryValidationError';
     this.code = code;
   }
 }
@@ -162,65 +197,65 @@ export class HistoryValidationError extends Error {
 
 function assertSingleActivity(revisions: readonly ActivityRevision[]): void {
   const ids = new Set(revisions.map((r) => r.activityId));
-  if (ids.size > 1) throw new HistoryValidationError('mixed-activities', 'All revisions must belong to the same Activity');
+  if (ids.size > 1) throw new ActivityHistoryValidationError('mixed-activities', 'All revisions must belong to the same Activity');
 }
 
 function assertUniqueRevisionIdentity(revisions: readonly ActivityRevision[]): void {
   const ids = revisions.map((r) => r.id);
-  if (new Set(ids).size !== ids.length) throw new HistoryValidationError('duplicate-revision-id', 'Revision IDs must be unique');
+  if (new Set(ids).size !== ids.length) throw new ActivityHistoryValidationError('duplicate-revision-id', 'Revision IDs must be unique');
   const seqs = revisions.map((r) => r.sequence);
-  if (new Set(seqs).size !== seqs.length) throw new HistoryValidationError('duplicate-sequence', 'Revision sequences must be unique');
+  if (new Set(seqs).size !== seqs.length) throw new ActivityHistoryValidationError('duplicate-sequence', 'Revision sequences must be unique');
 }
 
-function findBaseline(revisions: readonly ActivityRevision[]): BaselineRevision {
-  const baselines = revisions.filter((r): r is BaselineRevision => r.kind === 'baseline');
-  if (baselines.length === 0) throw new HistoryValidationError('missing-baseline', 'History requires one complete baseline revision');
-  if (baselines.length > 1) throw new HistoryValidationError('multiple-baselines', 'History cannot contain multiple baseline revisions');
+function findBaseline(revisions: readonly ActivityRevision[]): ActivityBaselineRevision {
+  const baselines = revisions.filter((r): r is ActivityBaselineRevision => r.kind === 'baseline');
+  if (baselines.length === 0) throw new ActivityHistoryValidationError('missing-baseline', 'History requires one complete baseline revision');
+  if (baselines.length > 1) throw new ActivityHistoryValidationError('multiple-baselines', 'History cannot contain multiple baseline revisions');
   return baselines[0];
 }
 
-function assertCompleteRevisionChain(revisions: readonly ActivityRevision[], baseline: BaselineRevision): void {
-  if (baseline.sequence !== 1 || baseline.baseRevision !== 0) throw new HistoryValidationError('invalid-baseline-order', 'The complete baseline must be the first revision');
+function assertCompleteRevisionChain(revisions: readonly ActivityRevision[], baseline: ActivityBaselineRevision): void {
+  if (baseline.sequence !== 1 || baseline.baseRevision !== 0) throw new ActivityHistoryValidationError('invalid-baseline-order', 'The complete baseline must be the first revision');
   const bySeq = [...revisions].sort((a, b) => a.sequence - b.sequence);
   for (const [index, rev] of bySeq.entries()) {
     const expected = index + 1;
-    if (rev.sequence !== expected) throw new HistoryValidationError('noncontiguous-sequence', 'Complete history revision sequences must be contiguous');
-    if (rev.baseRevision !== index) throw new HistoryValidationError('invalid-base-revision', `Revision ${rev.id} has an invalid base revision`);
+    if (rev.sequence !== expected) throw new ActivityHistoryValidationError('noncontiguous-sequence', 'Complete history revision sequences must be contiguous');
+    if (rev.baseRevision !== index) throw new ActivityHistoryValidationError('invalid-base-revision', `Revision ${rev.id} has an invalid base revision`);
   }
 }
 
-function buildCorrectionIndex(revisions: readonly ActivityRevision[]): ReadonlyMap<string, CorrectionRevision> {
+function buildCorrectionIndex(revisions: readonly ActivityRevision[]): ReadonlyMap<string, ActivityCorrectionRevision> {
   const byId = new Map(revisions.map((r) => [r.id, r] as const));
-  const corrections = revisions.filter((r): r is CorrectionRevision => r.kind === 'correction');
-  return corrections.reduce<ReadonlyMap<string, CorrectionRevision>>((idx, c) => {
-    if (!byId.has(c.correctsId)) throw new HistoryValidationError('missing-correction-target', `Correction ${c.id} targets a missing revision`);
-    if (idx.has(c.correctsId)) throw new HistoryValidationError('branching-correction', `Branching correction found for revision ${c.correctsId}`);
+  const corrections = revisions.filter((r): r is ActivityCorrectionRevision => r.kind === 'correction');
+  return corrections.reduce<ReadonlyMap<string, ActivityCorrectionRevision>>((idx, c) => {
+    if (!byId.has(c.correctsId)) throw new ActivityHistoryValidationError('missing-correction-target', `Correction ${c.id} targets a missing revision`);
+    if (idx.has(c.correctsId)) throw new ActivityHistoryValidationError('branching-correction', `Branching correction found for revision ${c.correctsId}`);
     return new Map(idx).set(c.correctsId, c);
-  }, new Map<string, CorrectionRevision>());
+  }, new Map<string, ActivityCorrectionRevision>());
 }
 
-function buildVoidIndex(revisions: readonly ActivityRevision[]): ReadonlyMap<string, VoidRevision> {
+function buildVoidIndex(revisions: readonly ActivityRevision[]): ReadonlyMap<string, ActivityVoidRevision> {
   // Void targets an existing revision (typically baseline or change). We treat it as branching check similarly.
   const byId = new Map(revisions.map((r) => [r.id, r] as const));
-  const voids = revisions.filter((r): r is VoidRevision => r.kind === 'void');
+  const voids = revisions.filter((r): r is ActivityVoidRevision => r.kind === 'void');
   // For simplicity void targets the baseline activityId's baseline id; but spec says void targets a specific revision id via implicit patch? In test, void revision has no correctsId, it just voids the baseline by effective date.
   // We will treat void as voiding the baseline revision id that shares same effectiveDate baseline? Actually test voids baseline 001 via void revision 021 without explicit target.
   // So we implement void as: if void exists, the baseline is considered voided (simplified).
   // To keep validation, ensure void does not create duplicate targeting.
-  return voids.reduce<ReadonlyMap<string, VoidRevision>>((idx, v) => {
+  return voids.reduce<ReadonlyMap<string, ActivityVoidRevision>>((idx, v) => {
     // voids don't have correctsId, we key by a synthetic target: baseline id if only one void, else use void id itself.
     // For test, we know void should mark baseline 001 as voided.
     // We'll map baseline id -> void revision if void patch is empty and kind void.
     const target = byId.has(v.id) ? v.id : v.id; // not used, placeholder
     return new Map(idx).set(target, v);
-  }, new Map<string, VoidRevision>());
+  }, new Map<string, ActivityVoidRevision>());
 }
 
-function finalReplacement(root: ActivityRevision, correctionByTarget: ReadonlyMap<string, CorrectionRevision>): ActivityRevision {
+function finalReplacement(root: ActivityRevision, correctionByTarget: ReadonlyMap<string, ActivityCorrectionRevision>): ActivityRevision {
   let current = root;
   const visited = new Set<string>();
   while (correctionByTarget.has(current.id)) {
-    if (visited.has(current.id)) throw new HistoryValidationError('correction-cycle', `Correction cycle includes revision ${current.id}`);
+    if (visited.has(current.id)) throw new ActivityHistoryValidationError('correction-cycle', `Correction cycle includes revision ${current.id}`);
     visited.add(current.id);
     current = correctionByTarget.get(current.id)!;
   }
@@ -229,7 +264,7 @@ function finalReplacement(root: ActivityRevision, correctionByTarget: ReadonlyMa
 
 function resolveActiveFacts(
   revisions: readonly ActivityRevision[],
-  correctionByTarget: ReadonlyMap<string, CorrectionRevision>,
+  correctionByTarget: ReadonlyMap<string, ActivityCorrectionRevision>,
 ): { revision: ActivityRevision; interval: EffectiveInterval }[] {
   // For activity, voids are not "roots" - they are markers. We filter them out from roots.
   const roots = revisions.filter((r) => r.kind !== 'correction' && r.kind !== 'void');
@@ -237,13 +272,13 @@ function resolveActiveFacts(
     const replacement = finalReplacement(root, correctionByTarget);
     if (root.kind === 'baseline') {
       const corrected = ActivitySchema.safeParse(replacement.patch);
-      if (!corrected.success) throw new HistoryValidationError('invalid-baseline-correction', 'A correction replacing the baseline must remain a complete Activity');
+      if (!corrected.success) throw new ActivityHistoryValidationError('invalid-baseline-correction', 'A correction replacing the baseline must remain a complete Activity');
     }
     return { revision: replacement, interval: effectiveDateToInterval(replacement.effectiveDate) };
   });
 }
 
-function applicabilityAt(interval: EffectiveInterval, asOf: string): CandidateApplicability | null {
+function applicabilityAt(interval: EffectiveInterval, asOf: string): ActivityCandidateApplicability | null {
   if (interval.start !== null && interval.start > asOf) return null;
   if (interval.end !== null && interval.end <= asOf) return 'definite';
   return 'possible';
@@ -254,7 +289,7 @@ interface FieldFact {
   readonly sequence: number;
   readonly value: unknown;
   readonly interval: EffectiveInterval;
-  readonly applicability: CandidateApplicability;
+  readonly applicability: ActivityCandidateApplicability;
 }
 
 function factsByField(activeFacts: { revision: ActivityRevision; interval: EffectiveInterval }[], asOf: string): Partial<Record<ActivityField, readonly FieldFact[]>> {
@@ -285,7 +320,7 @@ function uniqueRevisionIds(ids: readonly string[]): readonly string[] {
 
 interface ProjectionAccumulator {
   readonly values: Partial<Activity>;
-  readonly ambiguousFields: Partial<Record<ActivityField, AmbiguousField>>;
+  readonly ambiguousFields: Partial<Record<ActivityField, ActivityAmbiguousField>>;
   readonly appliedRevisionIds: readonly string[];
 }
 
@@ -321,7 +356,7 @@ function projectFields(groupedFacts: Partial<Record<ActivityField, readonly Fiel
   );
 }
 
-function validateCorrectionCycles(revisions: readonly ActivityRevision[], correctionByTarget: ReadonlyMap<string, CorrectionRevision>): void {
+function validateCorrectionCycles(revisions: readonly ActivityRevision[], correctionByTarget: ReadonlyMap<string, ActivityCorrectionRevision>): void {
   for (const rev of revisions) finalReplacement(rev, correctionByTarget);
 }
 
@@ -329,10 +364,10 @@ function assertCorrectionTargetsPrecede(revisions: readonly ActivityRevision[]):
   const byId = new Map(revisions.map((r) => [r.id, r] as const));
   for (const c of revisions) {
     if (c.kind !== 'correction') continue;
-    const target = byId.get((c as CorrectionRevision).correctsId)!;
+    const target = byId.get((c as ActivityCorrectionRevision).correctsId)!;
     const targetWasRecordedLater = Date.parse(target.recordedAt) > Date.parse(c.recordedAt);
     if (target.sequence >= c.sequence || targetWasRecordedLater) {
-      throw new HistoryValidationError('invalid-correction-order', `Target ${target.id} must precede the correction`);
+      throw new ActivityHistoryValidationError('invalid-correction-order', `Target ${target.id} must precede the correction`);
     }
   }
 }
@@ -354,7 +389,7 @@ export function projectActivityHistory(
   const fieldProjection = projectFields(factsByField(activeFacts, asOf));
   const sequencesById = new Map(revisions.map((r) => [r.id, r.sequence] as const));
   const supersededRevisionIds = [...correctionByTarget.keys()].sort((a, b) => sequencesById.get(a)! - sequencesById.get(b)!);
-  const voids = revisions.filter((r): r is VoidRevision => r.kind === 'void');
+  const voids = revisions.filter((r): r is ActivityVoidRevision => r.kind === 'void');
   // Simple void semantics for test: if any void exists, the baseline is voided
   const voidedRevisionIds = voids.length > 0 ? [baseline.id] : [];
   const allRevisionIds = revisions.map((r) => r.id);
