@@ -8,6 +8,8 @@ const trustedMigrationNames = [
   '20260924160000_activity_rpc.sql',
   '20260924170000_shelf_catalogue.sql',
   '20260924180000_user_products.sql',
+  '20260924190000_shelf_rpc.sql',
+  '20260924200000_shelf_catalogue_mutator_read.sql',
 ] as const;
 
 const candidateMigrationNames = [

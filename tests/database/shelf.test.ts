@@ -2,6 +2,19 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { PGlite } from '@electric-sql/pglite';
 import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
 
+const DAY = { precision: 'day', value: '2024-01-15' };
+
+async function shelfAdd(db: PGlite, opts: { operationId?: string; userProductId?: string; versionId?: string | null; manualName?: string | null; availability?: string; notes?: string | null; effectiveDate?: unknown } = {}) {
+  return (await db.query<{ result: any }>(
+    `select public.shelf_add($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) result`,
+    [opts.operationId ?? crypto.randomUUID(), opts.userProductId ?? crypto.randomUUID(),
+      opts.versionId === undefined ? null : opts.versionId,
+      'House Brand', opts.manualName === undefined ? 'Gentle Shampoo' : opts.manualName,
+      'shampoo', opts.availability ?? 'available', opts.notes === undefined ? null : opts.notes,
+      JSON.stringify(opts.effectiveDate ?? DAY)],
+  )).rows[0].result;
+}
+
 const CATALOGUE_TABLES = [
   'brands',
   'products',
@@ -110,6 +123,77 @@ describe('shelf catalogue immutable history and RLS', () => {
       `select relname from pg_class where relname in ('user_products', 'user_product_revisions') and (not relrowsecurity or not relforcerowsecurity)`,
     );
     expect(unprotected.rows).toEqual([]);
+  });
+
+  it('is idempotent on same operation key and payload, and rejects same key different payload', async () => {
+    await complete(db);
+    const op = crypto.randomUUID();
+    const up = crypto.randomUUID();
+    const first = await shelfAdd(db, { operationId: op, userProductId: up });
+    expect(first.revision).toBe(1);
+    expect(await shelfAdd(db, { operationId: op, userProductId: up })).toEqual(first);
+    await expect(shelfAdd(db, { operationId: op, userProductId: up, manualName: 'Different' })).rejects.toThrow(/operation-conflict/i);
+  });
+
+  it('rejects stale expected_revision with revision-conflict', async () => {
+    await complete(db);
+    const rec = await shelfAdd(db, {});
+    await expect(db.query(`select public.shelf_change($1, $2, 0, null, null, null, null, 'out_of_stock', null, $3::jsonb)`,
+      [crypto.randomUUID(), rec.userProductId, JSON.stringify(DAY)])).rejects.toThrow(/revision-conflict/i);
+  });
+
+  it('denies changing another owners product', async () => {
+    await complete(db);
+    const rec = await shelfAdd(db, {});
+    await asUser(db, USER_B);
+    await complete(db, 'user_b');
+    // RLS hides the foreign row from the mutator, so the denial surfaces as
+    // revision-conflict; either way access is denied and existence is not disclosed.
+    await expect(db.query(`select public.shelf_change($1, $2, 1, null, null, null, null, 'out_of_stock', null, $3::jsonb)`,
+      [crypto.randomUUID(), rec.userProductId, JSON.stringify(DAY)])).rejects.toThrow(/not-found|revision-conflict/i);
+  });
+
+  it('requires explicit confirmation to match and preserves manual identity', async () => {
+    await complete(db);
+    // seed a catalogue version to match against
+    await db.exec('set session authorization postgres');
+    await db.exec(`insert into public.brands(id, name) values ('c0000000-0000-4000-8000-000000000001', 'House Brand')`);
+    await db.exec(`insert into public.products(id, brand_id, name, category, market) values ('c0000000-0000-4000-8000-000000000002', 'c0000000-0000-4000-8000-000000000001', 'Gentle Shampoo', 'shampoo', 'ZA')`);
+    await db.exec(`insert into public.product_versions(id, product_id, market, structured_directions, lifecycle) values ('c0000000-0000-4000-8000-000000000003', 'c0000000-0000-4000-8000-000000000002', 'ZA', '{}', 'active')`);
+    await asUser(db, USER_A);
+    const rec = await shelfAdd(db, { manualName: 'My shampoo guess' });
+    const versionId = 'c0000000-0000-4000-8000-000000000003';
+    await expect(db.query(`select public.shelf_match($1, $2, 1, $3, false)`,
+      [crypto.randomUUID(), rec.userProductId, versionId])).rejects.toThrow(/confirmation-required/i);
+    const matched = await db.query<{ result: any }>(`select public.shelf_match($1, $2, 1, $3, true) result`,
+      [crypto.randomUUID(), rec.userProductId, versionId]);
+    expect(matched.rows[0].result.revision).toBe(2);
+    const detail = await db.query<{ result: any }>(`select public.shelf_history($1, true) result`, [rec.userProductId]);
+    expect(detail.rows[0].result.matched).toBe(true);
+    expect(detail.rows[0].result.matchConfirmed).toBe(true);
+    // Original manual identity is preserved, not overwritten by the catalogue link.
+    expect(detail.rows[0].result.manualName).toBe('My shampoo guess');
+  });
+
+  it('hides archived items from the default list but keeps their history', async () => {
+    await complete(db);
+    const rec = await shelfAdd(db, {});
+    await db.query(`select public.shelf_archive($1, $2, 1)`, [crypto.randomUUID(), rec.userProductId]);
+    const list = await db.query<{ result: any }>(`select public.shelf_list(25) result`);
+    expect((list.rows[0].result.items as any[]).find((item: any) => item.id === rec.userProductId)).toBeUndefined();
+    const history = await db.query<{ result: any }>(`select public.shelf_history($1, true) result`, [rec.userProductId]);
+    expect(history.rows[0].result.availability).toBe('archived');
+    expect((history.rows[0].result.revisions as any[]).some((r: any) => r.kind === 'archive')).toBe(true);
+  });
+
+  it('denies consumer verification writes through the API (P1-AC-13)', async () => {
+    await complete(db);
+    await seedCatalogue(db);
+    await asUser(db, USER_A);
+    await expect(db.query(`select public.verification_record($1, $2, $3)`,
+      ['b0000000-0000-4000-8000-000000000003', 'verified', 'self-approved'])).rejects.toThrow(/not-authorized/i);
+    const events = await db.query(`select * from public.product_verification_events where reviewer = 'self-approved'`);
+    expect(events.rows).toEqual([]);
   });
 
   it('preserves version payloads across successor links', async () => {
