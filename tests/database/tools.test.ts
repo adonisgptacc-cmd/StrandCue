@@ -76,6 +76,34 @@ describe('tools catalogue immutable history and RLS', () => {
     await expect(db.exec(`insert into public.tool_verification_events(id, version_id, reviewer, reviewed_fields, status, reason) values (gen_random_uuid(), 'd0000000-0000-4000-8000-000000000003', 'self', '{name}', 'verified', 'self-approved')`)).rejects.toThrow(/permission denied|violates/i);
   });
 
+  it('denies direct authenticated writes to user tool tables', async () => {
+    await complete(db);
+    await expect(db.exec(`insert into public.user_tools(id, owner, availability) values (gen_random_uuid(), '${USER_A}', 'available')`)).rejects.toThrow(/permission denied|violates/i);
+    await expect(db.exec(`insert into public.user_tool_revisions(id, owner, user_tool_id, sequence, base_revision, kind, effective_date, source, patch) values (gen_random_uuid(), '${USER_A}', gen_random_uuid(), 1, 0, 'baseline', '{"precision":"day","value":"2024-01-01"}', 'user-reported', '{}')`)).rejects.toThrow(/permission denied|violates/i);
+    await asUser(db, USER_B);
+    expect((await db.query('select * from public.user_tools')).rows).toEqual([]);
+    expect((await db.query('select * from public.user_tool_revisions')).rows).toEqual([]);
+  });
+
+  it('enforces composite owner FK on user tool children', async () => {
+    await complete(db);
+    await db.exec('set session authorization postgres');
+    const userToolId = crypto.randomUUID();
+    await db.exec(`insert into public.user_tools(id, owner, manual_model, availability, revision) values ('${userToolId}', '${USER_A}', 'Pro Dryer', 'available', 0)`);
+    await expect(db.query(`insert into public.user_tool_revisions(id, owner, user_tool_id, sequence, base_revision, kind, effective_date, effective_start, effective_end, source, patch) values (gen_random_uuid(), '${USER_B}', '${userToolId}', 1, 0, 'baseline', '{"precision":"day","value":"2024-01-01"}', '2024-01-01', '2024-01-01', 'user-reported', '{}')`)).rejects.toThrow(/foreign key|violates/i);
+  });
+
+  it('keeps archived ownership rows with their history', async () => {
+    const rows = await db.query<{ tablename: string }>(
+      `select tablename from pg_tables where schemaname = 'public' and tablename in ('user_tools', 'user_tool_revisions')`,
+    );
+    expect(rows.rows.map((row) => row.tablename).sort()).toEqual(['user_tool_revisions', 'user_tools']);
+    const unprotected = await db.query(
+      `select relname from pg_class where relname in ('user_tools', 'user_tool_revisions') and (not relrowsecurity or not relforcerowsecurity)`,
+    );
+    expect(unprotected.rows).toEqual([]);
+  });
+
   it('keeps wattage and temperature as independent unknowns', async () => {
     await seedToolCatalogue(db);
     await asUser(db, USER_A);
