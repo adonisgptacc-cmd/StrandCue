@@ -2,9 +2,11 @@
 
 Version 2.0 • 9 September 2026 • Current implementation baseline
 
+Product authority: [StrandCue-PRD-v1.1-audit.md](../StrandCue-PRD-v1.1-audit.md) and [2026-09-23-strandcue-phase1-rebaseline-design.md](superpowers/specs/2026-09-23-strandcue-phase1-rebaseline-design.md).
+
 ## 1. Authority and capability
 
-This is the current Phase 1 implementation contract accompanying [Master PRD v2](../StrandCue-PRD-v2.md). It consolidates the supplied later instructions; it is not the separately referenced but unavailable original “Locked Phase 1” document. The user authorised the data-foundation-first revision. MUST indicates required behaviour; numerical policies labelled default are engineering proposals adopted for this handoff until changed explicitly.
+This is the current Phase 1 implementation contract accompanying [StrandCue-PRD-v1.1-audit.md](../StrandCue-PRD-v1.1-audit.md) and [2026-09-23-strandcue-phase1-rebaseline-design.md](superpowers/specs/2026-09-23-strandcue-phase1-rebaseline-design.md). It consolidates the supplied later instructions; it is not the separately referenced but unavailable original “Locked Phase 1” document. The user authorised the data-foundation-first revision. MUST indicates required behaviour; numerical policies labelled default are engineering proposals adopted for this handoff until changed explicitly.
 
 Phase 1 lets a South African adult securely record hair characteristics, changes, chemical services, owned products/tools and factual manual activity, inspect history and manage their account. It does not decide what they should do. Scope is fixed to the foundation; no need to ask users to approve routine schema choices already defined here.
 
