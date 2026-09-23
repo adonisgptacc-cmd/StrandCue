@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 const trustedMigrationNames = [
   '20260909172924_passport_foundation.sql',
   '20260912070752_chemical_services.sql',
+  '20260924150000_activities_history.sql',
 ] as const;
 
 const candidateMigrationNames = [
