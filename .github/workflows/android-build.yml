@@ -24,7 +24,7 @@ permissions:
   packages: write
 
 env:
-  NODE_VERSION: 20
+  # Node tracks .nvmrc (24); setup-node uses node-version-file everywhere below.
   EAS_CLI_VERSION: 'latest'
 
 jobs:

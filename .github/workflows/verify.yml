@@ -9,9 +9,20 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  secrets:
+    name: Secret scan
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+
+  gate:
+    name: Deterministic verification gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +32,19 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:coverage
       - run: npm run audit:control-plane
-      - run: npm run audit:dependencies
       - run: npm run export:web
+
+  dependency-audit:
+    name: Dependency audit (requires npm registry)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run audit:dependencies
