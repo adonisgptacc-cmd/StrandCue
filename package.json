@@ -25,7 +25,7 @@
     "export:web": "npm run export:web --workspace @strandcue/mobile",
     "audit:dependencies": "npm audit --omit=dev --audit-level=high",
     "audit:control-plane": "node scripts/audit-cli.ts",
-    "verify": "npm run typecheck && npm test && npm run audit:control-plane && npm run export:web",
+    "verify": "npm run typecheck && npm test && npm run test:coverage && npm run audit:control-plane && npm run export:web",
     "mobile": "npm run start --workspace @strandcue/mobile"
   },
   "devDependencies": {
