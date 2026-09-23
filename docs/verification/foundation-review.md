@@ -2,6 +2,8 @@
 
 Scope: the first account / Hair Passport / history slice, reviewed against `docs/PHASE_1.md` and `docs/superpowers/specs/2026-09-09-foundation-design.md`. This is an initial review of the files on disk; findings below describe the reviewed state before coordinator fixes. No application, domain, migration or test files were changed by this reviewer.
 
+Amendment note — 16 September 2026: Android-only native release scope is an approved Phase 1 amendment; iOS implementation and validation are deferred. Historical statements below continue to describe what the 11 September review actually inspected or tested. Outstanding native evidence now means real Android development/release-build evidence; the amendment does not mark any acceptance case Complete.
+
 ## Findings
 
 ### P1 — SQL accepts numbers that make the entire mobile history unreadable
@@ -50,6 +52,6 @@ Suggested fix: centralize the actual RPC error vocabulary, map known validation 
 - Public RPC argument and response names generally match the mobile API adapter. Database/current-history projection and correction-chain logic were inspected alongside their existing tests. Broad test/build execution belongs to the coordinator and was not duplicated here.
 - Prior domain fixes are present: top-level explicit own `undefined` values are rejected; each revision must use `baseRevision=sequence-1`; the calendar day helper uses Africa/Johannesburg rather than UTC. This is source confirmation, not a new claim that the entire suite passed.
 - The knowledge graph had no StrandCue index, so file discovery fell back to direct source reads.
-- Recovery routing has two route files mounting `Home`/`useAccount`. A warm callback may leave multiple hook instances consuming the same link; validate single-consumer behaviour in the required native tests or move auth/link handling to one root provider. This is a follow-up risk, not a reproduced finding.
+- Recovery routing has two route files mounting `Home`/`useAccount`. A warm callback may leave multiple hook instances consuming the same link; validate single-consumer behaviour in the required Android development/release-build tests or move auth/link handling to one root provider. This is a follow-up risk, not a reproduced finding.
 - A fresh local Supabase Postgres 17 rebuild and disposable-user Auth/PostgREST test now cover verified onboarding, owner-scoped reads, direct-write denial, idempotent retry, and changed-payload conflict. The run exposed and fixed migration-role ownership transfer and managed `auth`-schema access assumptions that PGlite did not model.
-- Native cold/warm recovery and secure-storage behaviour, accessibility/performance, production email/redirect configuration, hosted-environment validation, and backup restore remain release gates. Export/deletion and the remaining Phase 1 capabilities are explicitly outside this first slice. Passing local tests or fixing these findings is not beta readiness or complete Phase 1 acceptance.
+- Android development/release-build cold/warm recovery and secure-storage behaviour, accessibility/performance on the Android-only release matrix, production email/redirect configuration, hosted-environment validation, and backup restore remain release gates. Export/deletion and the remaining Phase 1 capabilities are explicitly outside this first slice. Passing local tests or fixing these findings is not beta readiness or complete Phase 1 acceptance.

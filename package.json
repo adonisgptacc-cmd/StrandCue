@@ -3,40 +3,43 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "overrides": {
-    "react-native": "0.86.3",
-    "@react-native/metro-config": "0.86.3",
-    "react-native-reanimated": "4.5.1",
-    "react-native-worklets": "0.10.1",
-    "uuid": "11.1.1"
-  },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "engines": {
-    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
+    "node": ">=24.0.0 <25.0.0"
   },
   "scripts": {
+    "check:runtime": "node scripts/check-runtime.ts",
+    "lint": "eslint apps/mobile packages/domain scripts tests vitest.config.ts eslint.config.mjs --max-warnings=0",
+    "preverify": "npm run check:runtime",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck:domain": "tsc --noEmit",
     "typecheck": "npm run typecheck:domain && npm run typecheck --workspace @strandcue/mobile",
     "export:web": "npm run export:web --workspace @strandcue/mobile",
-    "audit:dependencies": "npm audit --omit=dev --audit-level=high",
+    "audit:dependencies": "node scripts/audit-dependencies-cli.ts",
     "audit:control-plane": "node scripts/audit-cli.ts",
-    "verify": "npm run typecheck && npm test && npm run audit:control-plane && npm run export:web",
+    "check:expo": "expo install --check",
+    "verify": "npm run typecheck && npm run lint && npm run test:coverage && npm run audit:control-plane && npm run audit:dependencies && npm run check:expo && npm run export:web",
     "mobile": "npm run start --workspace @strandcue/mobile"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
     "@types/node": "24.13.3",
     "@types/react": "19.2.18",
+    "@types/react-test-renderer": "19.3.0",
     "@vitest/coverage-v8": "5.0.0",
+    "eslint": "9.39.5",
+    "eslint-config-expo": "57.0.2",
+    "eslint-import-resolver-typescript": "3.10.1",
     "jest-validate": "29.7.0",
+    "react": "19.2.3",
     "react-native": "0.86.3",
+    "react-test-renderer": "19.2.3",
     "supabase": "2.117.0",
-    "typescript": "7.0.2",
+    "typescript": "~6.0.3",
     "vitest": "5.0.0"
   },
   "dependencies": {

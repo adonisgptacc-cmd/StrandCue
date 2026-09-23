@@ -29,21 +29,27 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<string|null>(null);
+  const [lockedCommand, setLockedCommand] = useState<SaveCommand|null>(null);
   const command = useRef<SaveCommand|null>(null);
-  const locked = command.current !== null;
+  const submitting = useRef(false);
+  const locked = lockedCommand !== null;
   const draftKey = `strandcue-draft-${owner}`;
   useEffect(() => {let mounted = true; void secureStorage.getItem(draftKey).then(value => {if (mounted) setPendingDraft(value);}).catch(() => {if(mounted) setMessage('The previous device draft could not be read.');}); return () => {mounted = false;};}, [draftKey]);
-  const update = (key: string, value: unknown) => {if (!locked) setForm(current => ({...current, [key]: value}));};
+  const update = (key: string, value: unknown) => {if (!command.current) setForm(current => ({...current, [key]: value}));};
   const submit = async () => {
+    if (submitting.current) return;
     if (!command.current) {
       const patch = target ? PassportPatchSchema.safeParse(form) : baseRecord ? PassportPatchSchema.safeParse(changedFields(before, form)) : PassportSchema.safeParse(form);
       const effective = EffectiveDateSchema.safeParse({precision, value: precision === 'unknown' ? null : date});
       if (!patch.success || !effective.success || (target && !reason.trim())) {setMessage('Check the fields and date. Choose at least one change, and explain a correction. Unknown is always a valid choice.');return;}
-      command.current = {p_operation_id: Crypto.randomUUID(), p_expected_revision: baseRecord?.revision ?? 0,
+      const nextCommand: SaveCommand = {p_operation_id: Crypto.randomUUID(), p_expected_revision: baseRecord?.revision ?? 0,
         p_kind: target ? 'correction' : baseRecord ? 'change' : 'baseline', p_effective_date: effective.data, p_patch: patch.data,
         ...(target ? {p_corrects_id: target.id, p_correction_reason: reason.trim()} : {}),
       };
+      command.current = nextCommand;
+      setLockedCommand(nextCommand);
     }
+    submitting.current = true;
     setBusy(true); setMessage('');
     try {
       await secureStorage.setItem(draftKey, JSON.stringify(command.current));
@@ -51,7 +57,7 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
       await secureStorage.removeItem(draftKey);
       onSaved();
     } catch (error) {setConflict(String((error as {message?: string})?.message).includes('revision-conflict')); setMessage(saveErrorMessage(error));}
-    finally {setBusy(false);}
+    finally {submitting.current = false; setBusy(false);}
   };
   const retryDraft = async () => {
     if (!pendingDraft) return;
@@ -60,6 +66,7 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
       const parsed = JSON.parse(pendingDraft) as SaveCommand;
       if (!parsed.p_operation_id || !Number.isInteger(parsed.p_expected_revision)) throw new Error('Invalid draft');
       command.current = parsed;
+      setLockedCommand(parsed);
       setForm(current => reviewRebase(current, parsed.p_patch));
       await savePassport(parsed); await secureStorage.removeItem(draftKey); onSaved();
     } catch (error) {setConflict(String((error as {message?: string})?.message).includes('revision-conflict')); setMessage(saveErrorMessage(error));}
@@ -84,7 +91,7 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
       setForm(submitted.p_kind === 'correction' ? submitted.p_patch : reviewRebase(review.projection.values, submitted.p_patch));
       setPrecision(submitted.p_effective_date.precision as typeof precision); setDate(submitted.p_effective_date.value ?? '');
       setReason(submitted.p_correction_reason ?? '');
-      command.current = null; setPendingDraft(null); setConflict(false); setReview(null);
+      command.current = null; setLockedCommand(null); setPendingDraft(null); setConflict(false); setReview(null);
       setMessage('Your submitted fields are retained below. Review and save when ready.');
     } catch {setMessage('Could not prepare the revised draft. Your original save is retained.');}
     finally {setBusy(false);}
@@ -94,7 +101,7 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
     {pendingDraft && <View style={styles.notice}><Text style={styles.body}>A previous save was not confirmed. Retry the same save to avoid a duplicate.</Text><Button title="Retry previous save" disabled={busy} onPress={() => void retryDraft()}/><Button title="Discard device draft" secondary disabled={busy} onPress={() => {void secureStorage.removeItem(draftKey).then(()=>setPendingDraft(null)).catch(()=>setMessage('Could not remove the draft.'));}}/></View>}
     {locked && !conflict && <Text style={styles.body}>The save is locked for a safe retry.</Text>}
     {conflict && <Button title="Load latest record for review" secondary disabled={busy} onPress={() => void reloadForReview()}/>}
-    {review && <View style={styles.notice}><Text style={styles.heading}>Review version {review.revision}</Text><Text style={styles.body}>Latest recorded values: {JSON.stringify(review.projection.values)}</Text><Text style={styles.body}>Your submitted fields: {JSON.stringify(command.current?.p_patch)}</Text><Text style={styles.body}>Uncertain fields: {Object.keys(review.projection.ambiguousFields).join(', ') || 'None'}</Text><Button title="Keep my submitted fields and review form" disabled={busy} onPress={() => void acceptReview()}/></View>}
+    {review && <View style={styles.notice}><Text style={styles.heading}>Review version {review.revision}</Text><Text style={styles.body}>Latest recorded values: {JSON.stringify(review.projection.values)}</Text><Text style={styles.body}>Your submitted fields: {JSON.stringify(lockedCommand?.p_patch)}</Text><Text style={styles.body}>Uncertain fields: {Object.keys(review.projection.ambiguousFields).join(', ') || 'None'}</Text><Button title="Keep my submitted fields and review form" disabled={busy} onPress={() => void acceptReview()}/></View>}
     <View pointerEvents={locked ? 'none' : 'auto'} style={{gap: 20}}>
       {Object.entries(options).map(([field, values]) => <Choice key={field} label={field.replace(/([A-Z])/g,' $1').replace(/^./,x=>x.toUpperCase())} value={String(form[field] ?? '')} options={values} onChange={value => update(field, value)}/>)}
       <MultiChoice label="Goals" value={(form.goals as string[]|undefined) ?? []} options={['shine','length-retention','definition','moisture-retention','reduced-frizz','manageability','volume','none','unknown']} onChange={value => update('goals',value)}/>

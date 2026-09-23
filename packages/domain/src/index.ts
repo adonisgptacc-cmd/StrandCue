@@ -1,4 +1,42 @@
 export * from './dates.ts';
-export * from './history.ts';
 export * from './passport.ts';
-export * from './services.ts';
+export {
+  BaselineRevisionSchema,
+  ChangeRevisionSchema,
+  CorrectionRevisionSchema,
+  HistoryValidationError,
+  PassportRevisionSchema,
+  projectHistory,
+  type AmbiguousField,
+  type AmbiguousFieldCandidate,
+  type BaselineRevision,
+  type CandidateApplicability,
+  type ChangeRevision,
+  type CorrectionRevision,
+  type HistoryProjection,
+  type HistoryValidationErrorCode,
+  type PassportRevision,
+  type ProjectHistoryOptions,
+} from './history.ts';
+export {
+  CorrectServiceCommandSchema,
+  CreateServiceCommandSchema,
+  ObserveServiceCommandSchema,
+  ServiceFactsSchema,
+  ServiceHeatSchema,
+  ServiceObservationSchema,
+  ServiceRegionSchema,
+  ServiceSegmentSchema,
+  ServiceTypeSchema,
+  ServiceZoneSchema,
+  type CorrectServiceCommand,
+  type CreateServiceCommand,
+  type ObserveServiceCommand,
+  type ServiceFacts,
+  type ServiceHeat,
+  type ServiceObservation,
+  type ServiceRegion,
+  type ServiceSegment,
+  type ServiceType,
+  type ServiceZone,
+} from './services.ts';

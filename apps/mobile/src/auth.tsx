@@ -14,16 +14,16 @@ export function useAccount() {
   const [loading, setLoading] = useState(!!supabase);
   const [recovery, setRecovery] = useState(false);
   const [notice, setNotice] = useState('');
-  const epoch = useRef(0);
   const verifiedUser = useRef<User | null>(null);
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
     let mounted = true;
+    let epoch = 0;
     const refresh = (hideExisting = false) => {
-      const request = ++epoch.current;
+      const request = ++epoch;
       setLoading(hideExisting || authNeedsLoading(!!verifiedUser.current));
-      const isCurrent = () => mounted && request === epoch.current;
+      const isCurrent = () => mounted && request === epoch;
       void client.auth.getUser()
         .then(result => resolveAuthRefresh(result, (owner, guard) => transitionServiceDraftOwner(secureStorage, owner, guard), isCurrent))
         .then(outcome => {
@@ -34,7 +34,7 @@ export function useAccount() {
           setLoading(false);
         }
       }).catch(() => {
-        if (mounted && request === epoch.current) {
+        if (mounted && request === epoch) {
           const retained = resolvedRefreshUser(verifiedUser.current, null, true);
           verifiedUser.current = retained;
           setUser(retained);
@@ -46,10 +46,10 @@ export function useAccount() {
     refresh();
     const {data: {subscription}} = client.auth.onAuthStateChange(event => {
       if (event === 'SIGNED_OUT') {
-        const request = ++epoch.current;
+        const request = ++epoch;
         verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false);
-        void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch.current).catch(() => {
-          if (mounted && request === epoch.current) setNotice(serviceDraftCleanupNotice);
+        void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
+          if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
         });
       } else setTimeout(() => { if (mounted) refresh(event === 'SIGNED_IN'); }, 0);
     });
@@ -74,7 +74,7 @@ export function useAccount() {
     };
     void Linking.getInitialURL().then(url => {if (url?.startsWith('strandcue://auth/')) void callback(url);});
     const links = Linking.addEventListener('url', ({url}) => { void callback(url); });
-    return () => {mounted = false; ++epoch.current; subscription.unsubscribe(); state.remove(); links.remove();};
+    return () => {mounted = false; ++epoch; subscription.unsubscribe(); state.remove(); links.remove();};
   }, []);
   return {user, loading, recovery, notice, finishRecovery: () => setRecovery(false)};
 }
@@ -84,9 +84,11 @@ export function AuthScreen({notice = ''}: {notice?: string}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [adult, setAdult] = useState(false);
-  const [message, setMessage] = useState(notice);
+  const [messageState, setMessageState] = useState({notice, message: notice});
   const [busy, setBusy] = useState(false);
-  useEffect(() => {setMessage(notice);}, [notice]);
+  if (messageState.notice !== notice) setMessageState({notice, message: notice});
+  const message = messageState.notice === notice ? messageState.message : notice;
+  const setMessage = (nextMessage: string) => setMessageState({notice, message: nextMessage});
   const submit = async () => {
     if (!supabase) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {setMessage('Enter a valid email address.'); return;}

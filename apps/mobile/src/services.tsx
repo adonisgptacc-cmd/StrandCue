@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { secureStorage } from './client';
 import { loadService, loadServices, type ServiceCursor, type ServiceDetail, type ServiceSummary } from './services-api';
 import { appendServicePage, loadServiceScreenData, readServiceDrafts, serviceDateLabel, serviceEditorCopy, servicePresenceLabel, serviceView, type ServiceDraft, type ServiceEditorMode } from './service-form';
 import { ServiceEditor, ServiceFactsView } from './service-editor';
+import { useOwnerLoad } from './owner-load';
 import { Button, styles } from './ui';
 
 type Mode = { kind: 'list' } | { kind: 'detail'; detail: ServiceDetail }
@@ -53,48 +54,44 @@ function OwnerServices({ owner }: { owner: string }) {
   const [drafts, setDrafts] = useState<ServiceDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const generation = useRef(0);
-  const mounted = useRef(true);
   const session = useRef(0);
-  const busy = useRef(false);
-
-  const refresh = async (append = false) => {
-    if (busy.current) return;
-    busy.current = true;
-    const request = ++generation.current;
-    setLoading(true); setError('');
-    try {
-      const result = await loadServiceScreenData(() => loadServices(asOf, { cursor: append ? cursor : null }), () => readServiceDrafts(secureStorage, owner));
-      if (mounted.current && request === generation.current) {
-        if (result.page) {
-          const page = result.page;
-          setItems(previous => append ? appendServicePage(previous, page.items) : page.items);
-          setCursor(page.nextCursor);
-        }
-        if (result.drafts) setDrafts(result.drafts);
-        setError(result.error);
+  const ownerLoad = useOwnerLoad({
+    ownerKey: `${owner}:${asOf}`,
+    load: mode => loadServiceScreenData(
+      () => loadServices(asOf, { cursor: mode === 'append' ? cursor : null }),
+      () => readServiceDrafts(secureStorage, owner),
+    ),
+    apply: (result, mode) => {
+      if (result.page) {
+        const page = result.page;
+        setItems(previous => mode === 'append' ? appendServicePage(previous, page.items) : page.items);
+        setCursor(page.nextCursor);
       }
-    } catch { if (mounted.current && request === generation.current) setError('Services or device drafts could not be loaded. Please try again.'); }
-    finally { busy.current = false; if (mounted.current && request === generation.current) setLoading(false); }
-  };
-  useEffect(() => {
-    mounted.current = true; void refresh();
-    return () => { mounted.current = false; ++generation.current; };
-  }, [owner]);
+      if (result.drafts) setDrafts(result.drafts);
+      setError(result.error);
+    },
+    handleError: () => setError('Services or device drafts could not be loaded. Please try again.'),
+    clearError: () => setError(''),
+    setLoading,
+    preventOverlap: true,
+  });
+  const refresh = (append = false) => ownerLoad.run(append ? 'append' : 'refresh');
 
   const openService = async (serviceId: string) => {
-    if (busy.current) return;
-    busy.current = true;
-    const request = ++generation.current;
+    const request = ownerLoad.begin(true);
+    if (request === null) return;
     setLoading(true); setError('');
     try {
       const detail = await loadService(serviceId);
-      if (mounted.current && request === generation.current) {
+      if (ownerLoad.isCurrent(request)) {
         if (!detail) setError('This service could not be found. Reload the list to check your saved entries.');
         else setMode({ kind: 'detail', detail });
       }
-    } catch { if (mounted.current && request === generation.current) setError('This service could not be loaded. Please try again.'); }
-    finally { busy.current = false; if (mounted.current && request === generation.current) setLoading(false); }
+    } catch { if (ownerLoad.isCurrent(request)) setError('This service could not be loaded. Please try again.'); }
+    finally {
+      ownerLoad.finish(request);
+      if (ownerLoad.isCurrent(request)) setLoading(false);
+    }
   };
   const back = () => { setMode({ kind: 'list' }); void refresh(); };
   const startEditor = (editorMode: ServiceEditorMode, detail?: ServiceDetail, resume?: ServiceDraft) => {
