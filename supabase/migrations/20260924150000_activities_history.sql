@@ -145,7 +145,7 @@ revoke all on public.activities, public.activity_revisions, public.activity_prod
 revoke all on strandcue_private.activity_operations from public, anon, authenticated;
 grant select on public.activities, public.activity_revisions, public.activity_products, public.activity_tools, public.activity_heat_events to authenticated;
 grant select, insert on public.activities, public.activity_revisions, public.activity_products, public.activity_tools, public.activity_heat_events, strandcue_private.activity_operations to strandcue_mutator;
-grant update(revision, updated_at) on public.activities to strandcue_mutator;
+grant update(revision, status, occurred_at, precision, zones, notes, updated_at) on public.activities to strandcue_mutator;
 grant update(revision) on public.profiles to strandcue_mutator;
 
 revoke create on schema strandcue_private from strandcue_mutator;
