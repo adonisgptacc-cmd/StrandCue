@@ -8,6 +8,7 @@ import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
 import { Services } from './services';
 import { Activities } from './activities';
+import { Shelf } from './shelf';
 import { clearServiceDrafts } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
@@ -24,7 +25,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'Passport'|'Services'|'Activities'|'History'|'Settings'>('Passport');
+  const [tab, setTab] = useState<'Passport'|'Services'|'Activities'|'Shelf'|'History'|'Settings'>('Passport');
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
   const [username, setUsername] = useState('');
@@ -79,11 +80,12 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   if (loading) return <Page><Text style={styles.title}>Opening your record…</Text><Text style={styles.subtitle}>Bringing your saved information together.</Text></Page>;
   if (!profile) return <Page><Text style={styles.title}>Make it yours.</Text><View style={styles.card}><Text style={styles.body}>Choose a private username. Your email and username are never public profile listings.</Text><Field label="Username" value={username} onChangeText={setUsername} autoCapitalize="none" maxLength={24}/><Text style={styles.subtitle}>3–24 letters, numbers or underscores.</Text><Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
-  return <Page><View style={styles.row}>{(['Passport','Services','Activities','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
-    <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text><Text style={styles.title}>{tab === 'Passport' ? 'Your Hair Passport' : tab === 'Services' ? 'Your chemical services' : tab === 'Activities' ? 'Your activities' : tab === 'History' ? 'Every change has a story.' : 'Your account, your say.'}</Text>
+  return <Page><View style={styles.row}>{(['Passport','Services','Activities','Shelf','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
+    <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text><Text style={styles.title}>{tab === 'Passport' ? 'Your Hair Passport' : tab === 'Services' ? 'Your chemical services' : tab === 'Activities' ? 'Your activities' : tab === 'Shelf' ? 'My Shelf' : tab === 'History' ? 'Every change has a story.' : 'Your account, your say.'}</Text>
     {!!error && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button title="Retry loading" secondary onPress={() => void refresh()}/></View>}
     {tab === 'Services' && <Services owner={user.id} />}
     {tab === 'Activities' && <Activities owner={user.id} />}
+    {tab === 'Shelf' && <Shelf owner={user.id} />}
     {tab === 'Passport' && !editing && <><Text style={styles.subtitle}>A picture of your hair, built from what you’ve recorded. It grows with you.</Text>
       {record ? <View style={styles.card}><Text style={styles.kicker}>CURRENT RECORD · {record.projection.asOf}</Text>{Object.entries(record.projection.values).map(([key,value]) => <View key={key}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>{display(value)}</Text></View>)}
         {Object.keys(record.projection.ambiguousFields).map(key => <View key={key} style={styles.notice}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>Dates overlap or are unknown. Review these entries in History to clarify which is current.</Text></View>)}
