@@ -79,6 +79,13 @@ RTO_SLA_SECONDS=14400
 db_url_for() {
     local project_ref="${1:-$SUPABASE_PROJECT_REF}"
     local access_token="${2:-$SUPABASE_ACCESS_TOKEN}"
+    # Direct connection string wins when provided (pooler URI with
+    # URL-encoded password). Avoids dependence on `supabase db url`,
+    # which is absent from current CLI versions.
+    if [[ -n "${DATABASE_URL:-}" ]]; then
+        echo "$DATABASE_URL"
+        return 0
+    fi
     [[ -z "$project_ref" ]] && error "Project ref required (--project-ref or SUPABASE_PROJECT_REF)"
     [[ -z "$access_token" ]] && error "Access token required (--access-token or SUPABASE_ACCESS_TOKEN)"
     supabase db url --project-ref "$project_ref" --token "$access_token" 2>/dev/null || \
@@ -91,7 +98,7 @@ backup() {
     local output_file="${BACKUP_DIR}/${BACKUP_NAME}.sql.gz"
 
     [[ -z "$project_ref" ]] && error "Project ref required (--project-ref or SUPABASE_PROJECT_REF)"
-    [[ -z "$access_token" ]] && error "Access token required (--access-token or SUPABASE_ACCESS_TOKEN)"
+    { [[ -n "${DATABASE_URL:-}" ]] || [[ -n "$access_token" ]]; } || error "Access token required (--access-token or SUPABASE_ACCESS_TOKEN)"
 
     mkdir -p "$BACKUP_DIR"
     log "Starting backup for project: $project_ref"
@@ -102,12 +109,13 @@ backup() {
         return 0
     fi
 
-    # Get database connection string from Supabase
+    # Get database connection string (DATABASE_URL wins; else Supabase CLI)
     local db_url
-    db_url=$(supabase db url --project-ref "$project_ref" --token "$access_token" 2>/dev/null) || \
+    db_url=$(db_url_for "$project_ref" "$access_token") || \
         error "Failed to get database URL from Supabase"
 
     log "Dumping database..."
+    local dump_file="${BACKUP_DIR}/${BACKUP_NAME}.dump"
     pg_dump "$db_url" \
         --no-owner \
         --no-privileges \
@@ -115,10 +123,11 @@ backup() {
         --clean \
         --format=custom \
         --compress=6 \
-        --file="${output_file%.gz}.dump" 2>/dev/null || \
+        --file="$dump_file" 2>/dev/null || \
         error "pg_dump failed"
 
-    gzip -f "${output_file%.gz}.dump"
+    gzip -f "$dump_file"
+    output_file="${dump_file}.gz"
     log "Backup completed: $output_file"
 
     # Generate checksum
@@ -137,7 +146,7 @@ restore() {
     [[ -z "$backup_file" ]] && error "Backup file required (--backup-file)"
     [[ -f "$backup_file" ]] || error "Backup file not found: $backup_file"
     [[ -z "$project_ref" ]] && error "Project ref required"
-    [[ -z "$access_token" ]] && error "Access token required"
+    { [[ -n "${DATABASE_URL:-}" ]] || [[ -n "$access_token" ]]; } || error "Access token required"
 
     log "Starting restore from: $backup_file"
     log "Target project: $project_ref"
@@ -155,7 +164,7 @@ restore() {
     fi
 
     local db_url
-    db_url=$(supabase db url --project-ref "$project_ref" --token "$access_token" 2>/dev/null) || \
+    db_url=$(db_url_for "$project_ref" "$access_token") || \
         error "Failed to get database URL from Supabase"
 
     log "Restoring database..."
@@ -203,7 +212,7 @@ cleanup() {
         log "Deleting old backup: $file"
         rm -f "$file" "${file}.sha256"
         ((deleted++))
-    done < <(find "$BACKUP_DIR" -name 'strandcue-backup-*.sql.gz' -mtime +$RETENTION_DAYS -print0 2>/dev/null)
+    done < <(find "$BACKUP_DIR" -name 'strandcue-backup-*.dump.gz' -mtime +$RETENTION_DAYS -print0 2>/dev/null)
 
     log "Cleanup complete. Deleted $deleted backup(s)."
 }
@@ -246,7 +255,7 @@ rehearse() {
     local access_token="${2:-$SUPABASE_ACCESS_TOKEN}"
 
     [[ -z "$project_ref" ]] && error "Project ref required"
-    [[ -z "$access_token" ]] && error "Access token required"
+    { [[ -n "${DATABASE_URL:-}" ]] || [[ -n "$access_token" ]]; } || error "Access token required"
 
     log "=== Starting RPO/RTO Rehearsal (RPO <= 1h, RTO <= 4h) ==="
     local start_time=$(date +%s)
@@ -256,7 +265,7 @@ rehearse() {
     backup "$project_ref" "$access_token"
 
     local backup_time=$(date +%s)
-    local backup_file="${BACKUP_DIR}/${BACKUP_NAME}.sql.gz"
+    local backup_file="${BACKUP_DIR}/${BACKUP_NAME}.dump.gz"
 
     # 2. Verify
     log "Step 2: Verifying backup..."
