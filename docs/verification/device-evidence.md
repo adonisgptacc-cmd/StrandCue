@@ -26,3 +26,11 @@
 - Crashes on launch: none observed
 - Screenshot: launch-01.png (local only)
 - Finding: signup/signin attempt on device fails with "Your session could not be verified. Check your connection and try again." — backend auth config verified healthy separately (signup enabled, Resend SMTP set); prime suspect is EAS secret VALUES. Record as open finding, do not diagnose further.
+
+## Finding update — signup-blocked RESOLVED / CLOSED (2026-09-24, human-verified)
+
+- Prior open finding ("signup-blocked → EAS secret values suspect") is CLOSED as disproven.
+- EAS secret VALUES are EXONERATED: a signup API call from build 3 reached Supabase and produced a real confirmation email.
+- Signup never failed on network: the message seen was the client-side validation ("Confirm you are 18 or older and use a password with at least 12 characters") — 18+ box unchecked or short password. App behaved correctly (validation-behaved-correctly).
+- Link-placement rule: confirmation/recovery links MUST be opened on the device — they use the custom scheme strandcue://auth/callback, which desktop browsers cannot resolve ("could not connect to the server" on desktop is expected, not a bug). This is the known Plan D motivation.
+- Remaining open item: complete one full signup → confirm-on-device → signin loop on the emulator (human).
