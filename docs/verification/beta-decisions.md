@@ -23,6 +23,8 @@ anywhere — implementations keep reading them from configuration.
 - **Status:** DECIDED
 - **Domain:** `https://strandcue.adonisgptacc.workers.dev/`
 - **Android applicationId:** `za.co.strandcue.app`
+- **Wired 2026-09-24:** `apps/mobile/app.json` declares `android.package` + a `VIEW`/`autoVerify` intent filter for `https://strandcue.adonisgptacc.workers.dev/auth/*`; all 3 `.maestro` flows launch `za.co.strandcue.app` (placeholder `com.strandcue.dev` removed); guarded by `tests/tooling/d2-config.test.ts` (4); `npm run verify` exit 0 (469 passed). Recovery `redirectTo` deliberately stays on `strandcue://auth/callback` until assetlinks is live (switching early would break recovery).
+- **Cutover follow-ups (human):** serve `/.well-known/assetlinks.json` on the worker host with the release keystore SHA-256, then flip `resetPasswordForEmail` redirectTo to the https URL; EAS `playInternal` profile + internal track already present in `eas.json`.
 - **Decided by / date:** Owner / 2026-09-23
 
 ## D3. Transactional email provider and sender domain

@@ -1,7 +1,7 @@
 # Signup validation without network submission.
-# appId is a placeholder: Beta replaces it with the real Android application
-# identifier before any device run. Emulator execution stays Beta-owned.
-appId: com.strandcue.dev
+# appId is the D2-decided Android application identifier (za.co.strandcue.app).
+# Emulator execution stays Beta-owned.
+appId: za.co.strandcue.app
 ---
 - launchApp:
     clearState: true

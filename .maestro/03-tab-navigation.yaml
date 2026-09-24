@@ -1,8 +1,8 @@
 # Authenticated tab navigation. REQUIRES a signed-in dev build with a test
 # account: run this flow only on a Beta device gate session, never in CI.
-# appId is a placeholder: Beta replaces it with the real Android application
-# identifier before any device run. Emulator execution stays Beta-owned.
-appId: com.strandcue.dev
+# appId is the D2-decided Android application identifier (za.co.strandcue.app).
+# Emulator execution stays Beta-owned.
+appId: za.co.strandcue.app
 ---
 - launchApp
 - assertVisible: "Your Hair Passport"
