@@ -31,6 +31,7 @@ anywhere — implementations keep reading them from configuration.
 - **Status:** DECIDED
 - **Provider:** Resend (EU region)
 - **Sender domain:** `strandcue.co.za`
+- **DNS verified 2026-09-24 (authoritative lookup):** DKIM TXT at `resend._domainkey.strandcue.co.za` present and matching; SPF CNAMEs `send` → `send.forge.rmta.net` and `rsend` → `rsend-euw1.forge.rmta.net` present; DMARC `v=DMARC1; p=quarantine; sp=quarantine; fo=1; adkim=r; aspf=r` present. No MX (sender-only domain — expected). Resend dashboard "failed" badges are stale; click Verify in Resend to refresh.
 - **Decided by / date:** Owner / 2026-09-23
 
 ## D4. Named operating humans
