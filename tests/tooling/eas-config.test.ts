@@ -13,3 +13,12 @@ describe('EAS project link', () => {
     expect(config.expo?.android?.package).toBe('za.co.strandcue.app');
   });
 });
+
+describe('first build evidence', () => {
+  it('device-evidence.md records the preview APK build', async () => {
+    const doc = await readFile('docs/verification/device-evidence.md', 'utf8');
+    expect(doc).toMatch(/EAS build ID:\s*\S+/);
+    expect(doc).toMatch(/Artifact SHA-256:\s*[0-9a-f]{64}/i);
+    expect(doc).toMatch(/za\.co\.strandcue\.app/);
+  });
+});

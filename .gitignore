@@ -15,3 +15,4 @@ playwright-report/
 /test-result*.txt
 *.tsbuildinfo
 backups/
+*.apk

@@ -18,13 +18,13 @@
     },
     "release": {
       "android": {
-        "buildType": "aab",
+        "buildType": "app-bundle",
         "credentialsSource": "remote"
       }
     },
     "playInternal": {
       "android": {
-        "buildType": "aab",
+        "buildType": "app-bundle",
         "credentialsSource": "remote",
         "releaseChannel": "internal"
       }
