@@ -21,4 +21,11 @@ describe('first build evidence', () => {
     expect(doc).toMatch(/Artifact SHA-256:\s*[0-9a-f]{64}/i);
     expect(doc).toMatch(/za\.co\.strandcue\.app/);
   });
+
+  it('device-evidence.md records install and first launch', async () => {
+    const doc = await readFile('docs/verification/device-evidence.md', 'utf8');
+    expect(doc).toMatch(/Installed on:\s*\S+/);
+    expect(doc).toMatch(/First launch:\s*\S+/);
+    expect(doc).toMatch(/Signup screen visible|Begin your hair record/);
+  });
 });
