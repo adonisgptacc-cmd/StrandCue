@@ -58,6 +58,13 @@ EOF
 }
 
 check_prereqs() {
+    # Windows Git Bash: add scoop postgresql to PATH if present
+    for cand in "$HOME/scoop/apps/postgresql/current/bin" "/c/Users/ABADO/scoop/apps/postgresql/current/bin"; do
+        if [[ -d "$cand" ]]; then
+            export PATH="$cand:$PATH"
+            break
+        fi
+    done
     command -v pg_dump >/dev/null 2>&1 || error "pg_dump not found. Install postgresql-client."
     command -v pg_restore >/dev/null 2>&1 || error "pg_restore not found. Install postgresql-client."
     command -v psql >/dev/null 2>&1 || error "psql not found. Install postgresql-client."
