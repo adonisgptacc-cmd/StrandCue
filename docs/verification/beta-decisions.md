@@ -32,6 +32,7 @@ anywhere — implementations keep reading them from configuration.
 - **Provider:** Resend (EU region)
 - **Sender domain:** `strandcue.co.za`
 - **DNS verified 2026-09-24 (authoritative lookup):** DKIM TXT at `resend._domainkey.strandcue.co.za` present and matching; SPF CNAMEs `send` → `send.forge.rmta.net` and `rsend` → `rsend-euw1.forge.rmta.net` present; DMARC `v=DMARC1; p=quarantine; sp=quarantine; fo=1; adkim=r; aspf=r` present. No MX (sender-only domain — expected). Resend dashboard "failed" badges are stale; click Verify in Resend to refresh.
+- **Delivery proven 2026-09-24:** Test email from `StrandCue <noreply@strandcue.co.za>` accepted by Resend (id `01a0d27e-bdbd-7024-8ee0-f8d9de66b0c2`, EU backend) and `last_event: delivered` to Gmail. API key session-only, never stored.
 - **Decided by / date:** Owner / 2026-09-23
 
 ## D4. Named operating humans
