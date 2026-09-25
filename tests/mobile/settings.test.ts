@@ -10,7 +10,7 @@ vi.mock('../../apps/mobile/src/client.ts', () => ({
   supabase: { rpc },
 }));
 
-import { changeUsername, usernameErrorMessage } from '../../apps/mobile/src/settings-api';
+import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperText, usernameIdeasLabel } from '../../apps/mobile/src/settings-api';
 import { parseRecoveryCallback } from '../../apps/mobile/src/contracts';
 
 const operationId = 'f0000000-0000-4000-8000-000000000020';
@@ -36,11 +36,39 @@ describe('settings mobile boundary', () => {
   });
 
   it('maps username failures to actionable messages without internals', () => {
-    expect(usernameErrorMessage('username-taken')).toContain('taken');
+    expect(usernameErrorMessage('username-taken')).toBe('That username is unavailable. Try another.');
+    expect(usernameErrorMessage('username-unavailable')).toBe('That username is unavailable. Try another.');
     expect(usernameErrorMessage('username-change-too-soon')).toContain('7 days');
     expect(usernameErrorMessage('reserved-username')).toContain('reserved');
     expect(usernameErrorMessage('invalid-username')).toContain('3–32');
     expect(usernameErrorMessage('SQL profiles secret')).not.toContain('SQL');
+  });
+
+  it('publishes the uniqueness helper copy verbatim', () => {
+    expect(usernameHelperText).toBe('Usernames are unique. If yours is taken, try adding numbers or an underscore.');
+    expect(usernameIdeasLabel).toContain('not checked');
+  });
+
+  it('suggests two idea variants based on the entered username', () => {
+    expect(suggestUsernames('mark')).toEqual(['mark_2', 'mark01']);
+  });
+
+  it('keeps suggestions within the 32-character field limit', () => {
+    for (const idea of suggestUsernames('a'.repeat(32))) {
+      expect(idea.length).toBeLessThanOrEqual(32);
+    }
+  });
+
+  it('suggests nothing for a blank entry', () => {
+    expect(suggestUsernames('   ')).toEqual([]);
+  });
+
+  it('wires the helper and ideas into the username screen', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const screen = await readFile('apps/mobile/src/records.tsx', 'utf8');
+    expect(screen).toContain('usernameHelperText');
+    expect(screen).toContain('suggestUsernames');
+    expect(screen).toContain('usernameIdeasLabel');
   });
 });
 

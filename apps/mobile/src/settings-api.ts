@@ -30,9 +30,22 @@ export async function changeUsername(operationId: string, username: string): Pro
 }
 
 export function usernameErrorMessage(message: string): string {
-  if (message.includes('username-taken') || message.includes('username-unavailable')) return 'That username is taken. Try another.';
+  if (message.includes('username-taken') || message.includes('username-unavailable')) return 'That username is unavailable. Try another.';
   if (message.includes('username-change-too-soon')) return 'Usernames can change once every 7 days. Please try again later.';
   if (message.includes('reserved-username')) return 'That name is reserved. Please choose another.';
   if (message.includes('invalid-username')) return 'Use 3–32 letters, numbers, underscore, hyphen or full stop, starting and ending with a letter or number.';
   return 'Your username could not be changed. Check your connection and try again.';
+}
+
+export const usernameHelperText =
+  'Usernames are unique. If yours is taken, try adding numbers or an underscore.';
+
+export const usernameIdeasLabel = 'Ideas to try (not checked yet):';
+
+// Idea variants only: availability is decided by the Supabase uniqueness
+// constraint when the name is saved, never by these strings.
+export function suggestUsernames(base: string): string[] {
+  const stem = base.trim().slice(0, 29);
+  if (!stem) return [];
+  return [`${stem}_2`.slice(0, 32), `${stem}01`.slice(0, 32)];
 }

@@ -12,7 +12,7 @@ import { Shelf } from './shelf';
 import { Tools } from './tools';
 import { ExportScreen } from './screens/ExportScreen';
 import { DeletionScreen } from './screens/DeletionScreen';
-import { changeUsername, usernameErrorMessage } from './settings-api';
+import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperText, usernameIdeasLabel } from './settings-api';
 import { consentErrorMessage, consentPurposeLabel, listConsents, optionalPurposes, setConsent, type ConsentList, type ConsentPurpose } from './consent-api';
 import { clearServiceDrafts } from './service-form';
 import * as Crypto from 'expo-crypto';
@@ -33,6 +33,7 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   const [username, setUsername] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showIdeas, setShowIdeas] = useState(false);
   const [consents, setConsents] = useState<ConsentList | null>(null);
   const openPrivacy = async () => {
     setSection('privacy'); setMessage('');
@@ -77,14 +78,17 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
     </View>
   </View>;
   const saveUsername = async () => {
-    setSaving(true); setMessage('');
+    setSaving(true); setMessage(''); setShowIdeas(false);
     try {
       const receipt = await changeUsername(Crypto.randomUUID(), username);
       setMessage(`Username changed to @${receipt.username}.`);
       setUsername('');
       onProfileChanged();
     } catch (caught) {
-      setMessage(usernameErrorMessage((caught as { message?: string })?.message ?? ''));
+      const serverMessage = (caught as { message?: string })?.message ?? '';
+      setMessage(usernameErrorMessage(serverMessage));
+      // The entered name stays in the field; ideas are offered only for conflicts.
+      setShowIdeas(serverMessage.includes('username-unavailable') || serverMessage.includes('username-taken'));
     } finally { setSaving(false); }
   };
   return <View style={{ gap: 20 }}>
@@ -98,7 +102,12 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
       <Text style={styles.heading}>Change username</Text>
       <Text style={styles.body}>Usernames can change once every 7 days. Your history stays linked to your account.</Text>
       <Field label="New username" value={username} onChangeText={setUsername} autoCapitalize="none" maxLength={32} />
+      <Text style={styles.body}>{usernameHelperText}</Text>
       {!!message && <Text accessibilityRole="alert" style={styles.body}>{message}</Text>}
+      {showIdeas && suggestUsernames(username).length > 0 && <View>
+        <Text style={styles.body}>{usernameIdeasLabel}</Text>
+        {suggestUsernames(username).map(idea => <Button key={idea} title={`Try ${idea}`} secondary disabled={saving} onPress={() => { setUsername(idea); setShowIdeas(false); setMessage(''); }} />)}
+      </View>}
       <Button title={saving ? 'Saving…' : 'Save username'} disabled={saving || busy} onPress={() => void saveUsername()} />
       <Button title="Back to settings" secondary disabled={saving} onPress={() => { setSection('main'); setMessage(''); }} />
     </View> : <View style={styles.card}>
