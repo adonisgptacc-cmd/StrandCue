@@ -1,0 +1,16 @@
+# Privacy and deletion screen navigation without submitting anything.
+# Consent toggles are NEVER tapped (that would call the network); the
+# deletion button is NEVER tapped. Signed-in build required: Beta
+# device-gate session only, never CI.
+# appId is the D2-decided Android application identifier (za.co.strandcue.app).
+appId: za.co.strandcue.app
+---
+- launchApp
+- tapOn: "Settings"
+- assertVisible: "Account"
+- tapOn: "Privacy choices"
+- assertVisible: "Privacy choices"
+- assertVisible: "Hair record processing (required)"
+- tapOn: "Back to settings"
+- tapOn: "Delete my account"
+- assertVisible: "Delete account"
