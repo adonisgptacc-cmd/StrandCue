@@ -34,3 +34,15 @@
 - Signup never failed on network: the message seen was the client-side validation ("Confirm you are 18 or older and use a password with at least 12 characters") — 18+ box unchecked or short password. App behaved correctly (validation-behaved-correctly).
 - Link-placement rule: confirmation/recovery links MUST be opened on the device — they use the custom scheme strandcue://auth/callback, which desktop browsers cannot resolve ("could not connect to the server" on desktop is expected, not a bug). This is the known Plan D motivation.
 - Remaining open item: complete one full signup → confirm-on-device → signin loop on the emulator (human).
+
+## Build 4
+
+- EAS build ID: 7f3df1d3-6784-4718-86b8-c1c002a6d3e2, profile preview, ApplicationId za.co.strandcue.app
+- Artifact: https://expo.dev/artifacts/eas/Xx5DBVELcZ2xeT1O4QQnohGFg7Y-eytMd9FSzkP81CY.apk
+- APK SHA-256: 9503BBB5FE2321D305514F7A7997B849B1AD080FD2C14088C8407BBC4543C3D2 (controller-hashed from downloaded file)
+
+## Install 4 — launch
+
+- Installed on: Android emulator (emulator-5554). Launch OK.
+- Observed via screenshots: authenticated Passport screen ("Your Hair Passport"), Activities tab loading production data, Settings screen signed in as @mark.
+- Username screen NOT visually verified: a mis-tap signed the test account out of the device; no credentials on hand to re-enter. Both submit flows (normal + duplicate) pending with the account owner. Account data safe in production.
