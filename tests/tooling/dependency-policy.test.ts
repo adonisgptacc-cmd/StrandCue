@@ -887,7 +887,7 @@ describe('dependency audit CLI', () => {
       auditExitCode: 1,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, JSON.stringify(result)).toBe(0);
     expect(result.stdout).toContain('"critical":0');
     expect(result.stdout).toContain('"high":0');
     expect(result.stdout).toContain('"moderate":13');

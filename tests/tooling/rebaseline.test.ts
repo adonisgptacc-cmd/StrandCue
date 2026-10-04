@@ -33,9 +33,9 @@ describe('rebaselined production surface', () => {
       scripts: Record<string, string>;
     };
     expect(root.scripts.verify).toBe(
-      'npm run typecheck && npm test && npm run test:coverage && npm run audit:control-plane && npm run export:web',
+      'npm run typecheck && npm run lint && npm test && npm run test:coverage && npm run audit:control-plane && npm run check:expo && npm run export:web',
     );
-    expect(root.scripts['audit:dependencies']).toBe('npm audit --omit=dev --audit-level=high');
+    expect(root.scripts['audit:dependencies']).toBe('node scripts/audit-dependencies-cli.ts');
     expect(root.scripts.verify).not.toContain('audit:dependencies');
   });
 });

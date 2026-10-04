@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperText, usernameIdeasLabel } from '../../apps/mobile/src/settings-api';
-import { parseRecoveryCallback } from '../../apps/mobile/src/contracts';
 
 vi.mock('react-native', () => {
   return { StyleSheet: { create: (value: unknown) => value } };
@@ -75,13 +74,14 @@ describe('settings mobile boundary', () => {
 describe('recovery callback hardening', () => {
   it('rejects oversized codes, credentials and foreign schemes', async () => {
     const { parseRecoveryCallback: parse } = await import('../../apps/mobile/src/contracts');
-    expect(parse('strandcue://auth/callback?code=abc', true)).toBe('abc');
-    expect(parse(`strandcue://auth/callback?code=${'a'.repeat(2049)}`, true)).toBeNull();
-    expect(parse(`strandcue://auth/callback?code=${'a'.repeat(2048)}`, true)).toBe(`${'a'.repeat(2048)}`);
-    expect(parse('strandcue://user:pass@auth/callback?code=a', true)).toBeNull();
-    expect(parse('strandcue://auth/callback?code=a&other=b', true)).toBe('a');
-    expect(parse('STRANDCUE://auth/callback?code=a', true)).toBe('a');
-    expect(parse('strandcue://other/callback?code=a', true)).toBeNull();
+    const flow = '&sb_flow_id=12345678';
+    expect(parse(`strandcue://auth/callback?code=abc${flow}`, true)).toEqual({code: 'abc', flowId: '12345678'});
+    expect(parse(`strandcue://auth/callback?code=${'a'.repeat(2049)}${flow}`, true)).toBeNull();
+    expect(parse(`strandcue://auth/callback?code=${'a'.repeat(2048)}${flow}`, true)).toEqual({code: 'a'.repeat(2048), flowId: '12345678'});
+    expect(parse(`strandcue://user:pass@auth/callback?code=a${flow}`, true)).toBeNull();
+    expect(parse(`strandcue://auth/callback?code=a&other=b${flow}`, true)).toEqual({code: 'a', flowId: '12345678'});
+    expect(parse(`STRANDCUE://auth/callback?code=a${flow}`, true)).toEqual({code: 'a', flowId: '12345678'});
+    expect(parse(`strandcue://other/callback?code=a${flow}`, true)).toBeNull();
     expect(parse('', true)).toBeNull();
   });
 });

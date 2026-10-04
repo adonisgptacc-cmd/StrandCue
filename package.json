@@ -22,7 +22,7 @@
     "audit:dependencies": "node scripts/audit-dependencies-cli.ts",
     "audit:control-plane": "node scripts/audit-cli.ts",
     "check:expo": "expo install --check",
-    "verify": "npm run typecheck && npm run lint && npm run test:coverage && npm run audit:control-plane && npm run audit:dependencies && npm run check:expo && npm run export:web",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run test:coverage && npm run audit:control-plane && npm run check:expo && npm run export:web",
     "mobile": "npm run start --workspace @strandcue/mobile"
   },
   "devDependencies": {

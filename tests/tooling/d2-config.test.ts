@@ -35,7 +35,8 @@ describe('D2 decided values are wired into device surfaces', () => {
 
   it('keeps the working custom-scheme recovery callback until assetlinks is live', async () => {
     const auth = await readFile('apps/mobile/src/auth.tsx', 'utf8');
-    expect(auth).toContain(`redirectTo: 'strandcue://auth/callback'`);
+    expect(auth).toContain(`const authCallbackUrl = 'strandcue://auth/callback'`);
+    expect(auth).toContain('redirectTo: authCallbackUrl');
     expect(auth).toContain(`url?.startsWith('strandcue://auth/')`);
   });
 });
