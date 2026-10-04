@@ -146,6 +146,33 @@ beforeEach(() => {
 });
 
 describe('mobile component state contracts', () => {
+  it('renders the complete seven-section navigation for a signed-in profile', async () => {
+    const user = {
+      id: ownerA,
+      email_confirmed_at: '2026-09-01T00:00:00.000Z',
+    } as User;
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(createElement(Records, { user }));
+      await Promise.resolve();
+    });
+
+    const labels = renderer.root
+      .findAll(node => node.type === 'button')
+      .map(node => node.props.accessibilityLabel);
+    expect(labels).toEqual(expect.arrayContaining([
+      'Passport',
+      'Services',
+      'Activities',
+      'Shelf',
+      'Tools',
+      'History',
+      'Settings',
+    ]));
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('shows the same renewed external cleanup warning after it was locally dismissed', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(createElement(AuthScreen, { notice: '' })); });

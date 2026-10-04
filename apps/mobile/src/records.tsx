@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Platform, Text, View } from 'react-native';
 import type { User } from '@supabase/supabase-js';
 import type { PassportRevision } from '../../../packages/domain/src/index';
@@ -6,6 +6,7 @@ import { supabase, secureStorage } from './client';
 import { saveErrorMessage } from './contracts';
 import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
+import { useOwnerLoad } from './owner-load';
 import { Services } from './services';
 import { Activities } from './activities';
 import { Shelf } from './shelf';
@@ -130,7 +131,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [profile, setProfile] = useState<{username: string}|null>(null);
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [errorState, setErrorState] = useState({ notice, error: notice });
   const [tab, setTab] = useState<'Passport'|'Services'|'Activities'|'Shelf'|'Tools'|'History'|'Settings'>('Passport');
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
@@ -140,31 +141,32 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [audit, setAudit] = useState(false);
   const [asOf, setAsOf] = useState('');
   const [historical, setHistorical] = useState<PassportRecord|null>(null);
-  const generation = useRef(0);
-  const mounted = useRef(true);
-  const refresh = async () => {
-    if (!mounted.current) return;
-    const request = ++generation.current;
-    setLoading(true); setError('');
-    try {
+  const [initialNotice] = useState(notice);
+  if (errorState.notice !== notice) setErrorState({ notice, error: notice });
+  const error = errorState.notice === notice ? errorState.error : notice;
+  const setError = (nextError: string) => setErrorState({ notice, error: nextError });
+  const ownerLoad = useOwnerLoad({
+    ownerKey: user.id,
+    load: async () => {
       const response = await supabase!.from('profiles').select('username').maybeSingle();
       if (response.error) throw response.error;
       const next = response.data ? await loadPassport() : null;
-      if (generation.current === request) {setProfile(response.data); setRecord(next);}
-    } catch (caught) {if (generation.current === request) setError(saveErrorMessage(caught));}
-    finally {if (generation.current === request) setLoading(false);}
-  };
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-  useEffect(() => {void refresh(); return () => {++generation.current;};}, [user.id]);
-  useEffect(() => { if (notice) setError(notice); }, [notice]);
+      return { profile: response.data, record: next };
+    },
+    apply: result => { setProfile(result.profile); setRecord(result.record); },
+    handleError: (caught, mode) => {
+      if (mode === 'initial') setErrorState({ notice: initialNotice, error: saveErrorMessage(caught) });
+      else setError(saveErrorMessage(caught));
+    },
+    clearError: () => setError(''),
+    setLoading,
+  });
+  const refresh = () => ownerLoad.run('refresh');
   const finishSetup = async () => {
     if (!adult) {setError('You must be 18 or older to use StrandCue.'); return;}
     setBusy(true); setError('');
     try {const {error: issue} = await supabase!.rpc('complete_account',{p_username: username,p_eligible: adult});if(issue) throw issue; await refresh();}
-    catch(caught) {if (mounted.current) setError(saveErrorMessage(caught));} finally {if (mounted.current) setBusy(false);}
+    catch(caught) {if (ownerLoad.isMounted()) setError(saveErrorMessage(caught));} finally {if (ownerLoad.isMounted()) setBusy(false);}
   };
   const logout = async () => {
     setBusy(true); setError('');
@@ -173,14 +175,14 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
       await clearServiceDrafts(secureStorage, user.id);
       const {error: issue} = await supabase!.auth.signOut({scope:'local'});
       if (issue) throw issue;
-    } catch {if (mounted.current) setError('Sign out could not finish. Please try again before sharing this device.');}
-    finally {if (mounted.current) setBusy(false);}
+    } catch {if (ownerLoad.isMounted()) setError('Sign out could not finish. Please try again before sharing this device.');}
+    finally {if (ownerLoad.isMounted()) setBusy(false);}
   };
   const viewHistory = async () => {
     setBusy(true); setError('');
-    try { const next = await loadPassport(asOf); if (mounted.current) setHistorical(next); }
-    catch (caught) { if (mounted.current) setError(saveErrorMessage(caught)); }
-    finally { if (mounted.current) setBusy(false); }
+    try { const next = await loadPassport(asOf); if (ownerLoad.isMounted()) setHistorical(next); }
+    catch (caught) { if (ownerLoad.isMounted()) setError(saveErrorMessage(caught)); }
+    finally { if (ownerLoad.isMounted()) setBusy(false); }
   };
   if (!user.email_confirmed_at) return <Page><Text style={styles.title}>Confirm your email.</Text><Text style={styles.body}>Open your confirmation email, then sign in again to begin your private record.</Text><Button title="Sign out" onPress={() => void logout()}/></Page>;
   if (loading) return <Page><Text style={styles.title}>Opening your record…</Text><Text style={styles.subtitle}>Bringing your saved information together.</Text></Page>;
