@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
 import type { User } from '@supabase/supabase-js';
 import type { PassportRevision } from '../../../packages/domain/src/index';
 import { supabase, secureStorage } from './client';
-import { saveErrorMessage } from './contracts';
+import { normalizeUsernameInput, normalizeUsernameSuffix, parseUsernameOptions, saveErrorMessage } from './contracts';
 import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
 import { useOwnerLoad } from './owner-load';
@@ -136,6 +136,10 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
   const [username, setUsername] = useState('');
+  const [usernameSuffix, setUsernameSuffix] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState<'idle'|'checking'|'available'|'taken'|'throttled'>('idle');
+  const [usernameSuggestions, setUsernameSuggestions] = useState<string[]>([]);
+  const usernameCheckEpoch = useRef(0);
   const [adult, setAdult] = useState(false);
   const [busy, setBusy] = useState(false);
   const [audit, setAudit] = useState(false);
@@ -161,11 +165,61 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     clearError: () => setError(''),
     setLoading,
   });
+  const isMounted = ownerLoad.isMounted;
   const refresh = () => ownerLoad.run('refresh');
+  const checkUsername = useCallback(async (candidate: string, suffix: string) => {
+    const normalized = normalizeUsernameInput(candidate);
+    if (!/^[a-z0-9_]{3,24}$/.test(normalized)) return {available: false, suggestions: [] as string[], rateLimited: false};
+    const response = await supabase!.rpc('username_options', {
+      p_username: normalized,
+      p_suffix: normalizeUsernameSuffix(suffix) || null,
+    });
+    if (response.error) throw response.error;
+    return parseUsernameOptions(response.data);
+  }, []);
+  useEffect(() => {
+    if (profile) return;
+    const normalized = normalizeUsernameInput(username);
+    const request = ++usernameCheckEpoch.current;
+    if (!/^[a-z0-9_]{3,24}$/.test(normalized)) return;
+    const timer = setTimeout(() => {
+      if (isMounted() && request === usernameCheckEpoch.current) setUsernameStatus('checking');
+      void checkUsername(normalized, usernameSuffix).then(result => {
+        if (!isMounted() || request !== usernameCheckEpoch.current) return;
+        setUsernameStatus(result.rateLimited ? 'throttled' : result.available ? 'available' : 'taken');
+        setUsernameSuggestions(result.suggestions);
+      }).catch(() => {
+        if (isMounted() && request === usernameCheckEpoch.current) setUsernameStatus('idle');
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [checkUsername, isMounted, profile, username, usernameSuffix]);
+  const changeUsername = (value: string) => { setUsername(value); setUsernameStatus('idle'); setUsernameSuggestions([]); };
+  const changeUsernameSuffix = (value: string) => { setUsernameSuffix(value); setUsernameStatus('idle'); setUsernameSuggestions([]); };
   const finishSetup = async () => {
     if (!adult) {setError('You must be 18 or older to use StrandCue.'); return;}
     setBusy(true); setError('');
-    try {const {error: issue} = await supabase!.rpc('complete_account',{p_username: username,p_eligible: adult});if(issue) throw issue; await refresh();}
+    try {
+      const normalized = normalizeUsernameInput(username);
+      if (!/^[a-z0-9_]{3,24}$/.test(normalized)) {
+        setError('Use 3–24 lowercase letters, numbers or underscores.');
+        return;
+      }
+      const availability = await checkUsername(normalized, usernameSuffix);
+      if (availability.rateLimited) {
+        setUsernameStatus('throttled'); setUsernameSuggestions([]);
+        setError('Too many username checks. Wait a minute, then try again.');
+        return;
+      }
+      if (!availability.available) {
+        setUsernameStatus('taken'); setUsernameSuggestions(availability.suggestions);
+        setError(`@${normalized} is already taken. Choose an available suggestion or another username.`);
+        return;
+      }
+      const {error: issue} = await supabase!.rpc('complete_account',{p_username: normalized,p_eligible: adult});
+      if(issue) throw issue;
+      await refresh();
+    }
     catch(caught) {if (ownerLoad.isMounted()) setError(saveErrorMessage(caught));} finally {if (ownerLoad.isMounted()) setBusy(false);}
   };
   const logout = async () => {
@@ -186,7 +240,12 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   };
   if (!user.email_confirmed_at) return <Page><Text style={styles.title}>Confirm your email.</Text><Text style={styles.body}>Open your confirmation email, then sign in again to begin your private record.</Text><Button title="Sign out" onPress={() => void logout()}/></Page>;
   if (loading) return <Page><Text style={styles.title}>Opening your record…</Text><Text style={styles.subtitle}>Bringing your saved information together.</Text></Page>;
-  if (!profile) return <Page><Text style={styles.title}>Make it yours.</Text><View style={styles.card}><Text style={styles.body}>Choose a private username. Your email and username are never public profile listings.</Text><Field label="Username" value={username} onChangeText={setUsername} autoCapitalize="none" maxLength={24}/><Text style={styles.subtitle}>3–24 letters, numbers or underscores.</Text><Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
+  if (!profile) return <Page><Text style={styles.title}>Make it yours.</Text><View style={styles.card}><Text style={styles.body}>Choose a private username. Your email and username are never public profile listings.</Text><Field label="Username" value={username} onChangeText={changeUsername} autoCapitalize="none" maxLength={24}/><Text style={styles.subtitle}>3–24 letters, numbers or underscores.</Text><Field label="Optional personal suffix" value={usernameSuffix} onChangeText={changeUsernameSuffix} autoCapitalize="none" maxLength={24}/>
+    {usernameStatus === 'checking' && <Text style={styles.subtitle}>Checking availability…</Text>}
+    {usernameStatus === 'available' && <Text style={styles.subtitle}>@{normalizeUsernameInput(username)} is available.</Text>}
+    {usernameStatus === 'throttled' && <Text accessibilityRole="alert" style={styles.error}>Too many username checks. Wait a minute, then try again.</Text>}
+    {usernameStatus === 'taken' && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>@{normalizeUsernameInput(username)} is already taken.</Text><Text style={styles.body}>Try one of these checked options:</Text><View style={styles.row}>{usernameSuggestions.map(suggestion => <Button key={suggestion} title={`Use @${suggestion}`} secondary onPress={() => changeUsername(suggestion)}/>)}</View></View>}
+    <Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy || usernameStatus === 'checking'} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
   return <Page><View style={styles.row}>{(['Passport','Services','Activities','Shelf','Tools','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text><Text style={styles.title}>{tab === 'Passport' ? 'Your Hair Passport' : tab === 'Services' ? 'Your chemical services' : tab === 'Activities' ? 'Your activities' : tab === 'Shelf' ? 'My Shelf' : tab === 'Tools' ? 'My Tools' : tab === 'History' ? 'Every change has a story.' : 'Your account, your say.'}</Text>

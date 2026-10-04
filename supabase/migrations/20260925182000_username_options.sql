@@ -75,4 +75,3 @@ revoke all on function strandcue_private.username_options(text,text) from public
 grant execute on function strandcue_private.username_options(text,text) to authenticated,strandcue_mutator;
 revoke all on function public.username_options(text,text) from public,anon,authenticated;
 grant execute on function public.username_options(text,text) to authenticated;
-
