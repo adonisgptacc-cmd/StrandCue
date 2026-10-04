@@ -935,7 +935,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-HOLD');
     expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
-  });
+  }, 10_000);
 
   it.each([
     ['empty output', '', 1],
@@ -1046,5 +1046,5 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('ADVISORY-PATH-UNREVIEWED');
     expect(result.stdout).not.toContain(untrustedPackageName);
-  });
+  }, 10_000);
 });

@@ -18,6 +18,8 @@ export function DeletionScreen() {
   const [reason, setReason] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [operationId, setOperationId] = useState(() => Crypto.randomUUID());
+  const pendingRequest = useRef<Readonly<{ operationId: string; reason: string | null }> | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const alive = useRef(true);
@@ -51,17 +53,22 @@ export function DeletionScreen() {
     }
     setBusy(true); setError('');
     try {
-      // The same operation ID is reused while this screen lives so an
-      // interrupted request retries identically instead of duplicating.
-      await requestDeletion(operationId, reason.trim() ? reason : null);
+      // Freeze both the operation and its payload until a receipt is known.
+      // A lost response must retry the exact request already sent.
+      const payload = pendingRequest.current ?? { operationId, reason: reason.trim() ? reason : null };
+      pendingRequest.current = payload;
+      setRetryPending(true);
+      await requestDeletion(payload.operationId, payload.reason);
       if (!alive.current) return;
+      pendingRequest.current = null;
+      setRetryPending(false);
+      setOperationId(Crypto.randomUUID());
       setReason('');
       setConfirmText('');
       await refresh();
     } catch (caught) {
       if (!alive.current) return;
       setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Deletion could not be requested.'));
-      setOperationId(Crypto.randomUUID());
     } finally { if (alive.current) setBusy(false); }
   };
 
@@ -70,6 +77,11 @@ export function DeletionScreen() {
     try {
       await cancelDeletion();
       if (!alive.current) return;
+      pendingRequest.current = null;
+      setRetryPending(false);
+      setOperationId(Crypto.randomUUID());
+      setReason('');
+      setConfirmText('');
       await refresh();
     } catch (caught) {
       if (alive.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Deletion could not be cancelled.'));
@@ -84,17 +96,18 @@ export function DeletionScreen() {
     </View>
     {status?.accountStatus === 'deleting' && <>
       <Button title={busy ? 'Working…' : 'Cancel deletion'} disabled={busy} onPress={() => void cancel()} />
-      <Button title="Refresh status" secondary disabled={busy} onPress={() => void refresh()} />
     </>}
     {(!status || status.accountStatus === 'active') && <>
       <View style={styles.card}>
         <Text style={styles.label}>Reason (optional, at most 500 characters)</Text>
-        <TextInput accessibilityLabel="Reason for deletion" value={reason} onChangeText={setReason} maxLength={500} multiline style={styles.input} />
+        <TextInput accessibilityLabel="Reason for deletion" value={reason} onChangeText={setReason} editable={!retryPending} maxLength={500} multiline style={styles.input} />
         <Text style={styles.label}>Type &quot;{CONFIRM_TEXT}&quot; to confirm</Text>
         <TextInput accessibilityLabel="Deletion confirmation" value={confirmText} onChangeText={setConfirmText} autoCapitalize="characters" style={styles.input} />
       </View>
-      <Button title={busy ? 'Working…' : 'Delete my account'} disabled={busy} onPress={() => void request()} />
+      {retryPending && <Text style={styles.body}>Your previous request may still be processing. Retry it or refresh the account status.</Text>}
+      <Button title={busy ? 'Working…' : retryPending ? 'Retry deletion' : 'Delete my account'} disabled={busy} onPress={() => void request()} />
     </>}
+    <Button title="Refresh status" secondary disabled={busy} onPress={() => void refresh()} />
     {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
   </ScrollView>;
 }

@@ -8,7 +8,7 @@ async function freshAuth(db: PGlite, userId: string) {
   await asUser(db, userId);
   const amr = JSON.stringify([{
     method: 'password',
-    timestamp: new Date().toISOString(),
+    timestamp: Math.floor(Date.now()/1000),
   }]);
   const claims = JSON.stringify({
     sub: userId, role: 'authenticated', email: `${userId}@example.test`,
@@ -22,7 +22,7 @@ async function staleAuth(db: PGlite, userId: string) {
   const claims = JSON.stringify({
     sub: userId, role: 'authenticated', email: `${userId}@example.test`,
     is_anonymous: false,
-    amr: [{ method: 'password', timestamp: '2020-01-01T00:00:00.000Z' }],
+    amr: [{ method: 'password', timestamp: 1577836800 }],
   });
   await db.query(`select set_config('request.jwt.claims', $1, false)`, [claims]);
 }

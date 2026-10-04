@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
 import { asUser, complete, current, database, mutate, USER_A, USER_B } from './harness.ts';
@@ -6,7 +7,7 @@ async function freshAuth(db: PGlite, userId: string) {
   await asUser(db, userId);
   const claims = JSON.stringify({
     sub: userId, role: 'authenticated', email: `${userId}@example.test`,
-    is_anonymous: false, amr: [{ method: 'password', timestamp: new Date().toISOString() }],
+    is_anonymous: false, amr: [{ method: 'password', timestamp: Math.floor(Date.now()/1000) }],
   });
   await db.query(`select set_config('request.jwt.claims', $1, false)`, [claims]);
 }
@@ -15,7 +16,7 @@ async function staleAuth(db: PGlite, userId: string) {
   await asUser(db, userId);
   const claims = JSON.stringify({
     sub: userId, role: 'authenticated', email: `${userId}@example.test`,
-    is_anonymous: false, amr: [{ method: 'password', timestamp: '2020-01-01T00:00:00.000Z' }],
+    is_anonymous: false, amr: [{ method: 'password', timestamp: 1577836800 }],
   });
   await db.query(`select set_config('request.jwt.claims', $1, false)`, [claims]);
 }
@@ -112,6 +113,58 @@ describe('account deletion lifecycle and tombstones', () => {
     expect(tombstones.rows[0].purge_completed_at).not.toBeNull();
   });
 
+  it('denies profile recreation with an old JWT after purge', async () => {
+    await complete(db);
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await db.exec('set session authorization postgres');
+    await db.query('select public.deletion_purge()');
+    await freshAuth(db, USER_A);
+    await expect(complete(db)).rejects.toThrow(/account-deleted/i);
+  });
+  it('keeps a second tombstone guard immediately before missing-profile completion insert', async () => {
+    const migration = await readFile('supabase/migrations/20261004132013_deletion_completion_guard.sql', 'utf8');
+    const guards = migration.match(/exists\(select 1 from public\.deletion_tombstones where user_id = uid\)/g) ?? [];
+    expect(guards).toHaveLength(2);
+    expect(migration).toMatch(/else[\s\S]*if exists\(select 1 from public\.deletion_tombstones where user_id = uid\) then[\s\S]*raise exception 'account-deleted'[\s\S]*insert into public\.profiles/);
+  });
+  it('leases a resumable purge and rejects an obsolete worker receipt', async () => {
+    await complete(db);
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await db.exec('set session authorization postgres');
+    const lease=crypto.randomUUID();
+    const claim=(await db.query<{ result: any }>('select public.deletion_worker_claim($1) result',[lease])).rows[0].result;
+    expect(claim).toEqual({ userId:USER_A,lease });
+    expect((await db.query('select * from public.profiles')).rows).toEqual([]);
+    expect((await db.query<{result:any}>('select public.deletion_worker_claim($1) result',[crypto.randomUUID()])).rows[0].result).toBeNull();
+    expect((await db.query<{result:boolean}>('select public.deletion_worker_finish($1,$2,null) result',[USER_A,crypto.randomUUID()])).rows[0].result).toBe(false);
+    await db.exec("update public.deletion_tombstones set worker_lease_until=now()-interval '1 second'");
+    const resumed=crypto.randomUUID();
+    expect((await db.query<{result:any}>('select public.deletion_worker_claim($1) result',[resumed])).rows[0].result.lease).toBe(resumed);
+    expect((await db.query<{result:boolean}>('select public.deletion_worker_finish($1,$2,null) result',[USER_A,lease])).rows[0].result).toBe(false);
+    expect((await db.query<{result:boolean}>('select public.deletion_worker_finish($1,$2,null) result',[USER_A,resumed])).rows[0].result).toBe(true);
+    expect((await db.query<{result:any}>('select public.deletion_worker_claim($1) result',[crypto.randomUUID()])).rows[0].result).toBeNull();
+  });
+
+  it('denies maintenance routines to consumers', async () => {
+    for(const routine of ['deletion_purge()','deletion_reapply()','export_retention_cleanup()',`deletion_worker_claim('${crypto.randomUUID()}')`,`deletion_worker_finish('${USER_A}','${crypto.randomUUID()}',null)`]) {
+      await expect(db.query(`select public.${routine}`)).rejects.toThrow(/permission denied/i);
+    }
+  });
+
+  it('backs off failed Auth deletion without losing its durable job', async () => {
+    await complete(db);
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await db.exec('set session authorization postgres');
+    const lease=crypto.randomUUID();
+    await db.query('select public.deletion_worker_claim($1)',[lease]);
+    await db.query('select public.deletion_worker_finish($1,$2,$3)',[USER_A,lease,'auth-delete-failed']);
+    expect((await db.query<{result:any}>('select public.deletion_worker_claim($1) result',[crypto.randomUUID()])).rows[0].result).toBeNull();
+    await db.exec("update public.deletion_tombstones set worker_retry_at=now()-interval '1 second'");
+    expect((await db.query<{result:any}>('select public.deletion_worker_claim($1) result',[crypto.randomUUID()])).rows[0].result.userId).toBe(USER_A);
+  });
   it('reapplies deletion to data resurrected by a restore', async () => {
     await complete(db);
     await freshAuth(db, USER_A);
