@@ -1,0 +1,21 @@
+{
+  "$schema": "https://stryker-mutator.io/schema/stryker.schema.json",
+  "mutator": { "*": ["typescript"] },
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "coverageAnalysis": "perTest",
+  "thresholds": { "high": 10, "low": 10, "break": 0 },
+  "reporters": ["html", "clear-text", "progress", "json"],
+  "concurrency": 8,
+  "maxConcurrentTestRunners": 4,
+  "timeoutMS": 60000,
+  "timeoutFactor": 1.5,
+  "files": [
+    "apps/mobile/src/**/*.ts",
+    "apps/mobile/src/**/*.tsx",
+    "supabase/functions/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "ignoredMutations": [],
+  "since": { "enabled": false }
+}

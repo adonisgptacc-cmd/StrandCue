@@ -1,0 +1,217 @@
+name: Android Build & Release (EAS Build)
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_profile:
+        description: 'EAS Build profile'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - development
+          - preview
+          - release
+          - playInternal
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # Node tracks .nvmrc (24); setup-node uses node-version-file everywhere below.
+  EAS_CLI_VERSION: 'latest'
+
+jobs:
+  lint-typecheck:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --workspaces=false
+
+      - name: Typecheck (domain)
+        run: npm run typecheck
+
+      - name: Typecheck (mobile)
+        run: npm run typecheck --workspace @strandcue/mobile
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --workspaces=false
+
+      - name: Run tests
+        run: npm test
+
+  build-android:
+    name: Build Android (${{ github.event.inputs.build_profile || 'release' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [lint-typecheck, test]
+    if: github.event_name != 'pull_request' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        build_profile: [development, preview, release, playInternal]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci --ignore-scripts --workspaces=false
+
+      - name: Install EAS CLI
+        run: npm install -g @expo/eas-cli@latest
+
+      - name: Install mobile dependencies
+        working-directory: ./apps/mobile
+        run: npm ci --ignore-scripts
+
+      - name: Configure EAS credentials
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd apps/mobile
+          if [ "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" != "" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+            eas credentials:android:keystore --non-interactive \
+              --keystore-path ./keystore.jks \
+              --keystore-password "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+              --key-alias "${{ secrets.ANDROID_KEY_ALIAS }}" \
+              --key-password "${{ secrets.ANDROID_KEY_PASSWORD }}"
+          fi
+
+      - name: Build Android (${{ matrix.build_profile }})
+        working-directory: ./apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas build --platform android --profile ${{ matrix.build_profile }} --non-interactive --wait
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.build_profile }}-${{ github.sha }}
+          path: |
+            apps/mobile/**/*.aab
+            apps/mobile/**/*.apk
+          retention-days: 7
+
+  deploy-play-internal:
+    name: Deploy to Play Internal Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-android
+    if: github.event.inputs.build_profile == 'playInternal' || github.ref_type == 'tag'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install EAS CLI
+        run: npm install -g @expo/eas-cli@latest
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --workspaces=false
+
+      - name: Download AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: android-playInternal-${{ github.sha }}
+          path: ./aab
+
+      - name: Submit to Play Internal Testing
+        working-directory: ./apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          eas submit --platform android --profile production --non-interactive \
+            --path ./aab/*.aab
+
+  audit:
+    name: Security & Dependency Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --workspaces=false
+
+      - name: Control Plane Audit
+        run: npm run audit:control-plane
+
+      - name: Dependency Audit
+        run: npm run audit:dependencies
+
+  export-web:
+    name: Web Export
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --workspaces=false
+
+      - name: Export Web
+        run: npm run export:web

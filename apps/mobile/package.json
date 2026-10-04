@@ -7,7 +7,12 @@
     "start": "expo start",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "export:web": "expo export --platform web"
+    "export:web": "expo export --platform web",
+    "build:android:debug": "eas build --platform android --profile development",
+    "build:android:preview": "eas build --platform android --profile preview",
+    "build:android:release": "eas build --platform android --profile release",
+    "build:android:play-internal": "eas build --platform android --profile playInternal",
+    "submit:android:internal": "eas submit --platform android --profile production"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.116.0",

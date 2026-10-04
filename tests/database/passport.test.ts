@@ -20,7 +20,9 @@ describe('PostgreSQL ownership and immutable Passport transactions', () => {
     await expect(complete(db)).rejects.toThrow(/email-not-verified/);
     await asUser(db, USER_A);
     await expect(complete(db, 'user_a', false)).rejects.toThrow(/eligibility-required/);
-    await expect(complete(db, 'admin')).rejects.toThrow(/invalid-username/);
+    // Reserved names raise reserved-username since the 2026-09-24 username
+    // migration split them from malformed names per the product authority.
+    await expect(complete(db, 'admin')).rejects.toThrow(/invalid-username|reserved-username/);
     expect(await complete(db, '  Private_A  ')).toMatchObject({ userId: USER_A, username: 'private_a', country: 'ZA' });
     await asUser(db, USER_B);
     await expect(complete(db, 'PRIVATE_A')).rejects.toThrow(/username-unavailable/);

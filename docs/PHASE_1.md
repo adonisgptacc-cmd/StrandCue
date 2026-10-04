@@ -2,11 +2,13 @@
 
 Version 2.0 • 9 September 2026 • Current implementation baseline
 
+Product authority: [StrandCue-PRD-v1.1-audit.md](../StrandCue-PRD-v1.1-audit.md) and [2026-09-23-strandcue-phase1-rebaseline-design.md](superpowers/specs/2026-09-23-strandcue-phase1-rebaseline-design.md).
+
 Amended 16 September 2026: Android is the sole Phase 1 native release target. iOS implementation and validation are deferred beyond Phase 1. Web remains a development smoke/export surface and is not the native beta target.
 
 ## 1. Authority and capability
 
-This is the current Phase 1 implementation contract accompanying [Master PRD v2](../StrandCue-PRD-v2.md). It consolidates the supplied later instructions; it is not the separately referenced but unavailable original “Locked Phase 1” document. The user authorised the data-foundation-first revision. MUST indicates required behaviour; numerical policies labelled default are engineering proposals adopted for this handoff until changed explicitly.
+This is the current Phase 1 implementation contract accompanying [StrandCue-PRD-v1.1-audit.md](../StrandCue-PRD-v1.1-audit.md) and [2026-09-23-strandcue-phase1-rebaseline-design.md](superpowers/specs/2026-09-23-strandcue-phase1-rebaseline-design.md). It consolidates the supplied later instructions; it is not the separately referenced but unavailable original “Locked Phase 1” document. The user authorised the data-foundation-first revision. MUST indicates required behaviour; numerical policies labelled default are engineering proposals adopted for this handoff until changed explicitly.
 
 Phase 1 lets a South African adult securely record hair characteristics, changes, chemical services, owned products/tools and factual manual activity, inspect history and manage their account. It does not decide what they should do. Scope is fixed to the foundation; no need to ask users to approve routine schema choices already defined here.
 
@@ -34,7 +36,7 @@ P1-AUTH-03: Email verification precedes private profile creation beyond minimum 
 
 P1-AUTH-04: Native recovery must work from email on a cold or running app. Use supported Supabase recovery and the selected SDK's documented exchange flow, with exact allowlisted redirects. Choose and test PKCE callback handling; never reset solely because a URL route says recovery. Protect verifier/session storage; reject unexpected routes/hosts; never log callback secrets. Expired, reused or verifier-missing links offer a fresh request path. Cross-device recovery is not guaranteed by a same-device PKCE flow.
 
-Use a registered development scheme and owned HTTPS App Links for the external release. Actual domain, Android application ID and production email configuration are release decisions. Test recovery and the primary journeys in real Android development/release builds, not only Expo Go. Check official [Supabase password guidance](https://supabase.com/docs/guides/auth/passwords) and [mobile linking guidance](https://supabase.com/docs/guides/auth/native-mobile-deep-linking) at implementation time; this document specifies required outcomes, not unverified SDK signatures.
+Use a registered development scheme and owned HTTPS Universal/App Links for the external release. Actual domain, bundle IDs and production email configuration are release decisions. Test real development/release builds on iOS/Android, not only Expo Go. Check official [Supabase password guidance](https://supabase.com/docs/guides/auth/passwords) and [mobile linking guidance](https://supabase.com/docs/guides/auth/native-mobile-deep-linking) at implementation time; this document specifies required outcomes, not unverified SDK signatures.
 
 P1-AUTH-05: Support logout, email/password changes and session expiry without losing history. UUID stays constant when credentials/username change. Store sessions in platform-secure storage through a tested adapter. Logout/account switch clears owner caches and prevents disclosure on shared devices. Sensitive export/deletion require recent authentication.
 
@@ -166,13 +168,13 @@ P1-SAFE-01: Display a concise cosmetic-records boundary and support/help route. 
 
 ## 11. Quality and measurement
 
-Proposed engineering targets: ordinary owner reads/writes p95 ≤2 seconds on stable representative South African mobile connectivity, measured with a declared mid-range Android device; cached shell ≤1 second after readiness; beta crash-free sessions ≥99.5%; no unresolved critical/high security/data-loss defects. Report network/provider and client timings separately. Load fixture: 500 ownership items, 2,000 activity/service records and 1,000 Passport revisions per user; pagination must remain usable.
+Proposed engineering targets: ordinary owner reads/writes p95 ≤2 seconds on stable representative South African mobile connectivity, measured with declared mid-range Android/iPhone devices; cached shell ≤1 second after readiness; beta crash-free sessions ≥99.5%; no unresolved critical/high security/data-loss defects. Report network/provider and client timings separately. Load fixture: 500 ownership items, 2,000 activity/service records and 1,000 Passport revisions per user; pagination must remain usable.
 
-Accessibility: scalable text, screen reader labels/focus, adequate contrast, no colour-only statuses, and touch targets at least 48 dp on Android. Use unambiguous dates, Celsius and ZAR. A colour-coded verification badge must have text. Unknown and approximate entries must be understandable without technical vocabulary.
+Accessibility: scalable text, screen reader labels/focus, adequate contrast, no colour-only statuses, touch targets at least 44 pt iOS/48 dp Android. Use unambiguous dates, Celsius and ZAR. A colour-coded verification badge must have text. Unknown and approximate entries must be understandable without technical vocabulary.
 
-CI requires type/lint/schema/content validation, fresh migration replay, domain/service coverage ≥80% and explicit tests for every ownership/history invariant. Use unit tests for validation/revision resolution; real Supabase integration tests for transactions/RLS; Android development/release-build E2E for primary flows and recovery. A percentage alone does not establish security.
+CI requires type/lint/schema/content validation, fresh migration replay, domain/service coverage ≥80% and explicit tests for every ownership/history invariant. Use unit tests for validation/revision resolution; real Supabase integration tests for transactions/RLS; native E2E for primary flows and recovery. A percentage alone does not establish security.
 
-Operational defaults: RPO ≤24 hours/RTO ≤8 hours for beta with a tested backup/restore plan. Choose an Android-only release matrix of supported Android versions and devices before testing; do not invent package/OS versions in this specification. Record deviations before release.
+Operational defaults: RPO ≤24 hours/RTO ≤8 hours for beta with a tested backup/restore plan. Choose supported OS/device matrix before testing; do not invent package/OS versions in this specification. Record deviations before release.
 
 Metrics are foundation-specific: verified signup-to-Passport completion within 7 days; owners with one shelf/tool record; successful save rate; correction/conflict rates; recovery completion; export/deletion completion; W4 return to view or record data. Report denominators and mature cohorts. Proposed beta target ≥60% verified users completing a Passport within 7 days and ≥99.5% valid save success. No hair-improvement or recommendation-success claims.
 
@@ -208,7 +210,7 @@ Optional product analytics require a clear preference and allowlisted coarse eve
 | P1-AC-24 | Screen reader/large text/poor network and pagination | Core entry/history/settings remain usable; status not colour-only |
 | P1-AC-25 | Rebuild fresh DB and restore backup | Migrations reproduce constraints/RLS; restore meets agreed targets and preserves history |
 
-Tests use synthetic identities and fixtures; do not copy founder data into public seeds. Test all CRUD directions directly with owner A, owner B, anonymous and staff roles. Include UPDATE owner reassignment, reference swapping, views and privileged functions. Mobile password recovery requires actual Android development/release builds and real test email delivery.
+Tests use synthetic identities and fixtures; do not copy founder data into public seeds. Test all CRUD directions directly with owner A, owner B, anonymous and staff roles. Include UPDATE owner reassignment, reference swapping, views and privileged functions. Mobile password recovery requires actual device builds and real test email delivery.
 
 ## 13. Delivery order, decisions and definition of done
 
@@ -218,9 +220,9 @@ Tests use synthetic identities and fixtures; do not copy founder data into publi
 4. Implement signup/recovery/username and Passport current/history flows.
 5. Implement services/zones, Shelf/provenance and Tools with unknown handling.
 6. Implement manual activity, corrections, settings, export/deletion and monitoring.
-7. Validate the Android-only release matrix, accessibility, performance and restore flows; distribute the signed beta candidate through a Google Play internal test track and invite a small adult South African beta only after release gates.
+7. Validate device/accessibility/performance and restore flows; invite a small adult South African beta only after release gates.
 
-Operational decisions before beta: owned recovery domain/email setup, supported Android versions/device matrix, Google Play internal-test access, actual provider region/backup retention, privacy/support ownership, verification operator and any accepted target exceptions. Exact manufacturer usage/safety rules are not Phase 1 blockers because Phase 1 provides no advice. Any factual catalogue content presented as verified still needs actual review.
+Operational decisions before beta: owned recovery domain/email setup, supported device matrix, actual provider region/backup retention, privacy/support ownership, verification operator and any accepted target exceptions. Exact manufacturer usage/safety rules are not Phase 1 blockers because Phase 1 provides no advice. Any factual catalogue content presented as verified still needs actual review.
 
 Definition of done: all P1-AC-01–25 pass with evidence; no unresolved critical/high security or data-loss defects; history and version integrity demonstrated; recovery and privacy jobs work; current-state and as-of views tested; migrations and runbooks reproducible; product owner can complete the adult recording journey; and scope audit confirms no later-phase behaviour. Passing v1's protocol fixtures is neither required nor sufficient.
 
