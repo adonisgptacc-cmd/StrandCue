@@ -1,3 +1,4 @@
+import { AuthSessionMissingError } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import { changedFields, parseRecoveryCallback, publicConfig, saveErrorMessage, toggleSelection, reviewRebase, authNeedsLoading, resolvedRefreshUser, authUserFromResult, normalizeUsernameInput, normalizeUsernameSuffix, recoveryFailureMessage, parseUsernameOptions } from '../../apps/mobile/src/contracts';
 
@@ -28,6 +29,17 @@ describe('mobile boundary contracts', () => {
     expect(() => authUserFromResult({ data: { user: null }, error: new Error('network') })).toThrow('auth-user-unavailable');
     expect(authUserFromResult({ data: { user: null }, error: null })).toBeNull();
     expect(authUserFromResult({ data: { user: { id: 'owner-a' } }, error: null })).toEqual({ id: 'owner-a' });
+  });
+  it('treats the SDK missing-session result on a virgin device as signed out', () => {
+    expect(authUserFromResult({ data: { user: null }, error: new AuthSessionMissingError() })).toBeNull();
+  });
+  it('does not accept another auth error or an error that merely resembles missing-session text', () => {
+    for (const error of [new Error('Auth session missing!'), { name: 'AuthSessionMissingError', message: 'Auth session missing!' }, { __isAuthError: true, name: 'AuthApiError', status: 401, code: 'session_not_found' }]) {
+      expect(() => authUserFromResult({ data: { user: null }, error })).toThrow('auth-user-unavailable');
+    }
+  });
+  it('never accepts an unverified user attached to a missing-session error', () => {
+    expect(() => authUserFromResult({ data: { user: { id: 'unverified-owner' } }, error: new AuthSessionMissingError() })).toThrow('auth-user-unavailable');
   });
   it('submits only explicitly changed fields, avoiding stale snapshot reassertion', () => {
     expect(changedFields({ goals: ['shine'], maximumProductBudgetZar: 100 }, { goals: ['shine'], maximumProductBudgetZar: 200 })).toEqual({ maximumProductBudgetZar: 200 });

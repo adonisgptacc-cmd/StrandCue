@@ -28,14 +28,17 @@ describe('rebaselined production surface', () => {
     }
   });
 
-  it('keeps the canonical verify gate deterministic and separates the network audit', async () => {
+  it('provides repeatable local checks while keeping advisories in full verification', async () => {
     const root = JSON.parse(await readFile('package.json', 'utf8')) as {
       scripts: Record<string, string>;
     };
-    expect(root.scripts.verify).toBe(
-      'npm run typecheck && npm run lint && npm test && npm run test:coverage && npm run audit:control-plane && npm run check:expo && npm run export:web',
-    );
+    for (const stage of ['check:runtime', 'typecheck', 'lint', 'test:coverage', 'audit:control-plane', 'export:web']) {
+      expect(root.scripts['verify:offline']).toContain(stage);
+    }
+    expect(root.scripts.verify).toContain('verify:offline');
+    expect(root.scripts.verify).toContain('check:expo');
     expect(root.scripts['audit:dependencies']).toBe('node scripts/audit-dependencies-cli.ts');
-    expect(root.scripts.verify).not.toContain('audit:dependencies');
+    expect(root.scripts['verify:offline']).not.toContain('audit:dependencies');
+    expect(root.scripts.verify).toContain('audit:dependencies');
   });
 });

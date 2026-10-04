@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { secureStorage } from './client';
 import { getUserProduct, listUserProducts, type ShelfCursor, type ShelfDetail, type ShelfItem } from './shelf-api';
@@ -62,29 +62,46 @@ function OwnerShelf({ owner }: { owner: string }) {
   const session = useRef(0);
   const busy = useRef(false);
 
-  const refresh = async (append = false) => {
+  const load = useCallback((append = false, pageCursor: ShelfCursor | null = null) => {
     if (busy.current) return;
     busy.current = true;
     const request = ++generation.current;
-    setLoading(true); setError('');
-    try {
-      const [page, pending] = await Promise.all([listUserProducts({ cursor: append ? cursor : null }), readShelfDrafts(secureStorage, owner)]);
+    return Promise.all([listUserProducts({ cursor: append ? pageCursor : null }), readShelfDrafts(secureStorage, owner)]).then(([page, pending]) => {
       if (mounted.current && request === generation.current) {
         setItems(previous => append ? appendShelfPage(previous, page.items) : page.items);
         setCursor(page.nextCursor);
         setDrafts(pending);
       }
-    } catch {
+    }, async () => {
       if (mounted.current && request === generation.current) {
         setError('Shelf or device drafts could not be loaded. Please try again.');
-        try { setDrafts(await readShelfDrafts(secureStorage, owner)); } catch { /* drafts already reported */ }
+        try {
+          const pending = await readShelfDrafts(secureStorage, owner);
+          if (mounted.current && request === generation.current) setDrafts(pending);
+        } catch { /* drafts already reported */ }
       }
-    } finally { busy.current = false; if (mounted.current && request === generation.current) setLoading(false); }
-  };
-  useEffect(() => {
-    mounted.current = true; void refresh();
-    return () => { mounted.current = false; ++generation.current; };
+    }).finally(() => {
+      if (mounted.current && request === generation.current) {
+        busy.current = false;
+        setLoading(false);
+      }
+    });
   }, [owner]);
+  const refresh = (append = false) => {
+    if (!mounted.current || busy.current) return;
+    setLoading(true); setError('');
+    void load(append, append ? cursor : null);
+  };
+  const invalidate = useCallback(() => {
+    mounted.current = false;
+    busy.current = false;
+    ++generation.current;
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    void load();
+    return invalidate;
+  }, [load, invalidate]);
 
   const openProduct = async (userProductId: string) => {
     if (busy.current) return;

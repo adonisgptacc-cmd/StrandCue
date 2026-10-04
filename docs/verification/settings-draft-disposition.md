@@ -1,8 +1,9 @@
 # Settings draft disposition — 24 September 2026
 
-Three milestone screens remain outside the production TypeScript surface
-behind `// @ts-nocheck` and are not routed: `AccountInfoScreen.tsx`,
-`CosmeticModeScreen.tsx` and `SupportScreen.tsx`.
+Three unrouted milestone screens (`AccountInfoScreen.tsx`,
+`CosmeticModeScreen.tsx` and `SupportScreen.tsx`) were removed on 4 October 2026.
+Import/route searches and call-graph traces confirmed no active consumer.
+Their prior `// @ts-nocheck` markers concealed imports of nonexistent hooks.
 
 Each depends on tables or columns that do not exist in the trusted replay
 chain and were deliberately not rebuilt:
@@ -16,8 +17,8 @@ chain and were deliberately not rebuilt:
 - `SupportScreen` writes `support_requests`, a table with no schema,
   retention policy or support owner behind it.
 
-Their Git history remains available for review. They are not compiled,
-not routed, and not treated as implemented. The Settings journey now
+Their Git history remains available for review. They are not treated as
+implemented. The Settings journey now
 routes the trusted surfaces instead: username change, data export and
 account deletion. Email/password changes stay in Supabase Auth by design
 (P1-AUTH-01: credentials are never duplicated into application tables).

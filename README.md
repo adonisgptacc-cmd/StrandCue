@@ -1,55 +1,75 @@
 # StrandCue
 
-StrandCue is a private, factual cosmetic hair-care record for adults in South Africa. This repository currently implements the account and Hair Passport foundation plus a Chemical Services recording slice: verified-email onboarding, a private username, current and historical Passport views, immutable Passport changes, chemical service occurrences, corrections, presence observations, exact region/segment zones, and owner-scoped database access.
+StrandCue is a private cosmetic hair-care record for adults in South Africa. The development app includes verified-email accounts, Hair Passport history, chemical services, activities, product and tool records, and privacy/export controls. Android is the Phase 1 native target; web supports development smoke checks and exports. iOS is deferred.
 
-The active product contract is [StrandCue-PRD-v1.1-audit.md](StrandCue-PRD-v1.1-audit.md) and [2026-09-23-strandcue-phase1-rebaseline-design.md](docs/superpowers/specs/2026-09-23-strandcue-phase1-rebaseline-design.md), with implementation detail in [docs/PHASE_1.md](docs/PHASE_1.md). The older PRDs remain reference material. The current implementation is a development foundation and is not ready for real personal data or beta use. See [the Phase 1 reconciliation matrix](docs/verification/phase-1-reconciliation.md) and [the recovered baseline evidence](docs/verification/rebaseline-2026-09-23.md) for the current evidence-backed status. Only the Passport (`20260909172924_passport_foundation.sql`) and Chemical Services (`20260912070752_chemical_services.sql`) migrations currently belong to the trusted replay chain; the 19 later milestone migrations are archived in `supabase/drafts/2026-09-unverified-milestones/` as unverified candidates.
+This is a development integration, not a certified beta or production release. Code and migrations being present do not establish device acceptance, deployed security, or privacy compliance. Use synthetic data until the [acceptance gates](docs/verification/phase-1-acceptance-status.md) and [device matrix](docs/milestone7-device-matrix.md) are satisfied. Older verification reports describe their dated baselines, not the current tree.
 
-As approved on 16 September 2026, Android is the sole Phase 1 native release target and iOS implementation and validation are deferred beyond Phase 1. Web remains a development smoke/export surface, not the native beta target.
+## Start from a clean checkout
 
-## Repository layout
-
-- `apps/mobile` — Expo Router / React Native client
-- `packages/domain` — shared Passport, date, and history contracts
-- `supabase` — local Supabase configuration and database migrations
-- `tests` — domain, database, mobile-boundary, and governance tests
-- `.assistant` — adopted v4.5 governance, routing, extension observations, and audits
-- `docs/superpowers` — reviewed design and implementation plan
-- `docs/verification` — findings and acceptance evidence
-
-## Local setup
-
-Use Node 24, matching `.nvmrc`.
+Prerequisites: Git, Node **24.x** (see `.nvmrc`), npm bundled with Node, and Docker Desktop using Linux containers for the local backend. Run commands from the repository root. The Supabase CLI is pinned in the lockfile; a global installation is unnecessary.
 
 ```powershell
-npm install
+node --version
+npm ci
+npm run check:runtime
 Copy-Item apps/mobile/.env.example apps/mobile/.env
-npm run verify
-```
-
-For a local Supabase instance, start Docker Desktop and then run:
-
-```powershell
 npx supabase start
+npx supabase db reset --local
+npx supabase status
 ```
 
-Copy the local API URL and public anon/publishable key into `apps/mobile/.env`. Never put a service-role or secret key in the mobile environment.
+`db reset --local` deletes the local development database and replays `supabase/migrations` in order. Use it only with disposable local data; do not substitute remote flags. Files in `supabase/drafts` are archived candidates and are not part of the replay.
+
+Edit `apps/mobile/.env` with the API URL and public publishable/anon key reported by `supabase status`:
+
+```dotenv
+EXPO_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local public key>
+```
+
+Client environment values are public. Never use a secret/service-role key here. Restart Expo after changing the file. Preserve an existing `.env` rather than overwriting it on subsequent runs.
 
 ```powershell
-npm run mobile
+npm run web --workspace @strandcue/mobile -- --host localhost
 ```
 
-The browser build keeps auth data in memory for preview purposes. Native secure storage, cold/warm password recovery, and real email redirects require a development build on supported devices.
+Open `http://127.0.0.1:8081` to match the configured auth redirect. Local Studio is at `http://127.0.0.1:54323`; confirmation and recovery emails are captured in the local inbox at `http://127.0.0.1:54324`. No real email delivery is required. Sign up with synthetic details and confirm via that inbox. See [the developer setup runbook](docs/runbooks/developer-setup.md) for devices, live API checks, and troubleshooting.
 
-## Verification
+## Verify
+
+After dependency installation, the following checks do not require a running Docker backend:
 
 ```powershell
 npm run typecheck
+npm run lint
 npm test
 npm run test:coverage
 npm run audit:control-plane
-npm run export:web --workspace @strandcue/mobile
+npm run export:web
 ```
 
-`audit:control-plane` validates project-authored metadata only. It does not claim upstream v4.5 bootstrap execution, runtime conformance, security scanning, or release approval. See [the acceptance matrix](docs/verification/phase-1-acceptance-status.md) for current release gates.
+The default database tests use an embedded database; live Supabase API tests are opt-in. Coverage thresholds apply to the configured domain sources, not the entire app. These checks do not establish end-to-end Android behavior.
 
-The host protects the existing root `AGENTS.md`, so the reviewed project-specific routing addition is stored at [.assistant/tooling/agents-addition.md](.assistant/tooling/agents-addition.md). Load it with the root instructions until the host permits a direct merge.
+```powershell
+npm run check:expo
+npm run audit:dependencies
+npm run verify
+```
+
+`npm run verify:offline` combines runtime, type checking, lint, tests with coverage, metadata audit and web export. `npm run verify` also checks Expo compatibility and audits runtime **and development** dependencies against the advisory policy; those stages may require network access. An advisory HOLD blocks full verification and signed builds. `audit:control-plane` checks project-authored metadata, not runtime security or release approval.
+
+CI replays a disposable local Supabase database and runs real Auth/PostgREST ownership tests on each PR. Android cloud builds require an explicit manual workflow and the `android-release` environment; they do not publish to a store. Release profiles also require `npm run check:release-links` with a reviewed signing certificate. Hosted branch/environment protection and signed device evidence remain separate checks. See [the repository hardening result](docs/verification/repo-recovery-integration-result.md) for current blockers.
+
+## Repository layout and contracts
+
+- `apps/mobile` — Expo Router / React Native app; native Android projects are generated from its Expo configuration.
+- `packages/domain` — shared date, validation, and record contracts.
+- `supabase/migrations` — ordered active database replay; `supabase/drafts` holds historical candidates.
+- `tests` — domain, embedded database, mobile boundary, and tooling checks.
+- `docs/runbooks` — operational and developer procedures.
+- `docs/verification` — dated findings and acceptance evidence.
+- `.assistant` — project governance and routing metadata.
+
+Start with [the Phase 1 specification](docs/PHASE_1.md), [PRD audit](StrandCue-PRD-v1.1-audit.md), and [rebaseline design](docs/superpowers/specs/2026-09-23-strandcue-phase1-rebaseline-design.md). The older PRDs remain reference material. Project routing guidance is in [.assistant/tooling/agents-addition.md](.assistant/tooling/agents-addition.md).
+
+Generated dependencies, native projects, build outputs, local credentials, and backup artifacts belong outside tracked source. Keep intentional evidence under `docs/verification`; do not delete historical evidence merely because it is old. Build distribution and hosted configuration require their own release validation.

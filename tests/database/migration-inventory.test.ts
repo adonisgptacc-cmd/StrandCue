@@ -27,6 +27,7 @@ const trustedMigrationNames = [
   '20260925182000_username_options.sql',
   '20260930172000_username_schema_usage_repair.sql',
   '20260930173000_username_profile_lookup_repair.sql',
+  '20261004104838_activity_zone_bounds.sql',
 ] as const;
 
 const candidateMigrationNames = [

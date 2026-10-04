@@ -1,3 +1,5 @@
+import { isAuthSessionMissingError } from '@supabase/supabase-js';
+
 export function changedFields(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(after).filter(([key, value]) => value !== undefined && JSON.stringify(before[key]) !== JSON.stringify(value)));
 }
@@ -5,6 +7,8 @@ export const authNeedsLoading = (hasVerifiedUser: boolean) => !hasVerifiedUser;
 export const resolvedRefreshUser = <T>(current: T | null, verified: T | null, requestFailed: boolean): T | null =>
   requestFailed && current ? current : verified;
 export function authUserFromResult<T>(result: { data: { user: T | null }; error: unknown }): T | null {
+  // A device with no saved session has no user to verify; all other failures remain blocked.
+  if (result.data.user === null && isAuthSessionMissingError(result.error)) return null;
   if (result.error) throw new Error('auth-user-unavailable');
   return result.data.user;
 }

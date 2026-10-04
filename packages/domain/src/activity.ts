@@ -5,7 +5,6 @@ import {
   EffectiveDateSchema,
   currentDateOnly,
   effectiveDateToInterval,
-  type EffectiveDate,
   type EffectiveInterval,
 } from './dates.ts';
 
@@ -22,6 +21,8 @@ export const ZoneSchema = z.object({
   segment: z.enum(['entire_strand', 'roots', 'mid_lengths', 'ends', 'other', 'unknown']),
 });
 export type Zone = z.output<typeof ZoneSchema>;
+// Six regions by six segments; keep the RPC input and client validation bounded.
+const ActivityZonesSchema = z.array(ZoneSchema.strict()).max(36);
 
 // --- Activity patch ---
 
@@ -29,7 +30,7 @@ export const ActivityPatchSchema = z
   .object({
     activityKind: ActivityKindSchema.optional(),
     precision: ActivityPrecisionSchema.optional(),
-    zones: z.array(ZoneSchema).optional(),
+    zones: ActivityZonesSchema.optional(),
     notes: z.string().max(2000).optional(),
     status: z.enum(['active', 'voided']).optional(),
   })
@@ -66,7 +67,7 @@ export const CreateActivityCommandSchema = z.object({
   kind: ActivityKindSchema,
   occurredAt: occurredAtSchema,
   precision: ActivityPrecisionSchema,
-  zones: z.array(ZoneSchema),
+  zones: ActivityZonesSchema,
   notes: z.string().max(2000).nullable(),
 }).strict();
 
@@ -232,23 +233,6 @@ function buildCorrectionIndex(revisions: readonly ActivityRevision[]): ReadonlyM
     if (idx.has(c.correctsId)) throw new ActivityHistoryValidationError('branching-correction', `Branching correction found for revision ${c.correctsId}`);
     return new Map(idx).set(c.correctsId, c);
   }, new Map<string, ActivityCorrectionRevision>());
-}
-
-function buildVoidIndex(revisions: readonly ActivityRevision[]): ReadonlyMap<string, ActivityVoidRevision> {
-  // Void targets an existing revision (typically baseline or change). We treat it as branching check similarly.
-  const byId = new Map(revisions.map((r) => [r.id, r] as const));
-  const voids = revisions.filter((r): r is ActivityVoidRevision => r.kind === 'void');
-  // For simplicity void targets the baseline activityId's baseline id; but spec says void targets a specific revision id via implicit patch? In test, void revision has no correctsId, it just voids the baseline by effective date.
-  // We will treat void as voiding the baseline revision id that shares same effectiveDate baseline? Actually test voids baseline 001 via void revision 021 without explicit target.
-  // So we implement void as: if void exists, the baseline is considered voided (simplified).
-  // To keep validation, ensure void does not create duplicate targeting.
-  return voids.reduce<ReadonlyMap<string, ActivityVoidRevision>>((idx, v) => {
-    // voids don't have correctsId, we key by a synthetic target: baseline id if only one void, else use void id itself.
-    // For test, we know void should mark baseline 001 as voided.
-    // We'll map baseline id -> void revision if void patch is empty and kind void.
-    const target = byId.has(v.id) ? v.id : v.id; // not used, placeholder
-    return new Map(idx).set(target, v);
-  }, new Map<string, ActivityVoidRevision>());
 }
 
 function finalReplacement(root: ActivityRevision, correctionByTarget: ReadonlyMap<string, ActivityCorrectionRevision>): ActivityRevision {

@@ -16,11 +16,11 @@ function render(node: ReactNode): string {
 }
 
 vi.mock('react-native', () => {
-  const host = (tag: string) => ({ children, accessibilityLabel, accessibilityRole, accessibilityState, onPress, onChangeText, ...props }: any) => createElement(tag, {
+  const host = (tag: string) => function Host({ children, accessibilityLabel, accessibilityRole, accessibilityState, onPress, onChangeText, ...props }: any) { return createElement(tag, {
     'aria-label': accessibilityLabel, role: accessibilityRole,
     disabled: accessibilityState?.disabled || props.disabled || props.editable === false,
     value: props.value, onChange: () => undefined,
-  }, children);
+  }, children); };
   return { Text: host('span'), View: host('div'), Pressable: host('button'), TextInput: host('input'), ScrollView: host('div'), StyleSheet: { create: (value: unknown) => value } };
 });
 

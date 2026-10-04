@@ -11,9 +11,10 @@ describe('mutation testing config is loadable and wired to CI', () => {
     expect(() => JSON.parse(readFileSync(path, 'utf8'))).not.toThrow();
   });
 
-  it('has the expected mutator list for the repo stack', () => {
+  it('mutates domain implementation rather than its tests', () => {
     const cfg = JSON.parse(readFileSync(resolve(__dirname, '../../stryker.conf.json'), 'utf8'));
-    expect(cfg.mutator).toEqual({ '*': ['typescript'] });
+    expect(cfg.mutate).toEqual(['packages/domain/src/**/*.ts']);
+    expect(cfg.vitest.configFile).toBe('vitest.config.ts');
     expect(cfg.packageManager).toBe('npm');
   });
 
@@ -28,7 +29,12 @@ describe('mutation testing config is loadable and wired to CI', () => {
     const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/mutation-testing.yml'), 'utf8');
     expect(workflow).toContain('name: Mutation Testing');
     expect(workflow).toContain('uses: actions/checkout');
-    expect(workflow).toContain('npx stryker run');
+    expect(workflow).toContain('@stryker-mutator/core@10.0.0');
+    expect(workflow).toContain('@stryker-mutator/vitest-runner@10.0.0');
+    expect(workflow).toContain('--prefix .superpowers/mutation-tools');
+    expect(workflow).toContain('typescript@6.0.3');
+    expect(workflow).toContain('vitest@5.0.0');
+    expect(workflow).not.toContain('npx --yes');
     expect(workflow).toContain('upload-artifact');
   });
 });

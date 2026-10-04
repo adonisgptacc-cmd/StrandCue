@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import {
@@ -18,24 +18,31 @@ export function DeletionScreen() {
   const [reason, setReason] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [operationId, setOperationId] = useState(() => Crypto.randomUUID());
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const alive = useRef(true);
+  const generation = useRef(0);
+  const loadStatus = useCallback(() => {
+    const request = ++generation.current;
+    return statusDeletion().then(next => {
+      if (alive.current && request === generation.current) setStatus(next);
+    }, (caught: unknown) => {
+      if (alive.current && request === generation.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Account status could not be loaded.'));
+    }).finally(() => { if (alive.current && request === generation.current) setBusy(false); });
+  }, []);
+  const refresh = () => {
+    setBusy(true); setError('');
+    return loadStatus();
+  };
+  const invalidate = useCallback(() => {
+    alive.current = false;
+    ++generation.current;
+  }, []);
   useEffect(() => {
     alive.current = true;
-    void refresh();
-    return () => { alive.current = false; };
-  }, []);
-
-  const refresh = async () => {
-    setBusy(true); setError('');
-    try {
-      const next = await statusDeletion();
-      if (alive.current) setStatus(next);
-    } catch (caught) {
-      if (alive.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Account status could not be loaded.'));
-    } finally { if (alive.current) setBusy(false); }
-  };
+    void loadStatus();
+    return invalidate;
+  }, [loadStatus, invalidate]);
 
   const request = async () => {
     if (confirmText !== CONFIRM_TEXT) {
@@ -83,7 +90,7 @@ export function DeletionScreen() {
       <View style={styles.card}>
         <Text style={styles.label}>Reason (optional, at most 500 characters)</Text>
         <TextInput accessibilityLabel="Reason for deletion" value={reason} onChangeText={setReason} maxLength={500} multiline style={styles.input} />
-        <Text style={styles.label}>Type "{CONFIRM_TEXT}" to confirm</Text>
+        <Text style={styles.label}>Type &quot;{CONFIRM_TEXT}&quot; to confirm</Text>
         <TextInput accessibilityLabel="Deletion confirmation" value={confirmText} onChangeText={setConfirmText} autoCapitalize="characters" style={styles.input} />
       </View>
       <Button title={busy ? 'Working…' : 'Delete my account'} disabled={busy} onPress={() => void request()} />

@@ -200,13 +200,13 @@ export type Brand = z.output<typeof BrandSchema>;
 export type Product = z.output<typeof ProductSchema>;
 export type ProductVersion = z.output<typeof ProductVersionSchema>;
 
-export const BrandSchemaMap = {
+const brandSchemaMap = {
   id: 'id' as const,
   name: 'name' as const,
   slug: 'slug' as const,
 };
 
-export const ProductSchemaMap = {
+const productSchemaMap = {
   id: 'id' as const,
   brandId: 'brandId' as const,
   name: 'name' as const,
@@ -214,7 +214,7 @@ export const ProductSchemaMap = {
   market: 'market' as const,
 };
 
-export const ProductVersionSchemaMap = {
+const productVersionSchemaMap = {
   id: 'id' as const,
   productId: 'productId' as const,
   variant: 'variant' as const,
@@ -227,9 +227,12 @@ export const ProductVersionSchemaMap = {
   successorVersionId: 'successorVersionId' as const,
 };
 
-export type BrandSchemaMap = typeof BrandSchemaMap;
-export type ProductSchemaMap = typeof ProductSchemaMap;
-export type ProductVersionSchemaMap = typeof ProductVersionSchemaMap;
+export { brandSchemaMap as BrandSchemaMap };
+export type BrandSchemaMap = typeof brandSchemaMap;
+export { productSchemaMap as ProductSchemaMap };
+export type ProductSchemaMap = typeof productSchemaMap;
+export { productVersionSchemaMap as ProductVersionSchemaMap };
+export type ProductVersionSchemaMap = typeof productVersionSchemaMap;
 
 // User products and revisions schemas — Milestone 1: My Shelf and provenance
 
@@ -343,20 +346,20 @@ export type ToolBrand = z.output<typeof ToolBrandSchema>;
 export type Tool = z.output<typeof ToolSchema>;
 export type ToolVersion = z.output<typeof ToolVersionSchema>;
 
-export const ToolBrandSchemaMap = {
+const toolBrandSchemaMap = {
   id: 'id' as const,
   name: 'name' as const,
   slug: 'slug' as const,
 };
 
-export const ToolSchemaMap = {
+const toolSchemaMap = {
   id: 'id' as const,
   brandId: 'brandId' as const,
   name: 'name' as const,
   toolType: 'toolType' as const,
 };
 
-export const ToolVersionSchemaMap = {
+const toolVersionSchemaMap = {
   id: 'id' as const,
   toolId: 'toolId' as const,
   version: 'version' as const,
@@ -369,9 +372,12 @@ export const ToolVersionSchemaMap = {
   successorVersionId: 'successorVersionId' as const,
 };
 
-export type ToolBrandSchemaMap = typeof ToolBrandSchemaMap;
-export type ToolSchemaMap = typeof ToolSchemaMap;
-export type ToolVersionSchemaMap = typeof ToolVersionSchemaMap;
+export { toolBrandSchemaMap as ToolBrandSchemaMap };
+export type ToolBrandSchemaMap = typeof toolBrandSchemaMap;
+export { toolSchemaMap as ToolSchemaMap };
+export type ToolSchemaMap = typeof toolSchemaMap;
+export { toolVersionSchemaMap as ToolVersionSchemaMap };
+export type ToolVersionSchemaMap = typeof toolVersionSchemaMap;
 
 // Activity history now lives in activity.ts (append-only revisions with
 // correction/void audit, tested in tests/domain/activity.test.ts). The flat

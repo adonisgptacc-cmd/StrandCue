@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { secureStorage } from './client';
 import { getActivity, listActivities, type ActivityCursor, type ActivityDetail } from './activity-api';
@@ -59,30 +59,47 @@ function OwnerActivities({ owner }: { owner: string }) {
   const session = useRef(0);
   const busy = useRef(false);
 
-  const refresh = async (append = false) => {
+  const load = useCallback((append = false, pageCursor: ActivityCursor | null = null) => {
     if (busy.current) return;
     busy.current = true;
     const request = ++generation.current;
-    setLoading(true); setError('');
-    try {
-      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-      const [page, pending] = await Promise.all([listActivities(today, { cursor: append ? cursor : null }), readActivityDrafts(secureStorage, owner)]);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    return Promise.all([listActivities(today, { cursor: append ? pageCursor : null }), readActivityDrafts(secureStorage, owner)]).then(([page, pending]) => {
       if (mounted.current && request === generation.current) {
         setItems(previous => append ? appendActivityPage(previous, page.items) : page.items);
         setCursor(page.nextCursor);
         setDrafts(pending);
       }
-    } catch {
+    }, async () => {
       if (mounted.current && request === generation.current) {
         setError('Activities or device drafts could not be loaded. Please try again.');
-        try { setDrafts(await readActivityDrafts(secureStorage, owner)); } catch { /* drafts already reported */ }
+        try {
+          const pending = await readActivityDrafts(secureStorage, owner);
+          if (mounted.current && request === generation.current) setDrafts(pending);
+        } catch { /* drafts already reported */ }
       }
-    } finally { busy.current = false; if (mounted.current && request === generation.current) setLoading(false); }
-  };
-  useEffect(() => {
-    mounted.current = true; void refresh();
-    return () => { mounted.current = false; ++generation.current; };
+    }).finally(() => {
+      if (mounted.current && request === generation.current) {
+        busy.current = false;
+        setLoading(false);
+      }
+    });
   }, [owner]);
+  const refresh = (append = false) => {
+    if (!mounted.current || busy.current) return;
+    setLoading(true); setError('');
+    void load(append, append ? cursor : null);
+  };
+  const invalidate = useCallback(() => {
+    mounted.current = false;
+    busy.current = false;
+    ++generation.current;
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    void load();
+    return invalidate;
+  }, [load, invalidate]);
 
   const openActivity = async (activityId: string) => {
     if (busy.current) return;

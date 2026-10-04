@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { secureStorage } from '../client';
@@ -9,13 +9,18 @@ import {
   requestExport,
   statusExport,
   type ExportStatus,
- ExportFormat } from '../export-api';
+  type ExportFormat,
+} from '../export-api';
 import { Button, Choice, styles } from '../ui';
 
 
 const lastJobKey = (owner: string) => `strandcue-export-last-${owner}`;
 
 export function ExportScreen({ owner }: { owner: string }) {
+  return <OwnerExportScreen key={owner} owner={owner} />;
+}
+
+function OwnerExportScreen({ owner }: { owner: string }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<ExportStatus | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
@@ -23,26 +28,36 @@ export function ExportScreen({ owner }: { owner: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const alive = useRef(true);
+  const generation = useRef(0);
+  const loadStatus = useCallback((id: string) => {
+    const request = ++generation.current;
+    return statusExport(id).then(next => {
+      if (alive.current && request === generation.current) setStatus(next);
+    }, (caught: unknown) => {
+      if (alive.current && request === generation.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Export status could not be loaded.'));
+    }).finally(() => { if (alive.current && request === generation.current) setBusy(false); });
+  }, []);
+  const refresh = useCallback((id: string) => {
+    setBusy(true); setError('');
+    return loadStatus(id);
+  }, [loadStatus]);
+  const invalidate = useCallback(() => {
+    alive.current = false;
+    ++generation.current;
+  }, []);
   useEffect(() => {
     alive.current = true;
+    let cancelled = false;
     void secureStorage.getItem(lastJobKey(owner)).then(saved => {
-      if (alive.current && saved) {
+      if (!cancelled && alive.current && saved) {
         setJobId(saved);
         void refresh(saved);
       }
-    }).catch(() => undefined);
-    return () => { alive.current = false; };
-  }, [owner]);
-
-  const refresh = async (id: string) => {
-    setBusy(true); setError('');
-    try {
-      const next = await statusExport(id);
-      if (alive.current) setStatus(next);
-    } catch (caught) {
-      if (alive.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Export status could not be loaded.'));
-    } finally { if (alive.current) setBusy(false); }
-  };
+    }).catch(() => {
+      if (!cancelled && alive.current) setError('The last export could not be restored from this device. Please try again.');
+    });
+    return () => { cancelled = true; invalidate(); };
+  }, [owner, refresh, invalidate]);
 
   const request = async () => {
     setBusy(true); setError('');
@@ -54,7 +69,7 @@ export function ExportScreen({ owner }: { owner: string }) {
       if (!alive.current) return;
       setJobId(receipt.jobId);
       await secureStorage.setItem(lastJobKey(owner), receipt.jobId);
-      await refresh(receipt.jobId);
+      if (alive.current) await refresh(receipt.jobId);
     } catch (caught) {
       if (!alive.current) return;
       setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Export could not be requested.'));

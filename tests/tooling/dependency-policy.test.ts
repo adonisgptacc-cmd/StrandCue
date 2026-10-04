@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   auditDependencyPolicy as auditDependencyPolicyImplementation,
@@ -785,6 +785,7 @@ describe('dependency advisory policy', () => {
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 let fakeNpmDirectory = '';
 let fakeNpmPath = '';
+let fixedClockPath = '';
 
 function cliAuditReport() {
   type RegistryEntry = { advisoryId: string; packages: { path: string[] }[] };
@@ -844,7 +845,7 @@ function runAuditCli(options: {
   return new Promise<{ exitCode: number; stdout: string; stderr: string }>(resolveResult => {
     execFile(
       process.execPath,
-      ['scripts/audit-dependencies-cli.ts'],
+      ['--import', pathToFileURL(fixedClockPath).href, 'scripts/audit-dependencies-cli.ts'],
       {
         cwd: repositoryRoot,
         encoding: 'utf8',
@@ -870,9 +871,23 @@ describe('dependency audit CLI', () => {
   beforeAll(async () => {
     fakeNpmDirectory = await mkdtemp(join(tmpdir(), 'strandcue-audit-cli-'));
     fakeNpmPath = join(fakeNpmDirectory, 'fake-npm.mjs');
+    fixedClockPath = join(fakeNpmDirectory, 'fixed-clock.mjs');
+    // Freeze only the fixture subprocess. The real CLI must keep its live expiry gate.
+    await writeFile(
+      fixedClockPath,
+      [
+        'const RealDate = Date;',
+        'globalThis.Date = class extends RealDate {',
+        `  constructor(...args) { super(...(args.length ? args : ['${TODAY}T12:00:00Z'])); }`,
+        `  static now() { return new RealDate('${TODAY}T12:00:00Z').getTime(); }`,
+        '};',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
     await writeFile(
       fakeNpmPath,
-      "process.stdout.write(process.env.FAKE_AUDIT_STDOUT ?? '');\nprocess.exitCode = Number(process.env.FAKE_AUDIT_EXIT_CODE ?? '0');\n",
+      "if (!process.argv.includes('--include=dev') || process.argv.includes('--omit=dev')) { process.stderr.write('Development dependencies must be audited'); process.exit(2); }\nprocess.stdout.write(process.env.FAKE_AUDIT_STDOUT ?? '');\nprocess.exitCode = Number(process.env.FAKE_AUDIT_EXIT_CODE ?? '0');\n",
       'utf8',
     );
   });

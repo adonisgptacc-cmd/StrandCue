@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
-import { asUser, BASELINE, complete, current, database, mutate, USER_A, USER_B } from './harness.ts';
+import { asUser, BASELINE, complete, database, mutate, USER_A, USER_B } from './harness.ts';
 
 const DAY = { precision: 'day', value: '2024-01-15' };
 
