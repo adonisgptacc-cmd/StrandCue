@@ -6,6 +6,34 @@ import { describe, expect, it } from 'vitest';
 import { database } from './harness.ts';
 
 describe('Supabase migration compatibility', () => {
+  it('repairs private-schema usage required by username suggestions', async () => {
+    const db = await database();
+    try {
+      await db.exec('revoke usage on schema strandcue_private from strandcue_mutator');
+      const repairs = (await readdir('supabase/migrations'))
+        .filter((name) => name.endsWith('_username_schema_usage_repair.sql'));
+      expect(repairs).toHaveLength(1);
+      await db.exec(await readFile(join('supabase/migrations', repairs[0]), 'utf8'));
+      expect((await db.query<{ can_use: boolean }>(
+        "select has_schema_privilege('strandcue_mutator','strandcue_private','USAGE') can_use",
+      )).rows).toEqual([{ can_use: true }]);
+    } finally { await db.close(); }
+  }, 60_000);
+
+  it('repairs profile lookup access required by username suggestions', async () => {
+    const db = await database();
+    try {
+      await db.exec('revoke select on public.profiles from strandcue_mutator');
+      const repairs = (await readdir('supabase/migrations'))
+        .filter((name) => name.endsWith('_username_profile_lookup_repair.sql'));
+      expect(repairs).toHaveLength(1);
+      await db.exec(await readFile(join('supabase/migrations', repairs[0]), 'utf8'));
+      expect((await db.query<{ can_read: boolean }>(
+        "select has_table_privilege('strandcue_mutator','public.profiles','SELECT') can_read",
+      )).rows).toEqual([{ can_read: true }]);
+    } finally { await db.close(); }
+  }, 60_000);
+
   it('replays every SQL migration in lexical order and ignores other files', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'strandcue-migrations-'));
     try {
