@@ -28,8 +28,11 @@ All commands use Node 24.21.0. Local private keys and raw generated logs are exc
 | Coverage suite | 630 passed, 3 skipped. Domain coverage: statements 93.24%, branches 84.83%, functions 98.31%, lines 96.12%. Coverage does not include every mobile screen. |
 | Real database/API | Fresh disposable Supabase project on separate ports; all migrations replayed successfully, followed by 3 passing Auth/PostgREST ownership tests. Existing primary data was not reset. |
 | Metadata audit | METADATA-PASS within its documented local scope. |
+| Offline verification and web | Full `verify:offline` passed, including web export. Rebuilt browser first launch rendered signed-out without the misleading session error. |
+| Fresh checkout | Local clone of `d5e31e7` installed 865 packages using ordinary `npm ci` under Node 24, without copied dependencies or private environment files. Full `verify:offline` passed: both TypeScript checks, strict lint, 630 tests/3 skipped with identical coverage, metadata audit and web export. |
 | Expo compatibility | Dependencies compatible according to `expo install --check`. |
-| Secret history scan | Gitleaks 8.30.1 scanned 144 committed revisions without findings before this batch was committed. |
+| Secret history scan | Gitleaks 8.30.1 scanned 145 committed revisions, including implementation commit `d5e31e7`, without findings. |
+| Optional mutation tooling | Pinned isolated toolchain dry run passed 322 tests and instrumented 8 files/1455 mutants. Full mutation scoring was not run. |
 | Dependency policy | HOLD: 0 critical, 19 high, 10 moderate; overdue review and stale exception path findings remain visible. |
 | Android association | HOLD without reviewed certificate; live configured assetlinks endpoint returned HTTP 404. |
 

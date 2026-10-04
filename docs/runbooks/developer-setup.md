@@ -4,7 +4,7 @@ Run the [README](../../README.md) setup from the repository root with Node 24.x 
 
 ## Browser and Android connectivity
 
-Use `npm run web --workspace @strandcue/mobile -- --host localhost` and open `http://127.0.0.1:8081`, matching `supabase/config.toml`. Web sessions use preview storage and are not proof of native persistence or recovery handling. Supabase's local email inbox is `http://127.0.0.1:54324`; confirm synthetic accounts there.
+Use `npm run web --workspace @strandcue/mobile -- --host localhost` and open the localhost URL printed by Metro, normally `http://localhost:8081`. Windows may bind IPv6 localhost while `127.0.0.1` refuses the connection. The configured browser auth redirect uses `127.0.0.1`; web sessions use preview storage and are not proof of email callbacks, native persistence or recovery handling. Supabase's local email inbox is `http://127.0.0.1:54324`; confirm synthetic accounts there.
 
 For an Android emulator, the host API is normally `http://10.0.2.2:54321`. For a USB-connected physical device, `adb reverse tcp:54321 tcp:54321` lets the app use `http://127.0.0.1:54321`. Confirm `adb devices` lists the intended device. For a LAN device, use the development machine's LAN IP and restrict firewall access to the trusted network. Never expose a development database to the internet. Update the public API URL in `.env` for the chosen target and rebuild when using a packaged app: Expo public variables are embedded at build time.
 

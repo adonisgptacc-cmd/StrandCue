@@ -33,7 +33,7 @@ Client environment values are public. Never use a secret/service-role key here. 
 npm run web --workspace @strandcue/mobile -- --host localhost
 ```
 
-Open `http://127.0.0.1:8081` to match the configured auth redirect. Local Studio is at `http://127.0.0.1:54323`; confirmation and recovery emails are captured in the local inbox at `http://127.0.0.1:54324`. No real email delivery is required. Sign up with synthetic details and confirm via that inbox. See [the developer setup runbook](docs/runbooks/developer-setup.md) for devices, live API checks, and troubleshooting.
+Open the localhost URL printed by Metro (normally `http://localhost:8081`). On Windows, Metro can bind IPv6 localhost while `127.0.0.1` refuses the connection. The configured browser auth redirect uses `127.0.0.1`; web preview does not certify email callback behavior. Local Studio is at `http://127.0.0.1:54323`; confirmation and recovery emails are captured in the local inbox at `http://127.0.0.1:54324`. No real email delivery is required. Sign up with synthetic details and confirm via that inbox. See [the developer setup runbook](docs/runbooks/developer-setup.md) for devices, live API checks, and troubleshooting.
 
 ## Verify
 
