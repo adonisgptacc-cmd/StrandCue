@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createElement, type ReactElement, type ReactNode } from 'react';
 
+import { Button, Choice, Field, MultiChoice, styles } from '../../apps/mobile/src/ui';
+
 function render(node: ReactNode): string {
   if (node == null || typeof node === 'boolean') return '';
   if (typeof node === 'string' || typeof node === 'number') return String(node);
@@ -21,8 +23,6 @@ vi.mock('react-native', () => {
   }, children);
   return { Text: host('span'), View: host('div'), Pressable: host('button'), TextInput: host('input'), ScrollView: host('div'), StyleSheet: { create: (value: unknown) => value } };
 });
-
-import { Button, Choice, Field, MultiChoice, styles } from '../../apps/mobile/src/ui';
 
 describe('accessibility contracts', () => {
   it('exposes labels and roles on every interactive primitive', () => {

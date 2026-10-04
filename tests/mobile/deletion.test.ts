@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  cancelDeletion,
+  deletionStatusMessage,
+  recentAuthMessage,
+  requestDeletion,
+  statusDeletion,
+} from '../../apps/mobile/src/deletion-api';
+
 vi.mock('react-native', () => {
   return { StyleSheet: { create: (value: unknown) => value } };
 });
@@ -9,14 +17,6 @@ const rpc = vi.hoisted(() => vi.fn());
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   supabase: { rpc },
 }));
-
-import {
-  cancelDeletion,
-  deletionStatusMessage,
-  recentAuthMessage,
-  requestDeletion,
-  statusDeletion,
-} from '../../apps/mobile/src/deletion-api';
 
 const operationId = 'f0000000-0000-4000-8000-000000000010';
 

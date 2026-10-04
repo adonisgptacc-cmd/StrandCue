@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { listConsents, setConsent } from '../../apps/mobile/src/consent-api';
+
 vi.mock('react-native', () => {
   return { StyleSheet: { create: (value: unknown) => value } };
 });
@@ -9,8 +11,6 @@ const rpc = vi.hoisted(() => vi.fn());
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   supabase: { rpc },
 }));
-
-import { listConsents, setConsent } from '../../apps/mobile/src/consent-api';
 
 const operationId = 'f0000000-0000-4000-8000-000000000030';
 

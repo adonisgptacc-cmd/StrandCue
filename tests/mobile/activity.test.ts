@@ -1,15 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('react-native', () => {
-  return { StyleSheet: { create: (value: unknown) => value } };
-});
-
-const rpc = vi.hoisted(() => vi.fn());
-
-vi.mock('../../apps/mobile/src/client.ts', () => ({
-  supabase: { rpc },
-}));
-
 import {
   correctActivity,
   getActivity,
@@ -27,6 +17,16 @@ import {
   type ActivityDraft,
   type ActivityDraftStorage,
 } from '../../apps/mobile/src/activity-drafts';
+
+vi.mock('react-native', () => {
+  return { StyleSheet: { create: (value: unknown) => value } };
+});
+
+const rpc = vi.hoisted(() => vi.fn());
+
+vi.mock('../../apps/mobile/src/client.ts', () => ({
+  supabase: { rpc },
+}));
 
 const operationId = '50000000-0000-4000-8000-000000000001';
 const activityId = '50000000-0000-4000-8000-000000000002';

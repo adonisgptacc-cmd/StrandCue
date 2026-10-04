@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperText, usernameIdeasLabel } from '../../apps/mobile/src/settings-api';
+import { parseRecoveryCallback } from '../../apps/mobile/src/contracts';
+
 vi.mock('react-native', () => {
   return { StyleSheet: { create: (value: unknown) => value } };
 });
@@ -9,9 +12,6 @@ const rpc = vi.hoisted(() => vi.fn());
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   supabase: { rpc },
 }));
-
-import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperText, usernameIdeasLabel } from '../../apps/mobile/src/settings-api';
-import { parseRecoveryCallback } from '../../apps/mobile/src/contracts';
 
 const operationId = 'f0000000-0000-4000-8000-000000000020';
 const userId = 'f0000000-0000-4000-8000-000000000021';

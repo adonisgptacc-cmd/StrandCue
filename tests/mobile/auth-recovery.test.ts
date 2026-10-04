@@ -33,7 +33,6 @@ beforeEach(() => {
   recoveryMocks.storageRemove.mockResolvedValue(undefined);
   recoveryMocks.signOut.mockResolvedValue({ error: null });
 });
-
 describe('recovery callback transition', () => {
   it('runs a duplicated recovery callback only once and reuses its successful result', async () => {
     const gate = createRecoveryCallbackGate();

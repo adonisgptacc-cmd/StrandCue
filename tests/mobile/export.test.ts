@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  downloadExport,
+  exportStatusMessage,
+  requestExport,
+  statusExport,
+} from '../../apps/mobile/src/export-api';
+
 vi.mock('react-native', () => {
   return { StyleSheet: { create: (value: unknown) => value } };
 });
@@ -9,13 +16,6 @@ const rpc = vi.hoisted(() => vi.fn());
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   supabase: { rpc },
 }));
-
-import {
-  downloadExport,
-  exportStatusMessage,
-  requestExport,
-  statusExport,
-} from '../../apps/mobile/src/export-api';
 
 const jobId = 'f0000000-0000-4000-8000-000000000001';
 const operationId = 'f0000000-0000-4000-8000-000000000002';

@@ -1,15 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('react-native', () => {
-  return { StyleSheet: { create: (value: unknown) => value } };
-});
-
-const rpc = vi.hoisted(() => vi.fn());
-
-vi.mock('../../apps/mobile/src/client.ts', () => ({
-  supabase: { rpc },
-}));
-
 import {
   archiveUserTool,
   getUserTool,
@@ -33,6 +23,16 @@ import {
   toolEditorCopy,
   toolView,
 } from '../../apps/mobile/src/tool-history';
+
+vi.mock('react-native', () => {
+  return { StyleSheet: { create: (value: unknown) => value } };
+});
+
+const rpc = vi.hoisted(() => vi.fn());
+
+vi.mock('../../apps/mobile/src/client.ts', () => ({
+  supabase: { rpc },
+}));
 
 const operationId = 'e0000000-0000-4000-8000-000000000001';
 const userToolId = 'e0000000-0000-4000-8000-000000000002';

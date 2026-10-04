@@ -1,15 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('react-native', () => {
-  return { StyleSheet: { create: (value: unknown) => value } };
-});
-
-const rpc = vi.hoisted(() => vi.fn());
-
-vi.mock('../../apps/mobile/src/client.ts', () => ({
-  supabase: { rpc },
-}));
-
 import {
   archiveUserProduct,
   getUserProduct,
@@ -33,6 +23,16 @@ import {
   shelfView,
   verificationBadge,
 } from '../../apps/mobile/src/shelf-history';
+
+vi.mock('react-native', () => {
+  return { StyleSheet: { create: (value: unknown) => value } };
+});
+
+const rpc = vi.hoisted(() => vi.fn());
+
+vi.mock('../../apps/mobile/src/client.ts', () => ({
+  supabase: { rpc },
+}));
 
 const operationId = 'a0000000-0000-4000-8000-000000000001';
 const userProductId = 'a0000000-0000-4000-8000-000000000002';

@@ -9,9 +9,9 @@ import {
   requestExport,
   statusExport,
   type ExportStatus,
-} from '../export-api';
+ ExportFormat } from '../export-api';
 import { Button, Choice, styles } from '../ui';
-import type { ExportFormat } from '../export-api';
+
 
 const lastJobKey = (owner: string) => `strandcue-export-last-${owner}`;
 
