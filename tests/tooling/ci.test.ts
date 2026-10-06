@@ -18,6 +18,27 @@ function jobBlocks(source: string): string[] {
 }
 
 describe('CI workflow contracts', () => {
+  it('publishes stable protection check names for every pull request gate', async () => {
+    const verify = await workflow('verify.yml');
+    for (const [job, name] of [
+      ['test', 'quality'],
+      ['dependency-audit', 'dependency-audit'],
+      ['supabase-api', 'supabase-api'],
+      ['secret-scan', 'secret-scan'],
+    ]) {
+      expect(verify).toMatch(new RegExp(`  ${job}:\\r?\\n    name: ${name}(?:\\r?\\n|$)`));
+    }
+  });
+
+  it('keeps signed Android release checks stable and manually approved', async () => {
+    const android = await workflow('android-build.yml');
+    expect(android).toMatch(/  verify:\r?\n    name: release-readiness(?:\r?\n|$)/);
+    expect(android).toMatch(/  build-android:\r?\n    name: signed-android-build(?:\r?\n|$)/);
+    expect(android).toContain('environment: android-release');
+    expect(android).toMatch(/on:\n  workflow_dispatch:/);
+    expect(android).not.toMatch(/^\s{2}pull_request:/m);
+  });
+
   it('gates every PR on typecheck, tests with coverage, control-plane audit and web export', async () => {
     const verify = await workflow('verify.yml');
     for (const step of ['npm run typecheck', 'npm run test:coverage', 'npm run audit:control-plane', 'npm run export:web']) {
@@ -39,7 +60,9 @@ describe('CI workflow contracts', () => {
 
   it('scans for leaked secrets on every run', async () => {
     const verify = await workflow('verify.yml');
-    expect(verify.toLowerCase()).toMatch(/gitleaks|trufflehog|secret.*scan|scan.*secret/);
+    const secretJob = jobBlocks(verify).find(job => job.startsWith('  secret-scan:'));
+    expect(secretJob).toBeDefined();
+    expect(secretJob?.toLowerCase()).toMatch(/gitleaks|trufflehog/);
   });
 
   it('runs all Node jobs on version 24, never a stale pin', async () => {
