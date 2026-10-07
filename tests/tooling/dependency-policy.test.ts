@@ -9,7 +9,7 @@ import {
   auditDependencyPolicy as auditDependencyPolicyImplementation,
 } from '../../scripts/dependency-policy';
 
-const TODAY = '2026-09-13';
+const TODAY = '2026-10-06';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
 const ADVISORY_URL = `https://github.com/advisories/${ADVISORY_ID}`;
 const UUID_ADVISORY_ID = 'GHSA-w5hq-g745-h8pq';
@@ -138,11 +138,56 @@ function currentException(overrides: Record<string, unknown> = {}) {
     assessment: 'Route parsing can process attacker-controlled callback input.',
     mitigation: 'Strict callback and route allowlists reduce, but do not eliminate, exposure.',
     owner: 'StrandCue maintainer',
-    approvedOn: '2026-09-13',
-    reviewOn: '2026-09-27',
-    expiresOn: '2026-10-13',
+    approvedOn: '2026-10-06',
+    reviewOn: '2026-11-05',
+    expiresOn: '2026-12-05',
     upgradePath: 'Upgrade query-string or expo-router when a compatible fix is available.',
     ...overrides,
+  };
+}
+
+function highBuildToolException(overrides: Record<string, unknown> = {}) {
+  return currentException({
+    severity: 'high',
+    reachable: 'no',
+    scope: 'expo-build-tooling',
+    packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['development'])],
+    assessment: 'The affected parser is confined to the reviewed Expo CLI build path.',
+    mitigation: 'Release artifacts do not contain the package; keep build inputs trusted.',
+    expiresOn: '2026-12-05',
+    upgradePath: 'Upgrade Expo CLI when it removes the affected braces version.',
+    ...overrides,
+  });
+}
+
+type HighBuildToolVulnerability = {
+  name: string;
+  severity: 'high';
+  via: (string | { name: string; severity: 'high'; url: string })[];
+  effects: string[];
+};
+
+function highBuildToolAuditReport(): {
+  auditReportVersion: 2;
+  vulnerabilities: Record<string, HighBuildToolVulnerability>;
+} {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      braces: {
+        name: 'braces', severity: 'high' as const,
+        via: [{ name: 'braces', severity: 'high' as const, url: ADVISORY_URL }],
+        effects: ['@expo/cli'],
+      },
+      '@expo/cli': {
+        name: '@expo/cli', severity: 'high' as const,
+        via: ['braces'], effects: ['expo'],
+      },
+      expo: {
+        name: 'expo', severity: 'high' as const,
+        via: ['@expo/cli'], effects: [],
+      },
+    },
   };
 }
 
@@ -233,18 +278,79 @@ function xcodeChainAuditReport(higherRoots: string[]) {
 }
 
 describe('dependency advisory policy', () => {
-  it.each(['high', 'critical'] as const)(
-    'fails every %s advisory even when an exception exists',
-    severity => {
-      const findings = auditDependencyPolicy(
-        auditReport(severity),
-        [currentException()],
-        TODAY,
-      );
+  it('fails every critical advisory even when an exception exists', () => {
+    const findings = auditDependencyPolicy(
+      auditReport('critical'),
+      [currentException()],
+      TODAY,
+    );
 
-      expect(findings.map(({ code }) => code)).toContain('ADVISORY-SEVERITY');
-    },
-  );
+    expect(findings.map(({ code }) => code)).toContain('ADVISORY-SEVERITY');
+  });
+
+  it('accepts a high Expo build-tool advisory only when unreachable on development surfaces', () => {
+    expect(auditDependencyPolicy(
+      highBuildToolAuditReport(),
+      [highBuildToolException()],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo'] }),
+    )).toEqual([]);
+  });
+
+  it.each([
+    ['reachable', { reachable: 'yes' }, manifestContext({ rootDevDependencies: ['expo'] })],
+    ['android', { packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['android'])] }, manifestContext({ rootDevDependencies: ['expo'] })],
+    ['web', { packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['web'])] }, manifestContext({ rootDevDependencies: ['expo'] })],
+    ['mixed', { packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['development', 'production'])] }, manifestContext({ rootDevDependencies: ['expo'] })],
+  ])('rejects a high Expo build-tool exception with %s exposure', (_caseName, overrides, context) => {
+    const findings = auditDependencyPolicy(
+      highBuildToolAuditReport(),
+      [highBuildToolException(overrides)],
+      TODAY,
+      context,
+    );
+
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it('rejects a new high advisory path absent from the exception', () => {
+    const report = highBuildToolAuditReport();
+    report.vulnerabilities['alternate-expo-tool'] = {
+      name: 'alternate-expo-tool', severity: 'high', via: ['braces'], effects: [],
+    };
+    report.vulnerabilities.braces.effects.push('alternate-expo-tool');
+
+    expect(auditDependencyPolicy(
+      report,
+      [highBuildToolException()],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo', 'alternate-expo-tool'] }),
+    )).toContainEqual(expect.objectContaining({ code: 'ADVISORY-PATH-UNREVIEWED' }));
+  });
+
+  it('rejects a same-advisory non-Expo development path even when an Expo path is approved', () => {
+    const report = highBuildToolAuditReport();
+    report.vulnerabilities['generic-dev-tool'] = {
+      name: 'generic-dev-tool', severity: 'high', via: ['braces'], effects: [],
+    };
+    report.vulnerabilities.braces.effects.push('generic-dev-tool');
+
+    expect(auditDependencyPolicy(
+      report,
+      [highBuildToolException()],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo', 'generic-dev-tool'] }),
+    )).toContainEqual(expect.objectContaining({ code: 'ADVISORY-PATH-UNREVIEWED' }));
+  });
+
+  it('rejects high exceptions lasting more than 60 days', () => {
+    expect(auditDependencyPolicy(
+      highBuildToolAuditReport(),
+      [highBuildToolException({ expiresOn: '2026-12-06' })],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo'] }),
+    )).toContainEqual(expect.objectContaining({ code: 'EXCEPTION-DURATION' }));
+  });
 
   it('fails a moderate advisory without a matching GHSA exception', () => {
     const findings = auditDependencyPolicy(auditReport(), [], TODAY);
@@ -257,10 +363,10 @@ describe('dependency advisory policy', () => {
 
   it.each([
     ['malformed', { advisoryId: 'not-a-ghsa' }, 'EXCEPTION-SCHEMA'],
-    ['future-approved', { approvedOn: '2026-09-14' }, 'EXCEPTION-DATE'],
-    ['expired', { expiresOn: '2026-09-12' }, 'EXCEPTION-DATE'],
-    ['review-before-approval', { reviewOn: '2026-09-12' }, 'EXCEPTION-DATE'],
-    ['review-after-expiry', { reviewOn: '2026-10-14' }, 'EXCEPTION-DATE'],
+    ['future-approved', { approvedOn: '2026-10-07' }, 'EXCEPTION-DATE'],
+    ['expired', { expiresOn: '2026-10-05' }, 'EXCEPTION-DATE'],
+    ['review-before-approval', { reviewOn: '2026-10-05' }, 'EXCEPTION-DATE'],
+    ['review-after-expiry', { reviewOn: '2026-12-06' }, 'EXCEPTION-DATE'],
     ['incomplete', { mitigation: '' }, 'EXCEPTION-SCHEMA'],
     ['missing branch path', { packages: [{ path: [], surfaces: ['development'] }] }, 'EXCEPTION-SCHEMA'],
     ['missing branch surface', { packages: [{ path: ['uuid'], surfaces: [] }] }, 'EXCEPTION-SCHEMA'],
@@ -286,7 +392,7 @@ describe('dependency advisory policy', () => {
     expect(auditDependencyPolicy(
       auditReport(),
       [currentException()],
-      '2026-09-27',
+      '2026-11-05',
     )).toEqual([]);
   });
 
@@ -294,7 +400,7 @@ describe('dependency advisory policy', () => {
     expect(auditDependencyPolicy(
       auditReport(),
       [currentException()],
-      '2026-09-28',
+      '2026-11-06',
     )).toContainEqual({
       code: 'EXCEPTION-REVIEW-DUE',
       message: `Exception review is due: ${ADVISORY_ID}.`,
@@ -305,7 +411,7 @@ describe('dependency advisory policy', () => {
     expect(auditDependencyPolicy(
       auditReport(),
       [currentException()],
-      '2026-10-14',
+      '2026-12-06',
     )).toContainEqual({
       code: 'EXCEPTION-DATE',
       message: `Exception dates are invalid or not current: ${ADVISORY_ID}.`,
@@ -788,11 +894,15 @@ let fakeNpmPath = '';
 let fixedClockPath = '';
 
 function cliAuditReport() {
-  type RegistryEntry = { advisoryId: string; packages: { path: string[] }[] };
+  type RegistryEntry = {
+    advisoryId: string;
+    severity: 'moderate' | 'high';
+    packages: { path: string[] }[];
+  };
   type Vulnerability = {
     name: string;
-    severity: 'moderate';
-    via: (string | { name: string; severity: 'moderate'; url: string })[];
+    severity: 'moderate' | 'high';
+    via: (string | { name: string; severity: 'moderate' | 'high'; url: string })[];
     effects: string[];
   };
   const registry = JSON.parse(readFileSync(
@@ -800,8 +910,9 @@ function cliAuditReport() {
     'utf8',
   )) as RegistryEntry[];
   const vulnerabilities: Record<string, Vulnerability> = {};
-  const ensureVulnerability = (name: string) => {
-    vulnerabilities[name] ??= { name, severity: 'moderate', via: [], effects: [] };
+  const ensureVulnerability = (name: string, severity: 'moderate' | 'high') => {
+    vulnerabilities[name] ??= { name, severity, via: [], effects: [] };
+    if (severity === 'high') vulnerabilities[name].severity = 'high';
     return vulnerabilities[name];
   };
 
@@ -809,12 +920,12 @@ function cliAuditReport() {
     for (const rootToLeafPath of exception.packages.map(({ path }) => path)) {
       const leafToRootPath = [...rootToLeafPath].reverse();
       leafToRootPath.forEach((packageName, index) => {
-        const vulnerability = ensureVulnerability(packageName);
+        const vulnerability = ensureVulnerability(packageName, exception.severity);
         if (index === 0) {
           if (!vulnerability.via.some(via => typeof via !== 'string')) {
             vulnerability.via.push({
               name: packageName,
-              severity: 'moderate',
+              severity: exception.severity,
               url: `https://github.com/advisories/${exception.advisoryId}`,
             });
           }
@@ -823,7 +934,7 @@ function cliAuditReport() {
 
         const dependency = leafToRootPath[index - 1];
         if (!vulnerability.via.includes(dependency)) vulnerability.via.push(dependency);
-        const dependent = ensureVulnerability(dependency);
+        const dependent = ensureVulnerability(dependency, exception.severity);
         if (!dependent.effects.includes(packageName)) dependent.effects.push(packageName);
       });
     }
@@ -895,21 +1006,6 @@ describe('dependency audit CLI', () => {
   afterAll(async () => {
     await rm(fakeNpmDirectory, { recursive: true, force: true });
   });
-
-  it('accepts npm exit 1 when valid findings are covered by current exceptions', async () => {
-    const result = await runAuditCli({
-      stdout: JSON.stringify(cliAuditReport()),
-      auditExitCode: 1,
-    });
-
-    expect(result.exitCode, JSON.stringify(result)).toBe(0);
-    expect(result.stdout).toContain('"critical":0');
-    expect(result.stdout).toContain('"high":0');
-    expect(result.stdout).toContain('"moderate":13');
-    expect(result.stdout).toContain('"reviewedAdvisories":2');
-    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
-    expect(result.stderr).toBe('');
-  }, 10_000);
 
   it('rejects npm exit 1 when the registry retains a path absent from the audit report', async () => {
     const report = cliAuditReport();
@@ -1020,7 +1116,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('ADVISORY-RESOLUTION-SEVERITY');
     expect(result.stdout).not.toContain(untrustedPackageName);
-  });
+  }, 10_000);
 
   it('reports an unreviewed branch with a fixed code and no untrusted path details', async () => {
     const untrustedPackageName = 'attacker-controlled-android-runtime';

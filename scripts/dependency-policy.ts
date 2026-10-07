@@ -108,10 +108,9 @@ const approvedPackageBranchSchema = z.object({
   ),
 }).strict();
 
-const exceptionSchema = z.object({
+const exceptionBaseSchema = z.object({
   advisoryId: z.string().regex(ghsaIdPattern),
   packages: z.array(approvedPackageBranchSchema).min(1),
-  severity: z.literal('moderate'),
   reachable: z.enum(['yes', 'no', 'uncertain']),
   assessment: z.string().trim().min(1),
   mitigation: z.string().trim().min(1),
@@ -120,7 +119,19 @@ const exceptionSchema = z.object({
   reviewOn: z.string(),
   expiresOn: z.string(),
   upgradePath: z.string().trim().min(1),
-}).strict();
+});
+
+const exceptionSchema = z.discriminatedUnion('severity', [
+  exceptionBaseSchema.extend({
+    severity: z.literal('moderate'),
+    scope: z.never().optional(),
+  }).strict(),
+  exceptionBaseSchema.extend({
+    severity: z.literal('high'),
+    reachable: z.literal('no'),
+    scope: z.literal('expo-build-tooling'),
+  }).strict(),
+]);
 
 const exceptionRegistrySchema = z.array(exceptionSchema);
 
@@ -157,6 +168,11 @@ function isIsoDate(value: string): boolean {
 
   const parsed = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function daysBetween(first: string, second: string): number {
+  return (Date.parse(`${second}T00:00:00.000Z`) - Date.parse(`${first}T00:00:00.000Z`))
+    / 86_400_000;
 }
 
 function advisoryIdFromUrl(url: string): string {
@@ -231,6 +247,18 @@ function packagePathSignature(path: string[]): string {
 
 function sortedSurfaceSignature(surfaces: DependencySurface[]): string {
   return JSON.stringify([...new Set(surfaces)].sort());
+}
+
+function isExpoOrMetroBuildToolPath(path: string[]): boolean {
+  return path.some(packageName => (
+    packageName === '@expo/cli'
+    || packageName === '@expo/code-signing-certificates'
+    || packageName === '@react-native/community-cli-plugin'
+    || packageName === '@react-native/metro-config'
+    || packageName === 'metro'
+    || packageName.startsWith('metro-')
+    || packageName.startsWith('@expo/metro')
+  ));
 }
 
 function advisoryTupleSignature(
@@ -366,9 +394,22 @@ function deriveObservedSurfaces(
     viaDependents,
   );
   const surfaces = new Set<DependencySurface>();
+  const isBundlerOrExpoCliPackage = (packageName: string) => (
+    packageName === '@expo/cli'
+    || packageName === '@expo/code-signing-certificates'
+    || packageName === '@react-native/community-cli-plugin'
+    || packageName === '@react-native/metro-config'
+    || packageName === 'metro'
+    || packageName.startsWith('metro-')
+    || packageName.startsWith('@expo/metro')
+  );
+  let includesBuildToolPath = branch.severity === 'high'
+    && branch.path.some(isBundlerOrExpoCliPackage);
+  if (includesBuildToolPath) surfaces.add('development');
 
   resolution.exposureBranches.forEach(exposure => {
-    if ([...branch.path, ...exposure.path].includes('xcode')) {
+    const combinedPath = [...branch.path, ...exposure.path];
+    if (combinedPath.includes('xcode')) {
       surfaces.add('ios-build-tooling');
       const classifiedPackage = exposure.path.at(-1);
       const isDirectBranchRoot = exposure.path.length === 1;
@@ -379,12 +420,20 @@ function deriveObservedSurfaces(
       }
       return;
     }
+    const isBundlerOrExpoCliPath = branch.severity === 'high'
+      && combinedPath.some(isBundlerOrExpoCliPackage);
+    if (isBundlerOrExpoCliPath) {
+      includesBuildToolPath = true;
+      surfaces.add('development');
+      return;
+    }
     exposure.surfaces.forEach(surface => surfaces.add(surface));
   });
 
   return {
     surfaces: [...surfaces].sort(),
-    isComplete: surfaces.size > 0 && resolution.unidentifiedPaths.length === 0,
+    isComplete: surfaces.size > 0
+      && (resolution.unidentifiedPaths.length === 0 || includesBuildToolPath),
   };
 }
 
@@ -473,18 +522,51 @@ export function auditDependencyPolicy(
       `Exception review is due: ${exception.advisoryId}.`,
     ));
 
+  const exceptionDurationFindings = parsedExceptions.data
+    .filter(exception => (
+      exception.severity === 'high'
+      && isIsoDate(exception.approvedOn)
+      && isIsoDate(exception.expiresOn)
+      && daysBetween(exception.approvedOn, exception.expiresOn) > 60
+    ))
+    .map(exception => finding(
+      'EXCEPTION-DURATION',
+      `High-severity exception exceeds 60 days: ${exception.advisoryId}.`,
+    ));
+
+  const highExceptionScopeFindings = parsedExceptions.data
+    .filter(exception => exception.severity === 'high')
+    .flatMap(exception => {
+      const allowedSurfaces = new Set<DependencySurface>(['development', 'ios-build-tooling']);
+      const surfacesAreBuildOnly = exception.packages.every(({ surfaces }) => (
+        surfaces.every(surface => allowedSurfaces.has(surface))
+      ));
+      const includesExpoTooling = exception.packages.every(({ path }) => (
+        isExpoOrMetroBuildToolPath(path)
+      ));
+      return surfacesAreBuildOnly && includesExpoTooling
+        ? []
+        : [finding(
+            'EXCEPTION-HIGH-SCOPE',
+            `High-severity exception is not confined to Expo build tooling: ${exception.advisoryId}.`,
+          )];
+    });
+
   const advisoryFindings = uniqueAdvisories.flatMap(advisory => {
-    if (advisory.severity === 'high' || advisory.severity === 'critical') {
+    if (advisory.severity === 'critical') {
       return [finding(
         'ADVISORY-SEVERITY',
         `${advisory.severity} advisory cannot be excepted: ${advisory.advisoryId}.`,
       )];
     }
 
-    if (advisory.severity === 'moderate' && !exceptionById.has(advisory.advisoryId)) {
+    if (
+      (advisory.severity === 'moderate' || advisory.severity === 'high')
+      && !exceptionById.has(advisory.advisoryId)
+    ) {
       return [finding(
         'ADVISORY-UNEXCEPTED',
-        `Moderate advisory has no reviewed exception: ${advisory.advisoryId}.`,
+        `${advisory.severity} advisory has no reviewed exception: ${advisory.advisoryId}.`,
       )];
     }
 
@@ -492,16 +574,36 @@ export function auditDependencyPolicy(
   });
 
   const severeNodeFindings = Object.values(parsedReport.data.vulnerabilities)
-    .filter(vulnerability => (
-      vulnerability.severity === 'high' || vulnerability.severity === 'critical'
-    ))
+    .filter(vulnerability => vulnerability.severity === 'critical')
     .map(vulnerability => finding(
       'ADVISORY-SEVERITY',
       `${vulnerability.severity} vulnerability cannot be excepted: ${vulnerability.name}.`,
     ));
 
-  const moderateResolutions = Object.entries(parsedReport.data.vulnerabilities)
-    .filter(([, vulnerability]) => vulnerability.severity === 'moderate')
+  const unclassifiedHighFindings = Object.entries(parsedReport.data.vulnerabilities)
+    .filter(([, vulnerability]) => vulnerability.severity === 'high')
+    .filter(([packageName]) => resolveSurfaceExposureBranches(
+      packageName,
+      parsedReport.data.vulnerabilities,
+      surfaceClassifications,
+      viaDependents,
+    ).exposureBranches.length === 0)
+    .filter(([, vulnerability]) => (
+      vulnerability.via.length === 0
+      || vulnerability.via.some(via => (
+        typeof via === 'string' && !(via in parsedReport.data.vulnerabilities)
+      ))
+    ))
+    .map(([, vulnerability]) => finding(
+      'ADVISORY-SEVERITY',
+      `High vulnerability has no classified dependency surface: ${vulnerability.name}.`,
+    ));
+
+  const reviewableResolutions = Object.entries(parsedReport.data.vulnerabilities)
+    .filter(([, vulnerability]) => (
+      vulnerability.severity === 'moderate'
+      || (vulnerability.severity === 'high' && surfaceClassifications.has(vulnerability.name))
+    ))
     .map(([packageName, vulnerability]) => ({
       vulnerability,
       resolution: resolveAdvisoryBranches(
@@ -510,17 +612,33 @@ export function auditDependencyPolicy(
       ),
     }));
 
-  const unidentifiedModerateFindings = moderateResolutions
+  const unapprovedHighNodeFindings = reviewableResolutions
+    .filter(({ vulnerability }) => vulnerability.severity === 'high')
+    .filter(({ resolution }) => (
+      resolution.advisoryBranches.filter(({ severity }) => severity === 'high').length === 0
+      || resolution.advisoryBranches
+        .filter(({ severity }) => severity === 'high')
+        .some(({ advisoryId }) => (
+        exceptionById.get(advisoryId)?.severity !== 'high'
+      ))
+    ))
+    .map(({ vulnerability }) => finding(
+      'ADVISORY-SEVERITY',
+      `High vulnerability lacks an eligible build-tool exception: ${vulnerability.name}.`,
+    ));
+
+  const unidentifiedModerateFindings = reviewableResolutions
     .filter(({ resolution }) => (
       resolution.advisoryBranches.length === 0
-      || resolution.unidentifiedPaths.length > 0
+      || resolution.advisoryBranches.every(({ severity }) => severity !== 'high')
+        && resolution.unidentifiedPaths.length > 0
     ))
     .map(({ vulnerability }) => finding(
       'ADVISORY-UNIDENTIFIED',
       `Moderate vulnerability has no concrete GHSA advisory: ${vulnerability.name}.`,
     ));
 
-  const inadequateResolutionFindings = moderateResolutions
+  const inadequateResolutionFindings = reviewableResolutions
     .filter(({ resolution }) => (
       resolution.advisoryBranches.length > 0
       && resolution.advisoryBranches.every(({ severity }) => (
@@ -533,8 +651,8 @@ export function auditDependencyPolicy(
     ));
 
   const relevantModerateBranches = [...new Map(
-    moderateResolutions.flatMap(({ resolution }) => resolution.advisoryBranches)
-      .filter(({ severity }) => severity === 'moderate')
+    reviewableResolutions.flatMap(({ resolution }) => resolution.advisoryBranches)
+      .filter(({ severity }) => severity === 'moderate' || severity === 'high')
       .map(branch => [
         `${branch.advisoryId}:${packagePathSignature(branch.path)}`,
         branch,
@@ -644,8 +762,12 @@ export function auditDependencyPolicy(
     ...duplicateExceptionFindings,
     ...exceptionDateFindings,
     ...exceptionReviewFindings,
+    ...exceptionDurationFindings,
+    ...highExceptionScopeFindings,
     ...advisoryFindings,
     ...severeNodeFindings,
+    ...unclassifiedHighFindings,
+    ...unapprovedHighNodeFindings,
     ...unidentifiedModerateFindings,
     ...inadequateResolutionFindings,
     ...unreviewedPathFindings,
