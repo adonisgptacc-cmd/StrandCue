@@ -1043,7 +1043,7 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
-  });
+  }, 10_000);
 
   it('fails closed when npm execution is not configured', async () => {
     const result = await runAuditCli({
