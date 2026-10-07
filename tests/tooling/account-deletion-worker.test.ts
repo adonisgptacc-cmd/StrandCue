@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { processAccountDeletion } from '../../scripts/account-deletion-worker.ts';
+import scheduledWorker, { runScheduledAccountDeletion } from '../../workers/account-deletion/src/index.ts';
 
 const userId='11111111-1111-4111-8111-111111111111';
 const lease='22222222-2222-4222-8222-222222222222';
@@ -42,5 +43,54 @@ describe('bounded account deletion worker',()=>{
     const client=worker();client.rpc.mockReset().mockResolvedValue({data:null,error:null});
     expect(await processAccountDeletion(client)).toBe('idle');
     expect(client.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('private scheduled account deletion worker',()=>{
+  const env={
+    STRANDCUE_SUPABASE_URL:'https://project.supabase.co',
+    STRANDCUE_SUPABASE_SERVICE_KEY:'service-role-key-with-enough-characters',
+  };
+
+  it.each(['idle','deleted'] as const)('emits a redacted operational metric for %s',async(outcome)=>{
+    const client=worker();
+    const processDeletion=vi.fn().mockResolvedValue(outcome);
+    const log=vi.fn();
+
+    await expect(runScheduledAccountDeletion(env,{createClient:()=>client,processDeletion,log,now:()=>42})).resolves.toBe(outcome);
+
+    expect(processDeletion).toHaveBeenCalledExactlyOnceWith(client);
+    expect(log).toHaveBeenCalledExactlyOnceWith({
+      event:'account_deletion_worker_run', outcome, jobs:outcome==='deleted'?1:0, durationMs:0,
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain(userId);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(env.STRANDCUE_SUPABASE_SERVICE_KEY);
+  });
+
+  it('reports a fixed failure metric and preserves scheduler failure status',async()=>{
+    const log=vi.fn();
+    const providerError=new Error('private provider response containing secret material');
+    const processDeletion=vi.fn().mockRejectedValue(providerError);
+
+    await expect(runScheduledAccountDeletion(env,{createClient:()=>worker(),processDeletion,log,now:()=>42}))
+      .rejects.toThrow('Account deletion worker failed.');
+
+    expect(log).toHaveBeenCalledExactlyOnceWith({
+      event:'account_deletion_worker_run', outcome:'failed', jobs:0, durationMs:0,
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain(providerError.message);
+  });
+
+  it('rejects insecure endpoints before creating a privileged client',async()=>{
+    const createClient=vi.fn();
+    await expect(runScheduledAccountDeletion({...env,STRANDCUE_SUPABASE_URL:'http://example.com'}, {
+      createClient, processDeletion:vi.fn(), log:vi.fn(), now:()=>42,
+    })).rejects.toThrow('Secure Supabase URL required');
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it('exposes only a scheduled handler',()=>{
+    expect(Object.keys(scheduledWorker)).toEqual(['scheduled']);
+    expect('fetch' in scheduledWorker).toBe(false);
   });
 });
