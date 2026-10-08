@@ -48,6 +48,7 @@ describe('public website content', () => {
     for (const colour of ['#F7F5EF', '#253A30', '#E8EDDF', '#667D49', '#8C3B30']) {
       expect(css.toUpperCase()).toContain(colour);
     }
+    expect(css, 'line token must match the app palette').toMatch(/--line:\s*#DCE2D8\s*;/i);
     expect(readPage('index.html')).toMatch(/<link\b[^>]*href="\/styles\.css"/);
     expect(existsSync(resolve(publicDirectory, 'favicon.svg'))).toBe(true);
     expect(readPage('index.html')).toMatch(/<link\b[^>]*rel="icon"[^>]*href="\/favicon\.svg"/);
