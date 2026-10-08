@@ -31,10 +31,73 @@ describe('public website content', () => {
 
   it('renders the factual product overview', () => {
     const home = readPage('index.html');
+    expect(home).toContain('strandcue');
+    expect(home).toContain('Your hair record');
     for (const area of ['Hair Passport', 'chemical services', 'activities', 'shelf', 'tools', 'history', 'export', 'deletion']) {
       expect(home.toLowerCase(), `missing product area: ${area}`).toContain(area.toLowerCase());
     }
     expect(home.toLowerCase(), 'missing factual-record boundary').toMatch(/does not diagnose/);
+    expect(home.toLowerCase()).toContain('does not prescribe');
+    expect(home.toLowerCase()).toContain('privacy controls');
+  });
+
+  it('uses the app visual tokens', () => {
+    const cssPath = resolve(publicDirectory, 'styles.css');
+    expect(existsSync(cssPath), 'missing shared stylesheet').toBe(true);
+    const css = readFileSync(cssPath, 'utf8');
+    for (const colour of ['#F7F5EF', '#253A30', '#E8EDDF', '#667D49', '#8C3B30']) {
+      expect(css.toUpperCase()).toContain(colour);
+    }
+    expect(readPage('index.html')).toMatch(/<link\b[^>]*href="\/styles\.css"/);
+    expect(existsSync(resolve(publicDirectory, 'favicon.svg'))).toBe(true);
+    expect(readPage('index.html')).toMatch(/<link\b[^>]*rel="icon"[^>]*href="\/favicon\.svg"/);
+  });
+
+  it('provides complete navigation without JavaScript', () => {
+    for (const file of ['index.html', '404.html']) {
+      const html = readPage(file);
+      const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? '';
+      const footer = html.match(/<footer\b[^>]*>[\s\S]*?<\/footer>/)?.[0] ?? '';
+      for (const route of ['/', '/privacy', '/delete-account', '/support', '/terms']) {
+        expect(header, `missing header link ${route} on ${file}`).toContain(`href="${route}"`);
+        expect(footer, `missing footer link ${route} on ${file}`).toContain(`href="${route}"`);
+      }
+      expect(html).not.toMatch(/<script\b/i);
+    }
+    expect(readPage('index.html')).toMatch(/<a\b[^>]*href="\/"[^>]*aria-current="page"/);
+  });
+
+  it('marks Play availability honestly', () => {
+    const home = readPage('index.html');
+    expect(home).toContain('Google Play');
+    expect(home).toMatch(/not yet available/i);
+    expect(home).not.toMatch(/href="[^"\s]*play\.google\.com/i);
+    expect(home).not.toMatch(/<button\b/i);
+  });
+
+  it('supports keyboard and reduced-motion users', () => {
+    for (const file of ['index.html', '404.html']) {
+      const html = readPage(file);
+      expect(html).toMatch(/<a\b[^>]*class="skip-link"[^>]*href="#main-content"/);
+      expect(html).toMatch(/<main\b[^>]*id="main-content"/);
+    }
+    const cssPath = resolve(publicDirectory, 'styles.css');
+    expect(existsSync(cssPath), 'missing keyboard and motion styles').toBe(true);
+    const css = readFileSync(cssPath, 'utf8');
+    expect(css).toContain(':focus-visible');
+    expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+    expect(css).toMatch(/min-height:\s*44px/);
+    expect(css).toMatch(/min-width:\s*44px/);
+  });
+
+  it('renders a useful 404', () => {
+    const html = readPage('404.html');
+    expect(html).toContain('strandcue');
+    expect(html).toContain('Page not found');
+    const main = html.match(/<main\b[^>]*>[\s\S]*?<\/main>/)?.[0] ?? '';
+    expect(main).toMatch(/href="\/"[^>]*>[^<]*Home/i);
+    expect(main).toMatch(/href="\/support"[^>]*>[^<]*Support/i);
+    expect(html).toMatch(/<meta\b[^>]*name="robots"[^>]*content="noindex"/);
   });
 
   it('identifies the operator and contact consistently', () => {
