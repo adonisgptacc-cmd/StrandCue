@@ -15,7 +15,7 @@ interface WebsiteConfiguration {
     readonly html_handling: string;
     readonly not_found_handling: string;
   };
-  readonly routes?: readonly unknown[];
+  readonly routes?: readonly Readonly<{ pattern: string; zone_name: string }>[];
   readonly route?: unknown;
   readonly main?: string;
   readonly triggers?: unknown;
@@ -30,7 +30,7 @@ describe('public website Worker boundary', () => {
     const configuration = readConfiguration();
     expect(configuration.name).toBe('strandcue-website');
     expect(configuration.compatibility_date).toBe('2026-10-08');
-    expect(configuration.workers_dev).toBe(true);
+    expect(configuration.workers_dev).toBe(false);
     expect(configuration.preview_urls).toBe(false);
     expect(configuration.main, 'static site must not execute the existing Worker').toBeUndefined();
     expect(configuration.triggers, 'static site must not schedule deletion jobs').toBeUndefined();
@@ -50,6 +50,13 @@ describe('public website Worker boundary', () => {
     expect(routing).not.toContain('strandcue.adonisgptacc.workers.dev');
     expect(routing).not.toContain('strandcue-account-deletion');
     expect(routing).not.toContain('*.workers.dev');
+  });
+
+  it('claims only the approved website custom domain', () => {
+    const configuration = readConfiguration();
+    expect(configuration.routes).toEqual([
+      { pattern: 'strandcue.co.za/*', zone_name: 'strandcue.co.za' },
+    ]);
   });
 });
 

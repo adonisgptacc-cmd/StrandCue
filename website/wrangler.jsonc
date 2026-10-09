@@ -1,8 +1,11 @@
 {
   "name": "strandcue-website",
   "compatibility_date": "2026-10-08",
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
+  "routes": [
+    { "pattern": "strandcue.co.za/*", "zone_name": "strandcue.co.za" }
+  ],
   "assets": {
     "directory": "./public",
     "html_handling": "drop-trailing-slash",
