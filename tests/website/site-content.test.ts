@@ -175,4 +175,48 @@ describe('public website content', () => {
       expect(html, `missing description on ${page.route}`).toMatch(/<meta\b[^>]*name=["']description["'][^>]*content=["'][^"']+["']/i);
     }
   });
+
+  it('uses unique canonical metadata', () => {
+    const titles: string[] = [];
+    const descriptions: string[] = [];
+    for (const page of pages) {
+      const html = readPage(page.file);
+      const title = html.match(/<title>([^<]+)<\/title>/)?.[1];
+      const description = html.match(/<meta name="description" content="([^"]+)"/)?.[1];
+      const canonical = `https://strandcue.co.za${page.route}`;
+      expect(title).toBeTruthy();
+      expect(description).toBeTruthy();
+      expect(html).toContain(`<meta property="og:title" content="${title}"`);
+      expect(html).toContain(`<meta property="og:description" content="${description}"`);
+      expect(html).toContain(`<meta property="og:url" content="${canonical}"`);
+      expect(html).toContain(`<link rel="canonical" href="${canonical}"`);
+      expect(html).toContain('href="/styles.css"');
+      expect(html).toContain('href="/favicon.svg"');
+      expect(html).not.toMatch(/og:image/i);
+      titles.push(title!);
+      descriptions.push(description!);
+    }
+    expect(new Set(titles).size).toBe(5);
+    expect(new Set(descriptions).size).toBe(5);
+  });
+
+  it('includes the visible brand caption in each accessible home link', () => {
+    for (const file of [...pages.map(page => page.file), '404.html']) {
+      const links = [...readPage(file).matchAll(/<a class="brand-lockup"[^>]+>/g)].map(match => match[0]);
+      expect(links).toHaveLength(2);
+      expect(links.every(link => link.includes('aria-label="StrandCue — Your hair record — home"'))).toBe(true);
+    }
+  });
+
+  it('publishes only canonical sitemap routes', () => {
+    expect(existsSync(resolve(publicDirectory, 'sitemap.xml'))).toBe(true);
+    const sitemap = readPage('sitemap.xml');
+    expect(sitemap).toContain('xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"');
+    expect([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1])).toEqual([
+      'https://strandcue.co.za/', 'https://strandcue.co.za/privacy',
+      'https://strandcue.co.za/delete-account', 'https://strandcue.co.za/support',
+      'https://strandcue.co.za/terms',
+    ]);
+    expect(readPage('robots.txt')).toBe('User-agent: *\nAllow: /\nSitemap: https://strandcue.co.za/sitemap.xml\n');
+  });
 });
