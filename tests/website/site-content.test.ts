@@ -106,6 +106,12 @@ describe('public website content', () => {
       const html = readPage(page.file);
       expect(html, `missing operator on ${page.route}`).toContain('Common Sense Inc.');
       expect(html, `missing support contact on ${page.route}`).toContain('support@strandcue.co.za');
+      if (page.route !== '/') {
+        expect(html).toContain('8 October 2026');
+        expect(html).toContain(`href="${page.route}" aria-current="page"`);
+        expect(html).toContain('aria-label="On this page"');
+        expect(html).toContain('href="#main-content"');
+      }
     }
   });
 
@@ -114,6 +120,49 @@ describe('public website content', () => {
     expect(deletion, 'missing in-app deletion instructions').toContain('Settings → Account → Delete account');
     expect(deletion, 'missing email fallback').toContain('mailto:support@strandcue.co.za?subject=');
     expect(deletion.toLowerCase(), 'missing credential warning').toContain('password');
+    for (const category of ['Hair Passport', 'services', 'activities', 'shelf', 'tools', 'history', 'Auth identity']) {
+      expect(deletion).toContain(category);
+    }
+    expect(deletion).toContain('Non-personal catalogue facts remain');
+    expect(deletion).toContain('email address associated with your account');
+    expect(deletion).toContain('verify that the account belongs to you');
+    expect(deletion).toContain('This website does not delete accounts');
+    for (const credential of ['recovery code', 'access token', 'exported record']) expect(deletion).toContain(credential);
+    const emailLinks = [...deletion.matchAll(/href="(mailto:[^"]+)"/g)].map(match => match[1]);
+    expect(emailLinks).toContain('mailto:support@strandcue.co.za?subject=StrandCue%20account%20deletion%20request');
+    expect(emailLinks.every(link => link === 'mailto:support@strandcue.co.za'
+      || link === 'mailto:support@strandcue.co.za?subject=StrandCue%20account%20deletion%20request')).toBe(true);
+  });
+
+  it('describes only verified privacy behavior', () => {
+    const privacy = readPage('privacy/index.html');
+    for (const fact of ['Account details', 'Hair records', 'Operational and security records', 'Support correspondence',
+      'Supabase', 'authentication and database', 'Cloudflare', 'website', 'account deletion',
+      'JSON', 'CSV', '24 hours', '7 days', 'correction', 'username', 'deletion reason']) {
+      expect(privacy, `missing privacy fact: ${fact}`).toContain(fact);
+    }
+    expect(privacy).toContain('no analytics, advertising, cookies, or contact forms');
+    expect(privacy).not.toMatch(/GDPR.compliant|POPIA.compliant|end.to.end encrypt|stored only in|delete.{0,20}within \d+|guarantee/i);
+  });
+
+  it('covers the support journeys', () => {
+    const support = readPage('support/index.html');
+    for (const topic of ['Sign-in', 'Email confirmation', 'Password recovery', 'Export', 'Account deletion', 'Security or privacy']) {
+      expect(support).toContain(topic);
+    }
+    expect(support).toContain('href="/delete-account"');
+    expect(support).toContain('href="/privacy"');
+    expect(support).toContain('Never send your password');
+    expect(support).toContain('If the confirmation email is missing or its link cannot be used, contact support');
+  });
+
+  it('states the cosmetic-record terms boundary', () => {
+    const terms = readPage('terms/index.html');
+    for (const boundary of ['adults', 'lawful', 'does not diagnose', 'does not prescribe',
+      'other users', 'disrupt', 'responsible', 'intellectual property', 'unavailable']) {
+      expect(terms).toContain(boundary);
+    }
+    expect(terms).not.toMatch(/governing law|liability.{0,20}(cap|limit)|registered (office|number)|warrant/i);
   });
 
   it('supplies canonical page metadata', () => {
