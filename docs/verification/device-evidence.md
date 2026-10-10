@@ -46,3 +46,15 @@
 - Installed on: Android emulator (emulator-5554). Launch OK.
 - Observed via screenshots: authenticated Passport screen ("Your Hair Passport"), Activities tab loading production data, Settings screen signed in as @mark.
 - Username screen NOT visually verified: a mis-tap signed the test account out of the device; no credentials on hand to re-enter. Both submit flows (normal + duplicate) pending with the account owner. Account data safe in production.
+
+## Build 5 — export-delivery launch candidate (2026-10-10)
+
+- Source commit: `7a08f31084079aca5c17e4ab01c28a26a4e6907a`.
+- EAS preview build `44f614e1-0e3b-4859-a578-ee0d0dd46b02` completed successfully, but its remote preview signer is not the local release signer. It is retained as a test artifact and is not the locally distributed launch candidate.
+- The accepted local release rebuild completed 544 Gradle tasks with Expo FileSystem and Expo Sharing linked natively.
+- Package: `za.co.strandcue.app`; version `0.1.0`/code 1; min SDK 24; target SDK 36; ARM64 only.
+- APK signature: v2; signer SHA-256 `F9:C2:31:91:03:C5:9B:DB:31:15:48:F4:F1:B7:DE:AC:F7:77:46:29:36:F2:D7:1A:F0:DA:28:57:39:0C:2D:60`, matching the live App Links association.
+- APK: `%LOCALAPPDATA%\StrandCue\releases\StrandCue-0.1.0-launch-candidate-arm64-v8a.apk`; SHA-256 `9D13FCD60535AEB6FAE337A86121F9E5EF9C87198FF0818E048B9483B10F9FA6`; size 41,729,601 bytes.
+- AAB: `%LOCALAPPDATA%\StrandCue\releases\StrandCue-0.1.0-launch-candidate-arm64-v8a.aab`; SHA-256 `045290055C33F2CE4C74582161E72203721A3FA10FCC1FB2966FBE3DC72F0E62`; size 30,996,817 bytes; `jarsigner -verify` exit 0.
+- `npm run check:release-links` passed against the matching live certificate.
+- Physical ARM64 installation and the signup, confirmation, recovery, offline, export share/save, deletion, and accessibility journeys remain pending.
