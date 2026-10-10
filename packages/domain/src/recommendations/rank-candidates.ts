@@ -113,9 +113,8 @@ function scoreCandidate(
 }
 
 function compareScores(left: CandidateScore, right: CandidateScore): number {
-  if (left.hardPass !== right.hardPass) {
-    return left.hardPass ? -1 : 1;
-  }
+  // MARK: Only hard-passing candidates reach this comparator; rejection
+  // happens before sorting, so "passes every hard rule" is structural.
   if (left.verifiedCoverage !== right.verifiedCoverage) {
     return right.verifiedCoverage - left.verifiedCoverage;
   }
