@@ -1,3 +1,5 @@
+import { isAuthSessionMissingError } from '@supabase/supabase-js';
+
 export function changedFields(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(after).filter(([key, value]) => value !== undefined && JSON.stringify(before[key]) !== JSON.stringify(value)));
 }
@@ -5,6 +7,8 @@ export const authNeedsLoading = (hasVerifiedUser: boolean) => !hasVerifiedUser;
 export const resolvedRefreshUser = <T>(current: T | null, verified: T | null, requestFailed: boolean): T | null =>
   requestFailed && current ? current : verified;
 export function authUserFromResult<T>(result: { data: { user: T | null }; error: unknown }): T | null {
+  // A device with no saved session has no user to verify; all other failures remain blocked.
+  if (result.data.user === null && isAuthSessionMissingError(result.error)) return null;
   if (result.error) throw new Error('auth-user-unavailable');
   return result.data.user;
 }
@@ -27,15 +31,40 @@ export function toggleSelection(selected: readonly string[], value: string): str
   return next.length ? next : ['unknown'];
 }
 
-export function parseRecoveryCallback(raw: string, pending: boolean): string | null {
+export function parseRecoveryCallback(raw: string, pending: boolean): {code: string; flowId: string} | null {
   if (!pending) return null;
   try {
     const url = new URL(raw);
     if (url.protocol !== 'strandcue:' || url.host !== 'auth' || url.pathname !== '/callback'
-      || url.username || url.password || url.hash || url.searchParams.getAll('code').length !== 1) return null;
+      || url.username || url.password || url.hash || url.searchParams.getAll('code').length !== 1
+      || url.searchParams.getAll('sb_flow_id').length !== 1) return null;
     const code = url.searchParams.get('code');
-    return code && code.length <= 2048 ? code : null;
+    const flowId = url.searchParams.get('sb_flow_id');
+    return code && code.length <= 2048 && flowId && /^[a-zA-Z0-9_-]{8,64}$/.test(flowId) ? {code, flowId} : null;
   } catch { return null; }
+}
+
+export const normalizeUsernameInput = (value: string): string => value.trim().toLowerCase();
+export const normalizeUsernameSuffix = (value: string): string => value.trim().toLowerCase()
+  .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 16);
+
+export type UsernameOptions = Readonly<{available: boolean; suggestions: string[]; rateLimited: boolean}>;
+export function parseUsernameOptions(value: unknown): UsernameOptions {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid-username-options');
+  const candidate = value as Record<string, unknown>;
+  if (Object.keys(candidate).some(key => !['available', 'suggestions', 'rateLimited'].includes(key))
+    || typeof candidate.available !== 'boolean' || typeof candidate.rateLimited !== 'boolean'
+    || !Array.isArray(candidate.suggestions)
+    || candidate.suggestions.some(item => typeof item !== 'string' || !/^[a-z0-9_]{3,24}$/.test(item))) {
+    throw new Error('invalid-username-options');
+  }
+  return { available: candidate.available, suggestions: [...candidate.suggestions] as string[], rateLimited: candidate.rateLimited };
+}
+
+export function recoveryFailureMessage(reason: 'invalid' | 'expired' | string): string {
+  if (reason === 'invalid') return 'That recovery link cannot be used here. Request a fresh link on this device.';
+  if (reason === 'expired') return 'That recovery link expired or could not be verified. Please request another.';
+  return 'Recovery could not finish. Please request a fresh link.';
 }
 
 export function publicConfig(url: string, key: string): {url: string; key: string} | null {

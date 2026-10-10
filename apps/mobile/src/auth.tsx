@@ -2,12 +2,60 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import type { User } from '@supabase/supabase-js';
-import { RECOVERY_KEY, secureStorage, supabase } from './client';
-import { authNeedsLoading, parseRecoveryCallback, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
+import { RECOVERY_ACTIVE_KEY, RECOVERY_KEY, secureStorage, supabase } from './client';
+import { authNeedsLoading, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
 import { transitionServiceDraftOwner } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
 export const serviceDraftCleanupNotice = 'Device drafts from the previous account could not be cleared. Sign out before sharing this device.';
+const authCallbackUrl = 'strandcue://auth/callback';
+
+type RecoveryAuth = {
+  exchangeCodeForSession: (code: string, options: {flowId: string}) => Promise<{data: {session?: unknown; redirectType?: string}; error: unknown}>;
+  signOut: (options: {scope: 'local'}) => Promise<unknown>;
+};
+
+type RecoveryOutcome = {status: 'ready'} | {status: 'failed'; reason: 'invalid' | 'expired'};
+
+export function createRecoveryCallbackGate() {
+  let completed: RecoveryOutcome | null = null;
+  let inFlight: Promise<RecoveryOutcome> | null = null;
+  return {
+    run(operation: () => Promise<RecoveryOutcome>): Promise<RecoveryOutcome> {
+      if (completed) return Promise.resolve(completed);
+      if (inFlight) return inFlight;
+      inFlight = operation().then(result => {
+        if (result.status === 'ready') completed = result;
+        return result;
+      }).finally(() => { inFlight = null; });
+      return inFlight;
+    },
+    reset() { completed = null; inFlight = null; },
+  };
+}
+
+const recoveryCallbackGate = createRecoveryCallbackGate();
+
+export async function completeRecoveryCallback(options: {
+  url: string;
+  pending: boolean;
+  auth: RecoveryAuth;
+  removeRecoveryMarker: () => Promise<void>;
+}): Promise<RecoveryOutcome> {
+  const callback = parseRecoveryCallback(options.url, options.pending);
+  if (!callback) {
+    await options.removeRecoveryMarker();
+    await options.auth.signOut({scope: 'local'});
+    return {status: 'failed', reason: 'invalid'};
+  }
+  const {data, error} = await options.auth.exchangeCodeForSession(callback.code, {flowId: callback.flowId});
+  await options.removeRecoveryMarker();
+  if (error || data.redirectType !== 'recovery' || !data.session) {
+    await options.auth.signOut({scope: 'local'});
+    return {status: 'failed', reason: 'expired'};
+  }
+  return {status: 'ready'};
+}
 
 export function useAccount() {
   const [user, setUser] = useState<User | null>(null);
@@ -15,11 +63,13 @@ export function useAccount() {
   const [recovery, setRecovery] = useState(false);
   const [notice, setNotice] = useState('');
   const verifiedUser = useRef<User | null>(null);
+  const recoveryRef = useRef(false);
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
     let mounted = true;
     let epoch = 0;
+    let initialLinkChecked = false;
     const refresh = (hideExisting = false) => {
       const request = ++epoch;
       setLoading(hideExisting || authNeedsLoading(!!verifiedUser.current));
@@ -43,7 +93,6 @@ export function useAccount() {
         }
       });
     };
-    refresh();
     const {data: {subscription}} = client.auth.onAuthStateChange(event => {
       if (event === 'SIGNED_OUT') {
         const request = ++epoch;
@@ -51,7 +100,7 @@ export function useAccount() {
         void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
           if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
         });
-      } else setTimeout(() => { if (mounted) refresh(event === 'SIGNED_IN'); }, 0);
+      } else setTimeout(() => { if (mounted && initialLinkChecked && !recoveryRef.current) refresh(event === 'SIGNED_IN'); }, 0);
     });
     const state = AppState.addEventListener('change', value => {
       if (value === 'active') client.auth.startAutoRefresh(); else client.auth.stopAutoRefresh();
@@ -60,23 +109,64 @@ export function useAccount() {
     const callback = async (url: string) => {
       if (processing) return;
       processing = true;
+      // Exchanging the recovery code emits SIGNED_IN before the promise resolves.
+      // Gate normal profile routing for the whole exchange, not only afterwards.
+      recoveryRef.current = true;
       try {
+        if (await secureStorage.getItem(RECOVERY_ACTIVE_KEY) === '1') {
+          if (mounted) {setRecovery(true); setLoading(false); setNotice('');}
+          return;
+        }
         const raw = await secureStorage.getItem(RECOVERY_KEY);
         const started = raw ? Number(raw) : 0;
-        const code = parseRecoveryCallback(url, started > 0 && Date.now() - started < 3_600_000 && Date.now() >= started);
-        if (!code) { if (mounted) setNotice('That recovery link cannot be used here. Request a fresh link on this device.'); return; }
-        const {data, error} = await client.auth.exchangeCodeForSession(code);
-        await secureStorage.removeItem(RECOVERY_KEY);
-        if (error || !('redirectType' in data) || data.redirectType !== 'recovery' || !data.session) { if (mounted) setNotice('That recovery link expired or could not be verified. Please request another.'); return; }
-        if (mounted) {setRecovery(true); setNotice('');}
-      } catch { if (mounted) setNotice('Recovery could not finish. Please request a fresh link.'); }
+        const outcome = await recoveryCallbackGate.run(() => completeRecoveryCallback({
+          url,
+          pending: started > 0 && Date.now() - started < 3_600_000 && Date.now() >= started,
+          auth: client.auth,
+          removeRecoveryMarker: () => secureStorage.removeItem(RECOVERY_KEY),
+        }));
+        if (outcome.status === 'failed') {
+          recoveryRef.current = false;
+          verifiedUser.current = null;
+          if (mounted) { setUser(null); setRecovery(false); setLoading(false); setNotice(recoveryFailureMessage(outcome.reason)); }
+          return;
+        }
+        await secureStorage.setItem(RECOVERY_ACTIVE_KEY, '1');
+        if (mounted) {setRecovery(true); setLoading(false); setNotice('');}
+      } catch {
+        recoveryRef.current = false;
+        await secureStorage.removeItem(RECOVERY_KEY).catch(() => undefined);
+        await client.auth.signOut({scope: 'local'}).catch(() => undefined);
+        if (mounted) { setUser(null); setRecovery(false); setLoading(false); setNotice(recoveryFailureMessage('failure')); }
+      }
       finally { processing = false; }
     };
-    void Linking.getInitialURL().then(url => {if (url?.startsWith('strandcue://auth/')) void callback(url);});
+    void secureStorage.getItem(RECOVERY_ACTIVE_KEY).then(async active => {
+      if (!mounted) return;
+      if (active === '1') {
+        recoveryRef.current = true;
+        initialLinkChecked = true;
+        setRecovery(true);
+        setLoading(false);
+        return;
+      }
+      const url = await Linking.getInitialURL();
+      if (!mounted) return;
+      if (url?.startsWith('strandcue://auth/')) await callback(url);
+      else refresh();
+      initialLinkChecked = true;
+    }).catch(() => {
+      if (mounted) { initialLinkChecked = true; refresh(); }
+    });
     const links = Linking.addEventListener('url', ({url}) => { void callback(url); });
     return () => {mounted = false; ++epoch; subscription.unsubscribe(); state.remove(); links.remove();};
   }, []);
-  return {user, loading, recovery, notice, finishRecovery: () => setRecovery(false)};
+  return {user, loading, recovery, notice, finishRecovery: () => {
+    recoveryCallbackGate.reset();
+    recoveryRef.current = false;
+    void secureStorage.removeItem(RECOVERY_ACTIVE_KEY);
+    setRecovery(false);
+  }};
 }
 
 export function AuthScreen({notice = ''}: {notice?: string}) {
@@ -97,11 +187,15 @@ export function AuthScreen({notice = ''}: {notice?: string}) {
     try {
       if (mode === 'recovery') {
         await secureStorage.setItem(RECOVERY_KEY, String(Date.now()));
-        const {error} = await supabase.auth.resetPasswordForEmail(email.trim(), {redirectTo: 'strandcue://auth/callback'});
+        const {error} = await supabase.auth.resetPasswordForEmail(email.trim(), {redirectTo: authCallbackUrl});
         if (error) throw error;
         setMessage('If that account exists, a recovery email is on its way. Open the link on this device.');
       } else if (mode === 'signup') {
-        const {error} = await supabase.auth.signUp({email: email.trim(), password});
+        const {error} = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {emailRedirectTo: authCallbackUrl},
+        });
         if (error) throw error;
         setMessage('Check your email to confirm your account, then sign in here.');
         setMode('signin'); setPassword('');

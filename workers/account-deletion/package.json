@@ -1,0 +1,23 @@
+{
+  "name": "@strandcue/account-deletion-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npm run check:boundaries && npm run typecheck && wrangler deploy --dry-run --config wrangler.jsonc",
+    "check:boundaries": "node scripts/check-package-boundaries.mjs",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "deploy": "wrangler deploy --config wrangler.jsonc"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.116.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "~6.0.3",
+    "wrangler": "4.148.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5"
+  }
+}

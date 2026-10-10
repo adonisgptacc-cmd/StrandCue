@@ -1,0 +1,116 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ScrollView, Text, View } from 'react-native';
+import * as Crypto from 'expo-crypto';
+import { secureStorage } from '../client';
+import {
+  downloadExport,
+  exportStatusMessage,
+  recentAuthMessage,
+  requestExport,
+  statusExport,
+  type ExportStatus,
+  type ExportFormat,
+} from '../export-api';
+import { ExportDeliveryError, shareExportDownload } from '../export-delivery';
+import { Button, Choice, styles } from '../ui';
+
+
+const lastJobKey = (owner: string) => `strandcue-export-last-${owner}`;
+
+export function ExportScreen({ owner }: { owner: string }) {
+  return <OwnerExportScreen key={owner} owner={owner} />;
+}
+
+function OwnerExportScreen({ owner }: { owner: string }) {
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [status, setStatus] = useState<ExportStatus | null>(null);
+  const [format, setFormat] = useState<ExportFormat>('json');
+  const [operationId, setOperationId] = useState(() => Crypto.randomUUID());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const alive = useRef(true);
+  const generation = useRef(0);
+  const loadStatus = useCallback((id: string) => {
+    const request = ++generation.current;
+    return statusExport(id).then(next => {
+      if (alive.current && request === generation.current) setStatus(next);
+    }, (caught: unknown) => {
+      if (alive.current && request === generation.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Export status could not be loaded.'));
+    }).finally(() => { if (alive.current && request === generation.current) setBusy(false); });
+  }, []);
+  const refresh = useCallback((id: string) => {
+    setBusy(true); setError('');
+    return loadStatus(id);
+  }, [loadStatus]);
+  const invalidate = useCallback(() => {
+    alive.current = false;
+    ++generation.current;
+  }, []);
+  useEffect(() => {
+    alive.current = true;
+    let cancelled = false;
+    void secureStorage.getItem(lastJobKey(owner)).then(saved => {
+      if (!cancelled && alive.current && saved) {
+        setJobId(saved);
+        void refresh(saved);
+      }
+    }).catch(() => {
+      if (!cancelled && alive.current) setError('The last export could not be restored from this device. Please try again.');
+    });
+    return () => { cancelled = true; invalidate(); };
+  }, [owner, refresh, invalidate]);
+
+  const request = async () => {
+    setBusy(true); setError('');
+    try {
+      // The same operation ID is reused while this screen lives so an
+      // interrupted request retries identically instead of duplicating.
+      // Changing format starts a new operation so payloads never mismatch.
+      const receipt = await requestExport(operationId, format);
+      if (!alive.current) return;
+      setJobId(receipt.jobId);
+      await secureStorage.setItem(lastJobKey(owner), receipt.jobId);
+      if (alive.current) await refresh(receipt.jobId);
+    } catch (caught) {
+      if (!alive.current) return;
+      setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Export could not be requested.'));
+      setOperationId(Crypto.randomUUID());
+    } finally { if (alive.current) setBusy(false); }
+  };
+
+  const download = async () => {
+    if (!jobId) return;
+    setBusy(true); setError('');
+    try {
+      const exportDownload = await downloadExport(jobId);
+      await shareExportDownload(exportDownload);
+      if (alive.current) setError('');
+    } catch (caught) {
+      if (alive.current) setError(caught instanceof ExportDeliveryError
+        ? caught.message
+        : recentAuthMessage((caught as { message?: string })?.message ?? 'Download failed. Please try again.'));
+    } finally { if (alive.current) setBusy(false); }
+  };
+
+  return <ScrollView style={styles.page} contentContainerStyle={styles.content}>
+    <View style={styles.card}>
+      <Text style={styles.heading}>Export your data</Text>
+      <Text style={styles.body}>Download a complete copy of your record: Hair Passport and history, chemical services, activities, shelf, tools and catalogue facts. Exports are private to you.</Text>
+      <Text style={styles.body}>Download access expires after 24 hours. Export files are removed within 7 days.</Text>
+    </View>
+    <Choice label="Export format" value={format} options={['json', 'csv']} disabled={busy}
+      onChange={value => { setFormat(value as ExportFormat); setOperationId(Crypto.randomUUID()); }} />
+    <Button title={busy ? 'Working…' : jobId ? 'Request a new export' : 'Create export'} disabled={busy} onPress={() => void request()} />
+    {!!jobId && <View style={styles.card}>
+      <Text style={styles.heading}>Latest export</Text>
+      {status
+        ? <Text style={styles.body}>{exportStatusMessage(status)}</Text>
+        : <Text style={styles.body}>Status not loaded yet.</Text>}
+      <Button title="Refresh status" secondary disabled={busy} onPress={() => void refresh(jobId)} />
+      {status?.status === 'completed' && <Button title="Download export" disabled={busy} onPress={() => void download()} />}
+    </View>}
+    {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+  </ScrollView>;
+}
+
+export default ExportScreen;

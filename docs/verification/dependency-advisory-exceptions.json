@@ -3,16 +3,37 @@
     "advisoryId": "GHSA-vcc3-ghjq-m6fr",
     "packages": [
       {
-        "path": ["decode-uri-component"],
-        "surfaces": ["android", "production", "web"]
+        "path": [
+          "decode-uri-component"
+        ],
+        "surfaces": [
+          "android",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["query-string", "decode-uri-component"],
-        "surfaces": ["android", "production", "web"]
+        "path": [
+          "query-string",
+          "decode-uri-component"
+        ],
+        "surfaces": [
+          "android",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["expo-router", "query-string", "decode-uri-component"],
-        "surfaces": ["android", "production", "web"]
+        "path": [
+          "expo-router",
+          "query-string",
+          "decode-uri-component"
+        ],
+        "surfaces": [
+          "android",
+          "production",
+          "web"
+        ]
       }
     ],
     "severity": "moderate",
@@ -20,123 +41,767 @@
     "assessment": "expo-router reaches decode-uri-component through query-string, and route or callback parsing may process attacker-controlled encoded input in production.",
     "mitigation": "Strict callback and route allowlisting reduces exposure but is only a partial mitigation and does not fix the vulnerable decoder.",
     "owner": "StrandCue maintainer",
-    "approvedOn": "2026-09-13",
-    "reviewOn": "2026-09-27",
-    "expiresOn": "2026-10-13",
+    "approvedOn": "2026-10-06",
+    "reviewOn": "2026-11-05",
+    "expiresOn": "2026-12-05",
     "upgradePath": "Upgrade expo-router or query-string to a compatible release that removes the affected decode-uri-component version, then remove this exception."
   },
   {
     "advisoryId": "GHSA-w5hq-g745-h8pq",
     "packages": [
       {
-        "path": ["uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "@expo/inline-modules",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "@expo/local-build-cache-provider",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "@expo/prebuild-config",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "@expo/prebuild-config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "ios-build-tooling"
+        ]
       },
       {
-        "path": ["@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "expo-sharing",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/inline-modules",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro-config",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/prebuild-config",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/prebuild-config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["expo", "@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
+        "path": [
+          "expo",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["expo", "@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
+        "path": [
+          "expo",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["expo", "@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
+        "path": [
+          "expo",
+          "@expo/local-build-cache-provider",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["expo", "@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
+        "path": [
+          "expo",
+          "@expo/metro-config",
+          "@expo/config",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
       }
     ],
     "severity": "moderate",
     "reachable": "no",
-    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Ten signatures rooted at the direct Expo application dependency are conservatively classified across Android, web, production, and iOS build tooling; the remaining fifteen signatures are iOS build tooling only. The affected UUID call remains in iOS configuration code rather than the Android or web application runtime.",
+    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Eleven signatures rooted at direct mobile/runtime dependencies are conservatively classified across Android, web, production, and iOS build tooling, including expo-sharing's config-plugin path; the remaining eight signatures are iOS build tooling only. The affected UUID call remains in iOS configuration code rather than the Android or web application runtime.",
     "mitigation": "Phase 1 excludes the affected iOS configuration path; this scope boundary limits current reachability but is not a dependency fix.",
     "owner": "StrandCue maintainer",
-    "approvedOn": "2026-09-13",
-    "reviewOn": "2026-09-27",
-    "expiresOn": "2026-10-13",
+    "approvedOn": "2026-10-06",
+    "reviewOn": "2026-11-05",
+    "expiresOn": "2026-12-05",
     "upgradePath": "Upgrade Expo's xcode tooling to a compatible release using a fixed uuid version, then remove this exception."
+  },
+  {
+    "advisoryId": "GHSA-vfj7-8cjw-p6xm",
+    "packages": [
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro",
+          "metro-transform-worker",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro-transform-worker",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro",
+          "metro-transform-worker",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/metro-config",
+          "@expo/metro",
+          "metro-transform-worker",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "@react-native/metro-config",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-reanimated",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "@react-native/metro-config",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-reanimated",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-reanimated",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-reanimated",
+          "react-native-worklets",
+          "@react-native/metro-config",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-reanimated",
+          "react-native-worklets",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "@react-native/metro-config",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-reanimated",
+          "react-native-worklets",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-reanimated",
+          "react-native-worklets",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-worklets",
+          "@react-native/metro-config",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-worklets",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "@react-native/metro-config",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-worklets",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "react-native-worklets",
+          "react-native",
+          "@react-native/community-cli-plugin",
+          "metro-config",
+          "metro",
+          "metro-file-map",
+          "micromatch",
+          "braces"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      }
+    ],
+    "severity": "high",
+    "reachable": "no",
+    "scope": "expo-build-tooling",
+    "assessment": "The affected braces parser is present only in Metro and Expo CLI dependency paths used while building or bundling; application source does not import it and the signed APK contains no Node package tree.",
+    "mitigation": "Keep build inputs and configuration trusted, run builds in controlled CI, and reject any observed Android, web, production, mixed, or newly introduced dependency path.",
+    "owner": "StrandCue maintainer",
+    "approvedOn": "2026-10-06",
+    "reviewOn": "2026-11-05",
+    "expiresOn": "2026-12-05",
+    "upgradePath": "Upgrade Expo, React Native, or Metro when their compatible dependency graph removes the affected braces release, then remove this exception."
+  },
+  {
+    "advisoryId": "GHSA-86w9-cpqp-85rv",
+    "packages": [
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "@expo/code-signing-certificates",
+          "node-forge"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/cli",
+          "node-forge"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      }
+    ],
+    "severity": "high",
+    "reachable": "no",
+    "scope": "expo-build-tooling",
+    "assessment": "The affected node-forge signature verifier is present only in Expo CLI and Expo code-signing certificate tooling; application source does not import it and the signed APK contains no Node package tree.",
+    "mitigation": "Keep certificate and build inputs trusted, run builds in controlled CI, and reject any observed Android, web, production, mixed, or newly introduced dependency path.",
+    "owner": "StrandCue maintainer",
+    "approvedOn": "2026-10-06",
+    "reviewOn": "2026-11-05",
+    "expiresOn": "2026-12-05",
+    "upgradePath": "Upgrade Expo CLI and @expo/code-signing-certificates when they remove the affected node-forge release, then remove this exception."
   }
 ]

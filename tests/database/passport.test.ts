@@ -20,10 +20,36 @@ describe('PostgreSQL ownership and immutable Passport transactions', () => {
     await expect(complete(db)).rejects.toThrow(/email-not-verified/);
     await asUser(db, USER_A);
     await expect(complete(db, 'user_a', false)).rejects.toThrow(/eligibility-required/);
-    await expect(complete(db, 'admin')).rejects.toThrow(/invalid-username/);
+    // Reserved names raise reserved-username since the 2026-09-24 username
+    // migration split them from malformed names per the product authority.
+    await expect(complete(db, 'admin')).rejects.toThrow(/invalid-username|reserved-username/);
     expect(await complete(db, '  Private_A  ')).toMatchObject({ userId: USER_A, username: 'private_a', country: 'ZA' });
     await asUser(db, USER_B);
     await expect(complete(db, 'PRIVATE_A')).rejects.toThrow(/username-unavailable/);
+  });
+
+  it('offers minimal username availability and checked neutral plus personalized suggestions only to verified users', async () => {
+    await complete(db, 'mark');
+    await asUser(db, USER_B);
+    const result = (await db.query<{ result: { available: boolean; suggestions: string[] } }>(
+      'select public.username_options($1,$2) result', ['Mark', 'ZA curls!'],
+    )).rows[0].result;
+    expect(result.available).toBe(false);
+    expect(result.suggestions).toHaveLength(6);
+    expect(result.suggestions).toContain('mark_za_curls');
+    expect(result.suggestions.every(value => value !== 'mark')).toBe(true);
+    await asUser(db, UNVERIFIED);
+    await expect(db.query('select public.username_options($1,$2)', ['mark', null])).rejects.toThrow(/email-not-verified/);
+    await asUser(db, null);
+    await expect(db.query('select public.username_options($1,$2)', ['mark', null])).rejects.toThrow(/permission denied/);
+  });
+
+  it('reports an existing username as available to its original owner', async () => {
+    await complete(db, 'mark');
+    const result = (await db.query<{ result: { available: boolean; suggestions: string[] } }>(
+      'select public.username_options($1,$2) result', ['MARK', null],
+    )).rows[0].result;
+    expect(result).toEqual({ available: true, suggestions: [], rateLimited: false });
   });
 
   it('denies direct writes, owner reassignment and access to another owner', async () => {

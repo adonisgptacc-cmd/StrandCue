@@ -1,3 +1,5 @@
+> **SUPERSEDED by `phase-1-reconciliation.md` on 23 September 2026.** This file is retained as historical evidence and must not be used for current release status.
+
 # Phase 1 acceptance status — 11 September 2026
 
 Release status: **HOLD**. This matrix records evidence for the current account/Passport foundation. “Partial” means some contract-level behaviour is implemented and tested, but the complete acceptance case has not run through its required production-like surface.

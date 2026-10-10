@@ -27,7 +27,7 @@ function runNpmAudit(): Promise<NpmAuditExecution> {
   return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
-      [npmExecPath, 'audit', '--omit=dev', '--json'],
+      [npmExecPath, 'audit', '--include=dev', '--json'],
       {
         encoding: 'utf8',
         maxBuffer: MAX_AUDIT_OUTPUT_BYTES,

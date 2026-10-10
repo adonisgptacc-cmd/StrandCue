@@ -1,0 +1,68 @@
+name: Android build (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_profile:
+        description: Reviewed EAS build profile (no automatic store submission)
+        required: true
+        default: preview
+        type: choice
+        options: [preview, release, playInternal]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: release-readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run verify
+      - name: Verify release App Links before requesting a signed release build
+        if: inputs.build_profile != 'preview'
+        env:
+          STRANDCUE_ANDROID_CERT_SHA256: ${{ vars.STRANDCUE_ANDROID_CERT_SHA256 }}
+        run: npm run check:release-links
+
+  build-android:
+    name: signed-android-build
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: android-release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Build selected Android profile using configured remote credentials
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+        run: |
+          set -euo pipefail
+          case "$BUILD_PROFILE" in preview|release|playInternal) ;; *) exit 1 ;; esac
+          test -n "$EXPO_TOKEN"
+          npx --yes eas-cli@24.10.0 build --platform android --profile "$BUILD_PROFILE" --non-interactive --wait --json > eas-build-result.json
+      - name: Retain build metadata (EAS hosts the signed binary)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-build-${{ github.sha }}
+          path: apps/mobile/eas-build-result.json
+          if-no-files-found: error
+          retention-days: 7

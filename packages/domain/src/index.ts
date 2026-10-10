@@ -1,3 +1,4 @@
+export * from './activity.ts';
 export * from './dates.ts';
 export * from './passport.ts';
 export {
@@ -40,3 +41,5 @@ export {
   type ServiceType,
   type ServiceZone,
 } from './services.ts';
+export * from './shelf.ts';
+export * from './tools.ts';

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BASELINE, DAY } from './harness.ts';
+import { processAccountDeletion } from '../../scripts/account-deletion-worker.ts';
 
 const enabled = process.env.STRANDCUE_SUPABASE_API_TEST === '1';
 const describeLocal = enabled ? describe : describe.skip;
@@ -86,6 +87,42 @@ describeLocal('local Supabase Auth and PostgREST permissions', () => {
     });
     const anonymousRead = await anonymous.from('profiles').select('user_id');
     expect(anonymousRead.error?.code).toBe('42501');
+  });
+
+  it('hard deletes Auth, denies old JWT recreation and invalidates refresh tokens', async () => {
+    const options={auth:{persistSession:false,autoRefreshToken:false}};
+    const email=`strandcue-deletion-${suffix}@example.test`;
+    const created=await admin.auth.admin.createUser({email,password,email_confirm:true});
+    expect(created.error).toBeNull();
+    const id=created.data.user!.id;
+    ids.push(id);
+    const owner=createClient(url,publishableKey,options);
+    const login=await owner.auth.signInWithPassword({email,password});
+    expect(login.error).toBeNull();
+    const session=login.data.session!;
+    const safeAmr=(JSON.parse(Buffer.from(session.access_token.split('.')[1],'base64url').toString()) as {amr:unknown}).amr;
+    expect(safeAmr).toEqual(expect.arrayContaining([expect.objectContaining({method:'password',timestamp:expect.any(Number)})]));
+    expect((await owner.rpc('complete_account',{p_username:`api_del_${suffix}`,p_eligible:true})).error).toBeNull();
+    for(const name of ['deletion_worker_claim','deletion_purge','deletion_reapply','export_retention_cleanup']) {
+      const args=name==='deletion_worker_claim'?{p_lease:crypto.randomUUID()}:{};
+      expect((await owner.rpc(name,args)).error?.code).toBe('42501');
+    }
+    expect((await owner.rpc('deletion_request',{p_operation_id:crypto.randomUUID(),p_reason:null})).error).toBeNull();
+    expect((await owner.rpc('get_passport',{p_as_of:'2026-09-01'})).error?.code).toBe('42501');
+    const workers=await Promise.all([processAccountDeletion(admin),processAccountDeletion(admin)]);
+    expect([...workers].sort()).toEqual(['deleted','idle']);
+    expect((await admin.auth.admin.getUserById(id)).error).not.toBeNull();
+    // Use captured access JWT directly; no refresh or local auth-state change
+    // may disguise the database tombstone guard's actual behavior.
+    const old=createClient(url,publishableKey,{...options,global:{headers:{Authorization:`Bearer ${session.access_token}`}}});
+    const recreated=await old.rpc('complete_account',{p_username:`api_del_${suffix}`,p_eligible:true});
+    expect(recreated.error?.code).toBe('42501');
+    expect(recreated.error?.message).toMatch(/account-deleted/);
+    expect((await old.from('profiles').select('user_id')).data).toEqual([]);
+    const refresh=await owner.auth.refreshSession({refresh_token:session.refresh_token});
+    expect(refresh.error).not.toBeNull();
+    expect((await userB.from('profiles').select('user_id')).data).toEqual([{user_id:userBId}]);
+    expect(await processAccountDeletion(admin)).toBe('idle');
   });
 
   it('denies direct writes and preserves retry-safe owner mutations through RPC', async () => {

@@ -15,7 +15,10 @@ const componentMocks = vi.hoisted(() => ({
   loadService: vi.fn(),
   loadServices: vi.fn(),
   randomUUID: vi.fn(() => '30000000-0000-4000-8000-000000000001'),
+  resetPasswordForEmail: vi.fn(),
+  rpc: vi.fn(),
   savePassport: vi.fn(),
+  signUp: vi.fn(),
   storage: {
     getItem: vi.fn(),
     removeItem: vi.fn(),
@@ -49,14 +52,20 @@ vi.mock('expo-linking', () => ({
 }));
 
 vi.mock('expo-crypto', () => ({ randomUUID: componentMocks.randomUUID }));
+vi.mock('../../apps/mobile/src/export-delivery.ts', () => ({ ExportDeliveryError: class extends Error {}, shareExportDownload: vi.fn() }));
 
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   RECOVERY_KEY: 'strandcue-recovery',
   secureStorage: componentMocks.storage,
   supabase: {
+    auth: {
+      resetPasswordForEmail: componentMocks.resetPasswordForEmail,
+      signUp: componentMocks.signUp,
+    },
     from: () => ({
       select: () => ({ maybeSingle: componentMocks.loadProfile }),
     }),
+    rpc: componentMocks.rpc,
   },
 }));
 
@@ -135,6 +144,8 @@ afterAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  componentMocks.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
+  componentMocks.signUp.mockResolvedValue({ data: { session: null, user: null }, error: null });
   componentMocks.storage.getItem.mockResolvedValue(null);
   componentMocks.storage.removeItem.mockResolvedValue(undefined);
   componentMocks.storage.setItem.mockResolvedValue(undefined);
@@ -143,9 +154,67 @@ beforeEach(() => {
     error: null,
   });
   componentMocks.loadPassport.mockResolvedValue(null);
+  componentMocks.rpc.mockResolvedValue({ data: { available: true, suggestions: [], rateLimited: false }, error: null });
 });
 
 describe('mobile component state contracts', () => {
+  it('renders the complete seven-section navigation for a signed-in profile', async () => {
+    const user = { id: ownerA, email_confirmed_at: '2026-09-01T00:00:00.000Z' } as User;
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Records, { user })); await Promise.resolve(); });
+    const labels = renderer.root.findAll(node => node.type === 'button').map(node => node.props.accessibilityLabel);
+    expect(labels).toEqual(expect.arrayContaining(['Passport', 'Services', 'Activities', 'Shelf', 'Tools', 'History', 'Settings']));
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('routes signup confirmation back into the StrandCue app', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(AuthScreen, { notice: '' })); });
+    const input = (label: string) => renderer.root.find(node =>
+      node.type === 'input' && node.props.accessibilityLabel === label,
+    );
+
+    await act(async () => {
+      input('Email').props.onChangeText('new.user@example.com');
+      input('Password').props.onChangeText('a-secure-password');
+      press(renderer, 'Confirm: I am 18 or older');
+    });
+    await act(async () => {
+      press(renderer, 'Create account');
+      await Promise.resolve();
+    });
+
+    expect(componentMocks.signUp).toHaveBeenCalledWith({
+      email: 'new.user@example.com',
+      password: 'a-secure-password',
+      options: { emailRedirectTo: 'strandcue://auth/callback' },
+    });
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('routes recovery email confirmation back into the StrandCue app', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(AuthScreen, { notice: '' })); });
+    const input = (label: string) => renderer.root.find(node =>
+      node.type === 'input' && node.props.accessibilityLabel === label,
+    );
+
+    await act(async () => { press(renderer, 'Already have an account? Sign in'); });
+    await act(async () => { press(renderer, 'Forgot password?'); });
+    await act(async () => { input('Email').props.onChangeText('recover.user@example.com'); });
+    await act(async () => {
+      press(renderer, 'Send recovery link');
+      await Promise.resolve();
+    });
+
+    expect(componentMocks.resetPasswordForEmail).toHaveBeenCalledWith(
+      'recover.user@example.com',
+      { redirectTo: 'strandcue://auth/callback' },
+    );
+    expect(componentMocks.storage.setItem).toHaveBeenCalledWith('strandcue-recovery', expect.any(String));
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('shows the same renewed external cleanup warning after it was locally dismissed', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(createElement(AuthScreen, { notice: '' })); });
@@ -271,5 +340,47 @@ describe('mobile component state contracts', () => {
     expect(text.indexOf('nanoplasty')).toBeLessThan(text.indexOf('keratin'));
     expect(componentMocks.loadServices).toHaveBeenNthCalledWith(2, expect.any(String), { cursor: nextCursor });
     await act(async () => { renderer.unmount(); });
+  });
+
+  it('debounces username availability and offers neutral plus personalized checked suggestions', async () => {
+    vi.useFakeTimers();
+    componentMocks.loadProfile.mockResolvedValue({ data: null, error: null });
+    componentMocks.rpc.mockResolvedValue({
+      data: { available: false, suggestions: ['mark_za_curls', 'mark_2', 'mark_3'], rateLimited: false }, error: null,
+    });
+    const user = { id: ownerA, email_confirmed_at: '2026-09-01T00:00:00.000Z' } as User;
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Records, { user })); await Promise.resolve(); });
+    const input = (label: string) => renderer.root.find(node => node.type === 'input' && node.props.accessibilityLabel === label);
+    await act(async () => {
+      input('Username').props.onChangeText('Mark');
+      input('Optional personal suffix').props.onChangeText('ZA curls!');
+    });
+    expect(componentMocks.rpc).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(componentMocks.rpc).toHaveBeenCalledTimes(1);
+    expect(componentMocks.rpc).toHaveBeenCalledWith('username_options', { p_username: 'mark', p_suffix: 'za_curls' });
+    expect(renderedText(renderer)).toContain('is already taken.');
+    expect(renderedText(renderer)).toContain('Use @mark_za_curls');
+    await act(async () => { renderer.unmount(); });
+    vi.useRealTimers();
+  });
+
+  it('reports a throttled username check accurately instead of claiming availability or a collision', async () => {
+    vi.useFakeTimers();
+    componentMocks.loadProfile.mockResolvedValue({ data: null, error: null });
+    componentMocks.rpc.mockResolvedValue({ data: { available: true, suggestions: [], rateLimited: true }, error: null });
+    const user = { id: ownerA, email_confirmed_at: '2026-09-01T00:00:00.000Z' } as User;
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Records, { user })); await Promise.resolve(); });
+    const input = renderer.root.find(node => node.type === 'input' && node.props.accessibilityLabel === 'Username');
+    await act(async () => { input.props.onChangeText('mark'); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    const text = renderedText(renderer);
+    expect(text).toContain('Too many username checks');
+    expect(text).not.toContain('is available.');
+    expect(text).not.toContain('is already taken.');
+    await act(async () => { renderer.unmount(); });
+    vi.useRealTimers();
   });
 });

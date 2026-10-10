@@ -3,7 +3,26 @@
     "name": "StrandCue", "slug": "strandcue", "scheme": "strandcue", "version": "0.1.0",
     "orientation": "portrait", "userInterfaceStyle": "light",
     "platforms": ["android", "web"],
+    "ios": {"supportsTablet": true},
+    "android": {
+      "package": "za.co.strandcue.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "strandcue.adonisgptacc.workers.dev",
+              "pathPrefix": "/auth"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
     "web": {"bundler": "metro", "output": "single"},
-    "plugins": ["expo-router", "expo-secure-store"]
+    "plugins": ["expo-router", "expo-secure-store"],
+    "extra": {"eas": {"projectId": "de98e7bc-f21a-452b-a87c-18bfe2c8e9e6"}}
   }
 }

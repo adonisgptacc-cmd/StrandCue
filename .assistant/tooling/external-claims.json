@@ -9,8 +9,8 @@
   {
     "id": "supabase-functions",
     "source": "https://supabase.com/docs/guides/database/functions",
-    "checked_at": "2026-09-09",
-    "review_after": "2026-10-09",
+    "checked_at": "2026-10-10",
+    "review_after": "2026-11-10",
     "claim": "Functions require deliberate privileges and explicit grants; implementation must test ownership."
   }
 ]
