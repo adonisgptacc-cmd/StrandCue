@@ -19,6 +19,6 @@ The policy therefore records both advisories as `reachable: no` for the shipped 
 
 ## Controls and expiry
 
-Build inputs and configuration must remain trusted, and release builds must run in controlled CI. The exceptions were approved on 6 October 2026, require review by 5 November 2026, and expire on 5 December 2026. Stale UUID/Xcode paths were removed when the 7 October audit no longer observed them. The remaining exceptions must be removed when compatible Expo, React Native, or Metro releases remove the affected transitive versions.
+Build inputs and configuration must remain trusted, and release builds must run in controlled CI. The exceptions were approved on 6 October 2026, require review by 5 November 2026, and expire on 5 December 2026. Stale UUID/Xcode paths were removed when the 7 October audit no longer observed them. On 10 October, adding Expo Sharing for native export delivery reintroduced the reviewed `uuid` advisory only through `expo-sharing > @expo/config-plugins > xcode > uuid`; the policy records that exact path with the conservative Android, web, production, and iOS-build-tooling surface tuple while the affected call remains in iOS configuration tooling. The remaining exceptions must be removed when compatible Expo, React Native, Metro, or Expo Sharing releases remove the affected transitive versions.
 
 The policy does not hide the audit totals: a passing gate still reports the 19 high vulnerability nodes and four reviewed advisory records.

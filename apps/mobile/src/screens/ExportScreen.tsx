@@ -11,6 +11,7 @@ import {
   type ExportStatus,
   type ExportFormat,
 } from '../export-api';
+import { ExportDeliveryError, shareExportDownload } from '../export-delivery';
 import { Button, Choice, styles } from '../ui';
 
 
@@ -81,10 +82,13 @@ function OwnerExportScreen({ owner }: { owner: string }) {
     if (!jobId) return;
     setBusy(true); setError('');
     try {
-      await downloadExport(jobId);
+      const exportDownload = await downloadExport(jobId);
+      await shareExportDownload(exportDownload);
       if (alive.current) setError('');
     } catch (caught) {
-      if (alive.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Download failed.'));
+      if (alive.current) setError(caught instanceof ExportDeliveryError
+        ? caught.message
+        : recentAuthMessage((caught as { message?: string })?.message ?? 'Download failed. Please try again.'));
     } finally { if (alive.current) setBusy(false); }
   };
 

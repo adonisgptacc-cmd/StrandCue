@@ -52,6 +52,7 @@ vi.mock('expo-linking', () => ({
 }));
 
 vi.mock('expo-crypto', () => ({ randomUUID: componentMocks.randomUUID }));
+vi.mock('../../apps/mobile/src/export-delivery.ts', () => ({ ExportDeliveryError: class extends Error {}, shareExportDownload: vi.fn() }));
 
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   RECOVERY_KEY: 'strandcue-recovery',

@@ -135,6 +135,20 @@
       },
       {
         "path": [
+          "expo-sharing",
+          "@expo/config-plugins",
+          "xcode",
+          "uuid"
+        ],
+        "surfaces": [
+          "android",
+          "ios-build-tooling",
+          "production",
+          "web"
+        ]
+      },
+      {
+        "path": [
           "expo",
           "@expo/cli",
           "@expo/config",
@@ -294,7 +308,7 @@
     ],
     "severity": "moderate",
     "reachable": "no",
-    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Ten signatures rooted at the direct Expo application dependency are conservatively classified across Android, web, production, and iOS build tooling; the remaining fifteen signatures are iOS build tooling only. The affected UUID call remains in iOS configuration code rather than the Android or web application runtime.",
+    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Eleven signatures rooted at direct mobile/runtime dependencies are conservatively classified across Android, web, production, and iOS build tooling, including expo-sharing's config-plugin path; the remaining eight signatures are iOS build tooling only. The affected UUID call remains in iOS configuration code rather than the Android or web application runtime.",
     "mitigation": "Phase 1 excludes the affected iOS configuration path; this scope boundary limits current reachability but is not a dependency fix.",
     "owner": "StrandCue maintainer",
     "approvedOn": "2026-10-06",
