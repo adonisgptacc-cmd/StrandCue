@@ -4,6 +4,10 @@ StrandCue is a private cosmetic hair-care record for adults in South Africa. The
 
 This is a development integration, not a certified beta or production release. Code and migrations being present do not establish device acceptance, deployed security, or privacy compliance. Use synthetic data until the [acceptance gates](docs/verification/phase-1-acceptance-status.md) and [device matrix](docs/milestone7-device-matrix.md) are satisfied. Older verification reports describe their dated baselines, not the current tree.
 
+## Product authority
+
+The approved product authority is the [canonical product specification](docs/superpowers/specs/2026-10-10-canonical-product-spec.md) (v1.0, 10 October 2026). It supersedes conflicting product-scope statements in `docs/PHASE_1.md`, including sections 2 and 8 and acceptance criterion `P1-AC-23`. Older PRDs are historical inputs. Requirement coverage is tracked in the [requirement traceability matrix](docs/product/requirement-traceability.md).
+
 ## Start from a clean checkout
 
 Prerequisites: Git, Node **24.x** (see `.nvmrc`), npm bundled with Node, and Docker Desktop using Linux containers for the local backend. Run commands from the repository root. The Supabase CLI is pinned in the lockfile; a global installation is unnecessary.

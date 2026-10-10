@@ -1,5 +1,7 @@
 # StrandCue — Phase 1 Build Specification
 
+> **Historical delivery context — not current product authority.** This document specifies the earlier data-foundation release. It is governed by the approved [canonical product specification](docs/superpowers/specs/2026-10-10-canonical-product-spec.md) (v1.0, 10 October 2026), which supersedes conflicting scope statements here, including sections 2 and 8 and acceptance criterion `P1-AC-23`. Preserved unchanged as evidence of the foundation milestone.
+
 Version 2.0 • 9 September 2026 • Current implementation baseline
 
 Product authority: [StrandCue-PRD-v1.1-audit.md](../StrandCue-PRD-v1.1-audit.md) and [2026-09-23-strandcue-phase1-rebaseline-design.md](superpowers/specs/2026-09-23-strandcue-phase1-rebaseline-design.md).

@@ -1,24 +1,76 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const canonicalPrd = 'StrandCue-PRD-v1.1-audit.md';
-const expectedSha256 = '6579BD90E7AC420387071B07C6CB379472371CB1109FA4420DFBB6176618209B';
+const root = new URL('../..', import.meta.url);
+const read = (relativePath: string): string =>
+  readFileSync(new URL(relativePath, root), 'utf8');
 
-describe('Phase 1 product authority', () => {
-  it('keeps the approved 23 September PRD unchanged across checkout line endings', async () => {
-    const contents = (await readFile(canonicalPrd, 'utf8')).replaceAll('\r\n', '\n');
-    expect(createHash('sha256').update(contents, 'utf8').digest('hex').toUpperCase()).toBe(expectedSha256);
+const CANONICAL_SPEC_PATH =
+  'docs/superpowers/specs/2026-10-10-canonical-product-spec.md';
+const TRACEABILITY_PATH = 'docs/product/requirement-traceability.md';
+
+// Normalized-LF SHA-256 of the approved canonical specification (10 Oct 2026).
+// Recompute from the approved file after normalizing CRLF to LF; never copy
+// the digest of an older authority document.
+const EXPECTED_CANONICAL_DIGEST =
+  '9b414be1e85b18cb1d0fd46464b052c2b9acff825012f28a4d47c631ad02a6d7';
+
+const HISTORICAL_PRDS = [
+  'StrandCue-PRD.md',
+  'StrandCue-PRD-v2.md',
+  'StrandCue-PRD-v1.1-audit.md',
+] as const;
+
+function extractRequirementIds(spec: string): string[] {
+  const principles = [...spec.matchAll(/^\*\*(P-\d{2})\b/gm)].map(
+    match => match[1],
+  );
+  const requirements = [
+    ...spec.matchAll(
+      /^-\s\*\*((?:ID|HP|SH|TL|EN|TD|TR|CC|PH|WX|RA|RM|AI|SF|EV|CO|PR|PV|UX)-\d{2}):\*\*/gm,
+    ),
+  ].map(match => match[1]);
+  return [...principles, ...requirements];
+}
+
+function countTableRows(document: string, id: string): number {
+  const rows = document.match(new RegExp(`^\\|\\s*${id}\\s*\\|`, 'gm'));
+  return rows === null ? 0 : rows.length;
+}
+
+describe('canonical product authority', () => {
+  it('pins the approved canonical specification by normalized digest', () => {
+    const spec = read(CANONICAL_SPEC_PATH).replace(/\r\n/g, '\n');
+    expect(spec).toContain('Approved product authority');
+    const digest = createHash('sha256').update(spec, 'utf8').digest('hex');
+    expect(digest).toBe(EXPECTED_CANONICAL_DIGEST);
   });
 
-  it('points repository entry documents to the approved PRD and rebaseline design', async () => {
-    const [readme, phaseOne] = await Promise.all([
-      readFile('README.md', 'utf8'),
-      readFile('docs/PHASE_1.md', 'utf8'),
-    ]);
-    for (const document of [readme, phaseOne]) {
-      expect(document).toContain('StrandCue-PRD-v1.1-audit.md');
-      expect(document).toContain('2026-09-23-strandcue-phase1-rebaseline-design.md');
+  it('points README and PHASE_1 at the canonical specification path', () => {
+    expect(read('README.md')).toContain(CANONICAL_SPEC_PATH);
+    expect(read('docs/PHASE_1.md')).toContain(CANONICAL_SPEC_PATH);
+  });
+
+  it.each([...HISTORICAL_PRDS])(
+    'marks %s as a historical input without current authority',
+    file => {
+      const content = read(file);
+      expect(content).toMatch(/historical/i);
+      expect(content).toContain(CANONICAL_SPEC_PATH);
+      expect(content).not.toMatch(/authoritative working PRD/i);
+    },
+  );
+
+  it('lists every canonical requirement ID in traceability exactly once', () => {
+    const ids = extractRequirementIds(
+      read(CANONICAL_SPEC_PATH).replace(/\r\n/g, '\n'),
+    );
+    expect(ids.length).toBeGreaterThan(100);
+    expect(new Set(ids).size).toBe(ids.length);
+    const traceability = read(TRACEABILITY_PATH);
+    for (const id of ids) {
+      expect(countTableRows(traceability, id)).toBe(1);
     }
   });
 });

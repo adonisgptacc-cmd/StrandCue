@@ -1,6 +1,8 @@
 # StrandCue Product Requirements Document
 
-**Document status:** Authoritative working PRD
+> **Historical source — not current product authority.** This PRD is preserved as design evidence. The approved product authority is the [canonical product specification](docs/superpowers/specs/2026-10-10-canonical-product-spec.md) (v1.0, 10 October 2026). Its Phase 1 scope limits — including the recommendation-engine prohibition — are historical foundation constraints superseded by the canonical specification.
+
+**Document status:** Historical input — superseded as product authority
 **Version:** 1.1 — Revised Audit Edition
 **Date:** 23 September 2026
 **Primary market:** South Africa
@@ -14,7 +16,7 @@
 
 ## 3. Document Control & Change Log (v1.0 to v1.1)
 
-This document is the authoritative revision of StrandCue Product Requirements Document version 1.0. Version 1.1 is a strict superset of version 1.0: no section, requirement, principle, or non-goal from v1.0 has been removed, weakened, or reinterpreted. Every original section is either preserved verbatim, extended with audit subsections, or merged with adjacent sections to improve navigability. Fourteen new sections have been added to close gaps identified during the v1.0 audit. The audit was conducted across seven focus dimensions requested by the document owner: Roadmap & Risks, Metrics & KPIs, POPIA & Legal, Non-Functional Requirements & Operations, UX & Onboarding, Testing & CI, and Data Model Depth.
+This document was the authoritative revision of StrandCue Product Requirements Document version 1.0 at issue; it is now preserved as a historical input and no longer defines product authority. Version 1.1 is a strict superset of version 1.0: no section, requirement, principle, or non-goal from v1.0 has been removed, weakened, or reinterpreted. Every original section is either preserved verbatim, extended with audit subsections, or merged with adjacent sections to improve navigability. Fourteen new sections have been added to close gaps identified during the v1.0 audit. The audit was conducted across seven focus dimensions requested by the document owner: Roadmap & Risks, Metrics & KPIs, POPIA & Legal, Non-Functional Requirements & Operations, UX & Onboarding, Testing & CI, and Data Model Depth.
 
 The intent of v1.1 is not to change product direction. The intent is to convert a strong product vision document into an engineering- and compliance-ready specification that a development team, a security reviewer, a POPIA information officer, and a future AI coding agent can all rely on without ambiguity. Where v1.0 stated an aspiration, v1.1 adds the requirement, the risk of omission, and the test that proves compliance.
 
@@ -24,7 +26,7 @@ The intent of v1.1 is not to change product direction. The intent is to convert 
 |---|---|
 | Document title | StrandCue Product Requirements Document |
 | Version | 1.1 — Revised Audit Edition |
-| Document status | Authoritative working PRD |
+| Document status | Historical input — superseded as product authority |
 | Date of issue | 23 September 2026 |
 | Supersedes | v1.0 Consolidated (23 September 2026) |
 | Primary market | South Africa |
