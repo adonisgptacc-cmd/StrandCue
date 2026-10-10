@@ -6,6 +6,7 @@ import { supabase, secureStorage } from './client';
 import { normalizeUsernameInput, normalizeUsernameSuffix, parseUsernameOptions, saveErrorMessage } from './contracts';
 import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
+import { ReleaseStageBanner } from './ReleaseStageBanner';
 import { useOwnerLoad } from './owner-load';
 import { Services } from './services';
 import { Activities } from './activities';
@@ -238,16 +239,16 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     catch (caught) { if (ownerLoad.isMounted()) setError(saveErrorMessage(caught)); }
     finally { if (ownerLoad.isMounted()) setBusy(false); }
   };
-  if (!user.email_confirmed_at) return <Page><Text style={styles.title}>Confirm your email.</Text><Text style={styles.body}>Open your confirmation email, then sign in again to begin your private record.</Text><Button title="Sign out" onPress={() => void logout()}/></Page>;
-  if (loading) return <Page><Text style={styles.title}>Opening your record…</Text><Text style={styles.subtitle}>Bringing your saved information together.</Text></Page>;
-  if (!profile) return <Page><Text style={styles.title}>Make it yours.</Text><View style={styles.card}><Text style={styles.body}>Choose a private username. Your email and username are never public profile listings.</Text><Field label="Username" value={username} onChangeText={changeUsername} autoCapitalize="none" maxLength={24}/><Text style={styles.subtitle}>3–24 letters, numbers or underscores.</Text><Field label="Optional personal suffix" value={usernameSuffix} onChangeText={changeUsernameSuffix} autoCapitalize="none" maxLength={24}/>
+  if (!user.email_confirmed_at) return <Page><ReleaseStageBanner /><Text style={styles.title}>Confirm your email.</Text><Text style={styles.body}>Open your confirmation email, then sign in again to begin your private record.</Text><Button title="Sign out" onPress={() => void logout()}/></Page>;
+  if (loading) return <Page><ReleaseStageBanner /><Text style={styles.title}>Opening your record…</Text><Text style={styles.subtitle}>Bringing your saved information together.</Text></Page>;
+  if (!profile) return <Page><ReleaseStageBanner /><Text style={styles.title}>Make it yours.</Text><View style={styles.card}><Text style={styles.body}>Choose a private username. Your email and username are never public profile listings.</Text><Field label="Username" value={username} onChangeText={changeUsername} autoCapitalize="none" maxLength={24}/><Text style={styles.subtitle}>3–24 letters, numbers or underscores.</Text><Field label="Optional personal suffix" value={usernameSuffix} onChangeText={changeUsernameSuffix} autoCapitalize="none" maxLength={24}/>
     {usernameStatus === 'checking' && <Text style={styles.subtitle}>Checking availability…</Text>}
     {usernameStatus === 'available' && <Text style={styles.subtitle}>@{normalizeUsernameInput(username)} is available.</Text>}
     {usernameStatus === 'throttled' && <Text accessibilityRole="alert" style={styles.error}>Too many username checks. Wait a minute, then try again.</Text>}
     {usernameStatus === 'taken' && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>@{normalizeUsernameInput(username)} is already taken.</Text><Text style={styles.body}>Try one of these checked options:</Text><View style={styles.row}>{usernameSuggestions.map(suggestion => <Button key={suggestion} title={`Use @${suggestion}`} secondary onPress={() => changeUsername(suggestion)}/>)}</View></View>}
     <Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy || usernameStatus === 'checking'} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
-  return <Page><View style={styles.row}>{(['Passport','Services','Activities','Shelf','Tools','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
+  return <Page><ReleaseStageBanner /><View style={styles.row}>{(['Passport','Services','Activities','Shelf','Tools','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text><Text style={styles.title}>{tab === 'Passport' ? 'Your Hair Passport' : tab === 'Services' ? 'Your chemical services' : tab === 'Activities' ? 'Your activities' : tab === 'Shelf' ? 'My Shelf' : tab === 'Tools' ? 'My Tools' : tab === 'History' ? 'Every change has a story.' : 'Your account, your say.'}</Text>
     {!!error && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button title="Retry loading" secondary onPress={() => void refresh()}/></View>}
     {tab === 'Services' && <Services owner={user.id} />}
