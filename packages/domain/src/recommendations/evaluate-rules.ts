@@ -1,22 +1,13 @@
 import { evaluateCondition } from './evaluate-condition.ts';
-import type { RecommendationContext, RecommendationRule } from './types.ts';
+import type {
+  RecommendationContext,
+  RecommendationRule,
+  RuleEvaluation,
+  RuleOutcome,
+  RulesEvaluation,
+} from './types.ts';
 
-export type RuleOutcome = 'applied' | 'not_applicable' | 'unknown' | 'withdrawn';
-
-export interface RuleEvaluation {
-  readonly ruleId: string;
-  readonly versionId: string;
-  readonly outcome: RuleOutcome;
-  readonly missingFacts: readonly string[];
-  readonly reason: string;
-}
-
-export interface RulesEvaluation {
-  readonly applied: readonly RuleEvaluation[];
-  readonly notApplicable: readonly RuleEvaluation[];
-  readonly unknown: readonly RuleEvaluation[];
-  readonly withdrawn: readonly RuleEvaluation[];
-}
+export type { RuleEvaluation, RuleOutcome, RulesEvaluation } from './types.ts';
 
 function compareRuleIdentity(left: RecommendationRule, right: RecommendationRule): number {
   if (left.ruleId !== right.ruleId) {

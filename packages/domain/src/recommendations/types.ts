@@ -160,3 +160,93 @@ export interface RecommendationContext {
   readonly environmentFacts: Readonly<Record<string, FactValue>>;
   readonly rules: readonly RecommendationRule[];
 }
+
+export type RuleOutcome = 'applied' | 'not_applicable' | 'unknown' | 'withdrawn';
+
+export interface RuleEvaluation {
+  readonly ruleId: string;
+  readonly versionId: string;
+  readonly outcome: RuleOutcome;
+  readonly missingFacts: readonly string[];
+  readonly reason: string;
+}
+
+export interface RulesEvaluation {
+  readonly applied: readonly RuleEvaluation[];
+  readonly notApplicable: readonly RuleEvaluation[];
+  readonly unknown: readonly RuleEvaluation[];
+  readonly withdrawn: readonly RuleEvaluation[];
+}
+
+export type DecisionStatus = 'ready' | 'needs_input' | 'rule_conflict' | 'unsupported';
+
+export interface ProtocolStep {
+  readonly stepId: string;
+  readonly position: number;
+  readonly action: string;
+  readonly productId: string | null;
+  readonly toolId: string | null;
+  readonly waitSeconds: number | null;
+  readonly rinse: boolean | null;
+  readonly reasons: readonly string[];
+}
+
+export interface EffectConflict {
+  readonly kind: 'capability' | 'heat' | 'order' | 'frequency';
+  readonly detail: string;
+  readonly ruleRefs: readonly string[];
+}
+
+export interface AuditRuleEntry {
+  readonly ruleId: string;
+  readonly versionId: string;
+  readonly outcome: RuleOutcome;
+  readonly reason: string;
+}
+
+export interface RankedCandidateEntry {
+  readonly candidateId: string;
+  readonly kind: 'product' | 'tool';
+  readonly versionId: string;
+  readonly selected: boolean;
+  readonly hardPass: boolean;
+  readonly verifiedCoverage: number;
+  readonly advisoryMatches: number;
+  readonly owned: boolean;
+  readonly available: boolean;
+}
+
+export interface RejectedCandidateEntry {
+  readonly candidateId: string;
+  readonly kind: 'product' | 'tool';
+  readonly versionId: string;
+  readonly name: string;
+  readonly reasons: readonly string[];
+}
+
+export interface AppliedRestriction {
+  readonly ruleRef: string;
+  readonly description: string;
+}
+
+export interface RecommendationAudit {
+  readonly requestId: string;
+  readonly engineVersion: string;
+  readonly evaluatedRules: readonly AuditRuleEntry[];
+  readonly conflicts: readonly EffectConflict[];
+  readonly rankedCandidates: readonly RankedCandidateEntry[];
+  readonly rejectedCandidates: readonly RejectedCandidateEntry[];
+  readonly restrictions: readonly AppliedRestriction[];
+  readonly missingInputs: readonly string[];
+}
+
+export interface ProtocolDecision {
+  readonly status: DecisionStatus;
+  readonly requestId: string;
+  readonly confidence: Confidence;
+  readonly steps: readonly ProtocolStep[];
+  readonly omissions: readonly string[];
+  readonly alternatives: readonly string[];
+  readonly missingInputs: readonly string[];
+  readonly audit: RecommendationAudit;
+}

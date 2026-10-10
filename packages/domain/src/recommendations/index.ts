@@ -1,8 +1,12 @@
 export type {
   AllCondition,
   AnyCondition,
+  AppliedRestriction,
+  AuditRuleEntry,
   CapabilityAvailableCondition,
   Confidence,
+  DecisionStatus,
+  EffectConflict,
   FactEqualsCondition,
   FactInCondition,
   FactValue,
@@ -15,10 +19,15 @@ export type {
   OrderBeforeEffect,
   PreferCapabilityEffect,
   ProductCandidate,
+  ProtocolDecision,
+  ProtocolStep,
+  RankedCandidateEntry,
+  RecommendationAudit,
   RecommendationCondition,
   RecommendationContext,
   RecommendationEffect,
   RecommendationRule,
+  RejectedCandidateEntry,
   RequireCapabilityEffect,
   ExcludeCapabilityEffect,
   RinseEffect,
@@ -44,6 +53,33 @@ export {
   parseRecommendationContext,
   type RecommendationValidationErrorCode,
 } from './validate.ts';
+export {
+  collectEffects,
+  detectConflicts,
+  ruleRefOf,
+  type AdvisoryNote,
+  type AdvisoryPreference,
+  type AttributedExclude,
+  type AttributedFrequency,
+  type AttributedHeat,
+  type AttributedOrder,
+  type AttributedRequire,
+  type AttributedRinse,
+  type AttributedWait,
+  type CollectedEffects,
+  type HardEffectSet,
+} from './apply-effects.ts';
+export {
+  rankCandidates,
+  type CandidateRanking,
+  type CandidateScore,
+  type RankInput,
+} from './rank-candidates.ts';
+export {
+  RECOMMENDATION_ENGINE_VERSION,
+  buildProtocolDecision,
+  type ProtocolBuildArgs,
+} from './build-protocol.ts';
 export {
   evaluateCondition,
   type ConditionResult,
