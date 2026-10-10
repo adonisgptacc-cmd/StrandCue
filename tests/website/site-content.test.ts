@@ -38,6 +38,9 @@ describe('public website content', () => {
     }
     expect(home.toLowerCase(), 'missing factual-record boundary').toMatch(/does not diagnose/);
     expect(home.toLowerCase()).toContain('does not prescribe');
+    expect(home).toContain('Request an export in the app');
+    expect(home).toContain('href="/support#export"');
+    expect(home).not.toContain('Export your record from the app when you need a copy.');
     expect(home.toLowerCase()).toContain('privacy controls');
   });
 
