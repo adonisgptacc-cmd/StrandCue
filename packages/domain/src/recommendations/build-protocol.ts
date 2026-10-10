@@ -255,16 +255,21 @@ function blockedDecision(
   };
 }
 
-function buildReadyDecision(args: ProtocolBuildArgs): ProtocolDecision {
-  const required = [...new Set(args.collected.hard.required.map(entry => entry.capability))];
-  const ordered = orderCapabilities(required, args.collected.hard.order);
-  const steps: ProtocolStep[] = [];
+interface StepContent {
+  readonly action: string;
+  readonly productId: string | null;
+  readonly toolId: string | null;
+  readonly waitSeconds: number | null;
+  readonly rinse: boolean | null;
+  readonly reasons: readonly string[];
+}
+
+function applyStepContents(
+  args: ProtocolBuildArgs,
+  ordered: readonly string[],
+): { contents: StepContent[]; selectedIds: Set<string> } {
+  const contents: StepContent[] = [];
   const selectedIds = new Set<string>();
-  let position = 0;
-  const pushStep = (step: Omit<ProtocolStep, 'stepId' | 'position'>): void => {
-    position += 1;
-    steps.push({ ...step, stepId: `step-${position}`, position });
-  };
   for (const capability of ordered) {
     const covering = args.ranking.ranked.filter(
       score => score.available && score.hardPass && scoreMatches(score, args.context, capability),
@@ -275,63 +280,79 @@ function buildReadyDecision(args: ProtocolBuildArgs): ProtocolDecision {
     }
     selectedIds.add(selected.candidateId);
     const selectedVerified = verifiedCapsOf(selected.candidateId, args.context);
-    const reasons = [
-      ...hardRefsForCapability(args.collected, capability).map(ref => `${ref} requires '${capability}'`),
-      ...args.collected.hard.order
-        .filter(edge => edge.before === capability || edge.after === capability)
-        .map(edge => `Ordered by ${edge.ruleRef}: '${edge.before}' before '${edge.after}'`),
-      ...args.collected.advisory
-        .filter(entry => entry.polarity !== 'exclude' && selectedVerified.includes(entry.capability))
-        .map(entry => `Advisory preference from ${entry.ruleRef} for '${entry.capability}'`),
-    ];
-    pushStep({
+    contents.push({
       action: 'apply',
       productId: selected.kind === 'product' ? selected.candidateId : null,
       toolId: selected.kind === 'tool' ? selected.candidateId : null,
       waitSeconds: null,
       rinse: null,
-      reasons,
+      reasons: [
+        ...hardRefsForCapability(args.collected, capability).map(ref => `${ref} requires '${capability}'`),
+        ...args.collected.hard.order
+          .filter(edge => edge.before === capability || edge.after === capability)
+          .map(edge => `Ordered by ${edge.ruleRef}: '${edge.before}' before '${edge.after}'`),
+        ...args.collected.advisory
+          .filter(entry => entry.polarity !== 'exclude' && selectedVerified.includes(entry.capability))
+          .map(entry => `Advisory preference from ${entry.ruleRef} for '${entry.capability}'`),
+      ],
     });
   }
-  for (const wait of args.collected.hard.waits) {
-    pushStep({
+  return { contents, selectedIds };
+}
+
+function timedStepContents(collected: CollectedEffects): StepContent[] {
+  return [
+    ...collected.hard.waits.map(wait => ({
       action: 'wait',
       productId: null,
       toolId: null,
       waitSeconds: wait.durationSeconds,
       rinse: null,
       reasons: [`${wait.ruleRef} requires a ${wait.durationSeconds}s wait`],
-    });
-  }
-  for (const rinse of args.collected.hard.rinses) {
-    pushStep({
+    })),
+    ...collected.hard.rinses.map(rinse => ({
       action: rinse.value ? 'rinse' : 'leave_in',
       productId: null,
       toolId: null,
       waitSeconds: null,
       rinse: rinse.value,
       reasons: [`${rinse.ruleRef} ${rinse.value ? 'requires rinsing' : 'requires no rinse'}`],
-    });
-  }
-  const omissions = [
-    ...args.ranking.rejected.map(
+    })),
+  ];
+}
+
+function omissionEntries(ranking: CandidateRanking): string[] {
+  return [
+    ...ranking.rejected.map(
       entry => `Omitted ${entry.name} (${entry.candidateId}): ${entry.reasons.join('; ')}`,
     ),
-    ...args.ranking.ranked
+    ...ranking.ranked
       .filter(score => !score.available)
       .map(score => `Unavailable ${score.name} (${score.candidateId}): not currently available`),
   ];
-  const alternatives = args.ranking.ranked
+}
+
+function alternativeEntries(ranking: CandidateRanking, selectedIds: ReadonlySet<string>): string[] {
+  return ranking.ranked
     .filter(score => score.available && !selectedIds.has(score.candidateId))
     .slice(0, 2)
     .map(score => `Alternative: ${score.name} (${score.candidateId})`);
+}
+
+function buildReadyDecision(args: ProtocolBuildArgs): ProtocolDecision {
+  const required = [...new Set(args.collected.hard.required.map(entry => entry.capability))];
+  const ordered = orderCapabilities(required, args.collected.hard.order);
+  const { contents, selectedIds } = applyStepContents(args, ordered);
+  const steps: ProtocolStep[] = [...contents, ...timedStepContents(args.collected)].map(
+    (content, index) => ({ ...content, stepId: `step-${index + 1}`, position: index + 1 }),
+  );
   return {
     status: 'ready',
     requestId: args.requestId,
     confidence: deriveConfidence(args.evaluation, args.context, args.collected, selectedIds),
     steps,
-    omissions,
-    alternatives,
+    omissions: omissionEntries(args.ranking),
+    alternatives: alternativeEntries(args.ranking, selectedIds),
     missingInputs: [],
     audit: assembleAudit(args, selectedIds, []),
   };

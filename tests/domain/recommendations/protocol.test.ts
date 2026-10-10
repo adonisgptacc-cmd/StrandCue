@@ -8,8 +8,8 @@ import {
   rankCandidates,
   type ProtocolBuildArgs,
   type ProtocolDecision,
+  type RecommendationCondition,
 } from '../../../packages/domain/src/index.ts';
-import type { RecommendationCondition } from '../../../packages/domain/src/index.ts';
 
 const TRUE_CONDITION: RecommendationCondition = {
   kind: 'fact_equals',

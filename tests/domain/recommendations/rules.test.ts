@@ -4,10 +4,8 @@ import {
   evaluateCondition,
   evaluateRules,
   type ConditionResult,
-} from '../../../packages/domain/src/index.ts';
-import type {
-  RecommendationCondition,
-  RecommendationContext,
+  type RecommendationCondition,
+  type RecommendationContext,
 } from '../../../packages/domain/src/index.ts';
 
 function baseContext(overrides: Record<string, unknown> = {}): Record<string, unknown> {

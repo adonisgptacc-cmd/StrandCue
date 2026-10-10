@@ -10,10 +10,8 @@ import {
   rankCandidates,
   type ProtocolBuildArgs,
   type ProtocolDecision,
-} from '../../../packages/domain/src/index.ts';
-import type {
-  RecommendationCondition,
-  RecommendationContext,
+  type RecommendationCondition,
+  type RecommendationContext,
 } from '../../../packages/domain/src/index.ts';
 
 const TRUE_CONDITION: RecommendationCondition = {
@@ -47,7 +45,7 @@ function tool(toolId: string, verified: readonly string[]) {
 
 function hardRule(
   ruleId: string,
-  condition: Record<string, unknown>,
+  condition: RecommendationCondition,
   effects: readonly Record<string, unknown>[],
   versionId = 'v1',
 ) {
@@ -63,7 +61,7 @@ function hardRule(
   };
 }
 
-function advisoryRule(ruleId: string, condition: Record<string, unknown>, effects: readonly Record<string, unknown>[]) {
+function advisoryRule(ruleId: string, condition: RecommendationCondition, effects: readonly Record<string, unknown>[]) {
   return {
     ruleId,
     versionId: 'v1',
