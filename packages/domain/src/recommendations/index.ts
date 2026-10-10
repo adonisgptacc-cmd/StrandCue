@@ -80,6 +80,7 @@ export {
   buildProtocolDecision,
   type ProtocolBuildArgs,
 } from './build-protocol.ts';
+export { generateProtocol } from './engine.ts';
 export {
   evaluateCondition,
   type ConditionResult,

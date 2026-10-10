@@ -43,39 +43,70 @@ function preferenceSatisfied(
   return verified.includes(preference.capability);
 }
 
+interface Scorable {
+  readonly candidateId: string;
+  readonly kind: 'product' | 'tool';
+  readonly versionId: string;
+  readonly name: string;
+  readonly verified: readonly string[];
+  readonly unknown: readonly string[];
+  readonly owned: boolean;
+  readonly available: boolean;
+}
+
+function scorableProduct(candidate: ProductCandidate): Scorable {
+  return {
+    candidateId: candidate.productId,
+    kind: 'product',
+    versionId: candidate.versionId,
+    name: candidate.name,
+    verified: candidate.verifiedCapabilities,
+    unknown: candidate.unknownCapabilities,
+    owned: candidate.owned,
+    available: candidate.available,
+  };
+}
+
+function scorableTool(candidate: ToolCandidate): Scorable {
+  return {
+    candidateId: candidate.toolId,
+    kind: 'tool',
+    versionId: candidate.versionId,
+    name: candidate.name,
+    verified: candidate.verifiedCapabilities,
+    unknown: [],
+    owned: false,
+    available: candidate.available,
+  };
+}
+
 function scoreCandidate(
-  candidate: ProductCandidate | ToolCandidate,
-  kind: 'product' | 'tool',
-  required: readonly string[],
+  scorable: Scorable,
   excluded: readonly string[],
   advisory: readonly AdvisoryPreference[],
   relevant: readonly string[],
 ): { score: CandidateScore; rejectionReasons: readonly string[] } {
-  const unknown = kind === 'product' ? candidate.unknownCapabilities : [];
-  const missing = required.filter(capability => !candidate.verifiedCapabilities.includes(capability));
   const clashes = excluded.filter(
-    capability => candidate.verifiedCapabilities.includes(capability) || unknown.includes(capability),
+    capability => scorable.verified.includes(capability) || scorable.unknown.includes(capability),
   );
-  const rejectionReasons = [
-    ...missing.map(capability => `missing required capability '${capability}'`),
-    ...clashes.map(capability => `carries excluded capability '${capability}'`),
-  ].sort();
-  const owned = kind === 'product' ? candidate.owned : false;
+  const rejectionReasons = clashes
+    .map(capability => `carries excluded capability '${capability}'`)
+    .sort();
   return {
     score: {
-      candidateId: kind === 'product' ? candidate.productId : candidate.toolId,
-      kind,
-      versionId: candidate.versionId,
-      name: candidate.name,
+      candidateId: scorable.candidateId,
+      kind: scorable.kind,
+      versionId: scorable.versionId,
+      name: scorable.name,
       hardPass: rejectionReasons.length === 0,
       verifiedCoverage: relevant.filter(capability =>
-        candidate.verifiedCapabilities.includes(capability),
+        scorable.verified.includes(capability),
       ).length,
       advisoryMatches: advisory.filter(preference =>
-        preferenceSatisfied(preference, candidate.verifiedCapabilities, unknown),
+        preferenceSatisfied(preference, scorable.verified, scorable.unknown),
       ).length,
-      owned,
-      available: candidate.available,
+      owned: scorable.owned,
+      available: scorable.available,
     },
     rejectionReasons,
   };
@@ -104,14 +135,9 @@ export function rankCandidates(input: RankInput): CandidateRanking {
   const relevant = [...new Set(input.requiredCapabilities)];
   const scores: CandidateScore[] = [];
   const rejected: RejectedCandidateEntry[] = [];
-  const consider = (
-    candidate: ProductCandidate | ToolCandidate,
-    kind: 'product' | 'tool',
-  ): void => {
+  const consider = (scorable: Scorable): void => {
     const { score, rejectionReasons } = scoreCandidate(
-      candidate,
-      kind,
-      input.requiredCapabilities,
+      scorable,
       input.excludedCapabilities,
       input.advisory,
       relevant,
@@ -121,7 +147,7 @@ export function rankCandidates(input: RankInput): CandidateRanking {
     } else {
       rejected.push({
         candidateId: score.candidateId,
-        kind,
+        kind: score.kind,
         versionId: score.versionId,
         name: score.name,
         reasons: rejectionReasons,
@@ -129,10 +155,10 @@ export function rankCandidates(input: RankInput): CandidateRanking {
     }
   };
   for (const product of input.products) {
-    consider(product, 'product');
+    consider(scorableProduct(product));
   }
   for (const tool of input.tools) {
-    consider(tool, 'tool');
+    consider(scorableTool(tool));
   }
   scores.sort(compareScores);
   rejected.sort((left, right) => (left.candidateId < right.candidateId ? -1 : 1));

@@ -47,16 +47,16 @@ Status meanings: **Implemented** — a listed test or evidence path proves the b
 | TL-04 | R0 | — | — | Not started |
 | TL-05 | R2 | — | — | Not started |
 | TL-06 | R2 | — | — | Not started |
-| EN-01 | R1 | — | — | Not started |
-| EN-02 | R1 | — | — | Not started |
-| EN-03 | R1 | — | — | Not started |
-| EN-04 | R1 | — | — | Not started |
-| EN-05 | R1 | — | — | Not started |
-| EN-06 | R1 | — | — | Not started |
-| EN-07 | R1 | — | — | Not started |
-| EN-08 | R1 | — | — | Not started |
-| EN-09 | R1 | — | — | Not started |
-| TD-01 | R1 | — | — | Not started |
+| EN-01 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-02 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-03 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-04 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-05 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-06 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-07 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-08 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-09 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| TD-01 | R1 | apps/mobile/src/TodayTechnicalAlpha.tsx (honest alpha state; execution surface later) | tests/mobile/navigation.test.tsx | Partial |
 | TD-02 | R1 | — | — | Not started |
 | TD-03 | R1 | — | — | Not started |
 | TD-04 | R1 | — | — | Not started |
@@ -114,11 +114,11 @@ Status meanings: **Implemented** — a listed test or evidence path proves the b
 | AI-05 | R5 | — | — | Not started |
 | AI-06 | R5 | — | — | Not started |
 | AI-07 | R5 | — | — | Not started |
-| SF-01 | R1 | — | — | Not started |
+| SF-01 | R1 | Engine emits no diagnosis copy; UI keeps the cosmetic-records boundary | tests/mobile/navigation.test.tsx, tests/domain/recommendations/ | Partial |
 | SF-02 | R5 | — | — | Not started |
 | SF-03 | R1 | — | — | Not started |
 | SF-04 | R1 | — | — | Not started |
-| SF-05 | R1 | — | — | Not started |
+| SF-05 | R1 | Withdrawn rules are skipped and audited; no live recall pipeline yet | tests/domain/recommendations/rules.test.ts | Partial |
 | EV-01 | R4 | — | — | Not started |
 | EV-02 | R4 | — | — | Not started |
 | EV-03 | R4 | — | — | Not started |
@@ -143,8 +143,8 @@ Status meanings: **Implemented** — a listed test or evidence path proves the b
 | PV-06 | R5 | — | — | Not started |
 | PV-07 | R5 | — | — | Not started |
 | PV-08 | R5 | — | — | Not started |
-| UX-01 | R1 | — | — | Not started |
-| UX-02 | R1 | — | — | Not started |
-| UX-03 | R1 | — | — | Not started |
-| UX-04 | R1 | — | — | Not started |
+| UX-01 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
+| UX-02 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
+| UX-03 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
+| UX-04 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
 | UX-05 | R5 | — | — | Not started |
