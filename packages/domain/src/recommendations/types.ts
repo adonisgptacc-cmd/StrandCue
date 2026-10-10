@@ -109,6 +109,11 @@ export interface PreferCapabilityEffect {
   readonly capability: string;
 }
 
+export interface ActivationEffect {
+  readonly kind: 'activation';
+  readonly capability: string;
+}
+
 export type RecommendationEffect =
   | RequireCapabilityEffect
   | ExcludeCapabilityEffect
@@ -118,6 +123,7 @@ export type RecommendationEffect =
   | RinseEffect
   | FrequencyEffect
   | HeatRestrictionEffect
+  | ActivationEffect
   | PreferCapabilityEffect;
 
 export interface RecommendationRule {
@@ -185,7 +191,9 @@ export interface ProtocolStep {
   readonly position: number;
   readonly action: string;
   readonly productId: string | null;
+  readonly productVersionId: string | null;
   readonly toolId: string | null;
+  readonly toolVersionId: string | null;
   readonly waitSeconds: number | null;
   readonly rinse: boolean | null;
   readonly reasons: readonly string[];
@@ -202,6 +210,7 @@ export interface AuditRuleEntry {
   readonly versionId: string;
   readonly outcome: RuleOutcome;
   readonly reason: string;
+  readonly evidenceIds: readonly string[];
 }
 
 export interface RankedCandidateEntry {
@@ -244,6 +253,7 @@ export interface ProtocolDecision {
   readonly status: DecisionStatus;
   readonly requestId: string;
   readonly confidence: Confidence;
+  readonly noPurchaseNeeded: boolean | null;
   readonly steps: readonly ProtocolStep[];
   readonly omissions: readonly string[];
   readonly alternatives: readonly string[];

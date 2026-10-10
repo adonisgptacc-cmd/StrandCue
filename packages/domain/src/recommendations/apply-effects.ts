@@ -45,6 +45,11 @@ export interface AttributedHeat {
   readonly maxTemperatureCelsius?: number;
 }
 
+export interface AttributedActivation {
+  readonly ruleRef: string;
+  readonly capability: string;
+}
+
 export interface HardEffectSet {
   readonly required: readonly AttributedRequire[];
   readonly excluded: readonly AttributedExclude[];
@@ -53,6 +58,7 @@ export interface HardEffectSet {
   readonly rinses: readonly AttributedRinse[];
   readonly frequencies: readonly AttributedFrequency[];
   readonly heat: readonly AttributedHeat[];
+  readonly activations: readonly AttributedActivation[];
 }
 
 export interface AdvisoryPreference {
@@ -88,6 +94,7 @@ function distributeHardEffect(
     rinses: AttributedRinse[];
     frequencies: AttributedFrequency[];
     heat: AttributedHeat[];
+    activations: AttributedActivation[];
   },
   advisory: AdvisoryPreference[],
 ): void {
@@ -121,6 +128,9 @@ function distributeHardEffect(
       });
       break;
     }
+    case 'activation':
+      hard.activations.push({ ruleRef, capability: effect.capability });
+      break;
     case 'prefer_capability':
       advisory.push({ ruleRef, capability: effect.capability, polarity: 'prefer' });
       break;
@@ -281,6 +291,7 @@ export function collectEffects(
     rinses: [] as AttributedRinse[],
     frequencies: [] as AttributedFrequency[],
     heat: [] as AttributedHeat[],
+    activations: [] as AttributedActivation[],
   };
   const advisory: AdvisoryPreference[] = [];
   const advisoryNotes: AdvisoryNote[] = [];

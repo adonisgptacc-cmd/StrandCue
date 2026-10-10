@@ -9,11 +9,19 @@ export function generateProtocol(input: unknown): ProtocolDecision {
   const context = parseRecommendationContext(input);
   const evaluation = evaluateRules(context);
   const collected = collectEffects(evaluation, context.rules);
+  const requiredCapabilities = [
+    ...collected.hard.required.map(entry => entry.capability),
+    ...collected.hard.activations.map(entry => entry.capability),
+  ];
+  const excludedCapabilities = [
+    ...collected.hard.excluded.map(entry => entry.capability),
+    ...collected.hard.heat.filter(entry => entry.prohibited).map(entry => entry.exposure),
+  ];
   const ranking = rankCandidates({
     products: context.products,
     tools: context.tools,
-    requiredCapabilities: collected.hard.required.map(entry => entry.capability),
-    excludedCapabilities: collected.hard.excluded.map(entry => entry.capability),
+    requiredCapabilities,
+    excludedCapabilities,
     advisory: collected.advisory,
   });
   return buildProtocolDecision({

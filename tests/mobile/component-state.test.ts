@@ -158,12 +158,19 @@ beforeEach(() => {
 });
 
 describe('mobile component state contracts', () => {
-  it('renders the complete seven-section navigation for a signed-in profile', async () => {
+  it('renders the six product destinations for a signed-in profile', async () => {
     const user = { id: ownerA, email_confirmed_at: '2026-09-01T00:00:00.000Z' } as User;
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(createElement(Records, { user })); await Promise.resolve(); });
     const labels = renderer.root.findAll(node => node.type === 'button').map(node => node.props.accessibilityLabel);
-    expect(labels).toEqual(expect.arrayContaining(['Passport', 'Services', 'Activities', 'Shelf', 'Tools', 'History', 'Settings']));
+    expect(labels).toEqual(expect.arrayContaining([
+      'Today',
+      'My Hair: passport and services',
+      'My Shelf: owned products',
+      'My Tools: owned tools',
+      'Journey: activities and history',
+      'Settings: account and privacy',
+    ]));
     await act(async () => { renderer.unmount(); });
   });
 

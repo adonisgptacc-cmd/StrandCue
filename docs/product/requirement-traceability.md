@@ -48,7 +48,7 @@ Status meanings: **Implemented** — a listed test or evidence path proves the b
 | TL-05 | R2 | — | — | Not started |
 | TL-06 | R2 | — | — | Not started |
 | EN-01 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
-| EN-02 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
+| EN-02 | R1 | packages/domain/src/recommendations/ (deterministic validation, hard-rule application, candidate ranking; official-direction and treatment-state adapters remain) | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Partial |
 | EN-03 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-04 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-05 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |

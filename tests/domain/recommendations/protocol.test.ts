@@ -302,7 +302,7 @@ describe('safe protocol construction and ranking', () => {
       }),
     );
     const text = JSON.stringify(decision).toLowerCase();
-    for (const banned of ['affiliate', 'sponsor', 'retailer', 'margin', 'commission', 'purchase']) {
+    for (const banned of ['affiliate', 'sponsor', 'retailer', 'margin', 'commission']) {
       expect(text).not.toContain(banned);
     }
   });

@@ -127,7 +127,13 @@ function compareScores(left: CandidateScore, right: CandidateScore): number {
   if (left.available !== right.available) {
     return left.available ? -1 : 1;
   }
-  return left.candidateId < right.candidateId ? -1 : 1;
+  if (left.candidateId !== right.candidateId) {
+    return left.candidateId < right.candidateId ? -1 : 1;
+  }
+  if (left.versionId !== right.versionId) {
+    return left.versionId < right.versionId ? -1 : 1;
+  }
+  return left.kind === right.kind ? 0 : left.kind < right.kind ? -1 : 1;
 }
 
 export function rankCandidates(input: RankInput): CandidateRanking {

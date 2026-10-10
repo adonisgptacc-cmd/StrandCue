@@ -70,6 +70,12 @@ vi.mock('../../apps/mobile/src/services-api.ts', () => ({
   loadServices: releaseMocks.loadServices,
 }));
 
+vi.mock('../../apps/mobile/src/activities.tsx', () => ({ Activities: () => null }));
+vi.mock('../../apps/mobile/src/shelf.tsx', () => ({ Shelf: () => null }));
+vi.mock('../../apps/mobile/src/tools.tsx', () => ({ Tools: () => null }));
+vi.mock('../../apps/mobile/src/screens/ExportScreen.tsx', () => ({ ExportScreen: () => null }));
+vi.mock('../../apps/mobile/src/screens/DeletionScreen.tsx', () => ({ DeletionScreen: () => null }));
+
 function renderedText(renderer: ReactTestRenderer): string {
   return JSON.stringify(renderer.toJSON());
 }

@@ -69,6 +69,26 @@ vi.mock('../../apps/mobile/src/services-api.ts', () => ({
   loadServices: navigationMocks.loadServices,
 }));
 
+vi.mock('../../apps/mobile/src/activities.tsx', () => ({
+  Activities: () => createElement('span', null, 'ACTIVITIES SCREEN'),
+}));
+
+vi.mock('../../apps/mobile/src/shelf.tsx', () => ({
+  Shelf: () => createElement('span', null, 'SHELF SCREEN'),
+}));
+
+vi.mock('../../apps/mobile/src/tools.tsx', () => ({
+  Tools: () => createElement('span', null, 'TOOLS SCREEN'),
+}));
+
+vi.mock('../../apps/mobile/src/screens/ExportScreen.tsx', () => ({
+  ExportScreen: () => createElement('span', null, 'EXPORT SCREEN'),
+}));
+
+vi.mock('../../apps/mobile/src/screens/DeletionScreen.tsx', () => ({
+  DeletionScreen: () => createElement('span', null, 'DELETION SCREEN'),
+}));
+
 function renderedText(renderer: ReactTestRenderer): string {
   return JSON.stringify(renderer.toJSON());
 }
@@ -186,21 +206,20 @@ describe('product destinations', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('marks shelf, tools, and activities as unavailable without fake guidance', async () => {
+  it('keeps the recovered shelf, tools, and activities screens reachable', async () => {
     const renderer = await renderRecords();
     await act(async () => { press(renderer, 'My Shelf: owned products'); });
-    let text = renderedText(renderer).toLowerCase();
-    expect(text).toContain('not available in this release');
-    expect(text).not.toContain('protocol');
+    let text = renderedText(renderer);
+    expect(text).toContain('SHELF SCREEN');
 
     await act(async () => { press(renderer, 'My Tools: owned tools'); });
-    text = renderedText(renderer).toLowerCase();
-    expect(text).toContain('not available in this release');
+    text = renderedText(renderer);
+    expect(text).toContain('TOOLS SCREEN');
 
     await act(async () => { press(renderer, 'Journey: activities and history'); });
     await act(async () => { press(renderer, 'Activities'); });
-    text = renderedText(renderer).toLowerCase();
-    expect(text).toContain('not available in this release');
+    text = renderedText(renderer);
+    expect(text).toContain('ACTIVITIES SCREEN');
     await act(async () => { renderer.unmount(); });
   });
 

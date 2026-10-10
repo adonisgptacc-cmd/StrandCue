@@ -345,11 +345,12 @@ describe('recommendation boundary behavior', () => {
     expect(decision.audit.missingInputs).toEqual(['density', 'porosity']);
   });
 
-  it('returns a ready empty plan when no rules apply', () => {
+  it('does not claim a ready protocol when no rules apply', () => {
     const decision = decide(rawContext({ products: [], tools: [], rules: [] }));
-    expect(decision.status).toBe('ready');
+    expect(decision.status).toBe('unsupported');
     expect(decision.steps).toEqual([]);
-    expect(decision.confidence).toBe('high');
+    expect(decision.confidence).toBe('limited');
+    expect(decision.omissions.join(' ')).toContain('No published hard rule');
   });
 
   it('reports unsupported through tool-only requirements', () => {

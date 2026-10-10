@@ -149,6 +149,13 @@ const PreferCapabilityEffectSchema = z
   })
   .strict();
 
+const ActivationEffectSchema = z
+  .object({
+    kind: z.literal('activation'),
+    capability: nonEmptyString,
+  })
+  .strict();
+
 export const RecommendationEffectSchema = z.discriminatedUnion('kind', [
   RequireCapabilityEffectSchema,
   ExcludeCapabilityEffectSchema,
@@ -158,6 +165,7 @@ export const RecommendationEffectSchema = z.discriminatedUnion('kind', [
   RinseEffectSchema,
   FrequencyEffectSchema,
   HeatRestrictionEffectSchema,
+  ActivationEffectSchema,
   PreferCapabilityEffectSchema,
 ]);
 
