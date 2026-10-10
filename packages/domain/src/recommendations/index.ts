@@ -44,3 +44,14 @@ export {
   parseRecommendationContext,
   type RecommendationValidationErrorCode,
 } from './validate.ts';
+export {
+  evaluateCondition,
+  type ConditionResult,
+  type ConditionValue,
+} from './evaluate-condition.ts';
+export {
+  evaluateRules,
+  type RuleEvaluation,
+  type RuleOutcome,
+  type RulesEvaluation,
+} from './evaluate-rules.ts';
