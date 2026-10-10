@@ -1,8 +1,8 @@
 # StrandCue Product-Recovery Audit
 
-**Date:** 10 October 2026  
-**Status:** Approved supporting audit  
-**Audited implementation:** `codex/repo-recovery-integration` at `2721f815f49ed66b17b3157fc019d25a1ba42d54`  
+**Date:** 10 October 2026
+**Status:** Approved supporting audit
+**Audited implementation:** `codex/repo-recovery-integration` at `2721f815f49ed66b17b3157fc019d25a1ba42d54`
 **Purpose:** Recover the intended StrandCue product, identify what was lost or deferred during foundation work, and establish the evidence needed for a canonical product specification and implementation roadmap.
 
 ## 1. Executive finding

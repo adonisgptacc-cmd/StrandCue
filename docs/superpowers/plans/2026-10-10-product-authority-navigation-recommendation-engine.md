@@ -1,7 +1,7 @@
 # Product Authority, Navigation, and Recommendation Engine Plan
 
-**Status:** APPROVED FOR EXECUTION  
-**Approved specification:** `docs/superpowers/specs/2026-10-10-canonical-product-spec.md`  
+**Status:** APPROVED FOR EXECUTION
+**Approved specification:** `docs/superpowers/specs/2026-10-10-canonical-product-spec.md`
 **Supporting audit:** `docs/superpowers/specs/2026-10-10-product-recovery-audit.md`
 
 > For agentic workers: read `AGENTS.md`, the approved specification, and this entire plan before editing. Use test-driven development. Execute tasks in order. Do not deploy, publish, migrate hosted data, or alter Cloudflare, Supabase, Google Play, or GitHub settings in this milestone.

@@ -1,9 +1,9 @@
 # StrandCue Canonical Product Specification
 
-**Version:** 1.0  
-**Date:** 10 October 2026  
-**Status:** Approved product authority  
-**Implements:** `docs/superpowers/specs/2026-10-10-product-recovery-audit.md`  
+**Version:** 1.0
+**Date:** 10 October 2026
+**Status:** Approved product authority
+**Implements:** `docs/superpowers/specs/2026-10-10-product-recovery-audit.md`
 **Positioning:** Your hair. Your products. Your next best step.
 
 ## 1. Product purpose

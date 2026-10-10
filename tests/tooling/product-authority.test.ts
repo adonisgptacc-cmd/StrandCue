@@ -14,7 +14,7 @@ const TRACEABILITY_PATH = 'docs/product/requirement-traceability.md';
 // Recompute from the approved file after normalizing CRLF to LF; never copy
 // the digest of an older authority document.
 const EXPECTED_CANONICAL_DIGEST =
-  '9b414be1e85b18cb1d0fd46464b052c2b9acff825012f28a4d47c631ad02a6d7';
+  'b7c5e8f974ade449ec7d62a79d1acf23f00a8fdcc5ded14aa3d7d28a89eca525';
 
 const HISTORICAL_PRDS = [
   'StrandCue-PRD.md',
