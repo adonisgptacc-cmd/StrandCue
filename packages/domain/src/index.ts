@@ -1,6 +1,7 @@
 export * from './activity.ts';
 export * from './dates.ts';
 export * from './passport.ts';
+export * from './recommendations/index.ts';
 export {
   BaselineRevisionSchema,
   ChangeRevisionSchema,
