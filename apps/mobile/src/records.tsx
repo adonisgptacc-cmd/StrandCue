@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
 import type { User } from '@supabase/supabase-js';
 import type { PassportRevision } from '../../../packages/domain/src/index';
 import { supabase, secureStorage } from './client';
@@ -7,6 +7,8 @@ import { normalizeUsernameInput, normalizeUsernameSuffix, parseUsernameOptions, 
 import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
 import { ReleaseStageBanner } from './ReleaseStageBanner';
+import { DESTINATIONS, INITIAL_DESTINATION, type DestinationId } from './navigation';
+import { TodayTechnicalAlpha } from './TodayTechnicalAlpha';
 import { useOwnerLoad } from './owner-load';
 import { Services } from './services';
 import { Activities } from './activities';
@@ -133,7 +135,9 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
   const [errorState, setErrorState] = useState({ notice, error: notice });
-  const [tab, setTab] = useState<'Passport'|'Services'|'Activities'|'Shelf'|'Tools'|'History'|'Settings'>('Passport');
+  const [destination, setDestination] = useState<DestinationId>(INITIAL_DESTINATION);
+  const [hairView, setHairView] = useState<'Passport'|'Services'>('Passport');
+  const [journeyView, setJourneyView] = useState<'History'|'Activities'>('History');
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
   const [username, setUsername] = useState('');
@@ -248,27 +252,33 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     {usernameStatus === 'taken' && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>@{normalizeUsernameInput(username)} is already taken.</Text><Text style={styles.body}>Try one of these checked options:</Text><View style={styles.row}>{usernameSuggestions.map(suggestion => <Button key={suggestion} title={`Use @${suggestion}`} secondary onPress={() => changeUsername(suggestion)}/>)}</View></View>}
     <Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy || usernameStatus === 'checking'} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
-  return <Page><ReleaseStageBanner /><View style={styles.row}>{(['Passport','Services','Activities','Shelf','Tools','History','Settings'] as const).map(name => <Button key={name} title={name} secondary={tab !== name} onPress={() => {setTab(name);setEditing(false);setTarget(undefined);}}/>)}</View>
-    <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text><Text style={styles.title}>{tab === 'Passport' ? 'Your Hair Passport' : tab === 'Services' ? 'Your chemical services' : tab === 'Activities' ? 'Your activities' : tab === 'Shelf' ? 'My Shelf' : tab === 'Tools' ? 'My Tools' : tab === 'History' ? 'Every change has a story.' : 'Your account, your say.'}</Text>
+  const selectDestination = (next: DestinationId) => {setDestination(next);setEditing(false);setTarget(undefined);};
+  const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
+  return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
+    <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
+    {destination === 'today' && <TodayTechnicalAlpha/>}
+    {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
+    {destination === 'journey' && <View style={styles.row}>{(['History','Activities'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
+    {destinationTitle !== '' && <Text style={styles.title}>{destinationTitle}</Text>}
     {!!error && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button title="Retry loading" secondary onPress={() => void refresh()}/></View>}
-    {tab === 'Services' && <Services owner={user.id} />}
-    {tab === 'Activities' && <Activities owner={user.id} />}
-    {tab === 'Shelf' && <Shelf owner={user.id} />}
-    {tab === 'Tools' && <Tools owner={user.id} />}
-    {tab === 'Passport' && !editing && <><Text style={styles.subtitle}>A picture of your hair, built from what you’ve recorded. It grows with you.</Text>
+    {destination === 'my_hair' && hairView === 'Services' && <Services owner={user.id} />}
+    {destination === 'journey' && journeyView === 'Activities' && <Activities owner={user.id} />}
+    {destination === 'my_shelf' && <Shelf owner={user.id} />}
+    {destination === 'my_tools' && <Tools owner={user.id} />}
+    {destination === 'my_hair' && hairView === 'Passport' && !editing && <><Text style={styles.subtitle}>A picture of your hair, built from what you’ve recorded. It grows with you.</Text>
       {record ? <View style={styles.card}><Text style={styles.kicker}>CURRENT RECORD · {record.projection.asOf}</Text>{Object.entries(record.projection.values).map(([key,value]) => <View key={key}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>{display(value)}</Text></View>)}
         {Object.keys(record.projection.ambiguousFields).map(key => <View key={key} style={styles.notice}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>Dates overlap or are unknown. Review these entries in History to clarify which is current.</Text></View>)}
         <Button title="Record a change" onPress={() => {setEditing(true);setTarget(undefined);}}/>
       </View> : <View style={styles.card}><Text style={styles.heading}>Start with what you know.</Text><Text style={styles.body}>Hair pattern, how it feels, and what matters to you. “Unknown” is a useful answer too.</Text><Button title="Create my Hair Passport" onPress={() => setEditing(true)}/></View>}
       <View style={styles.notice}><Text style={styles.body}>A real change creates a new entry. To fix an earlier mistake, use History → Correct this entry.</Text></View></>}
     {editing && <PassportEditor key={target?.id ?? `edit-${record?.revision ?? 0}`} owner={user.id} record={record} target={target} onSaved={() => {setEditing(false);setTarget(undefined);setHistorical(null);void refresh();}} onCancel={() => {setEditing(false);setTarget(undefined);}}/>}
-    {tab === 'History' && !editing && <>
+    {destination === 'journey' && journeyView === 'History' && !editing && <>
       <View style={styles.card}><Text style={styles.heading}>Look back</Text><Field label="As-of date (YYYY-MM-DD)" value={asOf} onChangeText={setAsOf}/><Button title="View that date" secondary disabled={busy} onPress={() => void viewHistory()}/><Button title={audit ? 'Hide correction audit' : 'Show correction audit'} secondary onPress={() => setAudit(!audit)}/></View>
       {historical && <View style={styles.card}><Text style={styles.heading}>Recorded facts as of {historical.projection.asOf}</Text>{Object.entries(historical.projection.values).map(([key,value])=><Text key={key} style={styles.body}>{fieldLabel(key)}: {display(value)}</Text>)}{Object.keys(historical.projection.ambiguousFields).map(key=><Text key={key} style={styles.body}>{fieldLabel(key)}: uncertain at this date</Text>)}</View>}
       {!visible && <Text style={styles.body}>Your history begins with your first Passport entry.</Text>}
       {visible?.revisions.filter(entry=>audit || !visible.projection.supersededRevisionIds.includes(entry.id)).slice().reverse().map(entry => <View style={styles.card} key={entry.id}><Text style={styles.kicker}>{entry.kind === 'correction' ? 'CORRECTION' : entry.kind === 'baseline' ? 'FIRST RECORD' : 'CHANGE'} · {entry.effectiveDate.value ?? 'DATE UNKNOWN'}</Text><Text style={styles.subtitle}>{entry.source.replaceAll('-',' ')} · {entry.effectiveDate.precision} precision</Text>{Object.entries(entry.patch).map(([key,value])=><Text key={key} style={styles.body}>{fieldLabel(key)}: {display(value)}</Text>)}{'correctionReason' in entry && <Text style={styles.body}>Reason: {entry.correctionReason}</Text>}{!record?.projection.supersededRevisionIds.includes(entry.id) && <Button title="Correct this entry" secondary onPress={() => {setTarget(entry);setEditing(true);}}/>}</View>)}
     </>}
-    {tab === 'Settings' && <SettingsView owner={user.id} profile={profile} busy={busy} onLogout={() => void logout()} onProfileChanged={() => void refresh()} />}
+    {destination === 'settings' && <SettingsView owner={user.id} profile={profile} busy={busy} onLogout={() => void logout()} onProfileChanged={() => void refresh()} />}
     <Text style={styles.subtitle}>Your record, not a diagnosis. StrandCue records cosmetic hair-care information.</Text>
   </Page>;
 }

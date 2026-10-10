@@ -32,8 +32,8 @@ export function Page({ children }: PropsWithChildren) {
     {children}
   </ScrollView>;
 }
-export function Button({title, onPress, secondary = false, disabled = false}: {title: string; onPress: () => void; secondary?: boolean; disabled?: boolean}) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{disabled}} onPress={onPress} disabled={disabled} style={[styles.button, secondary && styles.secondary, disabled && {opacity: 0.5}]}>
+export function Button({title, onPress, secondary = false, disabled = false, accessibilityLabel = title}: {title: string; onPress: () => void; secondary?: boolean; disabled?: boolean; accessibilityLabel?: string}) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{disabled}} onPress={onPress} disabled={disabled} style={[styles.button, secondary && styles.secondary, disabled && {opacity: 0.5}]}>
     <Text style={[styles.buttonText, secondary && {color: colors.ink}]}>{title}</Text>
   </Pressable>;
 }
