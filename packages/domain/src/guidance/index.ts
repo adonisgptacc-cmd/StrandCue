@@ -40,6 +40,23 @@ export {
   validatePublishedBundle,
 } from './reviewed-content.ts';
 export {
+  CAPABILITY_REVIEW_DECISIONS,
+  CAPABILITY_REVIEW_FINDING_CODES,
+  CapabilityReviewMatrixSchema,
+  CapabilityReviewRowSchema,
+  isCapabilityReviewDecision,
+  isCapabilityReviewRow,
+  validateCapabilityReview,
+} from './validate-capability-review.ts';
+export type {
+  CapabilityReviewDecision,
+  CapabilityReviewFinding,
+  CapabilityReviewFindingCode,
+  CapabilityReviewMatrix,
+  CapabilityReviewResult,
+  CapabilityReviewRow,
+} from './validate-capability-review.ts';
+export {
   prepareGuidance,
   type PrepareGuidanceInput,
 } from './prepare-guidance.ts';
