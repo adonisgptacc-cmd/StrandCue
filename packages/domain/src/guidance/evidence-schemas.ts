@@ -93,11 +93,19 @@ export const GuidanceEvidenceRecordSchema = frozen(
     .strict()
     .superRefine((record, context) => {
       const isEvidence = isEvidenceTier(record.trustTier);
-      if (!isEvidence && record.sourceType !== 'marketing') {
+      const isMarketing = record.sourceType === 'marketing';
+      if (!isEvidence && !isMarketing) {
         context.addIssue({
           code: 'custom',
           path: ['trustTier'],
           message: 'Marketing-only evidence must be recorded as a marketing source',
+        });
+      }
+      if (isMarketing && isEvidence) {
+        context.addIssue({
+          code: 'custom',
+          path: ['trustTier'],
+          message: 'A marketing source is recorded as marketing-only (T10); marketing-only evidence never supports reviewed content',
         });
       }
       if (record.status === 'draft' && (record.reviewedAt !== null || record.reviewedBy !== null)) {

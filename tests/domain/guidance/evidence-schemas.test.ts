@@ -117,6 +117,20 @@ describe('guidance evidence records', () => {
     expect(() => GuidanceEvidenceRecordSchema.parse(record({ trustTier: 'T10' }))).toThrow();
   });
 
+  it('refuses a marketing source that claims an evidence trust tier', () => {
+    expect(
+      GuidanceEvidenceRecordSchema.parse(record({ sourceType: 'marketing', trustTier: 'T10' })).trustTier,
+    ).toBe('T10');
+    expect(GuidanceEvidenceRecordSchema.parse(record({ sourceType: 'regulator', trustTier: 'T1' })).sourceType).toBe('regulator');
+    expect(() => GuidanceEvidenceRecordSchema.parse(record({ sourceType: 'marketing', trustTier: 'T1' }))).toThrow();
+    expect(() => GuidanceEvidenceRecordSchema.parse(record({ sourceType: 'marketing', trustTier: 'T9' }))).toThrow();
+    expect(() =>
+      GuidanceEvidenceRecordSchema.parse(
+        reviewed({ sourceType: 'marketing', trustTier: 'T5', publisher: 'Marketer of the reviewed version' }),
+      ),
+    ).toThrow();
+  });
+
   it('requires offset-aware timestamps', () => {
     expect(GuidanceEvidenceRecordSchema.parse(record()).checkedAt).toBe(ISO);
     expect(() => GuidanceEvidenceRecordSchema.parse(record({ checkedAt: '2026-10-10T10:00:00' }))).toThrow();
