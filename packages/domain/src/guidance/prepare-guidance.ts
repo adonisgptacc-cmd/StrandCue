@@ -68,9 +68,8 @@ function needsSetup(gaps: readonly GuidanceGap[]): GuidancePreparation {
 }
 
 function isIncomplete(snapshot: GuidanceSnapshot): boolean {
-  return (Object.keys(snapshot.completeness) as Array<keyof typeof snapshot.completeness>).some(
-    source => snapshot.completeness[source] !== 'complete',
-  );
+  const sources = Object.keys(snapshot.completeness) as (keyof typeof snapshot.completeness)[];
+  return sources.some(source => snapshot.completeness[source] !== 'complete');
 }
 
 function findEntry(
