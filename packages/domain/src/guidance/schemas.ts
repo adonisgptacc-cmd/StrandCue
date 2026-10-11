@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { EffectiveDateSchema } from '../dates.ts';
+import { ActivityRevisionSchema } from '../activity.ts';
 import { FactValueSchema, RecommendationContextSchema, RecommendationRuleSchema } from '../recommendations/schemas.ts';
 
 /**
@@ -107,9 +108,64 @@ export const GuidanceActivityFactSchema = z
     activityId: nonEmptyString,
     revision: z.number().int().nonnegative(),
     voided: z.boolean(),
-    facts: factRecordSchema,
+    appliedRevisionIds: z.array(nonEmptyString).refine(
+      ids => new Set(ids).size === ids.length,
+      'Applied revision IDs must be unique',
+    ),
+    facts: z.object({
+      activityKind: z.enum(['wash', 'styling', 'other']).optional(),
+      precision: z.enum(['exact_day', 'exact_month', 'exact_year', 'unknown']).optional(),
+      status: z.enum(['active', 'voided']).optional(),
+    }).strict(),
   })
   .strict();
+
+export const GuidanceActivityCursorSchema = z.object({
+  baselineRecordedAt: IsoTimestampSchema,
+  activityId: z.string().uuid(),
+}).strict();
+
+export const GuidanceActivityHistorySchema = z.object({
+  activityId: z.string().uuid(),
+  revisions: z.array(ActivityRevisionSchema).min(1),
+}).strict().superRefine((history, context) => {
+  const revisions = history.revisions;
+  const ids = new Set<string>();
+  const correctionTargets = new Set<string>();
+  const baselineCount = revisions.filter(revision => revision.kind === 'baseline').length;
+  if (baselineCount !== 1) {
+    context.addIssue({ code: 'custom', path: ['revisions'], message: 'History requires exactly one baseline' });
+  }
+  revisions.forEach((revision, index) => {
+    if (revision.activityId !== history.activityId) {
+      context.addIssue({ code: 'custom', path: ['revisions', index, 'activityId'], message: 'Mixed activity IDs' });
+    }
+    if (ids.has(revision.id)) {
+      context.addIssue({ code: 'custom', path: ['revisions', index, 'id'], message: 'Duplicate revision ID' });
+    }
+    ids.add(revision.id);
+    if (revision.sequence !== index + 1 || revision.baseRevision !== index || (revision.kind === 'baseline') !== (index === 0)) {
+      context.addIssue({ code: 'custom', path: ['revisions', index], message: 'Broken revision sequence' });
+    }
+    if (revision.kind === 'correction') {
+      const target = revisions.slice(0, index).find(previous => previous.id === revision.correctsId);
+      if (!target || Date.parse(target.recordedAt) > Date.parse(revision.recordedAt) || correctionTargets.has(revision.correctsId)) {
+        context.addIssue({ code: 'custom', path: ['revisions', index, 'correctsId'], message: 'Invalid correction target' });
+      }
+      correctionTargets.add(revision.correctsId);
+    }
+  });
+});
+
+export const GuidanceActivityHistoryPageSchema = frozen(z.object({
+  items: z.array(GuidanceActivityHistorySchema).max(100),
+  nextCursor: GuidanceActivityCursorSchema.nullable(),
+}).strict().superRefine((page, context) => {
+  const ids = page.items.map(item => item.activityId);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: 'custom', path: ['items'], message: 'Duplicate activity identity' });
+  }
+}));
 
 export const GuidanceGoalSchema = z
   .object({

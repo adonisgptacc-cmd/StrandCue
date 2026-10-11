@@ -9,6 +9,7 @@
  */
 
 import type { EffectiveDate } from '../dates.ts';
+import type { ActivityRevision } from '../activity.ts';
 import type { FactValue, RecommendationContext, RecommendationRule } from '../recommendations/types.ts';
 
 export type GuidanceGoalId = 'basic_wash';
@@ -37,7 +38,23 @@ export interface GuidanceActivityFact {
   readonly activityId: string;
   readonly revision: number;
   readonly voided: boolean;
+  readonly appliedRevisionIds: readonly string[];
   readonly facts: Readonly<Record<string, FactValue>>;
+}
+
+export interface GuidanceActivityCursor {
+  readonly baselineRecordedAt: string;
+  readonly activityId: string;
+}
+
+export interface GuidanceActivityHistory {
+  readonly activityId: string;
+  readonly revisions: readonly ActivityRevision[];
+}
+
+export interface GuidanceActivityHistoryPage {
+  readonly items: readonly GuidanceActivityHistory[];
+  readonly nextCursor: GuidanceActivityCursor | null;
 }
 
 export interface GuidanceGoal {

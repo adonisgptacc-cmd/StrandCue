@@ -192,6 +192,7 @@ async function loadActivityFacts(
           activityId: detail.id,
           revision: detail.revision,
           voided: detail.voided,
+          appliedRevisionIds: [],
           facts: scalarFacts(patch),
         } satisfies GuidanceActivityFact;
       },

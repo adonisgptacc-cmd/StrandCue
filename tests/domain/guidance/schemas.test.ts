@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   GuidanceActivityFactSchema,
+  GuidanceActivityCursorSchema,
+  GuidanceActivityHistoryPageSchema,
+  GuidanceActivityHistorySchema,
   GuidanceGapSchema,
   GuidanceGoalSchema,
   GuidancePreparationSchema,
@@ -13,6 +16,40 @@ import {
 } from '../../../packages/domain/src/guidance/index.ts';
 
 const ISO = '2026-10-10T10:00:00.000Z';
+const ACTIVITY_ID = '11111111-1111-4111-8111-111111111111';
+const BASELINE_ID = '22222222-2222-4222-8222-222222222222';
+const CORRECTION_ID = '33333333-3333-4333-8333-333333333333';
+
+function baselineRevision(overrides: Record<string, unknown> = {}) {
+  return {
+    id: BASELINE_ID,
+    activityId: ACTIVITY_ID,
+    sequence: 1,
+    baseRevision: 0,
+    kind: 'baseline',
+    effectiveDate: { precision: 'day', value: '2026-06-01' },
+    recordedAt: ISO,
+    source: 'user-reported',
+    patch: { activityKind: 'wash', precision: 'exact_day', zones: [], notes: '', status: 'active' },
+    ...overrides,
+  };
+}
+
+function correctionRevision(overrides: Record<string, unknown> = {}) {
+  return {
+    ...baselineRevision({
+      id: CORRECTION_ID,
+      sequence: 2,
+      baseRevision: 1,
+      kind: 'correction',
+      recordedAt: '2026-10-11T10:00:00.000Z',
+      patch: { activityKind: 'styling' },
+      correctsId: BASELINE_ID,
+      correctionReason: 'Corrected the kind',
+    }),
+    ...overrides,
+  };
+}
 
 function serviceFact(overrides: Record<string, unknown> = {}) {
   return {
@@ -29,7 +66,8 @@ function activityFact(overrides: Record<string, unknown> = {}) {
     activityId: 'activity-a',
     revision: 3,
     voided: false,
-    facts: { kind: 'wash' },
+    appliedRevisionIds: ['revision-a'],
+    facts: { activityKind: 'wash', precision: 'exact_day', status: 'active' },
     ...overrides,
   };
 }
@@ -123,6 +161,58 @@ function bundle(overrides: Record<string, unknown> = {}) {
 }
 
 describe('guidance source contracts', () => {
+  it('accepts the activity fact allowlist with applied revision IDs', () => {
+    expect(GuidanceActivityFactSchema.parse({
+      activityId: ACTIVITY_ID,
+      revision: 2,
+      voided: false,
+      appliedRevisionIds: [BASELINE_ID, CORRECTION_ID],
+      facts: { activityKind: 'wash', precision: 'exact_day', status: 'active' },
+    }).revision).toBe(2);
+  });
+
+  it('rejects duplicate applied revisions and facts outside the allowlist', () => {
+    expect(() => GuidanceActivityFactSchema.parse(activityFact({ appliedRevisionIds: ['a', 'a'] }))).toThrow();
+    expect(() => GuidanceActivityFactSchema.parse(activityFact({ facts: { activityKind: 'wash', notes: 'private' } }))).toThrow();
+    expect(() => GuidanceActivityFactSchema.parse(activityFact({ facts: { zones: [] } }))).toThrow();
+    expect(() => GuidanceActivityFactSchema.parse(activityFact({ appliedRevisionIds: undefined }))).toThrow();
+  });
+
+  it('requires an offset timestamp and exact cursor keys', () => {
+    expect(GuidanceActivityCursorSchema.parse({ baselineRecordedAt: ISO, activityId: ACTIVITY_ID }).activityId).toBe(ACTIVITY_ID);
+    expect(() => GuidanceActivityCursorSchema.parse({ baselineRecordedAt: '2026-10-10T10:00:00', activityId: ACTIVITY_ID })).toThrow();
+    expect(() => GuidanceActivityCursorSchema.parse({ baselineRecordedAt: ISO, activityId: ACTIVITY_ID, ownerId: 'other' })).toThrow();
+  });
+
+  it('rejects empty, mixed, duplicate, broken and mistargeted revision histories', () => {
+    const history = { activityId: ACTIVITY_ID, revisions: [baselineRevision(), correctionRevision()] };
+    expect(GuidanceActivityHistorySchema.parse(history).revisions).toHaveLength(2);
+    expect(() => GuidanceActivityHistorySchema.parse({ ...history, revisions: [] })).toThrow();
+    expect(() => GuidanceActivityHistorySchema.parse({ ...history, revisions: [baselineRevision({ activityId: CORRECTION_ID })] })).toThrow();
+    expect(() => GuidanceActivityHistorySchema.parse({ ...history, revisions: [baselineRevision(), baselineRevision()] })).toThrow();
+    expect(() => GuidanceActivityHistorySchema.parse({ ...history, revisions: [baselineRevision(), correctionRevision({ sequence: 3 })] })).toThrow();
+    expect(() => GuidanceActivityHistorySchema.parse({ ...history, revisions: [baselineRevision(), correctionRevision({ correctsId: ACTIVITY_ID })] })).toThrow();
+    expect(() => GuidanceActivityHistorySchema.parse({
+      ...history,
+      revisions: [
+        baselineRevision(),
+        correctionRevision(),
+        correctionRevision({
+          id: '44444444-4444-4444-8444-444444444444',
+          sequence: 3,
+          baseRevision: 2,
+          recordedAt: '2026-10-12T10:00:00.000Z',
+        }),
+      ],
+    })).toThrow();
+  });
+
+  it('rejects extra page keys and duplicate activity identities', () => {
+    const history = { activityId: ACTIVITY_ID, revisions: [baselineRevision()] };
+    expect(GuidanceActivityHistoryPageSchema.parse({ items: [history], nextCursor: null }).items).toHaveLength(1);
+    expect(() => GuidanceActivityHistoryPageSchema.parse({ items: [history], nextCursor: null, ownerId: 'other' })).toThrow();
+    expect(() => GuidanceActivityHistoryPageSchema.parse({ items: [history, history], nextCursor: null })).toThrow();
+  });
   it('parses a complete owner snapshot', () => {
     const parsed = GuidanceSnapshotSchema.parse(snapshot());
     expect(parsed.ownerId).toBe('owner-a');

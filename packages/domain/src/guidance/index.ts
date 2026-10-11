@@ -1,5 +1,8 @@
 export type {
   GuidanceActivityFact,
+  GuidanceActivityCursor,
+  GuidanceActivityHistory,
+  GuidanceActivityHistoryPage,
   GuidanceAvailability,
   GuidanceCompleteness,
   GuidanceGap,
@@ -31,6 +34,9 @@ export {
 } from './prepare-guidance.ts';
 export {
   GuidanceActivityFactSchema,
+  GuidanceActivityCursorSchema,
+  GuidanceActivityHistorySchema,
+  GuidanceActivityHistoryPageSchema,
   GuidanceAvailabilitySchema,
   GuidanceBundleVersionSchema,
   GuidanceGoalIdSchema,

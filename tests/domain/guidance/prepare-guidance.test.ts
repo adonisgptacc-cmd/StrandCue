@@ -479,21 +479,22 @@ describe('prepared context', () => {
   it('namespaces facts without merging unqualified duplicates', () => {
     const result = prepare(
       snapshot({
-        passportFacts: { naturalPattern: 'curly', zone: 'roots' },
+        passportFacts: { naturalPattern: 'curly', activityKind: 'other' },
         activities: [
           {
             activityId: 'activity-1',
             revision: 1,
             voided: false,
-            facts: { zone: 'ends', activityKind: 'styling' },
+            appliedRevisionIds: ['revision-1'],
+            facts: { activityKind: 'styling' },
           },
         ],
       }),
     );
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') return;
-    expect(result.context.profileFacts.zone).toBe('roots');
-    expect(result.context.historyFacts.zone).toBe('ends');
+    expect(result.context.profileFacts.activityKind).toBe('other');
+    expect(result.context.historyFacts.activityKind).toBe('styling');
   });
 
   it('copies published rules into the context without rewriting them', () => {
