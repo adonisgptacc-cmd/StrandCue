@@ -8,6 +8,7 @@ import {
   type GuidanceSourceItem,
 } from '../../../../packages/domain/src/index';
 import { projectActivityHistory } from '../../../../packages/domain/src/activity.ts';
+import { type EffectiveDate } from '../../../../packages/domain/src/dates.ts';
 import { GuidanceActivityHistorySchema } from '../../../../packages/domain/src/guidance/schemas.ts';
 import { listGuidanceActivityHistories } from './guidance-activity-api';
 import { loadPassport } from '../passport-api';
