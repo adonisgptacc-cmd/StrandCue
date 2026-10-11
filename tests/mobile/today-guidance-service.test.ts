@@ -350,7 +350,7 @@ describe('today guidance orchestration', () => {
   it('hashes and returns the exact normalized input with cutoff-projected activity facts', async () => {
     const activity = activityFact('activity-1', {
       activityKind: 'wash',
-      precision: 'day',
+      precision: 'exact_day',
       status: 'active',
     });
     const { dependencies, loadSnapshot } = harness({
@@ -363,7 +363,7 @@ describe('today guidance orchestration', () => {
     if (result.status !== 'ready') return;
     expect(result.input.historyFacts).toEqual({
       activityKind: 'wash',
-      precision: 'day',
+      precision: 'exact_day',
       status: 'active',
     });
     expect(result.inputFingerprint).toBe(
@@ -374,8 +374,8 @@ describe('today guidance orchestration', () => {
   it('produces byte-equivalent normalized input when activity histories arrive in another order', async () => {
     const firstSnapshot = snapshot({
       activities: [
-        activityFact('activity-a', { firstActivityKind: 'wash' }),
-        activityFact('activity-b', { secondActivityKind: 'treatment' }),
+        activityFact('activity-a', { activityKind: 'wash', status: 'active' }),
+        activityFact('activity-b', { activityKind: 'treatment', status: 'active' }),
       ],
     });
     const reorderedSnapshot = snapshot({ activities: [...firstSnapshot.activities].reverse() });
@@ -390,5 +390,6 @@ describe('today guidance orchestration', () => {
     if (first.status !== 'ready' || reordered.status !== 'ready') return;
     expect(JSON.stringify(reordered.input)).toBe(JSON.stringify(first.input));
     expect(reordered.inputFingerprint).toBe(first.inputFingerprint);
+    expect(first.input.historyFacts).toEqual({ status: 'active' });
   });
 });

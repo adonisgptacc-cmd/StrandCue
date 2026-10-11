@@ -141,14 +141,14 @@ function profileFacts(snapshot: GuidanceSnapshot): Record<string, FactValue> {
 
 function historyFacts(snapshot: GuidanceSnapshot): Record<string, FactValue> {
   const facts: Record<string, FactValue> = {};
-  const activities = [...snapshot.activities].sort((left, right) =>
-    left.activityId < right.activityId ? -1 : left.activityId > right.activityId ? 1 : 0,
-  );
-  for (const activity of activities) {
-    if (activity.voided) continue;
-    for (const key of Object.keys(activity.facts).sort()) {
-      facts[key] = activity.facts[key];
-    }
+  const activeActivities = snapshot.activities.filter(activity => !activity.voided);
+  const keys = new Set(activeActivities.flatMap(activity => Object.keys(activity.facts)));
+  for (const key of [...keys].sort()) {
+    const values = activeActivities
+      .filter(activity => Object.prototype.hasOwnProperty.call(activity.facts, key))
+      .map(activity => activity.facts[key]);
+    const [first, ...remaining] = values;
+    if (remaining.every(value => value === first)) facts[key] = first;
   }
   return facts;
 }

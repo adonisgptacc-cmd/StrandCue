@@ -497,6 +497,34 @@ describe('prepared context', () => {
     expect(result.context.historyFacts.activityKind).toBe('styling');
   });
 
+  it('omits conflicting activity facts and retains agreed values independent of source order', () => {
+    const activities = [
+      {
+        activityId: 'activity-a',
+        revision: 1,
+        voided: false,
+        appliedRevisionIds: ['revision-a'],
+        facts: { activityKind: 'wash', status: 'active' },
+      },
+      {
+        activityId: 'activity-b',
+        revision: 1,
+        voided: false,
+        appliedRevisionIds: ['revision-b'],
+        facts: { activityKind: 'treatment', status: 'active' },
+      },
+    ];
+    const first = prepare(snapshot({ activities }));
+    const reversed = prepare(snapshot({ activities: [...activities].reverse() }));
+
+    expect(first.status).toBe('ready');
+    expect(reversed.status).toBe('ready');
+    if (first.status !== 'ready' || reversed.status !== 'ready') return;
+    expect(first.context.historyFacts).toEqual({ status: 'active' });
+    expect(reversed.context.historyFacts).toEqual({ status: 'active' });
+    expect(JSON.stringify(reversed.context)).toBe(JSON.stringify(first.context));
+  });
+
   it('copies published rules into the context without rewriting them', () => {
     const source = bundle();
     const result = prepare(snapshot(), source);

@@ -122,7 +122,7 @@ function readyResult(overrides: Record<string, unknown> = {}) {
       profileFacts: {},
       historyFacts: {
         activityKind: 'wash',
-        precision: 'day',
+        precision: 'exact_day',
         status: 'active',
       },
       environmentFacts: {},
@@ -354,7 +354,7 @@ describe('today guidance states', () => {
     expect(command.input).toEqual(readyResult().input);
     expect(command.input.historyFacts).toEqual({
       activityKind: 'wash',
-      precision: 'day',
+      precision: 'exact_day',
       status: 'active',
     });
     expect(JSON.stringify(command.input)).not.toMatch(/notes|zones|correctionReason|voidReason/i);
