@@ -23,6 +23,7 @@
     "typecheck:domain": "tsc --noEmit",
     "typecheck": "npm run typecheck:domain && npm run typecheck --workspace @strandcue/mobile",
     "export:web": "npm run export:web --workspace @strandcue/mobile",
+    "validate:guidance-research": "node scripts/validate-guidance-research.ts",
     "audit:dependencies": "node scripts/audit-dependencies-cli.ts",
     "audit:control-plane": "node scripts/audit-cli.ts",
     "check:expo": "expo install --check",
