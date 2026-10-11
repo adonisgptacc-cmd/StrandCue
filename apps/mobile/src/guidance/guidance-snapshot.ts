@@ -97,6 +97,14 @@ function scalarFacts(values: unknown): FactRecord {
   return copied;
 }
 
+function activityFacts(values: unknown): FactRecord {
+  const facts = scalarFacts(values);
+  return Object.fromEntries(
+    Object.entries(facts).filter(([key]) =>
+      key === 'activityKind' || key === 'precision' || key === 'status'),
+  );
+}
+
 /**
  * Copies a service's recorded effective date, preserving its precision. A
  * month-precision date stays '2026-06': widening it to a day would invent a
@@ -193,7 +201,7 @@ async function loadActivityFacts(
           revision: detail.revision,
           voided: detail.voided,
           appliedRevisionIds: [],
-          facts: scalarFacts(patch),
+          facts: activityFacts(patch),
         } satisfies GuidanceActivityFact;
       },
     );

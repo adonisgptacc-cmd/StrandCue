@@ -499,6 +499,36 @@ it('preserves service presence and effective dates without inference', async () 
     });
     expect(snapshot.activities[0].facts.activityKind).toBe('wash');
   });
+
+  it('loads a notes-bearing activity with only allowed guidance facts', async () => {
+    apiMocks.getActivity.mockResolvedValue({
+      id: ACTIVITY_ID,
+      revision: 1,
+      voided: false,
+      revisions: [{
+        id: 'cccccccc-0000-4000-8000-000000000099',
+        kind: 'baseline',
+        precision: 'exact_day',
+        correctsId: null,
+        voidReason: null,
+        patch: {
+          activityKind: 'wash',
+          precision: 'exact_day',
+          status: 'active',
+          notes: 'Sensitive wash notes',
+          zones: [{ region: 'crown', segment: 'roots' }],
+        },
+      }],
+    });
+
+    const snapshot = (await load()) as Record<string, any>;
+    expect(snapshot.completeness.activities).toBe('complete');
+    expect(snapshot.activities[0].facts).toEqual({
+      activityKind: 'wash',
+      precision: 'exact_day',
+      status: 'active',
+    });
+  });
 });
 
 describe('guidance snapshot cancellation', () => {
