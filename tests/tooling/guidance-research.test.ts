@@ -702,16 +702,18 @@ describe('guidance research command line', () => {
   });
 
   it('fails closed when an artifact is missing', async () => {
-    const directory = await scratch({
-      'docs/product/evidence/basic-wash-v1/evidence-registry.json': JSON.stringify(registry([])),
-      'supabase/migrations/20260924170000_shelf_catalogue.sql': '-- no seed rows\n',
-    });
+    // Exactly one artifact is absent. The validator reads all four concurrently,
+    // so a fixture missing two would surface whichever ENOENT won the race
+    // rather than testing anything about a missing artifact.
+    const directory = await scratch(emptyPack);
+    await rm(join(directory, 'docs/product/evidence/basic-wash-v1/research-log.md'));
     const output = captureOutput();
 
     expect(await runGuidanceResearch(
       join(directory, 'docs/product/evidence/basic-wash-v1'),
       join(directory, 'supabase/migrations'),
     )).toBe(1);
-    expect(output.reported).toContain('inventory.json');
+    expect(output.reported).toContain('GUIDANCE-RESEARCH-HOLD:');
+    expect(output.reported).toContain('research-log.md');
   });
 });
