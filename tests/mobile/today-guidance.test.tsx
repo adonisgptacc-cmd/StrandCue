@@ -115,6 +115,17 @@ function readyResult(overrides: Record<string, unknown> = {}) {
     bundleId: 'bundle-synthetic',
     bundleVersion: '1',
     inputFingerprint: 'a'.repeat(64),
+    input: {
+      requestId: 'request-1',
+      asOf: '2026-10-11T09:00:00.000Z',
+      goal: 'basic_wash',
+      profileFacts: {},
+      historyFacts: {},
+      environmentFacts: {},
+      products: [],
+      tools: [],
+      rules: [],
+    },
     ...overrides,
   };
 }
@@ -336,6 +347,7 @@ describe('today guidance states', () => {
     expect(command.status).toBe('ready');
     expect(command.bundleId).toBe('bundle-synthetic');
     expect(command.inputFingerprint).toBe('a'.repeat(64));
+    expect(command.input).toEqual(readyResult().input);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -385,14 +397,15 @@ describe('today guidance states', () => {
   });
 
   it('ignores a response that arrives after unmount', async () => {
+    let resolveGenerate!: (value: ReturnType<typeof readyResult>) => void;
     mocks.generate.mockImplementation(
-      () => new Promise(resolve => { setTimeout(() => resolve(readyResult()), 10); }),
+      () => new Promise(resolve => { resolveGenerate = resolve; }),
     );
     const renderer = await render();
     await press(renderer, 'Generate my plan');
     await act(async () => { renderer.unmount(); });
     await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 30));
+      resolveGenerate(readyResult());
       await Promise.resolve();
     });
     expect(mocks.recordRun).not.toHaveBeenCalled();

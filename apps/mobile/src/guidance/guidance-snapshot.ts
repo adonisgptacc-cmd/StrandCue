@@ -183,6 +183,9 @@ async function loadActivityFacts(
         throwIfAborted(signal);
         const detail = await getActivity(item.id);
         if (detail === null) throw new Error(`Activity ${item.id} disappeared while loading`);
+        if (detail.revision !== item.revision) {
+          throw new Error(`Activity ${item.id} changed while loading`);
+        }
         const latest = detail.revisions[detail.revisions.length - 1];
         const patch = latest === undefined ? undefined : (latest as { patch?: unknown }).patch;
         return {

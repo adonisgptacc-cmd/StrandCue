@@ -10,6 +10,7 @@ import {
   type GuidanceGoalId,
   type GuidanceSnapshot,
   type ProtocolDecision,
+  type RecommendationContext,
   type ReviewedGuidanceBundle,
 } from '../../../../packages/domain/src/index';
 import { loadGuidanceSnapshot } from './guidance-snapshot';
@@ -47,6 +48,8 @@ export interface GuidanceProvenance {
   readonly bundleId: string;
   readonly bundleVersion: string;
   readonly inputFingerprint: string;
+  /** Exact normalized context hashed by inputFingerprint and persisted with the decision. */
+  readonly input: RecommendationContext;
 }
 
 export type TodayGuidanceResult =
@@ -150,13 +153,15 @@ export async function generateTodayGuidance(
     return { status: 'source_error', detail: SOURCE_ERROR };
   }
 
+  const normalizedInput = preparation.context;
   const provenance: GuidanceProvenance = {
     requestId: request.requestId,
     asOf: request.asOf,
     engineVersion: RECOMMENDATION_ENGINE_VERSION,
     bundleId: preparation.bundleId,
     bundleVersion: preparation.bundleVersion,
-    inputFingerprint: await dependencies.hashText(JSON.stringify(preparation.context)),
+    inputFingerprint: await dependencies.hashText(JSON.stringify(normalizedInput)),
+    input: normalizedInput,
   };
 
   switch (decision.status) {

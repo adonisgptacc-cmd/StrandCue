@@ -395,6 +395,18 @@ describe('guidance snapshot failure handling', () => {
     expect(snapshot.completeness.activities).not.toBe('complete');
   });
 
+  it('rejects an activity detail changed after its list snapshot', async () => {
+    apiMocks.getActivity.mockResolvedValue({
+      id: ACTIVITY_ID,
+      revision: 2,
+      voided: false,
+      revisions: [],
+    });
+    const snapshot = (await load()) as Record<string, any>;
+    expect(snapshot.activities).toEqual([]);
+    expect(snapshot.completeness.activities).toBe('failed');
+  });
+
   it('marks a source failed when its list call fails', async () => {
     apiMocks.listUserTools.mockRejectedValue(new Error('offline'));
     const snapshot = (await load()) as Record<string, any>;

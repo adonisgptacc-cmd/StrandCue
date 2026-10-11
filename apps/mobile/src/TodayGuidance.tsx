@@ -173,7 +173,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
             bundleId: result.bundleId,
             bundleVersion: result.bundleVersion,
             status: result.status,
-            input: result.decision.audit,
+            input: result.input,
             decision: result.decision,
           });
           if (!mounted.current || current !== epoch.current) return;
@@ -223,7 +223,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     {state.phase === 'loading' && <Text style={styles.body}>{LOADING_LABEL}</Text>}
     {state.phase === 'idle' && (
       <Text style={styles.body}>
-        Choose a goal and generate a plan. Nothing is created until you ask for it.
+        Generate a basic wash plan when you are ready. Nothing is created until you ask for it.
       </Text>
     )}
 

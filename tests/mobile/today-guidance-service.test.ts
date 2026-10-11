@@ -193,6 +193,11 @@ describe('today guidance orchestration', () => {
     expect(result.bundleVersion).toBe('1');
     expect(result.asOf).toBe(AS_OF);
     expect(result.inputFingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.input).toMatchObject({
+      requestId: 'request-1',
+      asOf: AS_OF,
+      goal: 'basic_wash',
+    });
   });
 
   it('surfaces the full decision including evidence and no-purchase-need', async () => {
