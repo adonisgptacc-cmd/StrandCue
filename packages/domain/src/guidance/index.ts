@@ -22,6 +22,10 @@ export type {
 } from './types.ts';
 
 export {
+  ReviewedContentError,
+  validatePublishedBundle,
+} from './reviewed-content.ts';
+export {
   GuidanceActivityFactSchema,
   GuidanceAvailabilitySchema,
   GuidanceBundleVersionSchema,
