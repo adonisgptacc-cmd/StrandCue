@@ -329,6 +329,81 @@ describe('setup gaps', () => {
     const kinds = result.missing.map(gap => gap.kind);
     expect([...kinds]).toEqual([...kinds].sort());
   });
+
+  it('orders gaps of the same kind by subject', () => {
+    const withServices = snapshot({
+      services: [
+        {
+          serviceId: 'service-c',
+          currentPresence: 'unknown',
+          effectiveStart: '2026-06-01',
+          facts: {},
+        },
+        {
+          serviceId: 'service-a',
+          currentPresence: 'unknown',
+          effectiveStart: '2026-06-01',
+          facts: {},
+        },
+        {
+          serviceId: 'service-b',
+          currentPresence: 'unknown',
+          effectiveStart: '2026-06-01',
+          facts: {},
+        },
+      ],
+    });
+    const result = prepare(withServices);
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing.map(gap => gap.subject)).toEqual([
+      'service-a',
+      'service-b',
+      'service-c',
+    ]);
+  });
+
+  it('collapses repeated findings about the same subject into one gap', () => {
+    // The goal lists the same required fact twice; the owner should see one
+    // setup action, not two near-identical ones.
+    const duplicated = bundle({
+      goals: [
+        {
+          id: 'basic_wash',
+          label: 'Basic wash',
+          requiredProfileFacts: ['naturalPattern', 'naturalPattern'],
+        },
+      ],
+    });
+    const result = prepare(snapshot({ passportFacts: {} }), duplicated);
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing).toHaveLength(1);
+    expect(result.missing[0].subject).toBe('naturalPattern');
+  });
+
+  it('returns byte-identical gaps for repeated identical input', () => {
+    const withServices = snapshot({
+      services: [
+        {
+          serviceId: 'service-a',
+          currentPresence: 'unknown',
+          effectiveStart: '2026-06-01',
+          facts: {},
+        },
+        {
+          serviceId: 'service-b',
+          currentPresence: 'unknown',
+          effectiveStart: '2026-06-01',
+          facts: {},
+        },
+      ],
+    });
+    const first = prepare(withServices);
+    const second = prepare(withServices);
+    expect(first.status).toBe('needs_setup');
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+  });
 });
 
 describe('prepared context', () => {
@@ -346,6 +421,32 @@ describe('prepared context', () => {
     const result = prepare();
     expect(result.status === 'ready' && result.bundleId).toBe('bundle-synthetic');
     expect(result.status === 'ready' && result.bundleVersion).toBe('1');
+  });
+
+  it('reports no hair_profile gap when the goal requires no profile facts', () => {
+    const relaxedGoal = bundle({
+      goals: [{ id: 'basic_wash', label: 'Basic wash', requiredProfileFacts: [] }],
+    });
+    const result = prepare(snapshot({ passportFacts: {} }), relaxedGoal);
+    expect(result.status).toBe('ready');
+  });
+
+  it('keeps a service whose presence is confirmed present out of the ready path', () => {
+    const present = snapshot({
+      services: [
+        {
+          serviceId: 'service-a',
+          currentPresence: 'present',
+          effectiveStart: '2026-06-01',
+          facts: { serviceType: 'bleach-or-lightener' },
+        },
+      ],
+    });
+    const result = prepare(present);
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing).toHaveLength(1);
+    expect(result.missing[0].kind).toBe('service_presence');
   });
 
   it('produces byte-equivalent context JSON for reordered source collections', () => {

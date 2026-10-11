@@ -48,13 +48,17 @@ const GAP_ORDER: Readonly<Record<GuidanceGap['kind'], number>> = {
   reviewed_content: 7,
 };
 
+/**
+ * Gaps are identified by `(kind, subject)`: one missing fact or one service
+ * is one gap, however its wording is phrased. That makes the sort total, so
+ * the comparator needs no tie-break arm.
+ */
 function compareGaps(left: GuidanceGap, right: GuidanceGap): number {
   const byKind = GAP_ORDER[left.kind] - GAP_ORDER[right.kind];
   if (byKind !== 0) return byKind;
   const leftSubject = left.subject ?? '';
   const rightSubject = right.subject ?? '';
-  if (leftSubject !== rightSubject) return leftSubject < rightSubject ? -1 : 1;
-  return left.detail < right.detail ? -1 : left.detail > right.detail ? 1 : 0;
+  return leftSubject < rightSubject ? -1 : 1;
 }
 
 function unavailable(reason: 'snapshot_incomplete' | 'no_supported_goal'): GuidancePreparation {
@@ -62,8 +66,13 @@ function unavailable(reason: 'snapshot_incomplete' | 'no_supported_goal'): Guida
 }
 
 function needsSetup(gaps: readonly GuidanceGap[]): GuidancePreparation {
+  // One gap per (kind, subject): repeated findings about the same missing
+  // fact collapse instead of stacking near-identical setup actions.
   const unique = new Map<string, GuidanceGap>();
-  for (const gap of gaps) unique.set(`${gap.kind}\u0000${gap.subject ?? ''}\u0000${gap.detail}`, gap);
+  for (const gap of gaps) {
+    const key = `${gap.kind}\u0000${gap.subject ?? ''}`;
+    if (!unique.has(key)) unique.set(key, gap);
+  }
   return { status: 'needs_setup', missing: [...unique.values()].sort(compareGaps) };
 }
 
@@ -193,9 +202,13 @@ function serviceGaps(snapshot: GuidanceSnapshot): GuidanceGap[] {
   return gaps;
 }
 
+/**
+ * Owner item ids are unique within a snapshot, so the two-way comparison is
+ * a total order over any real input.
+ */
 function sortById<T extends { readonly ownerItemId: string }>(items: readonly T[]): T[] {
   return [...items].sort((left, right) =>
-    left.ownerItemId < right.ownerItemId ? -1 : left.ownerItemId > right.ownerItemId ? 1 : 0,
+    left.ownerItemId < right.ownerItemId ? -1 : 1,
   );
 }
 
