@@ -6,6 +6,8 @@ import type {
   TodayGuidanceDependencies,
   TodayGuidanceRequest,
 } from '../../apps/mobile/src/guidance/today-guidance-service';
+import { CHECKED_IN_CAPABILITY_REVIEW } from '../../apps/mobile/src/guidance/capability-review';
+import { CHECKED_IN_EVIDENCE_REGISTRY } from '../../apps/mobile/src/guidance/evidence-registry';
 import {
   generateProtocol as realGenerateProtocol,
   RECOMMENDATION_ENGINE_VERSION,
@@ -140,7 +142,10 @@ function harness(options: { bundle?: ReviewedGuidanceBundle; snapshot?: Guidance
       loadSnapshot,
       generateProtocol,
       currentBundle: () => bundle,
-      validateBundle: input => validatePublishedBundle(input, AS_OF),
+      evidenceRegistry: () => CHECKED_IN_EVIDENCE_REGISTRY,
+      capabilityReview: () => CHECKED_IN_CAPABILITY_REVIEW,
+      validateBundle: (input, registry, review) =>
+        validatePublishedBundle(input, registry, review, AS_OF),
       hashText: text => createHash('sha256').update(text, 'utf8').digest('hex'),
     },
   };

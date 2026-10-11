@@ -9,6 +9,8 @@ import {
   type PrepareGuidanceInput,
   type ReviewedGuidanceBundle,
 } from '../../../packages/domain/src/index';
+import { CHECKED_IN_CAPABILITY_REVIEW } from '../../../apps/mobile/src/guidance/capability-review';
+import { CHECKED_IN_EVIDENCE_REGISTRY } from '../../../apps/mobile/src/guidance/evidence-registry';
 
 const AS_OF = '2026-10-11T09:00:00.000Z';
 const REVIEWED_AT = '2026-10-01T00:00:00.000Z';
@@ -108,7 +110,7 @@ function prepare(
 ) {
   return prepareGuidance({
     snapshot: snapshotInput,
-    bundle: validatePublishedBundle(bundleInput, NOW),
+    bundle: validatePublishedBundle(bundleInput, CHECKED_IN_EVIDENCE_REGISTRY, CHECKED_IN_CAPABILITY_REVIEW, NOW),
     goalId,
     requestId,
     asOf: AS_OF,
@@ -233,7 +235,9 @@ describe('capability acquisition', () => {
         entry.kind === 'product' ? { ...entry, status: 'withdrawn' as const } : entry,
       ),
     });
-    expect(() => validatePublishedBundle(withdrawn, NOW)).toThrow(/withdrawn/i);
+    expect(() =>
+      validatePublishedBundle(withdrawn, CHECKED_IN_EVIDENCE_REGISTRY, CHECKED_IN_CAPABILITY_REVIEW, NOW),
+    ).toThrow(/withdrawn/i);
   });
 
   it('marks archived and out-of-stock items as unavailable candidates', () => {

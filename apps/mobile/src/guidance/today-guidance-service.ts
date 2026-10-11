@@ -15,6 +15,8 @@ import {
 } from '../../../../packages/domain/src/index';
 import { loadGuidanceSnapshot } from './guidance-snapshot';
 import { CURRENT_REVIEWED_BUNDLE } from './reviewed-bundle';
+import { CHECKED_IN_CAPABILITY_REVIEW } from './capability-review';
+import { CHECKED_IN_EVIDENCE_REGISTRY } from './evidence-registry';
 
 /**
  * Today orchestration.
@@ -70,7 +72,14 @@ export interface TodayGuidanceDependencies {
   ) => Promise<GuidanceSnapshot>;
   readonly generateProtocol: (context: unknown) => ProtocolDecision;
   readonly currentBundle: () => unknown;
-  readonly validateBundle: (bundle: unknown, now: string) => ReviewedGuidanceBundle;
+  readonly evidenceRegistry: () => unknown;
+  readonly capabilityReview: () => unknown;
+  readonly validateBundle: (
+    bundle: unknown,
+    evidenceRegistry: unknown,
+    capabilityReview: unknown,
+    now: string,
+  ) => ReviewedGuidanceBundle;
   readonly hashText: (text: string) => string | Promise<string>;
 }
 
@@ -91,6 +100,8 @@ export const defaultGuidanceDependencies: TodayGuidanceDependencies = {
   loadSnapshot: loadGuidanceSnapshot,
   generateProtocol,
   currentBundle: () => CURRENT_REVIEWED_BUNDLE,
+  evidenceRegistry: () => CHECKED_IN_EVIDENCE_REGISTRY,
+  capabilityReview: () => CHECKED_IN_CAPABILITY_REVIEW,
   validateBundle: validatePublishedBundle,
   hashText: text =>
     Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text, {
@@ -122,7 +133,12 @@ export async function generateTodayGuidance(
 
   let bundle: ReviewedGuidanceBundle;
   try {
-    bundle = dependencies.validateBundle(dependencies.currentBundle(), request.asOf);
+    bundle = dependencies.validateBundle(
+      dependencies.currentBundle(),
+      dependencies.evidenceRegistry(),
+      dependencies.capabilityReview(),
+      request.asOf,
+    );
   } catch (error) {
     if (isAbort(error)) throw error;
     // The registry is draft, withdrawn or malformed: no guidance is possible.
