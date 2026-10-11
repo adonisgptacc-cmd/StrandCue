@@ -141,10 +141,13 @@ function profileFacts(snapshot: GuidanceSnapshot): Record<string, FactValue> {
 
 function historyFacts(snapshot: GuidanceSnapshot): Record<string, FactValue> {
   const facts: Record<string, FactValue> = {};
-  for (const activity of snapshot.activities) {
+  const activities = [...snapshot.activities].sort((left, right) =>
+    left.activityId < right.activityId ? -1 : left.activityId > right.activityId ? 1 : 0,
+  );
+  for (const activity of activities) {
     if (activity.voided) continue;
-    for (const [key, value] of Object.entries(activity.facts)) {
-      facts[key] = value;
+    for (const key of Object.keys(activity.facts).sort()) {
+      facts[key] = activity.facts[key];
     }
   }
   return facts;

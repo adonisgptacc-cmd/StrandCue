@@ -69,6 +69,19 @@ function snapshot(overrides: Partial<GuidanceSnapshot> = {}): GuidanceSnapshot {
   };
 }
 
+function activityFact(
+  activityId: string,
+  facts: Record<string, string | number | boolean | null>,
+) {
+  return {
+    activityId,
+    revision: 2,
+    voided: false,
+    appliedRevisionIds: [`${activityId}-baseline`, `${activityId}-correction`],
+    facts,
+  };
+}
+
 function publishedBundle(overrides: Partial<ReviewedGuidanceBundle> = {}): ReviewedGuidanceBundle {
   return {
     bundleId: 'bundle-synthetic',
@@ -332,5 +345,50 @@ describe('today guidance orchestration', () => {
     const { dependencies, loadSnapshot } = harness();
     await generateTodayGuidance(request(), dependencies);
     expect(loadSnapshot).toHaveBeenCalledWith('owner-1', AS_OF, LOADED_AT, undefined);
+  });
+
+  it('hashes and returns the exact normalized input with cutoff-projected activity facts', async () => {
+    const activity = activityFact('activity-1', {
+      activityKind: 'wash',
+      precision: 'day',
+      status: 'active',
+    });
+    const { dependencies, loadSnapshot } = harness({
+      snapshot: snapshot({ activities: [activity] }),
+    });
+    const result = await generateTodayGuidance(request(), dependencies);
+
+    expect(loadSnapshot).toHaveBeenCalledWith('owner-1', AS_OF, LOADED_AT, undefined);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.input.historyFacts).toEqual({
+      activityKind: 'wash',
+      precision: 'day',
+      status: 'active',
+    });
+    expect(result.inputFingerprint).toBe(
+      createHash('sha256').update(JSON.stringify(result.input), 'utf8').digest('hex'),
+    );
+  });
+
+  it('produces byte-equivalent normalized input when activity histories arrive in another order', async () => {
+    const firstSnapshot = snapshot({
+      activities: [
+        activityFact('activity-a', { firstActivityKind: 'wash' }),
+        activityFact('activity-b', { secondActivityKind: 'treatment' }),
+      ],
+    });
+    const reorderedSnapshot = snapshot({ activities: [...firstSnapshot.activities].reverse() });
+    const first = await generateTodayGuidance(request(), harness({ snapshot: firstSnapshot }).dependencies);
+    const reordered = await generateTodayGuidance(
+      request(),
+      harness({ snapshot: reorderedSnapshot }).dependencies,
+    );
+
+    expect(first.status).toBe('ready');
+    expect(reordered.status).toBe('ready');
+    if (first.status !== 'ready' || reordered.status !== 'ready') return;
+    expect(JSON.stringify(reordered.input)).toBe(JSON.stringify(first.input));
+    expect(reordered.inputFingerprint).toBe(first.inputFingerprint);
   });
 });

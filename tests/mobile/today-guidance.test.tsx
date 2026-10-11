@@ -120,7 +120,11 @@ function readyResult(overrides: Record<string, unknown> = {}) {
       asOf: '2026-10-11T09:00:00.000Z',
       goal: 'basic_wash',
       profileFacts: {},
-      historyFacts: {},
+      historyFacts: {
+        activityKind: 'wash',
+        precision: 'day',
+        status: 'active',
+      },
       environmentFacts: {},
       products: [],
       tools: [],
@@ -348,6 +352,12 @@ describe('today guidance states', () => {
     expect(command.bundleId).toBe('bundle-synthetic');
     expect(command.inputFingerprint).toBe('a'.repeat(64));
     expect(command.input).toEqual(readyResult().input);
+    expect(command.input.historyFacts).toEqual({
+      activityKind: 'wash',
+      precision: 'day',
+      status: 'active',
+    });
+    expect(JSON.stringify(command.input)).not.toMatch(/notes|zones|correctionReason|voidReason/i);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -367,6 +377,7 @@ describe('today guidance states', () => {
     expect(text(renderer)).toContain('plan created, audit save failed');
     expect(text(renderer)).toContain('step 1');
     expect(mocks.generate).toHaveBeenCalledTimes(1);
+    expect(mocks.recordRun).toHaveBeenCalledTimes(1);
     await act(async () => { renderer.unmount(); });
   });
 
