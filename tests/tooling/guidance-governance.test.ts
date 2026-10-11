@@ -96,6 +96,13 @@ describe('today guidance integration verification record', () => {
     expect(verification).toMatch(/mutable source reconstruction/i);
   });
 
+  it('does not overstate activity revision provenance as engine input', () => {
+    const verification = read(VERIFICATION);
+    expect(verification).toMatch(/applied revision IDs into the guidance snapshot/i);
+    expect(verification).toMatch(/activity kind, precision, and status enter recommendation input/i);
+    expect(verification).not.toMatch(/applied revision IDs into the normalized recommendation context/i);
+  });
+
   it('states that no real recommendation was activated', () => {
     expect(read(VERIFICATION)).toMatch(/no real recommendation|not activated/i);
   });

@@ -27,7 +27,7 @@ Activity guidance now uses two explicit times. The **effective cutoff** chooses
 the activity state for the requested date. The **recorded cutoff** includes only
 revisions known when the guidance snapshot was loaded. The mobile boundary
 validates each complete history, projects corrections and voids, and carries
-the applied revision IDs into the normalized recommendation context.
+the applied revision IDs into the guidance snapshot.
 
 The exact **stored normalized input** is the replay authority because it is the
 same object passed to the engine and hashed for persistence. Replay does not use
@@ -78,8 +78,9 @@ The Technical Alpha label is unchanged. No public-readiness claim is made.
   corrections cannot reorder pagination. Revisions exactly at the recorded
   cutoff are included, and revisions one microsecond later are excluded.
 - Malformed or ambiguous activity histories fail the whole activity source
-  closed. Only activity kind, precision, status, and revision provenance enter
-  recommendation input; notes, zones and correction or void reasons do not.
+  closed. Activity kind, precision, and status enter recommendation input;
+  revision provenance remains at the snapshot/projection boundary. Notes,
+  zones and correction or void reasons do not enter recommendation input.
 - Reordering equivalent source histories produces byte-equivalent normalized
   input and fingerprints. Conflicting shared activity facts are omitted so they
   remain unknown rather than depending on source order.
@@ -91,7 +92,9 @@ The Task 2 database gate ran on Node `v24.19.0`. Observed focused results:
 - `npm test -- --run tests/database/guidance-activity-history.test.ts tests/database/migration-inventory.test.ts tests/database/activity.test.ts tests/database/hardening.test.ts` — 64 passed.
 - `npm test -- --run tests/mobile/guidance-snapshot.test.ts tests/mobile/today-guidance-service.test.ts tests/domain/activity.test.ts` — 51 passed.
 - `npm test -- --run tests/mobile/today-guidance-service.test.ts tests/mobile/today-guidance.test.tsx tests/database/recommendation-runs.test.ts tests/domain/guidance/prepare-guidance.test.ts` — 77 passed.
-- Typecheck, lint and `git diff --check` passed for Tasks 1–4.
+- `npm test -- --run tests/tooling/guidance-governance.test.ts tests/mobile/guidance-snapshot.test.ts` — 50 passed.
+- Typecheck, lint and `git diff --check` passed for Tasks 1–4 and the Task 6
+  review fixes.
 
 The local Supabase service was unavailable at `127.0.0.1:54322`, so Supabase
 advisors could not run. The repository's PGlite migration replay, database

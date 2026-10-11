@@ -608,7 +608,7 @@ it('preserves service presence and effective dates without inference', async () 
     expect(snapshot.activities[0].facts.activityKind).toBe('wash');
   });
 
-  it('projects a void to empty facts and keeps the included revision count', async () => {
+  it('projects a void to empty facts and keeps the void revision provenance', async () => {
     apiMocks.listGuidanceActivityHistories.mockResolvedValue(page([{
       activityId: ACTIVITY_ID,
       revisions: [
@@ -628,7 +628,12 @@ it('preserves service presence and effective dates without inference', async () 
       ],
     }]));
     const snapshot = (await load()) as Record<string, any>;
-    expect(snapshot.activities[0]).toMatchObject({ revision: 2, voided: true, facts: {}, appliedRevisionIds: [] });
+    expect(snapshot.activities[0]).toMatchObject({
+      revision: 2,
+      voided: true,
+      facts: {},
+      appliedRevisionIds: [VOID_ID],
+    });
   });
 
   it('fails closed on ambiguous projection without returning partial activities', async () => {
