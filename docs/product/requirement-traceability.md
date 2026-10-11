@@ -56,15 +56,15 @@ Status meanings: **Implemented** — a listed test or evidence path proves the b
 | EN-07 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-08 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-09 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
-| TD-01 | R1 | apps/mobile/src/TodayTechnicalAlpha.tsx (honest alpha state; execution surface later) | tests/mobile/navigation.test.tsx | Partial |
-| TD-02 | R1 | — | — | Not started |
-| TD-03 | R1 | — | — | Not started |
-| TD-04 | R1 | — | — | Not started |
-| TD-05 | R1 | — | — | Not started |
-| TD-06 | R1 | — | — | Not started |
+| TD-01 | R1 | apps/mobile/src/TodayGuidance.tsx (primary action surface; generation is user-initiated, execution surface later) | tests/mobile/today-guidance.test.tsx, tests/mobile/navigation.test.tsx | Partial |
+| TD-02 | R1 | apps/mobile/src/guidance/guidance-snapshot.ts, packages/domain/src/guidance/prepare-guidance.ts (goal, condition, availability and history captured from existing records) | tests/mobile/guidance-snapshot.test.ts, tests/domain/guidance/prepare-guidance.test.ts | Partial |
+| TD-03 | R1 | packages/domain/src/guidance/prepare-guidance.ts (sorted setup gaps naming the missing fact and its destination) | tests/domain/guidance/prepare-guidance.test.ts, tests/mobile/today-guidance.test.tsx | Partial |
+| TD-04 | R1 | apps/mobile/src/TodayGuidance.tsx, apps/mobile/src/guidance/guidance-copy.ts (steps, reasons, confidence, evidence, alternatives shown before execution) | tests/mobile/today-guidance.test.tsx | Partial |
+| TD-05 | R1 | supabase/migrations/20261011090000_recommendation_runs.sql (immutable decision run; migration not applied to hosted Supabase) | tests/database/recommendation-runs.test.ts, tests/mobile/recommendation-run-api.test.ts | Partial |
+| TD-06 | R1 | apps/mobile/src/TodayGuidance.tsx (generating and viewing produce no recorded wash, application or heat event) | tests/mobile/today-guidance.test.tsx | Partial |
 | TD-07 | R1 | — | — | Not started |
 | TD-08 | R1 | — | — | Not started |
-| TD-09 | R1 | — | — | Not started |
+| TD-09 | R1 | packages/domain/src/guidance/reviewed-content.ts (withdrawn content stops execution; staleness propagation not yet built) | tests/domain/guidance/reviewed-content.test.ts | Partial |
 | TR-01 | R2 | — | — | Not started |
 | TR-02 | R2 | — | — | Not started |
 | TR-03 | R2 | — | — | Not started |
