@@ -95,6 +95,12 @@ export interface ReviewedCapabilityEntry {
   readonly reviewedAt: string;
   /** Named human reviewer. Required, so no entry can be published unowned. */
   readonly reviewedBy: string;
+  /**
+   * Named human author. Absent only on replayed version `1` bundles; a
+   * version `2` bundle records it on every entry, and the reviewer must then
+   * be someone other than the author.
+   */
+  readonly authoredBy?: string;
 }
 
 export type ReviewedBundleStatus = 'draft' | 'published' | 'withdrawn';
@@ -106,6 +112,15 @@ export interface ReviewedGuidanceBundle {
   readonly reviewedAt: string;
   /** Named human reviewer of the bundle as a whole. */
   readonly reviewedBy: string;
+  /**
+   * Named human author. Absent only on replayed version `1` bundles; required
+   * on a version `2` bundle alongside its evidence registry reference.
+   */
+  readonly authoredBy?: string;
+  /** Identity of the checked-in evidence registry this bundle was built from. */
+  readonly evidenceRegistryId?: string;
+  /** Version of that evidence registry, so a run can be replayed against it. */
+  readonly evidenceRegistryVersion?: string;
   readonly goals: readonly GuidanceGoal[];
   readonly capabilities: readonly ReviewedCapabilityEntry[];
   readonly rules: readonly RecommendationRule[];

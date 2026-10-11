@@ -3,15 +3,26 @@ import { z } from 'zod';
 import { EffectiveDateSchema } from '../dates.ts';
 import { ActivityRevisionSchema } from '../activity.ts';
 import { FactValueSchema, RecommendationContextSchema, RecommendationRuleSchema } from '../recommendations/schemas.ts';
+import type { RecommendationCondition, RecommendationEffect } from '../recommendations/types.ts';
+import { isGuidanceCapability } from './capability-vocabulary.ts';
 
 /**
  * Reviewed content bundle versions this build understands. A bundle whose
  * version is not listed here is unsupported: the publication gate refuses it
  * rather than guessing at its shape.
+ *
+ * Version `1` stays supported so a historical decision run can still be
+ * replayed with the exact contract it was produced under. Version `2` is the
+ * reviewed-content contract: it must name its author, reference the evidence
+ * registry it was built from, and may only use the reviewed capability
+ * vocabulary. New tightening applies to version `2` only, so the meaning of an
+ * already-executed version `1` bundle never changes.
  */
-export const SUPPORTED_BUNDLE_VERSIONS = ['1'] as const;
+export const SUPPORTED_BUNDLE_VERSIONS = ['1', '2'] as const;
 
-const nonEmptyString = z.string().trim().min(1);
+const REVIEWED_CONTRACT_BUNDLE_VERSION = '2';
+
+export const nonEmptyString = z.string().trim().min(1);
 
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
 
@@ -213,6 +224,58 @@ export const GuidanceSnapshotSchema = frozen(
     }),
 );
 
+/** A capability name a rule reads, together with where it was found. */
+interface CapabilityReference {
+  readonly value: string;
+  readonly path: readonly (string | number)[];
+}
+
+/**
+ * Capability names inside a rule's condition tree. The engine models these as
+ * reusable strings; the reviewed-guidance boundary narrows them to the
+ * reviewed vocabulary without changing the engine's own types.
+ */
+function conditionCapabilityReferences(
+  condition: RecommendationCondition,
+  path: readonly (string | number)[],
+): CapabilityReference[] {
+  switch (condition.kind) {
+    case 'capability_available':
+      return [{ value: condition.capability, path: [...path, 'capability'] }];
+    case 'all':
+    case 'any':
+      return condition.conditions.flatMap((child, index) =>
+        conditionCapabilityReferences(child, [...path, 'conditions', index]),
+      );
+    case 'not':
+      return conditionCapabilityReferences(condition.condition, [...path, 'condition']);
+    default:
+      return [];
+  }
+}
+
+/** Capability names inside a rule's effects, including the two order effects. */
+function effectCapabilityReferences(
+  effect: RecommendationEffect,
+  path: readonly (string | number)[],
+): CapabilityReference[] {
+  switch (effect.kind) {
+    case 'require_capability':
+    case 'exclude_capability':
+    case 'prefer_capability':
+    case 'activation':
+      return [{ value: effect.capability, path: [...path, 'capability'] }];
+    case 'order_before':
+    case 'order_after':
+      return [
+        { value: effect.before, path: [...path, 'before'] },
+        { value: effect.after, path: [...path, 'after'] },
+      ];
+    default:
+      return [];
+  }
+}
+
 export const ReviewedCapabilityEntrySchema = z
   .object({
     kind: z.enum(['product', 'tool']),
@@ -223,6 +286,13 @@ export const ReviewedCapabilityEntrySchema = z
     status: z.enum(['published', 'withdrawn']),
     reviewedAt: IsoTimestampSchema,
     reviewedBy: nonEmptyString,
+    /**
+     * Named human who wrote this entry. Optional on its own because a
+     * standalone entry does not know its bundle version; a version `2` bundle
+     * requires it on every entry, and that is what lets the gate refuse an
+     * entry its own author reviewed.
+     */
+    authoredBy: nonEmptyString.optional(),
   })
   .strict()
   .superRefine((entry, context) => {
@@ -236,6 +306,13 @@ export const ReviewedCapabilityEntrySchema = z
         });
       }
       seen.add(capability);
+    }
+    if (entry.authoredBy !== undefined && entry.authoredBy === entry.reviewedBy) {
+      context.addIssue({
+        code: 'custom',
+        path: ['authoredBy'],
+        message: 'A capability entry must be reviewed by someone other than its author',
+      });
     }
   });
 
@@ -277,6 +354,11 @@ export const ReviewedGuidanceBundleSchema = frozen(
       status: ReviewedBundleStatusSchema,
       reviewedAt: IsoTimestampSchema,
       reviewedBy: nonEmptyString,
+      /** Required on a version `2` bundle; absent from replayed version `1` bundles. */
+      authoredBy: nonEmptyString.optional(),
+      /** The evidence registry this bundle was built from. Required on version `2`. */
+      evidenceRegistryId: nonEmptyString.optional(),
+      evidenceRegistryVersion: nonEmptyString.optional(),
       goals: z.array(GuidanceGoalSchema).min(1),
       capabilities: z.array(ReviewedCapabilityRegistryEntrySchema),
       rules: z.array(ReviewedBundleRuleSchema),
@@ -309,6 +391,55 @@ export const ReviewedGuidanceBundleSchema = frozen(
           message: 'A reviewed bundle lists each goal once',
         });
       }
+      if (bundle.version !== REVIEWED_CONTRACT_BUNDLE_VERSION) return;
+      for (const [field, value] of [
+        ['authoredBy', bundle.authoredBy],
+        ['evidenceRegistryId', bundle.evidenceRegistryId],
+        ['evidenceRegistryVersion', bundle.evidenceRegistryVersion],
+      ] as const) {
+        if (value === undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: [field],
+            message: `A version ${REVIEWED_CONTRACT_BUNDLE_VERSION} bundle records ${field}`,
+          });
+        }
+      }
+      bundle.capabilities.forEach((entry, index) => {
+        if (entry.authoredBy === undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: ['capabilities', index, 'authoredBy'],
+            message: `A version ${REVIEWED_CONTRACT_BUNDLE_VERSION} capability entry records the person who authored it`,
+          });
+        }
+        entry.verifiedCapabilities.forEach((capability, capabilityIndex) => {
+          if (!isGuidanceCapability(capability)) {
+            context.addIssue({
+              code: 'custom',
+              path: ['capabilities', index, 'verifiedCapabilities', capabilityIndex],
+              message: `'${capability}' is outside the reviewed capability vocabulary`,
+            });
+          }
+        });
+      });
+      bundle.rules.forEach((rule, index) => {
+        const references = [
+          ...conditionCapabilityReferences(rule.condition, ['condition']),
+          ...rule.effects.flatMap((effect, effectIndex) =>
+            effectCapabilityReferences(effect, ['effects', effectIndex]),
+          ),
+        ];
+        for (const reference of references) {
+          if (!isGuidanceCapability(reference.value)) {
+            context.addIssue({
+              code: 'custom',
+              path: ['rules', index, ...reference.path],
+              message: `'${reference.value}' is outside the reviewed capability vocabulary`,
+            });
+          }
+        }
+      });
     }),
 );
 
@@ -370,4 +501,4 @@ export const GuidancePreparationSchema = frozen(
   ]),
 );
 
-export { deepFreeze, hasEvidence };
+export { deepFreeze, frozen, hasEvidence };

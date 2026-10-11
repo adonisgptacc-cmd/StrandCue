@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BASIC_WASH_CAPABILITIES,
   GuidanceActivityFactSchema,
   GuidanceActivityCursorSchema,
   GuidanceActivityHistoryPageSchema,
@@ -13,6 +14,7 @@ import {
   GuidanceSourceItemSchema,
   ReviewedCapabilityEntrySchema,
   ReviewedGuidanceBundleSchema,
+  SUPPORTED_BUNDLE_VERSIONS,
 } from '../../../packages/domain/src/guidance/index.ts';
 
 const ISO = '2026-10-10T10:00:00.000Z';
@@ -158,6 +160,20 @@ function bundle(overrides: Record<string, unknown> = {}) {
     rules: [rule()],
     ...overrides,
   };
+}
+
+function v2Bundle(overrides: Record<string, unknown> = {}) {
+  return bundle({
+    version: '2',
+    authoredBy: 'author-a',
+    evidenceRegistryId: 'basic-wash-evidence',
+    evidenceRegistryVersion: '1',
+    capabilities: [
+      capabilityEntry({ authoredBy: 'author-a', verifiedCapabilities: ['cleanse'] }),
+    ],
+    rules: [rule({ effects: [{ kind: 'require_capability', capability: 'cleanse' }] })],
+    ...overrides,
+  });
 }
 
 describe('guidance source contracts', () => {
@@ -362,8 +378,97 @@ describe('reviewed guidance bundles', () => {
   });
 
   it('rejects an unsupported bundle version', () => {
-    expect(() => ReviewedGuidanceBundleSchema.parse(bundle({ version: '2' }))).toThrow();
+    expect(() => ReviewedGuidanceBundleSchema.parse(bundle({ version: '3' }))).toThrow();
     expect(() => ReviewedGuidanceBundleSchema.parse(bundle({ version: '' }))).toThrow();
+  });
+
+  it('keeps version 1 replayable and accepts version 2', () => {
+    expect([...SUPPORTED_BUNDLE_VERSIONS]).toEqual(['1', '2']);
+    const legacy = ReviewedGuidanceBundleSchema.parse(bundle());
+    expect(legacy.version).toBe('1');
+    expect(legacy.authoredBy).toBeUndefined();
+    expect(ReviewedGuidanceBundleSchema.parse(v2Bundle()).version).toBe('2');
+  });
+
+  it('carries the author and evidence registry references of a version 2 bundle', () => {
+    const parsed = ReviewedGuidanceBundleSchema.parse(v2Bundle());
+    expect(parsed.authoredBy).toBe('author-a');
+    expect(parsed.evidenceRegistryId).toBe('basic-wash-evidence');
+    expect(parsed.evidenceRegistryVersion).toBe('1');
+    expect(parsed.capabilities[0].authoredBy).toBe('author-a');
+  });
+
+  it('requires the author and evidence registry references on a version 2 bundle', () => {
+    expect(ReviewedGuidanceBundleSchema.parse(v2Bundle()).version).toBe('2');
+    expect(() => ReviewedGuidanceBundleSchema.parse(v2Bundle({ authoredBy: undefined }))).toThrow();
+    expect(() => ReviewedGuidanceBundleSchema.parse(v2Bundle({ authoredBy: '  ' }))).toThrow();
+    expect(() => ReviewedGuidanceBundleSchema.parse(v2Bundle({ evidenceRegistryId: undefined }))).toThrow();
+    expect(() => ReviewedGuidanceBundleSchema.parse(v2Bundle({ evidenceRegistryVersion: undefined }))).toThrow();
+    expect(() => ReviewedGuidanceBundleSchema.parse(v2Bundle({ evidenceRegistryVersion: '' }))).toThrow();
+    expect(() => ReviewedGuidanceBundleSchema.parse(v2Bundle({ capabilities: [capabilityEntry({ verifiedCapabilities: ['cleanse'] })] }))).toThrow();
+  });
+
+  it('closes the capability vocabulary of a version 2 bundle', () => {
+    expect([...BASIC_WASH_CAPABILITIES]).toEqual(['cleanse', 'condition']);
+    const accepted = v2Bundle({
+      capabilities: [
+        capabilityEntry({ authoredBy: 'author-a', verifiedCapabilities: ['cleanse', 'condition'] }),
+      ],
+      rules: [
+        rule({
+          effects: [
+            { kind: 'order_before', before: 'cleanse', after: 'condition' },
+            { kind: 'order_after', before: 'cleanse', after: 'condition' },
+            { kind: 'require_capability', capability: 'condition' },
+            { kind: 'wait', durationSeconds: 30 },
+          ],
+        }),
+      ],
+    });
+    expect(ReviewedGuidanceBundleSchema.parse(accepted).rules[0].effects).toHaveLength(4);
+    expect(() =>
+      ReviewedGuidanceBundleSchema.parse(
+        v2Bundle({
+          capabilities: [capabilityEntry({ authoredBy: 'author-a', verifiedCapabilities: ['mild-cleanse'] })],
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      ReviewedGuidanceBundleSchema.parse(
+        v2Bundle({ rules: [rule({ effects: [{ kind: 'require_capability', capability: 'mild-cleanse' }] })] }),
+      ),
+    ).toThrow();
+    expect(() =>
+      ReviewedGuidanceBundleSchema.parse(
+        v2Bundle({
+          rules: [
+            rule({
+              condition: { kind: 'all', conditions: [{ kind: 'not', condition: { kind: 'capability_available', capability: 'dry' } }] },
+              effects: [{ kind: 'require_capability', capability: 'cleanse' }],
+            }),
+          ],
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      ReviewedGuidanceBundleSchema.parse(
+        v2Bundle({ rules: [rule({ effects: [{ kind: 'order_before', before: 'shampoo', after: 'condition' }] })] }),
+      ),
+    ).toThrow();
+  });
+
+  it('refuses a capability entry that its own author reviewed', () => {
+    expect(() =>
+      ReviewedGuidanceBundleSchema.parse(
+        v2Bundle({ capabilities: [capabilityEntry({ authoredBy: 'reviewer-a', verifiedCapabilities: ['cleanse'] })] }),
+      ),
+    ).toThrow();
+    expect(() =>
+      ReviewedGuidanceBundleSchema.parse(
+        v2Bundle({ capabilities: [capabilityEntry({ authoredBy: 'author-a', verifiedCapabilities: ['cleanse'], reviewedBy: 'author-a' })] }),
+      ),
+    ).toThrow();
+    expect(ReviewedGuidanceBundleSchema.parse(v2Bundle()).capabilities[0].reviewedBy).toBe('reviewer-a');
   });
 
   it('rejects duplicate capability mappings for the same kind and version', () => {
