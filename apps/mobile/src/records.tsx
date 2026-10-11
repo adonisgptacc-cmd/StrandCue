@@ -8,7 +8,7 @@ import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
 import { ReleaseStageBanner } from './ReleaseStageBanner';
 import { DESTINATIONS, INITIAL_DESTINATION, type DestinationId } from './navigation';
-import { TodayTechnicalAlpha } from './TodayTechnicalAlpha';
+import { TodayGuidance } from './TodayGuidance';
 import { useOwnerLoad } from './owner-load';
 import { Services } from './services';
 import { Activities } from './activities';
@@ -256,7 +256,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
-    {destination === 'today' && <TodayTechnicalAlpha/>}
+    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectDestination}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
     {destination === 'journey' && <View style={styles.row}>{(['History','Activities'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text style={styles.title}>{destinationTitle}</Text>}

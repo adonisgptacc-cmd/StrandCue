@@ -9,13 +9,13 @@ import {
   type DestinationId,
 } from '../../apps/mobile/src/navigation';
 import { Records } from '../../apps/mobile/src/records';
-import { TodayTechnicalAlpha } from '../../apps/mobile/src/TodayTechnicalAlpha';
 
 const navigationMocks = vi.hoisted(() => ({
   loadPassport: vi.fn(),
   loadProfile: vi.fn(),
   loadService: vi.fn(),
   loadServices: vi.fn(),
+  generateGuidance: vi.fn(),
   storage: {
     getItem: vi.fn(),
     removeItem: vi.fn(),
@@ -67,6 +67,14 @@ vi.mock('../../apps/mobile/src/passport-api.ts', () => ({
 vi.mock('../../apps/mobile/src/services-api.ts', () => ({
   loadService: navigationMocks.loadService,
   loadServices: navigationMocks.loadServices,
+}));
+
+vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({
+  generateTodayGuidance: navigationMocks.generateGuidance,
+}));
+
+vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
+  recordRecommendationRun: vi.fn(),
 }));
 
 vi.mock('../../apps/mobile/src/activities.tsx', () => ({
@@ -164,23 +172,29 @@ describe('product destinations', () => {
     expect(new Set(accessibilityLabels).size).toBe(accessibilityLabels.length);
   });
 
-  it('keeps Today honest: no protocol, score, purchase, or medical claim', async () => {
-    let renderer!: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(createElement(TodayTechnicalAlpha));
-    });
+  it('keeps Today honest: no score, purchase, or medical claim before generation', async () => {
+    const renderer = await renderRecords();
     const text = renderedText(renderer).toLowerCase();
-    expect(text).toContain('personalized guidance is not available');
-    expect(text).not.toContain('protocol');
+    // Today now prepares reviewed guidance, so it no longer claims guidance is
+    // unavailable. What must stay true: nothing is generated on mount, and no
+    // score, purchase or diagnostic language appears.
     expect(text).not.toContain('score');
     expect(text).not.toContain('buy');
-    expect(text).not.toContain('diagnos');
+    // The app keeps its cosmetic boundary wording; Today must not make a
+    // medical claim, promise an outcome, or offer treatment.
+    expect(text).toContain('not a diagnosis');
+    expect(text).not.toContain('diagnose your');
+    expect(text).not.toContain('treatment');
+    expect(text).not.toContain('cure');
+    expect(text).not.toContain('guarantee');
+    expect(text).not.toContain('step 1');
+    expect(navigationMocks.generateGuidance).not.toHaveBeenCalled();
     await act(async () => { renderer.unmount(); });
   });
 
   it('opens on Today and keeps existing screens reachable', async () => {
     const renderer = await renderRecords();
-    expect(renderedText(renderer)).toContain('Personalized guidance is not available');
+    expect(renderedText(renderer)).toContain('Generate my plan');
 
     await act(async () => { press(renderer, 'My Hair: passport and services'); });
     expect(renderedText(renderer)).toContain('Your Hair Passport');
