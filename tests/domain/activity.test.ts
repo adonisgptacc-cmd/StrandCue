@@ -123,6 +123,32 @@ describe('activity domain', () => {
     expect(projection.allRevisionIds).toContain('40000000-0000-4000-8000-000000000021');
   });
 
+  it('applies void revisions only when their effective date reaches the projection date', () => {
+    const revisions = [
+      baseline,
+      {
+        id: '40000000-0000-4000-8000-000000000022',
+        activityId,
+        sequence: 2,
+        baseRevision: 1,
+        kind: 'void',
+        voidReason: 'duplicate entry',
+        effectiveDate: { precision: 'day' as const, value: '2024-03-01' },
+        recordedAt: '2024-01-16T10:00:00.000Z',
+        source: 'user-reported' as const,
+        patch: {},
+      },
+    ] satisfies ActivityRevision[];
+
+    const beforeVoid = projectActivityHistory(revisions, { asOf: '2024-02-01' });
+    expect(beforeVoid.voidedRevisionIds).toEqual([]);
+    expect(beforeVoid.values.notes).toBe('First wash');
+
+    const afterVoid = projectActivityHistory(revisions, { asOf: '2024-03-01' });
+    expect(afterVoid.voidedRevisionIds).toContain('40000000-0000-4000-8000-000000000001');
+    expect(afterVoid.values.notes).toBeUndefined();
+  });
+
   it('reports ambiguous same-month effective intervals', () => {
     const projection = projectActivityHistory(
       [

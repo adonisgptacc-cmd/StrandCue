@@ -1,7 +1,6 @@
 import {
   EffectiveDateSchema,
   GuidanceSnapshotSchema,
-  type EffectiveDate,
   type GuidanceActivityFact,
   type GuidanceServiceFact,
   type GuidanceSnapshot,
@@ -108,17 +107,6 @@ function activityFacts(values: unknown): FactRecord {
   );
 }
 
-function appliedActivityRevisionIds(
-  projection: ReturnType<typeof projectActivityHistory>,
-  revisions: readonly { readonly id: string; readonly kind: string; readonly sequence: number }[],
-): readonly string[] {
-  if (projection.voidedRevisionIds.length === 0) return [...projection.appliedRevisionIds];
-  return revisions
-    .filter(revision => revision.kind === 'void')
-    .sort((left, right) => left.sequence - right.sequence)
-    .map(revision => revision.id);
-}
-
 /**
  * Copies a service's recorded effective date, preserving its precision. A
  * month-precision date stays '2026-06': widening it to a day would invent a
@@ -216,7 +204,7 @@ async function loadActivityFacts(
         activityId: validated.activityId,
         revision: highestRevision,
         voided: projection.voidedRevisionIds.length > 0,
-        appliedRevisionIds: appliedActivityRevisionIds(projection, validated.revisions),
+        appliedRevisionIds: [...projection.appliedRevisionIds],
         facts: activityFacts(projection.values),
       } satisfies GuidanceActivityFact;
     });

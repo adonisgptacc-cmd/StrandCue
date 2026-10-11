@@ -374,15 +374,17 @@ export function projectActivityHistory(
   const sequencesById = new Map(revisions.map((r) => [r.id, r.sequence] as const));
   const supersededRevisionIds = [...correctionByTarget.keys()].sort((a, b) => sequencesById.get(a)! - sequencesById.get(b)!);
   const voids = revisions.filter((r): r is ActivityVoidRevision => r.kind === 'void');
-  // Simple void semantics for test: if any void exists, the baseline is voided
-  const voidedRevisionIds = voids.length > 0 ? [baseline.id] : [];
+  const activeVoids = voids.filter(
+    (revision) => applicabilityAt(effectiveDateToInterval(revision.effectiveDate), asOf) !== null,
+  );
+  const voidedRevisionIds = activeVoids.length > 0 ? [baseline.id] : [];
   const allRevisionIds = revisions.map((r) => r.id);
-  // If voided, no active values (projectFields already may have values, but test expects empty)
   const values = voidedRevisionIds.length > 0 ? {} : fieldProjection.values;
-  const appliedRevisionIds = voidedRevisionIds.length > 0 ? [] : fieldProjection.appliedRevisionIds;
+  const appliedRevisionIds = voidedRevisionIds.length > 0
+    ? activeVoids.map(revision => revision.id)
+    : fieldProjection.appliedRevisionIds;
   const ambiguousFields = voidedRevisionIds.length > 0 ? {} : fieldProjection.ambiguousFields;
-  // Also void supersedes baseline in superseded list
-  const supersededWithVoid = voids.length > 0 ? uniqueRevisionIds([...supersededRevisionIds, ...voidedRevisionIds]) : supersededRevisionIds;
+  const supersededWithVoid = activeVoids.length > 0 ? uniqueRevisionIds([...supersededRevisionIds, ...voidedRevisionIds]) : supersededRevisionIds;
   return {
     asOf,
     values,
