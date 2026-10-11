@@ -26,6 +26,10 @@ export {
   validatePublishedBundle,
 } from './reviewed-content.ts';
 export {
+  prepareGuidance,
+  type PrepareGuidanceInput,
+} from './prepare-guidance.ts';
+export {
   GuidanceActivityFactSchema,
   GuidanceAvailabilitySchema,
   GuidanceBundleVersionSchema,
