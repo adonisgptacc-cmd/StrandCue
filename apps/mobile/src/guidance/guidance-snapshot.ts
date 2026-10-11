@@ -8,7 +8,9 @@ import {
   type GuidanceSourceCompleteness,
   type GuidanceSourceItem,
 } from '../../../../packages/domain/src/index';
-import { getActivity, listActivities } from '../activity-api';
+import { projectActivityHistory } from '../../../../packages/domain/src/activity.ts';
+import { GuidanceActivityHistorySchema } from '../../../../packages/domain/src/guidance/schemas.ts';
+import { listGuidanceActivityHistories } from './guidance-activity-api';
 import { loadPassport } from '../passport-api';
 import { loadServices } from '../services-api';
 import { getUserProduct, listUserProducts } from '../shelf-api';
@@ -24,8 +26,9 @@ import { getUserTool, listUserTools } from '../tool-api';
  * empty-but-complete list: an empty list looks like "you own nothing", which
  * would be a lie about the owner's records.
  *
- * The loader reads only through the existing owner-scoped API functions. It
- * adds no query, no RPC and no cross-owner path.
+ * The loader reads only through owner-scoped API functions. Activities use
+ * the bitemporal history boundary so effective and recorded cutoffs are fixed
+ * for the entire snapshot.
  */
 
 export const SNAPSHOT_PAGE_SIZE = 100;
@@ -177,35 +180,36 @@ async function loadServiceFacts(
 }
 
 async function loadActivityFacts(
-  asOfDate: string,
+  effectiveAsOf: string,
+  recordedAsOf: string,
   signal?: AbortSignal,
 ): Promise<{ items: GuidanceActivityFact[]; completeness: GuidanceSourceCompleteness }> {
   try {
     const { items, truncated } = await collectPages(signal, cursor =>
-      listActivities(asOfDate, { limit: SNAPSHOT_PAGE_SIZE, cursor: cursor as never }),
+      listGuidanceActivityHistories(effectiveAsOf, recordedAsOf, {
+        limit: SNAPSHOT_PAGE_SIZE,
+        cursor: cursor as never,
+      }),
     );
-    const details = await mapWithConcurrency(
-      items,
-      SNAPSHOT_DETAIL_CONCURRENCY,
-      async item => {
-        throwIfAborted(signal);
-        const detail = await getActivity(item.id);
-        if (detail === null) throw new Error(`Activity ${item.id} disappeared while loading`);
-        if (detail.revision !== item.revision) {
-          throw new Error(`Activity ${item.id} changed while loading`);
-        }
-        const latest = detail.revisions[detail.revisions.length - 1];
-        const patch = latest === undefined ? undefined : (latest as { patch?: unknown }).patch;
-        return {
-          activityId: detail.id,
-          revision: detail.revision,
-          voided: detail.voided,
-          appliedRevisionIds: [],
-          facts: activityFacts(patch),
-        } satisfies GuidanceActivityFact;
-      },
-    );
-    return { items: details, completeness: truncated ? 'truncated' : 'complete' };
+    const facts = items.map(history => {
+      const validated = GuidanceActivityHistorySchema.parse(history);
+      const projection = projectActivityHistory(validated.revisions, { asOf: effectiveAsOf });
+      if (Object.keys(projection.ambiguousFields).length > 0) {
+        throw new Error(`Activity ${validated.activityId} has ambiguous projected fields`);
+      }
+      const highestRevision = validated.revisions.reduce(
+        (highest, revision) => Math.max(highest, revision.sequence),
+        0,
+      );
+      return {
+        activityId: validated.activityId,
+        revision: highestRevision,
+        voided: projection.voidedRevisionIds.length > 0,
+        appliedRevisionIds: [...projection.appliedRevisionIds],
+        facts: activityFacts(projection.values),
+      } satisfies GuidanceActivityFact;
+    });
+    return { items: facts, completeness: truncated ? 'truncated' : 'complete' };
   } catch (error) {
     if (isAbort(error)) throw error;
     return { items: [], completeness: 'failed' };
@@ -302,7 +306,7 @@ export async function loadGuidanceSnapshot(
   const [passport, services, activities, products, tools] = await Promise.all([
     loadPassportFacts(asOfDate, signal),
     loadServiceFacts(asOfDate, signal),
-    loadActivityFacts(asOfDate, signal),
+    loadActivityFacts(asOfDate, loadedAt, signal),
     loadOwnedItems(listUserProducts, getUserProduct, 'manualName', signal),
     loadOwnedItems(listUserTools, getUserTool, 'manualModel', signal),
   ]);
