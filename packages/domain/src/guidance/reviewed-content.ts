@@ -25,6 +25,25 @@ export class ReviewedContentError extends Error {
  * produce guidance.
  */
 export function validatePublishedBundle(input: unknown, now: string): ReviewedGuidanceBundle {
+  const raw = typeof input === 'object' && input !== null ? input as Record<string, unknown> : {};
+  const rawCapabilities = Array.isArray(raw.capabilities) ? raw.capabilities : [];
+  const entriesWithoutReviewer = rawCapabilities.filter(
+    entry =>
+      typeof entry !== 'object' ||
+      entry === null ||
+      typeof (entry as Record<string, unknown>).reviewedBy !== 'string' ||
+      String((entry as Record<string, unknown>).reviewedBy).trim() === '',
+  );
+  if (typeof raw.reviewedBy !== 'string' || raw.reviewedBy.trim() === '') {
+    throw new ReviewedContentError(
+      'Reviewed content must name the reviewer who checked the bundle before it can be published',
+    );
+  }
+  if (entriesWithoutReviewer.length > 0) {
+    throw new ReviewedContentError(
+      'Every published capability entry must name the reviewer who checked it',
+    );
+  }
   const parsed = ReviewedGuidanceBundleSchema.safeParse(input);
   if (!parsed.success) {
     throw new ReviewedContentError(
@@ -46,6 +65,14 @@ export function validatePublishedBundle(input: unknown, now: string): ReviewedGu
   if (withdrawn !== undefined) {
     throw new ReviewedContentError(
       `Reviewed content bundle '${bundle.bundleId}' carries a withdrawn capability entry for '${withdrawn.kind}' version '${withdrawn.versionId}'`,
+    );
+  }
+  const futureEntry = bundle.capabilities.find(
+    entry => Date.parse(entry.reviewedAt) > Date.parse(now),
+  );
+  if (futureEntry !== undefined) {
+    throw new ReviewedContentError(
+      `Reviewed content bundle '${bundle.bundleId}' carries a capability entry reviewed after the supplied now`,
     );
   }
   const withdrawnRule = bundle.rules.find(entry => entry.status !== 'published');

@@ -6,6 +6,7 @@ import type {
 } from '../recommendations/types.ts';
 import type {
   GuidanceGap,
+  GuidanceGoal,
   GuidanceGoalId,
   GuidancePreparation,
   GuidanceSnapshot,
@@ -160,12 +161,7 @@ function serviceFacts(snapshot: GuidanceSnapshot): Record<string, FactValue> {
   return facts;
 }
 
-function profileGaps(
-  snapshot: GuidanceSnapshot,
-  bundle: ReviewedGuidanceBundle,
-): GuidanceGap[] {
-  const goal = bundle.goals.find(entry => entry.id === 'basic_wash');
-  if (goal === undefined) return [];
+function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGap[] {
   const gaps: GuidanceGap[] = [];
   for (const fact of goal.requiredProfileFacts) {
     const value = snapshot.passportFacts[fact];
@@ -242,7 +238,7 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
   const goal = input.bundle.goals.find(entry => entry.id === input.goalId);
   if (goal === undefined) return unavailable('no_supported_goal');
 
-  const gaps = [...profileGaps(input.snapshot, input.bundle), ...serviceGaps(input.snapshot)];
+  const gaps = [...profileGaps(input.snapshot, goal), ...serviceGaps(input.snapshot)];
   if (gaps.length > 0) return needsSetup(gaps);
 
   const products = buildProducts(sortById(input.snapshot.products), input.bundle);

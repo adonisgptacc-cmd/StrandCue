@@ -18,7 +18,7 @@ function serviceFact(overrides: Record<string, unknown> = {}) {
   return {
     serviceId: 'service-a',
     currentPresence: 'present',
-    effectiveStart: '2026-01-01',
+    effectiveStart: { precision: 'day', value: '2026-01-01' },
     facts: { chemicalType: 'bleach' },
     ...overrides,
   };
@@ -80,6 +80,7 @@ function capabilityEntry(overrides: Record<string, unknown> = {}) {
     evidenceIds: ['evidence-1'],
     status: 'published',
     reviewedAt: ISO,
+    reviewedBy: 'reviewer-a',
     ...overrides,
   };
 }
@@ -113,6 +114,7 @@ function bundle(overrides: Record<string, unknown> = {}) {
     version: '1',
     status: 'published',
     reviewedAt: ISO,
+    reviewedBy: 'reviewer-a',
     goals: [goal()],
     capabilities: [capabilityEntry()],
     rules: [rule()],
@@ -148,7 +150,39 @@ describe('guidance source contracts', () => {
     expect(parsed.services[0].effectiveStart).toBeNull();
   });
 
-  it('rejects unknown keys on every guidance object', () => {
+  it('keeps a service date at its recorded precision without widening it', () => {
+    const month = GuidanceSnapshotSchema.parse(
+      snapshot({
+        services: [serviceFact({ effectiveStart: { precision: 'month', value: '2026-06' } })],
+      }),
+    );
+    expect(month.services[0].effectiveStart).toEqual({ precision: 'month', value: '2026-06' });
+    const year = GuidanceSnapshotSchema.parse(
+      snapshot({
+        services: [serviceFact({ effectiveStart: { precision: 'year', value: '2025' } })],
+      }),
+    );
+    expect(year.services[0].effectiveStart).toEqual({ precision: 'year', value: '2025' });
+    const unknown = GuidanceSnapshotSchema.parse(
+      snapshot({
+        services: [serviceFact({ effectiveStart: { precision: 'unknown', value: null } })],
+      }),
+    );
+    expect(unknown.services[0].effectiveStart).toEqual({ precision: 'unknown', value: null });
+  });
+
+it('rejects a malformed service effective date', () => {
+    expect(() =>
+      GuidanceServiceFactSchema.parse(serviceFact({ effectiveStart: 'yesterday' })),
+    ).toThrow();
+    expect(() =>
+      GuidanceServiceFactSchema.parse(
+        serviceFact({ effectiveStart: { precision: 'day', value: '2026-06' } }),
+      ),
+    ).toThrow();
+  });
+
+it('rejects unknown keys on every guidance object', () => {
     expect(() => GuidanceSourceItemSchema.parse({ ...sourceItem(), extra: 1 })).toThrow();
     expect(() => GuidanceServiceFactSchema.parse({ ...serviceFact(), extra: 1 })).toThrow();
     expect(() => GuidanceActivityFactSchema.parse({ ...activityFact(), extra: 1 })).toThrow();

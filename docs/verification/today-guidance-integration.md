@@ -43,8 +43,10 @@ The Technical Alpha label is unchanged. No public-readiness claim is made.
 
 ## Safety properties verified by test
 
-- A partial, truncated or failed source cannot produce guidance; it produces a
-  concrete setup action instead.
+- A partial, truncated or failed source cannot produce guidance. It surfaces as
+  an explicit read error with a Retry, never as a plan. (It is *not* turned
+  into a setup action; only missing profile facts and unknown/present service
+  presence produce setup actions.)
 - Only an exact `(kind, versionId)` registry match supplies a capability. An
   unmatched, manual or differently versioned item acquires none.
 - Draft, withdrawn, unevidenced or malformed content cannot execute.

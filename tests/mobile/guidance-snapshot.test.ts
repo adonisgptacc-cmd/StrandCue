@@ -402,7 +402,65 @@ describe('guidance snapshot failure handling', () => {
     expect(snapshot.tools).toEqual([]);
   });
 
-  it('preserves service presence and effective dates without inference', async () => {
+  it('preserves a month-precision service date instead of failing the load', async () => {
+    // The service editor accepts day/month/year/unknown precision, and month
+    // precision is stored as '2026-06'. Today must not reject the whole load
+    // because of it, and must not invent a day that was never recorded.
+    apiMocks.loadServices.mockResolvedValue(
+      page([
+        serviceSummary({
+          facts: {
+            serviceType: 'bleach-or-lightener',
+            occurredOn: { precision: 'month', value: '2026-06' },
+            zones: [],
+          },
+        }),
+      ]),
+    );
+    const snapshot = (await load()) as Record<string, any>;
+    expect(snapshot.completeness.services).toBe('complete');
+    expect(snapshot.services[0].effectiveStart).toEqual({ precision: 'month', value: '2026-06' });
+  });
+
+it('preserves a year-precision and unknown-precision service date', async () => {
+    apiMocks.loadServices.mockResolvedValue(
+      page([
+        serviceSummary({
+          serviceId: 'dddddddd-0000-4000-8000-000000000002',
+          facts: {
+            serviceType: 'keratin',
+            occurredOn: { precision: 'year', value: '2025' },
+            zones: [],
+          },
+        }),
+        serviceSummary({
+          serviceId: 'dddddddd-0000-4000-8000-000000000003',
+          facts: {
+            serviceType: 'relaxer',
+            occurredOn: { precision: 'unknown', value: null },
+            zones: [],
+          },
+        }),
+      ]),
+    );
+    const snapshot = (await load()) as Record<string, any>;
+    const byId = new Map<string, any>(snapshot.services.map((entry: any) => [entry.serviceId, entry]));
+    expect(byId.get('dddddddd-0000-4000-8000-000000000002').effectiveStart).toEqual({
+      precision: 'year',
+      value: '2025',
+    });
+    expect(byId.get('dddddddd-0000-4000-8000-000000000003').effectiveStart).toEqual({
+      precision: 'unknown',
+      value: null,
+    });
+  });
+
+it('still copies a day-precision service date exactly', async () => {
+    const snapshot = (await load()) as Record<string, any>;
+    expect(snapshot.services[0].effectiveStart).toEqual({ precision: 'day', value: '2026-06-01' });
+  });
+
+it('preserves service presence and effective dates without inference', async () => {
     apiMocks.loadServices.mockResolvedValue(
       page([
         serviceSummary({ currentPresence: 'unknown' }),
@@ -410,11 +468,11 @@ describe('guidance snapshot failure handling', () => {
       ]),
     );
     const snapshot = (await load()) as Record<string, any>;
-    const byId = new Map(snapshot.services.map((entry: any) => [entry.serviceId, entry]));
+    const byId = new Map<string, any>(snapshot.services.map((entry: any) => [entry.serviceId, entry]));
     expect(byId.get(SERVICE_ID)).toMatchObject({
       currentPresence: 'unknown',
-      effectiveStart: '2026-06-01',
     });
+    expect(byId.get(SERVICE_ID).effectiveStart).toEqual({ precision: 'day', value: '2026-06-01' });
     expect(byId.get('dddddddd-0000-4000-8000-000000000002')).toMatchObject({
       currentPresence: 'not-present',
     });

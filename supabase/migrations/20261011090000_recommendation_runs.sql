@@ -5,8 +5,12 @@
 -- - Owner is always strandcue_private.request_uid() (auth.uid()). There is no
 --   owner argument on the public RPC, so a caller cannot write another
 --   owner's row even if it wants to (verified by test).
--- - Append-only: no UPDATE or DELETE policies exist for any role. A completed
---   plan is never rewritten.
+-- - Append-only for the authenticated role: the only policy granted to
+--   `authenticated` is SELECT, and table UPDATE/DELETE are revoked from it.
+--   The `strandcue_mutator` role (the SECURITY DEFINER owner of the private
+--   core) additionally holds insert/update/delete for the documented
+--   service-role maintenance path; that is the one actor that can rewrite a
+--   stored audit row, and any use of it is a repository-level decision.
 -- - Idempotent on (user_id, request_id): replaying the same request id with
 --   the same fingerprint and the same payloads returns the original receipt.
 --   Replaying it with different content raises 'run-conflict' instead of
@@ -48,8 +52,14 @@ alter table public.recommendation_runs force row level security;
 -- Owners may read their own runs. No insert/update/delete policy exists for
 -- authenticated: every write goes through the hardened RPC core below.
 create policy recommendation_run_read on public.recommendation_runs for select to authenticated
-  using (user_id = (select strandcue_private.request_uid()));
--- Service-role maintenance access follows the existing repository policy.
+  using (user_id = (select strandcue_private.request_uid())
+     and exists (select 1 from public.profiles p
+                  where p.user_id = (select strandcue_private.request_uid())
+                    and p.account_status = 'active'));
+-- The `strandcue_mutator` role is the SECURITY DEFINER owner of the private
+-- core, not Supabase's service_role; it holds the documented maintenance
+-- access. A real service-role connection bypasses RLS and relies on the
+-- `revoke all` below, which deliberately does not name service_role.
 create policy recommendation_run_service on public.recommendation_runs for all to strandcue_mutator
   using (user_id = (select strandcue_private.request_uid()))
   with check (user_id = (select strandcue_private.request_uid()));
@@ -128,6 +138,10 @@ end;
 $$;
 
 revoke all on function strandcue_private.record_run(uuid, text, timestamptz, text, text, text, text, jsonb, jsonb) from public, anon, authenticated;
+-- The public wrapper is SECURITY INVOKER, so the authenticated caller needs
+-- EXECUTE on the core as well. Isolation does not depend on hiding it: the
+-- core re-derives the owner from request_uid() and re-checks authentication
+-- and account status itself.
 grant execute on function strandcue_private.record_run(uuid, text, timestamptz, text, text, text, text, jsonb, jsonb) to authenticated, strandcue_mutator;
 revoke all on function public.record_recommendation_run(uuid, text, timestamptz, text, text, text, text, jsonb, jsonb) from public, anon, authenticated;
 grant execute on function public.record_recommendation_run(uuid, text, timestamptz, text, text, text, text, jsonb, jsonb) to authenticated;

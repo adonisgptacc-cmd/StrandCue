@@ -60,6 +60,7 @@ function bundle(overrides: Partial<ReviewedGuidanceBundle> = {}): ReviewedGuidan
     version: '1',
     status: 'published',
     reviewedAt: REVIEWED_AT,
+    reviewedBy: 'reviewer-a',
     goals: [{ id: 'basic_wash', label: 'Basic wash', requiredProfileFacts: ['naturalPattern'] }],
     capabilities: [
       {
@@ -70,6 +71,7 @@ function bundle(overrides: Partial<ReviewedGuidanceBundle> = {}): ReviewedGuidan
         evidenceIds: ['evidence-1'],
         status: 'published',
         reviewedAt: REVIEWED_AT,
+        reviewedBy: 'reviewer-a',
       },
       {
         kind: 'tool',
@@ -79,6 +81,7 @@ function bundle(overrides: Partial<ReviewedGuidanceBundle> = {}): ReviewedGuidan
         evidenceIds: ['evidence-2'],
         status: 'published',
         reviewedAt: REVIEWED_AT,
+        reviewedBy: 'reviewer-a',
       },
     ],
     rules: [
@@ -278,7 +281,7 @@ describe('setup gaps', () => {
         {
           serviceId: 'service-1',
           currentPresence: 'unknown',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: { serviceType: 'bleach-or-lightener' },
         },
       ],
@@ -295,7 +298,7 @@ describe('setup gaps', () => {
         {
           serviceId: 'service-1',
           currentPresence: 'present',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: { serviceType: 'bleach-or-lightener' },
         },
       ],
@@ -313,7 +316,7 @@ describe('setup gaps', () => {
         {
           serviceId: 'service-1',
           currentPresence: 'not-present',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: { serviceType: 'bleach-or-lightener' },
         },
       ],
@@ -336,19 +339,19 @@ describe('setup gaps', () => {
         {
           serviceId: 'service-c',
           currentPresence: 'unknown',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: {},
         },
         {
           serviceId: 'service-a',
           currentPresence: 'unknown',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: {},
         },
         {
           serviceId: 'service-b',
           currentPresence: 'unknown',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: {},
         },
       ],
@@ -388,13 +391,13 @@ describe('setup gaps', () => {
         {
           serviceId: 'service-a',
           currentPresence: 'unknown',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: {},
         },
         {
           serviceId: 'service-b',
           currentPresence: 'unknown',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: {},
         },
       ],
@@ -437,7 +440,7 @@ describe('prepared context', () => {
         {
           serviceId: 'service-a',
           currentPresence: 'present',
-          effectiveStart: '2026-06-01',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
           facts: { serviceType: 'bleach-or-lightener' },
         },
       ],

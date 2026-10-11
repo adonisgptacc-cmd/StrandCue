@@ -29,6 +29,7 @@ function capabilityEntry(overrides: Record<string, unknown> = {}) {
     evidenceIds: ['evidence-fixture-1'],
     status: 'published',
     reviewedAt: ISO,
+    reviewedBy: 'reviewer-a',
     ...overrides,
   };
 }
@@ -39,6 +40,7 @@ function bundle(overrides: Record<string, unknown> = {}) {
     version: '1',
     status: 'published',
     reviewedAt: ISO,
+    reviewedBy: 'reviewer-a',
     goals: [{ id: 'basic_wash', label: 'Basic wash', requiredProfileFacts: ['pattern'] }],
     capabilities: [capabilityEntry()],
     rules: [rule()],
@@ -77,7 +79,32 @@ describe('publication gate', () => {
     expect(() => validatePublishedBundle({ ...bundle(), surprise: true }, NOW)).toThrow();
   });
 
-  it('refuses a duplicate version mapping', () => {
+  it('refuses a published capability entry with no named reviewer', () => {
+    expect(() =>
+      validatePublishedBundle(bundle({ capabilities: [capabilityEntry({ reviewedBy: '' })] }), NOW),
+    ).toThrow(/reviewer/i);
+    expect(() =>
+      validatePublishedBundle(
+        bundle({ capabilities: [capabilityEntry({ reviewedBy: undefined })] }),
+        NOW,
+      ),
+    ).toThrow(/reviewer/i);
+  });
+
+it('refuses a bundle published without a named reviewer', () => {
+    expect(() => validatePublishedBundle(bundle({ reviewedBy: '   ' }), NOW)).toThrow(/reviewer/i);
+  });
+
+it('refuses an entry reviewed after the bundle-level now', () => {
+    expect(() =>
+      validatePublishedBundle(
+        bundle({ capabilities: [capabilityEntry({ reviewedAt: '2026-12-01T00:00:00.000Z' })] }),
+        NOW,
+      ),
+    ).toThrow(/review/i);
+  });
+
+it('refuses a duplicate version mapping', () => {
     expect(() =>
       validatePublishedBundle(
         bundle({

@@ -20,6 +20,9 @@ export const CURRENT_REVIEWED_BUNDLE: ReviewedGuidanceBundle = ReviewedGuidanceB
   version: '1',
   status: 'draft',
   reviewedAt: '2026-10-11T00:00:00.000Z',
+  // Named reviewer of the bundle as a whole. There is no approved content to
+  // review yet, so this records the current reviewer of the draft only.
+  reviewedBy: 'unassigned-draft',
   goals: [
     {
       id: 'basic_wash',

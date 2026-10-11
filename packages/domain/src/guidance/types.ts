@@ -8,6 +8,7 @@
  * tool version acquires capabilities only through an exact registry entry.
  */
 
+import type { EffectiveDate } from '../dates.ts';
 import type { FactValue, RecommendationContext, RecommendationRule } from '../recommendations/types.ts';
 
 export type GuidanceGoalId = 'basic_wash';
@@ -27,7 +28,8 @@ export interface GuidanceSourceItem {
 export interface GuidanceServiceFact {
   readonly serviceId: string;
   readonly currentPresence: GuidanceServicePresence;
-  readonly effectiveStart: string | null;
+  /** The recorded date with its original precision; `null` when none was recorded. */
+  readonly effectiveStart: EffectiveDate | null;
   readonly facts: Readonly<Record<string, FactValue>>;
 }
 
@@ -74,6 +76,8 @@ export interface ReviewedCapabilityEntry {
   readonly evidenceIds: readonly string[];
   readonly status: ReviewedCapabilityStatus;
   readonly reviewedAt: string;
+  /** Named human reviewer. Required, so no entry can be published unowned. */
+  readonly reviewedBy: string;
 }
 
 export type ReviewedBundleStatus = 'draft' | 'published' | 'withdrawn';
@@ -83,6 +87,8 @@ export interface ReviewedGuidanceBundle {
   readonly version: string;
   readonly status: ReviewedBundleStatus;
   readonly reviewedAt: string;
+  /** Named human reviewer of the bundle as a whole. */
+  readonly reviewedBy: string;
   readonly goals: readonly GuidanceGoal[];
   readonly capabilities: readonly ReviewedCapabilityEntry[];
   readonly rules: readonly RecommendationRule[];

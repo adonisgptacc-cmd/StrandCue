@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { EffectiveDateSchema } from '../dates.ts';
 import { FactValueSchema, RecommendationContextSchema, RecommendationRuleSchema } from '../recommendations/schemas.ts';
 
 /**
@@ -93,7 +94,10 @@ export const GuidanceServiceFactSchema = z
   .object({
     serviceId: nonEmptyString,
     currentPresence: GuidanceServicePresenceSchema,
-    effectiveStart: z.iso.date().nullable(),
+    // The recorded date keeps its precision. A service recorded as '2026-06'
+    // is not silently widened to '2026-06-01', and an unknown date stays
+    // unknown rather than being defaulted to today.
+    effectiveStart: EffectiveDateSchema.nullable(),
     facts: factRecordSchema,
   })
   .strict();
@@ -162,6 +166,7 @@ export const ReviewedCapabilityEntrySchema = z
     evidenceIds: z.array(nonEmptyString),
     status: z.enum(['published', 'withdrawn']),
     reviewedAt: IsoTimestampSchema,
+    reviewedBy: nonEmptyString,
   })
   .strict()
   .superRefine((entry, context) => {
@@ -215,6 +220,7 @@ export const ReviewedGuidanceBundleSchema = frozen(
       version: GuidanceBundleVersionSchema,
       status: ReviewedBundleStatusSchema,
       reviewedAt: IsoTimestampSchema,
+      reviewedBy: nonEmptyString,
       goals: z.array(GuidanceGoalSchema).min(1),
       capabilities: z.array(ReviewedCapabilityRegistryEntrySchema),
       rules: z.array(ReviewedBundleRuleSchema),

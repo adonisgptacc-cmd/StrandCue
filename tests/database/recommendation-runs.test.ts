@@ -186,7 +186,21 @@ describe('recommendation runs private immutable audit', () => {
     expect(columns).toContain('created_at');
   });
 
-  it('protects the table with forced row level security', async () => {
+  it('hides a deleting owner runs from reads', async () => {
+    await complete(db);
+    await record(db);
+    expect(await listRuns(db)).toHaveLength(1);
+    await db.exec('set session authorization postgres');
+    await db.exec(`update public.profiles set account_status = 'deleting' where user_id = '${USER_A}'`);
+    await asUser(db, USER_A);
+    expect(await listRuns(db)).toEqual([]);
+    await db.exec('set session authorization postgres');
+    await db.exec(`update public.profiles set account_status = 'active' where user_id = '${USER_A}'`);
+    await asUser(db, USER_A);
+    expect(await listRuns(db)).toHaveLength(1);
+  });
+
+it('protects the table with forced row level security', async () => {
     const unprotected = await db.query(
       `select relname from pg_class where relname = 'recommendation_runs' and (not relrowsecurity or not relforcerowsecurity)`,
     );

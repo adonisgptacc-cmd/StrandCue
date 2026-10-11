@@ -75,6 +75,7 @@ function publishedBundle(overrides: Partial<ReviewedGuidanceBundle> = {}): Revie
     version: '1',
     status: 'published',
     reviewedAt: REVIEWED_AT,
+    reviewedBy: 'reviewer-a',
     goals: [{ id: 'basic_wash', label: 'Basic wash', requiredProfileFacts: ['naturalPattern'] }],
     capabilities: [
       {
@@ -85,6 +86,7 @@ function publishedBundle(overrides: Partial<ReviewedGuidanceBundle> = {}): Revie
         evidenceIds: ['evidence-1'],
         status: 'published',
         reviewedAt: REVIEWED_AT,
+        reviewedBy: 'reviewer-a',
       },
     ],
     rules: [

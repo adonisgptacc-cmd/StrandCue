@@ -1,11 +1,13 @@
-import type {
-  GuidanceActivityFact,
-  GuidanceServiceFact,
-  GuidanceSnapshot,
-  GuidanceSourceCompleteness,
-  GuidanceSourceItem,
+import {
+  EffectiveDateSchema,
+  GuidanceSnapshotSchema,
+  type EffectiveDate,
+  type GuidanceActivityFact,
+  type GuidanceServiceFact,
+  type GuidanceSnapshot,
+  type GuidanceSourceCompleteness,
+  type GuidanceSourceItem,
 } from '../../../../packages/domain/src/index';
-import { GuidanceSnapshotSchema } from '../../../../packages/domain/src/index';
 import { getActivity, listActivities } from '../activity-api';
 import { loadPassport } from '../passport-api';
 import { loadServices } from '../services-api';
@@ -95,10 +97,14 @@ function scalarFacts(values: unknown): FactRecord {
   return copied;
 }
 
-function effectiveStartOf(value: unknown): string | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const candidate = (value as { value?: unknown }).value;
-  return typeof candidate === 'string' ? candidate : null;
+/**
+ * Copies a service's recorded effective date, preserving its precision. A
+ * month-precision date stays '2026-06': widening it to a day would invent a
+ * fact the owner never recorded.
+ */
+function effectiveStartOf(value: unknown): EffectiveDate | null {
+  const parsed = EffectiveDateSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
+import * as Crypto from 'expo-crypto';
 
 import type { GuidanceGap, ProtocolDecision } from '../../../packages/domain/src/index';
 import {
@@ -65,7 +66,9 @@ function nowIso(): string {
 }
 
 function requestId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `request-${Date.now()}-${Math.random()}`;
+  // Must be a UUID: the persistence boundary and the uuid column both require
+  // one. A non-UUID fallback would make every audit save fail silently.
+  return Crypto.randomUUID();
 }
 
 function GapList({
