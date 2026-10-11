@@ -58,13 +58,21 @@ Add to `capabilities` in `reviewed-bundle.ts`:
   evidenceIds: ['<evidence id>'],
   status: 'published',        // requires evidenceIds to be non-empty
   reviewedAt: '<ISO timestamp of review>',
+  reviewedBy: '<name of the human reviewer>',   // required, enforced by the gate
 }
 ```
 
 The schema enforces: a unique `(kind, versionId)` per bundle, non-empty
-evidence for every published entry, and no duplicate capability names. The
-publication gate in `packages/domain/src/guidance/reviewed-content.ts` refuses
-anything draft, withdrawn, malformed, unevidenced, or reviewed after `now`.
+evidence for every published entry, a non-empty `reviewedBy` on the bundle and
+on every capability entry, and no duplicate capability names. The publication
+gate in `packages/domain/src/guidance/reviewed-content.ts` refuses anything
+draft, withdrawn, malformed, unevidenced, unreviewed, or dated after `now`
+(either the bundle's or an entry's).
+
+Independence of the reviewer — that `reviewedBy` is someone other than the
+author — is a **process** obligation, not something the schema can check. It is
+verified by the pull request and recorded in
+`docs/verification/today-guidance-integration.md`.
 
 ## Adding a rule
 

@@ -69,6 +69,21 @@ describe('reviewed guidance content governance', () => {
     expect(bundle).toContain('capabilities: []');
     expect(bundle).toContain('rules: []');
   });
+
+it('requires a named reviewer in the schema the gate enforces', () => {
+    const schema = read('packages/domain/src/guidance/schemas.ts');
+    expect(schema).toMatch(/reviewedBy/);
+    const gate = read('packages/domain/src/guidance/reviewed-content.ts');
+    expect(gate).toMatch(/reviewer/i);
+  });
+
+it('does not overstate what the schema enforces about reviewer independence', () => {
+    // Independence is a process obligation. The runbook must not claim the
+    // code enforces it, because no schema can check who wrote the entry.
+    const runbook = read(RUNBOOK);
+    expect(runbook).toMatch(/\*\*process\*\*\s+oblig/i);
+    expect(runbook).not.toMatch(/the gate enforces independence/i);
+  });
 });
 
 describe('today guidance integration verification record', () => {
