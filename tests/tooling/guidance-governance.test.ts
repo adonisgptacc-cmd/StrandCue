@@ -87,6 +87,15 @@ it('does not overstate what the schema enforces about reviewer independence', ()
 });
 
 describe('today guidance integration verification record', () => {
+  it('records the bitemporal activity cutoffs and replay authority', () => {
+    const verification = read(VERIFICATION);
+    expect(verification).toMatch(/effective cutoff/i);
+    expect(verification).toMatch(/recorded cutoff/i);
+    expect(verification).toMatch(/stored normalized input/i);
+    expect(verification).toMatch(/replay authority/i);
+    expect(verification).toMatch(/mutable source reconstruction/i);
+  });
+
   it('states that no real recommendation was activated', () => {
     expect(read(VERIFICATION)).toMatch(/no real recommendation|not activated/i);
   });
@@ -99,6 +108,12 @@ describe('today guidance integration verification record', () => {
 
   it('records the Technical Alpha stage is unchanged', () => {
     expect(read(VERIFICATION)).toMatch(/Technical Alpha/i);
+  });
+
+  it('separates the remaining product evidence milestone', () => {
+    const verification = read(VERIFICATION);
+    expect(verification).toMatch(/product\/tool evidence research/i);
+    expect(verification).toMatch(/next independent milestone/i);
   });
 });
 
@@ -141,5 +156,13 @@ describe('traceability honesty for today guidance', () => {
       expect(empty.has(implementation), `${id} claims Implemented with no implementation path`).toBe(false);
       expect(empty.has(evidence), `${id} claims Implemented with no test or evidence path`).toBe(false);
     }
+  });
+
+  it('traces bitemporal activity guidance without claiming hosted deployment', () => {
+    const traceability = read(TRACEABILITY);
+    expect(traceability).toMatch(/effective cutoff/i);
+    expect(traceability).toMatch(/recorded cutoff/i);
+    expect(traceability).toMatch(/stored normalized input/i);
+    expect(traceability).toMatch(/not applied to hosted Supabase/i);
   });
 });

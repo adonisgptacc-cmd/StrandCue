@@ -4,6 +4,13 @@ Living matrix mapping every requirement ID in the approved [canonical product sp
 
 Status meanings: **Implemented** — a listed test or evidence path proves the behavior; **Partial** — foundation or incomplete coverage exists; **Not started** — no verified implementation. Release stages R0–R5 follow section 9 of the canonical specification; `Standing` marks cross-cutting principles.
 
+For Today activity guidance, the effective cutoff selects the activity state for
+the requested day and the recorded cutoff limits revisions to what was known
+when the request was prepared. The exact stored normalized input is the replay
+authority; replay does not reconstruct inputs from mutable source records. The
+bitemporal and recommendation-run migrations are verified locally and are not
+applied to hosted Supabase.
+
 | Requirement | Release stage | Implementation | Tests/evidence | Status |
 |---|---|---|---|---|
 | P-01 | Standing | — | — | Not started |
@@ -57,10 +64,10 @@ Status meanings: **Implemented** — a listed test or evidence path proves the b
 | EN-08 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-09 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | TD-01 | R1 | apps/mobile/src/TodayGuidance.tsx (primary action surface; generation is user-initiated, execution surface later) | tests/mobile/today-guidance.test.tsx, tests/mobile/navigation.test.tsx | Partial |
-| TD-02 | R1 | apps/mobile/src/guidance/guidance-snapshot.ts, packages/domain/src/guidance/prepare-guidance.ts (goal, condition, availability and history captured from existing records) | tests/mobile/guidance-snapshot.test.ts, tests/domain/guidance/prepare-guidance.test.ts | Partial |
+| TD-02 | R1 | apps/mobile/src/guidance/guidance-activity-api.ts, apps/mobile/src/guidance/guidance-snapshot.ts, packages/domain/src/guidance/prepare-guidance.ts (owner-scoped histories use separate effective and recorded cutoffs; normalized activity facts include applied revision provenance) | tests/mobile/guidance-activity-api.test.ts, tests/mobile/guidance-snapshot.test.ts, tests/mobile/today-guidance-service.test.ts, tests/domain/guidance/prepare-guidance.test.ts | Partial |
 | TD-03 | R1 | packages/domain/src/guidance/prepare-guidance.ts (sorted setup gaps naming the missing fact and its destination) | tests/domain/guidance/prepare-guidance.test.ts, tests/mobile/today-guidance.test.tsx | Partial |
 | TD-04 | R1 | apps/mobile/src/TodayGuidance.tsx, apps/mobile/src/guidance/guidance-copy.ts (steps, reasons, confidence, evidence, alternatives shown before execution) | tests/mobile/today-guidance.test.tsx | Partial |
-| TD-05 | R1 | supabase/migrations/20261011090000_recommendation_runs.sql (immutable decision run; migration not applied to hosted Supabase) | tests/database/recommendation-runs.test.ts, tests/mobile/recommendation-run-api.test.ts | Partial |
+| TD-05 | R1 | supabase/migrations/20261011082525_bitemporal_activity_guidance.sql, supabase/migrations/20261011090000_recommendation_runs.sql (stored normalized input is the replay authority; migrations are not applied to hosted Supabase) | tests/database/guidance-activity-history.test.ts, tests/database/recommendation-runs.test.ts, tests/mobile/recommendation-run-api.test.ts, tests/mobile/today-guidance-service.test.ts | Partial |
 | TD-06 | R1 | apps/mobile/src/TodayGuidance.tsx (generating and viewing produce no recorded wash, application or heat event) | tests/mobile/today-guidance.test.tsx | Partial |
 | TD-07 | R1 | — | — | Not started |
 | TD-08 | R1 | — | — | Not started |
