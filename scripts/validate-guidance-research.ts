@@ -541,13 +541,30 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function resolveCatalogue(): Promise<readonly GuidanceResearchCatalogueVersion[]> {
-  const migrations = (await readdir(MIGRATIONS_DIRECTORY)).filter(name => name.endsWith('.sql')).sort();
-  const seeds = await Promise.all(migrations.map(name => readFile(join(MIGRATIONS_DIRECTORY, name), 'utf8')));
-  const snapshotPath = join(PACK_DIRECTORY, SNAPSHOT_FILE);
+/** Read an approved export, naming the file when it breaks its contract. */
+async function readSnapshot(path: string): Promise<readonly GuidanceResearchCatalogueVersion[]> {
+  try {
+    return catalogueVersionsFromSnapshot(await readJson(path));
+  } catch (error) {
+    throw new Error(`${path} is not a usable catalogue snapshot (${error instanceof Error ? error.message : 'unreadable'})`);
+  }
+}
+
+/**
+ * Resolve the catalogue from the trusted local sources. The directories are
+ * parameters so a test can resolve against a fixture instead of the
+ * repository's own pack; the defaults are the real ones.
+ */
+export async function resolveCatalogue(
+  packDirectory: string = PACK_DIRECTORY,
+  migrationsDirectory: string = MIGRATIONS_DIRECTORY,
+): Promise<readonly GuidanceResearchCatalogueVersion[]> {
+  const migrations = (await readdir(migrationsDirectory)).filter(name => name.endsWith('.sql')).sort();
+  const seeds = await Promise.all(migrations.map(name => readFile(join(migrationsDirectory, name), 'utf8')));
+  const snapshotPath = join(packDirectory, SNAPSHOT_FILE);
   const sources = [
     ...catalogueVersionsFromSeedSql(seeds.join('\n')),
-    ...(await exists(snapshotPath) ? catalogueVersionsFromSnapshot(await readJson(snapshotPath)) : []),
+    ...(await exists(snapshotPath) ? await readSnapshot(snapshotPath) : []),
   ];
   // An export and a seed migration describe the same catalogue, so a repeated
   // id is one version. Genuinely conflicting rows within a source stay
@@ -557,31 +574,41 @@ async function resolveCatalogue(): Promise<readonly GuidanceResearchCatalogueVer
   return [...merged.values()];
 }
 
-async function main(): Promise<void> {
-  const [inventory, registry, researchLog, catalogue] = await Promise.all([
-    readJson(join(PACK_DIRECTORY, 'inventory.json')),
-    readJson(join(PACK_DIRECTORY, 'evidence-registry.json')),
-    readFile(join(PACK_DIRECTORY, 'research-log.md'), 'utf8'),
-    resolveCatalogue(),
-  ]);
+/**
+ * Check a pack and report the outcome.
+ *
+ * The exit code is returned rather than assigned, so the caller owns that
+ * global and a test can assert the non-zero path without setting it. Failing to
+ * read a pack is a hold, never a pass: an unreadable pack is not an empty pack.
+ */
+export async function runGuidanceResearch(
+  packDirectory: string = PACK_DIRECTORY,
+  migrationsDirectory: string = MIGRATIONS_DIRECTORY,
+): Promise<number> {
+  try {
+    const [inventory, registry, researchLog, catalogue] = await Promise.all([
+      readJson(join(packDirectory, 'inventory.json')),
+      readJson(join(packDirectory, 'evidence-registry.json')),
+      readFile(join(packDirectory, 'research-log.md'), 'utf8'),
+      resolveCatalogue(packDirectory, migrationsDirectory),
+    ]);
 
-  const findings = validateGuidanceResearch({ inventory, registry, researchLog }, catalogue);
-  for (const item of findings) {
-    process.stderr.write(`GUIDANCE-RESEARCH-HOLD ${item.code}: ${item.message}\n`);
+    const findings = validateGuidanceResearch({ inventory, registry, researchLog }, catalogue);
+    for (const item of findings) {
+      process.stderr.write(`GUIDANCE-RESEARCH-HOLD ${item.code}: ${item.message}\n`);
+    }
+    if (findings.length > 0) return 1;
+
+    const rows = (inventory as { rows?: unknown[] }).rows?.length ?? 0;
+    const records = (registry as { records?: unknown[] }).records?.length ?? 0;
+    process.stdout.write(`GUIDANCE-RESEARCH-PASS rows=${rows} catalogue=${catalogue.length} evidence=${records}\n`);
+    return 0;
+  } catch (error) {
+    process.stderr.write(`GUIDANCE-RESEARCH-HOLD: ${error instanceof Error ? error.message : 'Check failed.'}\n`);
+    return 1;
   }
-  if (findings.length > 0) {
-    process.exitCode = 1;
-    return;
-  }
-  const rows = (inventory as { rows?: unknown[] }).rows?.length ?? 0;
-  process.stdout.write(
-    `GUIDANCE-RESEARCH-PASS rows=${rows} catalogue=${catalogue.length} evidence=${(registry as { records?: unknown[] }).records?.length ?? 0}\n`,
-  );
 }
 
 if (import.meta.main) {
-  main().catch(error => {
-    process.stderr.write(`GUIDANCE-RESEARCH-HOLD: ${error instanceof Error ? error.message : 'Check failed.'}\n`);
-    process.exitCode = 1;
-  });
+  process.exitCode = await runGuidanceResearch();
 }

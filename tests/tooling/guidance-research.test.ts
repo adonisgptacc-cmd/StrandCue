@@ -1,11 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GuidanceEvidenceRegistrySchema } from '../../packages/domain/src/guidance/index.ts';
 import {
   catalogueVersionsFromSeedSql,
   catalogueVersionsFromSnapshot,
+  resolveCatalogue,
+  runGuidanceResearch,
   validateGuidanceResearch,
   type GuidanceResearchCatalogueVersion,
 } from '../../scripts/validate-guidance-research.ts';
@@ -457,5 +462,256 @@ describe('research pack rejections', () => {
         registry([evidenceRecord({ versionIds: [UNKNOWN_VERSION], market: 'unknown' })]),
       ).length,
     ).toBeGreaterThan(1);
+  });
+});
+
+describe('seed parsing is fail closed', () => {
+  const brand = `insert into public.brands (id, name) values ('11111111-1111-4111-8111-111111111111', 'Seed Brand');`;
+  const product = `insert into public.products (id, brand_id, name, category, market) values ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 'Seed Wash', 'shampoo', 'ZA');`;
+
+  it('reads a doubled quote as one apostrophe', () => {
+    const versions = catalogueVersionsFromSeedSql([
+      brand,
+      product,
+      `insert into public.product_versions (id, product_id, variant) values ('33333333-3333-4333-8333-333333333333', '22222222-2222-4222-8222-222222222222', 'O''Brien 400ml');`,
+    ].join('\n'));
+    expect(versions.map(version => version.variantOrModel)).toEqual(["O'Brien 400ml"]);
+  });
+
+  it('takes the declared column default for a column the seed omits', () => {
+    const versions = catalogueVersionsFromSeedSql([
+      brand,
+      product,
+      `insert into public.product_versions (id, product_id, variant) values ('33333333-3333-4333-8333-333333333333', '22222222-2222-4222-8222-222222222222', '400ml');`,
+    ].join('\n'));
+    expect(versions[0]).toMatchObject({ market: 'ZA', lifecycle: 'active', variantOrModel: '400ml' });
+  });
+
+  it('reads a numeric literal, an explicit null and a missing variant', () => {
+    const versions = catalogueVersionsFromSeedSql([
+      `insert into public.tool_brands (id, name) values ('55555555-5555-4555-8555-555555555555', 'Seed Tools');`,
+      `insert into public.tools (id, brand_id, name, tool_type) values ('66666666-6666-4666-8666-666666666666', '55555555-5555-4555-8555-555555555555', 'Seed Dryer', 'dryer');`,
+      `insert into public.tool_versions (id, tool_id, version_label, market, lifecycle) values ('77777777-7777-4777-8777-777777777777', '66666666-6666-4666-8666-666666666666', null, NULL, 'active'), ('88888888-8888-4888-8888-888888888888', '66666666-6666-4666-8666-666666666666', 'Model SD3', 'ZA', 'active');`,
+    ].join('\n'));
+    expect(versions).toEqual([
+      {
+        kind: 'tool',
+        versionId: '77777777-7777-4777-8777-777777777777',
+        brand: 'Seed Tools',
+        name: 'Seed Dryer',
+        variantOrModel: null,
+        market: 'ZA',
+        lifecycle: 'active',
+      },
+      {
+        kind: 'tool',
+        versionId: '88888888-8888-4888-8888-888888888888',
+        brand: 'Seed Tools',
+        name: 'Seed Dryer',
+        variantOrModel: 'Model SD3',
+        market: 'ZA',
+        lifecycle: 'active',
+      },
+    ]);
+  });
+
+  it.each([
+    ['a doubled quote that never closes', `${brand}\ninsert into public.products (id, brand_id, name) values ('2', '1', 'unterminated);`],
+    ['an expression where a value belongs', `${brand}\ninsert into public.products (id, brand_id, name) values (coalesce('2', ''), '1', 'Derived');`],
+    ['an insert with no values clause', `${brand}\ninsert into public.products (id, brand_id, name) select '2', '1', 'Derived';`],
+    ['a tuple that is never closed', `${brand}\ninsert into public.products (id, brand_id, name) values ('2', '1',`],
+    ['a column list that is never closed', `${brand}\ninsert into public.products (id, brand_id, name values ('2', '1', 'Derived');`],
+    ['a table that is not a catalogue table', `insert into public.profiles (id, username) values ('99999999-9999-4999-8999-999999999999', 'seed');`],
+    ['a seed row with no id column', `insert into public.brands (name) values ('Nameless');`],
+    [
+      'a version whose product was never seeded',
+      `${brand}\ninsert into public.product_versions (id, product_id, variant) values ('33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444', '400ml');`,
+    ],
+    [
+      'a version whose market is not a catalogue market',
+      `${brand}\n${product}\ninsert into public.product_versions (id, product_id, variant, market) values ('33333333-3333-4333-8333-333333333333', '22222222-2222-4222-8222-222222222222', '400ml', 'NAR');`,
+    ],
+    [
+      'a tool version whose tool brand was never seeded',
+      `insert into public.tool_brands (id, name) values ('55555555-5555-4555-8555-555555555555', 'Seed Tools');\ninsert into public.tools (id, brand_id, name, tool_type) values ('66666666-6666-4666-8666-666666666666', '44444444-4444-4444-8444-444444444444', 'Seed Dryer', 'dryer');\ninsert into public.tool_versions (id, tool_id, version_label) values ('77777777-7777-4777-8777-777777777777', '66666666-6666-4666-8666-666666666666', 'Model SD2');`,
+    ],
+    [
+      'a tool version whose tool was never seeded',
+      `insert into public.tool_versions (id, tool_id, version_label) values ('77777777-7777-4777-8777-777777777777', '44444444-4444-4444-8444-444444444444', 'Model SD2');`,
+    ],
+  ])('resolves no catalogue version from %s', (_reason, sql) => {
+    expect(catalogueVersionsFromSeedSql(sql)).toEqual([]);
+  });
+});
+
+describe('guidance research command line', () => {
+  const scratchDirectories: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(scratchDirectories.splice(0).map(directory =>
+      rm(directory, { recursive: true, force: true, maxRetries: 3 })));
+  });
+
+  async function scratch(files: Readonly<Record<string, string>>): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), 'strandcue-guidance-'));
+    scratchDirectories.push(directory);
+    for (const [name, content] of Object.entries(files)) {
+      await mkdir(dirname(join(directory, name)), { recursive: true });
+      await writeFile(join(directory, name), content, 'utf8');
+    }
+    return directory;
+  }
+
+  const emptyPack = {
+    'docs/product/evidence/basic-wash-v1/inventory.json': JSON.stringify(inventory([])),
+    'docs/product/evidence/basic-wash-v1/evidence-registry.json': JSON.stringify(registry([])),
+    'docs/product/evidence/basic-wash-v1/research-log.md': RESEARCH_LOG,
+    'supabase/migrations/20260924170000_shelf_catalogue.sql': '-- no seed rows\n',
+  };
+
+  const captureOutput = () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { stdout.push(String(chunk)); return true; });
+    vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { stderr.push(String(chunk)); return true; });
+    return {
+      stdout,
+      stderr,
+      get reported(): string { return stdout.join('') + stderr.join(''); },
+    };
+  };
+
+  it('resolves the repository pack against its own migrations and export', async () => {
+    expect(await resolveCatalogue()).toEqual([]);
+  });
+
+  it('resolves seeded versions and lets an approved export override the same id', async () => {
+    const directory = await scratch({
+      'supabase/migrations/20260924170000_shelf_catalogue.sql': [
+        `insert into public.brands (id, name) values ('11111111-1111-4111-8111-111111111111', 'Seed Brand');`,
+        `insert into public.products (id, brand_id, name, category) values ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 'Seed Wash', 'shampoo');`,
+        `insert into public.product_versions (id, product_id, variant) values ('33333333-3333-4333-8333-333333333333', '22222222-2222-4222-8222-222222222222', '400ml');`,
+      ].join('\n'),
+      'docs/product/evidence/basic-wash-v1/catalogue-snapshot.json': JSON.stringify({
+        snapshotId: 'approved-export',
+        products: [{
+          versionId: '33333333-3333-4333-8333-333333333333',
+          brand: 'Exported Brand',
+          name: 'Seed Wash',
+          variantOrModel: '400ml',
+          market: 'ZA',
+          lifecycle: 'active',
+        }],
+        tools: [{
+          versionId: TOOL_VERSION,
+          brand: 'Exported Tools',
+          name: 'Exported Dryer',
+          variantOrModel: 'Model ED1',
+          market: 'ZA',
+          lifecycle: 'active',
+        }],
+      }),
+    });
+
+    const resolved = await resolveCatalogue(
+      join(directory, 'docs/product/evidence/basic-wash-v1'),
+      join(directory, 'supabase/migrations'),
+    );
+    expect(resolved).toEqual([
+      {
+        kind: 'product',
+        versionId: '33333333-3333-4333-8333-333333333333',
+        brand: 'Exported Brand',
+        name: 'Seed Wash',
+        variantOrModel: '400ml',
+        market: 'ZA',
+        lifecycle: 'active',
+      },
+      {
+        kind: 'tool',
+        versionId: TOOL_VERSION,
+        brand: 'Exported Tools',
+        name: 'Exported Dryer',
+        variantOrModel: 'Model ED1',
+        market: 'ZA',
+        lifecycle: 'active',
+      },
+    ]);
+  });
+
+  it('passes a structurally valid pack and reports success', async () => {
+    const directory = await scratch(emptyPack);
+    const output = captureOutput();
+    const exitCode = await runGuidanceResearch(
+      join(directory, 'docs/product/evidence/basic-wash-v1'),
+      join(directory, 'supabase/migrations'),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(output.reported).toContain('GUIDANCE-RESEARCH-PASS rows=0 catalogue=0 evidence=0');
+    expect(output.stderr).toEqual([]);
+  });
+
+  it('refuses a fabricated pack and exits non-zero', async () => {
+    const directory = await scratch({
+      ...emptyPack,
+      'docs/product/evidence/basic-wash-v1/inventory.json': JSON.stringify(
+        inventory([inventoryRow({ versionId: FIXTURE_VERSION })]),
+      ),
+    });
+    const output = captureOutput();
+    const exitCode = await runGuidanceResearch(
+      join(directory, 'docs/product/evidence/basic-wash-v1'),
+      join(directory, 'supabase/migrations'),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(output.reported).toContain('INVENTORY_FIXTURE_ID');
+    expect(output.reported).toContain('INVENTORY_UNRESOLVED');
+    expect(output.reported).not.toContain('GUIDANCE-RESEARCH-PASS');
+  });
+
+  it('fails closed when an approved export does not match its contract', async () => {
+    const directory = await scratch({
+      ...emptyPack,
+      'docs/product/evidence/basic-wash-v1/catalogue-snapshot.json': '{ "snapshotId": "broken" }',
+    });
+    const output = captureOutput();
+
+    expect(await runGuidanceResearch(
+      join(directory, 'docs/product/evidence/basic-wash-v1'),
+      join(directory, 'supabase/migrations'),
+    )).toBe(1);
+    expect(output.reported).toContain('GUIDANCE-RESEARCH-HOLD:');
+    expect(output.reported).toContain('catalogue-snapshot.json');
+  });
+
+  it('fails closed when an artifact cannot be read', async () => {
+    const directory = await scratch({
+      ...emptyPack,
+      'docs/product/evidence/basic-wash-v1/inventory.json': '{ not json',
+    });
+    const output = captureOutput();
+
+    expect(await runGuidanceResearch(
+      join(directory, 'docs/product/evidence/basic-wash-v1'),
+      join(directory, 'supabase/migrations'),
+    )).toBe(1);
+    expect(output.reported).toContain('inventory.json is not readable JSON');
+  });
+
+  it('fails closed when an artifact is missing', async () => {
+    const directory = await scratch({
+      'docs/product/evidence/basic-wash-v1/evidence-registry.json': JSON.stringify(registry([])),
+      'supabase/migrations/20260924170000_shelf_catalogue.sql': '-- no seed rows\n',
+    });
+    const output = captureOutput();
+
+    expect(await runGuidanceResearch(
+      join(directory, 'docs/product/evidence/basic-wash-v1'),
+      join(directory, 'supabase/migrations'),
+    )).toBe(1);
+    expect(output.reported).toContain('inventory.json');
   });
 });
