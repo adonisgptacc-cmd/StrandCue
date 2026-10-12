@@ -31,9 +31,14 @@ empty intake file — it does not request or accept uploads.
    product. No `http:` links, no retailer or marketplace pages.
 10. **Label photographs** — front and back of the label, clearly showing the
     ingredients, directions, and manufacturer details. Record the local file
-    paths in `labelImageRefs`.
+    paths in `labelImageRefs`. The ingredients and directions panels are
+    identity material only (they establish which exact version this is);
+    they are never treated as efficacy proof.
 11. **Identity notes** — anything that distinguishes this version
     (reformulation, repackaging). Leave `null` when there is nothing to note.
+12. **Possession** — confirm whether you currently possess this exact item
+    and can test it. This is not an intake field; it decides whether the
+    row can later support reviewed guidance.
 
 ## What to provide for each tool
 
