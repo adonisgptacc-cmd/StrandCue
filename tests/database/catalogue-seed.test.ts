@@ -60,6 +60,17 @@ async function tableCount(db: PGlite, table: string): Promise<number> {
   return Number(rows.rows[0].count);
 }
 
+async function catalogueBaseline(db: PGlite): Promise<Record<(typeof PRODUCT_TABLES)[number], number>> {
+  // The reviewed seed migration (Task 6) ships real local rows through the
+  // same `database()` harness, so fixture assertions measure their own
+  // compiler output relative to whatever the harness already seeded.
+  const baseline = {} as Record<(typeof PRODUCT_TABLES)[number], number>;
+  for (const table of PRODUCT_TABLES) {
+    baseline[table] = await tableCount(db, table);
+  }
+  return baseline;
+}
+
 describe('catalogue seed isolation (compiler fixture)', () => {
   let db: PGlite;
   beforeEach(async () => {
@@ -70,16 +81,17 @@ describe('catalogue seed isolation (compiler fixture)', () => {
   });
 
   it('replays compiler SQL with exact row counts and intact foreign keys', async () => {
+    const baseline = await catalogueBaseline(db);
     const { snapshot } = await seedFromCompiler(db);
     expect(snapshot.products).toHaveLength(2);
     expect(snapshot.brands).toHaveLength(1);
-    expect(await tableCount(db, 'brands')).toBe(snapshot.brands.length);
-    expect(await tableCount(db, 'products')).toBe(snapshot.products.length);
-    expect(await tableCount(db, 'product_versions')).toBe(snapshot.product_versions.length);
-    expect(await tableCount(db, 'product_claims')).toBe(snapshot.product_claims.length);
-    expect(await tableCount(db, 'product_sources')).toBe(snapshot.product_sources.length);
+    expect(await tableCount(db, 'brands')).toBe(baseline.brands + snapshot.brands.length);
+    expect(await tableCount(db, 'products')).toBe(baseline.products + snapshot.products.length);
+    expect(await tableCount(db, 'product_versions')).toBe(baseline.product_versions + snapshot.product_versions.length);
+    expect(await tableCount(db, 'product_claims')).toBe(baseline.product_claims + snapshot.product_claims.length);
+    expect(await tableCount(db, 'product_sources')).toBe(baseline.product_sources + snapshot.product_sources.length);
     expect(await tableCount(db, 'product_verification_events')).toBe(
-      snapshot.product_verification_events.length,
+      baseline.product_verification_events + snapshot.product_verification_events.length,
     );
     for (const table of TOOL_TABLES) {
       expect(await tableCount(db, table)).toBe(0);
@@ -102,6 +114,7 @@ describe('catalogue seed isolation (compiler fixture)', () => {
   });
 
   it('lets authenticated users read catalogue rows but denies anon reads', async () => {
+    const baseline = await catalogueBaseline(db);
     await seedFromCompiler(db);
     await asUser(db, USER_A);
     for (const table of PRODUCT_TABLES) {
@@ -114,7 +127,8 @@ describe('catalogue seed isolation (compiler fixture)', () => {
     }
     await asUser(db, USER_B);
     const brands = await db.query<{ name: string }>('select name from public.brands');
-    expect(brands.rows).toEqual([{ name: 'Synthetic Fixture Wash Co' }]);
+    expect(brands.rows).toContainEqual({ name: 'Synthetic Fixture Wash Co' });
+    expect(brands.rows).toHaveLength(baseline.brands + 1);
     await asUser(db, null);
     await expect(db.query('select * from public.brands')).rejects.toThrow(/permission denied/i);
     await expect(db.query('select * from public.products')).rejects.toThrow(/permission denied/i);
@@ -266,16 +280,18 @@ describe('catalogue seed isolation (compiler fixture)', () => {
   });
 
   it('aborts a second apply of identical SQL instead of merging', async () => {
+    const baseline = await catalogueBaseline(db);
     const { snapshot, sql } = await seedFromCompiler(db);
     const before = await tableCount(db, 'products');
+    expect(before).toBe(baseline.products + snapshot.products.length);
     await db.exec('set session authorization postgres');
     await expect(db.exec(sql)).rejects.toThrow(/duplicate|already exists|violates|conflict|aborted/i);
     // The conflicting batch leaves the session inside an aborted
     // transaction; roll it back so the unchanged counts can be read.
     await db.exec('rollback').catch(() => undefined);
-    expect(await tableCount(db, 'brands')).toBe(snapshot.brands.length);
+    expect(await tableCount(db, 'brands')).toBe(baseline.brands + snapshot.brands.length);
     expect(await tableCount(db, 'products')).toBe(before);
-    expect(await tableCount(db, 'product_versions')).toBe(snapshot.product_versions.length);
+    expect(await tableCount(db, 'product_versions')).toBe(baseline.product_versions + snapshot.product_versions.length);
   });
 
   it.each([
@@ -342,5 +358,140 @@ describe('catalogue seed isolation (compiler fixture)', () => {
     const second = compileCatalogueIntake(fixtureInput());
     expect(second.sql).toBe(first.sql);
     expect(second.snapshot).toEqual(first.snapshot);
+  });
+});
+
+// Task 6: first real local catalogue seed (reviewed compiler output only).
+//
+// The SQL under test is compiler-emitted, never hand-written: the migration
+// file must carry the byte-identical compiler output for the two
+// source-backed ZA rows (one shampoo, one conditioner), and the checked-in
+// snapshot must be the same compiler output. The harness `database()` applies
+// every migration including the seed, so these assertions read the seeded
+// rows back. Local only: nothing here touches hosted Supabase.
+const SEED_MIGRATION = '20261012184009_basic_wash_catalogue_seed.sql';
+const SEED_BRAND = '0c9e273f-ed2e-5035-9649-bb657101d97e';
+const SHAMPOO_PRODUCT = '2bc26c97-9e88-552c-9bf0-173dc44e4636';
+const CONDITIONER_PRODUCT = '313c012b-4636-574b-babc-16c0772517fa';
+const SHAMPOO_VERSION = '96759932-6d87-56c2-8165-8f95260447f4';
+const CONDITIONER_VERSION = '6ae2cd7a-2d89-5d16-a07d-36ca44139c59';
+const SHAMPOO_NAME = 'Ultimate Blends Hair Food Nourishing Banana Hair Food Shampoo For Dry Hair';
+const CONDITIONER_NAME = 'Ultimate Blends Hair Food Nourishing Banana Hair Food Conditioner For Dry Hair';
+const BANANA_VARIANT = 'Hair Food Banana and Coconut for dry hair';
+const SEED_BRAND_NAME = 'Garnier Ultimate Blends';
+const SHAMPOO_URL = 'https://africa.garnier.com/en-za/about-our-brands/ultimate-blends-hub/ultimate-blends/hair-food/ultimate-blends-hair-food-banana-shampoo';
+const CONDITIONER_URL = 'https://africa.garnier.com/en-za/about-our-brands/ultimate-blends-hub/ultimate-blends/hair-food/ultimate-blends-hair-food-banana-conditioner';
+
+function seedMigrationSql(): string {
+  return readFileSync(`supabase/migrations/${SEED_MIGRATION}`, 'utf8');
+}
+
+function seedSnapshot(): ReturnType<typeof compileCatalogueIntake>['snapshot'] {
+  return JSON.parse(
+    readFileSync('docs/product/catalogue/basic-wash-v1/catalogue-snapshot.json', 'utf8'),
+  ) as ReturnType<typeof compileCatalogueIntake>['snapshot'];
+}
+
+describe('first reviewed catalogue seed (local migration)', () => {
+  let db: PGlite;
+  beforeEach(async () => {
+    db = await database();
+  }, 60_000);
+  afterEach(async () => {
+    await db?.close();
+  });
+
+  it('ships compiler SQL in the CLI-generated migration and nothing else', () => {
+    const sql = seedMigrationSql();
+    expect(sql.length).toBeGreaterThan(0);
+    expect(sql).toContain('-- Catalogue seed compiled by `npm run compile:catalogue`');
+    expect(sql).toMatch(/^begin;/m);
+    expect(sql).toMatch(/^commit;/m);
+    // Catalogue INSERTs plus the explicit transaction only: no access change.
+    expect(sql).not.toMatch(/create\s+(policy|trigger|function|role|index)/i);
+    expect(sql).not.toMatch(/grant\s|revoke\s|alter\s+table|rls|row level security/i);
+    expect(sql).not.toMatch(/example\.test/i);
+    for (const statement of sql.split(';')) {
+      const trimmed = statement.trim();
+      if (trimmed === '' || trimmed.startsWith('--') || trimmed === 'begin' || trimmed === 'commit') continue;
+      expect(trimmed.toLowerCase().startsWith('insert into public.')).toBe(true);
+    }
+    expect(sql).toContain(SHAMPOO_VERSION);
+    expect(sql).toContain(CONDITIONER_VERSION);
+  });
+
+  it('carries the exact two reviewed versions in the checked-in snapshot', () => {
+    const snapshot = seedSnapshot();
+    expect(snapshot.brands).toEqual([{ id: SEED_BRAND, name: SEED_BRAND_NAME }]);
+    expect(snapshot.products).toHaveLength(2);
+    expect(snapshot.product_versions).toHaveLength(2);
+    expect(snapshot.product_sources).toHaveLength(2);
+    expect(snapshot.product_claims).toHaveLength(2);
+    expect(snapshot.product_verification_events).toEqual([]);
+    expect(snapshot.tools).toEqual([]);
+    expect(snapshot.tool_versions).toEqual([]);
+    const shampoo = snapshot.products.find(product => product.id === SHAMPOO_PRODUCT);
+    const conditioner = snapshot.products.find(product => product.id === CONDITIONER_PRODUCT);
+    expect(shampoo).toMatchObject({ brand_id: SEED_BRAND, name: SHAMPOO_NAME, category: 'shampoo', market: 'ZA' });
+    expect(conditioner).toMatchObject({ brand_id: SEED_BRAND, name: CONDITIONER_NAME, category: 'conditioner', market: 'ZA' });
+    const shampooVersion = snapshot.product_versions.find(version => version.id === SHAMPOO_VERSION);
+    const conditionerVersion = snapshot.product_versions.find(version => version.id === CONDITIONER_VERSION);
+    expect(shampooVersion).toMatchObject({ product_id: SHAMPOO_PRODUCT, variant: BANANA_VARIANT, market: 'ZA', barcode: null, lifecycle: 'active' });
+    expect(conditionerVersion).toMatchObject({ product_id: CONDITIONER_PRODUCT, variant: BANANA_VARIANT, market: 'ZA', barcode: null, lifecycle: 'active' });
+    for (const source of snapshot.product_sources) {
+      expect(source).toMatchObject({ source_type: 'manufacturer', trust_tier: 'T5', market: 'ZA', first_seen: '2026-10-12', last_checked: '2026-10-12', archived_url: null });
+    }
+    expect(snapshot.product_sources.map(source => source.source_url).sort()).toEqual(
+      [CONDITIONER_URL, SHAMPOO_URL].sort(),
+    );
+    expect(snapshot.product_claims.every(claim => claim.claim_key === 'name')).toBe(true);
+  });
+
+  it('seeds the shampoo and conditioner as two separate ZA versions', async () => {
+    const rows = await db.query<{
+      version_id: string; brand: string; name: string; category: string;
+      variant: string | null; market: string; barcode: string | null; lifecycle: string;
+    }>(
+      `select v.id version_id, b.name brand, p.name, p.category, v.variant, v.market, v.barcode, v.lifecycle
+        from public.product_versions v
+        join public.products p on p.id = v.product_id
+        join public.brands b on b.id = p.brand_id
+        where v.id in ('${SHAMPOO_VERSION}', '${CONDITIONER_VERSION}')
+        order by v.id`,
+    );
+    expect(rows.rows).toEqual([
+      { version_id: CONDITIONER_VERSION, brand: SEED_BRAND_NAME, name: CONDITIONER_NAME, category: 'conditioner', variant: BANANA_VARIANT, market: 'ZA', barcode: null, lifecycle: 'active' },
+      { version_id: SHAMPOO_VERSION, brand: SEED_BRAND_NAME, name: SHAMPOO_NAME, category: 'shampoo', variant: BANANA_VARIANT, market: 'ZA', barcode: null, lifecycle: 'active' },
+    ]);
+    // Separate products, separate categories: never merged across the wash pair.
+    const products = await db.query<{ id: string }>(
+      `select distinct product_id id from public.product_versions where id in ('${SHAMPOO_VERSION}', '${CONDITIONER_VERSION}')`,
+    );
+    expect(products.rows).toHaveLength(2);
+  });
+
+  it('keeps every evidence-inventory UUID inside the migration and the snapshot', () => {
+    const inventory = JSON.parse(
+      readFileSync('docs/product/evidence/basic-wash-v1/inventory.json', 'utf8'),
+    ) as { rows: { kind: string; versionId: string }[] };
+    const sql = seedMigrationSql();
+    const snapshot = seedSnapshot();
+    expect(inventory.rows.map(row => row.versionId).sort()).toEqual(
+      [CONDITIONER_VERSION, SHAMPOO_VERSION].sort(),
+    );
+    for (const row of inventory.rows) {
+      expect(row.kind).toBe('product');
+      expect(sql).toContain(row.versionId);
+      expect(snapshot.product_versions.some(version => version.id === row.versionId)).toBe(true);
+    }
+  });
+
+  it('aborts a conflicting reseed of the reviewed versions instead of merging', async () => {
+    const sql = seedMigrationSql();
+    const before = await tableCount(db, 'product_versions');
+    await db.exec('set session authorization postgres');
+    await expect(db.exec(sql)).rejects.toThrow(/duplicate|already exists|violates|conflict|aborted/i);
+    await db.exec('rollback').catch(() => undefined);
+    expect(await tableCount(db, 'product_versions')).toBe(before);
   });
 });

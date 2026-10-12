@@ -1,5 +1,42 @@
 {
   "inventoryId": "basic-wash-v1",
   "version": "1",
-  "rows": []
+  "rows": [
+    {
+      "kind": "product",
+      "versionId": "96759932-6d87-56c2-8165-8f95260447f4",
+      "brand": "Garnier Ultimate Blends",
+      "name": "Ultimate Blends Hair Food Nourishing Banana Hair Food Shampoo For Dry Hair",
+      "variantOrModel": "Hair Food Banana and Coconut for dry hair",
+      "market": "ZA",
+      "lifecycle": "active",
+      "source": {
+        "sourceUrl": "https://africa.garnier.com/en-za/about-our-brands/ultimate-blends-hub/ultimate-blends/hair-food/ultimate-blends-hair-food-banana-shampoo",
+        "archivedUrl": null,
+        "sourceType": "manufacturer",
+        "trustTier": "T5",
+        "market": "ZA",
+        "firstSeen": "2026-10-12",
+        "lastChecked": "2026-10-12"
+      }
+    },
+    {
+      "kind": "product",
+      "versionId": "6ae2cd7a-2d89-5d16-a07d-36ca44139c59",
+      "brand": "Garnier Ultimate Blends",
+      "name": "Ultimate Blends Hair Food Nourishing Banana Hair Food Conditioner For Dry Hair",
+      "variantOrModel": "Hair Food Banana and Coconut for dry hair",
+      "market": "ZA",
+      "lifecycle": "active",
+      "source": {
+        "sourceUrl": "https://africa.garnier.com/en-za/about-our-brands/ultimate-blends-hub/ultimate-blends/hair-food/ultimate-blends-hair-food-banana-conditioner",
+        "archivedUrl": null,
+        "sourceType": "manufacturer",
+        "trustTier": "T5",
+        "market": "ZA",
+        "firstSeen": "2026-10-12",
+        "lastChecked": "2026-10-12"
+      }
+    }
+  ]
 }

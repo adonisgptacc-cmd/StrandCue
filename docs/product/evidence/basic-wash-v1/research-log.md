@@ -127,3 +127,40 @@ exits non-zero on every one of these:
 
 The validator runs fully offline against files in this repository. It needs no
 network access, no hosted Supabase, and no secrets.
+
+## Partial unblock (2026-10-12): two local catalogue versions now exist
+
+The blocking gap above is history and stays recorded; it is not rewritten.
+What changed is that the repository now holds two real catalogue versions to
+research, so `inventory.json` carries two rows and this log records their basis.
+
+- Seed migration `supabase/migrations/20261012184009_basic_wash_catalogue_seed.sql`
+  (local only, unapplied to hosted Supabase) inserts compiler-emitted rows for
+  exactly two versions. Snapshot copy:
+  `docs/product/catalogue/basic-wash-v1/catalogue-snapshot.json`.
+- Shampoo `product_versions.id` `96759932-6d87-56c2-8165-8f95260447f4` —
+  `Garnier Ultimate Blends`, `Ultimate Blends Hair Food Nourishing Banana Hair
+  Food Shampoo For Dry Hair`, variant `Hair Food Banana and Coconut for dry
+  hair`, market `ZA`, lifecycle `active`, barcode null.
+- Conditioner `product_versions.id` `6ae2cd7a-2d89-5d16-a07d-36ca44139c59` —
+  `Garnier Ultimate Blends`, `Ultimate Blends Hair Food Nourishing Banana Hair
+  Food Conditioner For Dry Hair`, same variant, market and lifecycle, barcode
+  null. A separate version (different category and product), never merged with
+  the shampoo.
+- Basis for both rows: user-supplied source-backed identities plus the
+  controller's same-day live checks of the official Garnier South Africa en-ZA
+  product pages, dated 2026-10-12 (Africa/Johannesburg). The pages showed the
+  matching names, 350 ml sizes, use directions and F.I.L references
+  (shampoo C244837/1, conditioner C239429/2). Intake rows stay `status: 'draft'`
+  — automation cannot mark `identity_verified`; the formal flip and Human A
+  authorship happen at Task 9.
+- Still outstanding for both versions: front/back label verification, barcode
+  confirmation, package-to-page formulation comparison. Possession unknown — no
+  claim is made that the owner possesses or can test either product. Marketing
+  statements (nourishment, smoothness, vegan, natural-origin) are excluded from
+  capabilities. The other 9 intake rows (Batch01/Batch02 drafts with rejected
+  2026-10-13 check dates) are not seeded and remain uninventoried.
+- `evidence-registry.json` is still empty: no claim-scoped evidence record has
+  been read or recorded yet, so every inventoried version still needs its
+  per-claim sources with URL, publisher, retrieval date, limitations and a
+  named human author before any publication step.

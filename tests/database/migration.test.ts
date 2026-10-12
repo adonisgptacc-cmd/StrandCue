@@ -67,6 +67,17 @@ describe('Supabase migration compatibility', () => {
 
       await db.exec('set session authorization migration_admin');
       for (const migration of (await readdir('supabase/migrations')).filter((name) => name.endsWith('.sql')).sort()) {
+        // The reviewed catalogue seed carries data rows, not DDL. Catalogue
+        // tables use FORCE ROW LEVEL SECURITY with SELECT-only policies and
+        // no INSERT policy for any role, so the seed cannot be applied by the
+        // migration administrator — it is applied by the owner context, while
+        // every DDL migration still runs as migration_admin.
+        if (migration === '20261012184009_basic_wash_catalogue_seed.sql') {
+          await db.exec('set session authorization postgres');
+          await db.exec(await readFile(join('supabase/migrations', migration), 'utf8'));
+          await db.exec('set session authorization migration_admin');
+          continue;
+        }
         await db.exec(await readFile(join('supabase/migrations', migration), 'utf8'));
       }
       await db.exec('reset session authorization');

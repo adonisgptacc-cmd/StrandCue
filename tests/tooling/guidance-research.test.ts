@@ -176,17 +176,41 @@ describe('guidance research pack checked into the repository', () => {
     expect(output).toContain('GUIDANCE-RESEARCH-PASS');
   });
 
-  it('invents no catalogue id, evidence URL or reviewer identity anywhere in the pack', () => {
-    for (const artifact of ['inventory.json', 'evidence-registry.json', 'research-log.md']) {
+  it('carries only catalogue-resolved ids and migration-backed manufacturer URLs in the pack', async () => {
+    // The pack is no longer empty: Task 6 inventoried the first two real
+    // local versions. Absence is therefore asserted as resolution instead —
+    // every catalogue id in the pack resolves to exactly one catalogue
+    // version, and every evidence URL is a manufacturer URL the seed
+    // migration itself carries. Nothing here is invented.
+    const catalogue = await resolveCatalogue();
+    expect(catalogue).toHaveLength(2);
+    const seedSql = read('supabase/migrations/20261012184009_basic_wash_catalogue_seed.sql');
+    for (const artifact of ['inventory.json', 'research-log.md']) {
       const content = read(`${PACK}/${artifact}`);
-      expect(content, `${artifact} must not carry a catalogue id`).not.toMatch(
-        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+      const ids = new Set(
+        [...content.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)]
+          .map(match => match[0].toLowerCase()),
       );
-      expect(content, `${artifact} must not carry an evidence URL`).not.toMatch(/https?:\/\//i);
+      for (const id of ids) {
+        expect(
+          catalogue.filter(entry => entry.versionId.toLowerCase() === id),
+          `${artifact} id ${id} resolves to exactly one catalogue version`,
+        ).toHaveLength(1);
+      }
+      const urls = new Set(
+        [...content.matchAll(/https?:\/\/[^\s"')\]]+/gi)].map(match => match[0]),
+      );
+      for (const url of urls) {
+        expect(url).toMatch(/^https:\/\//);
+        expect(url, `${artifact} URL is backed by the seed migration`).not.toContain('example');
+        expect(seedSql, `${artifact} URL ${url} is carried by the seed migration`).toContain(url);
+      }
     }
     for (const artifact of ['inventory.json', 'evidence-registry.json']) {
       expect(read(`${PACK}/${artifact}`).toLowerCase(), `${artifact} must not name a test host`).not.toContain('example');
     }
+    const registry = JSON.parse(read(`${PACK}/evidence-registry.json`)) as { records: unknown[] };
+    expect(registry.records).toEqual([]);
   });
 
   it('records the blocking catalogue gap whenever no version is inventoried', () => {
@@ -583,7 +607,28 @@ describe('guidance research command line', () => {
   };
 
   it('resolves the repository pack against its own migrations and export', async () => {
-    expect(await resolveCatalogue()).toEqual([]);
+    // The first real local seed ships exactly two product versions: the
+    // Banana Hair Food shampoo and its matching conditioner, ZA/active.
+    expect(await resolveCatalogue()).toEqual([
+      {
+        kind: 'product',
+        versionId: '6ae2cd7a-2d89-5d16-a07d-36ca44139c59',
+        brand: 'Garnier Ultimate Blends',
+        name: 'Ultimate Blends Hair Food Nourishing Banana Hair Food Conditioner For Dry Hair',
+        variantOrModel: 'Hair Food Banana and Coconut for dry hair',
+        market: 'ZA',
+        lifecycle: 'active',
+      },
+      {
+        kind: 'product',
+        versionId: '96759932-6d87-56c2-8165-8f95260447f4',
+        brand: 'Garnier Ultimate Blends',
+        name: 'Ultimate Blends Hair Food Nourishing Banana Hair Food Shampoo For Dry Hair',
+        variantOrModel: 'Hair Food Banana and Coconut for dry hair',
+        market: 'ZA',
+        lifecycle: 'active',
+      },
+    ]);
   });
 
   it('resolves seeded versions and lets an approved export override the same id', async () => {
