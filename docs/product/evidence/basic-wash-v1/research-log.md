@@ -164,3 +164,43 @@ research, so `inventory.json` carries two rows and this log records their basis.
   been read or recorded yet, so every inventoried version still needs its
   per-claim sources with URL, publisher, retrieval date, limitations and a
   named human author before any publication step.
+
+## Task 7 draft evidence (2026-10-12): six claim-scoped records, two draft rows
+
+The "still empty" statement in the previous section is superseded by this
+section; earlier history above is not rewritten.
+
+Six draft evidence records were transcribed from the controller's same-day
+live checks of the two official Garnier South Africa en-ZA pages (no new
+network reads; nothing invented). Each record carries exactly one paraphrased
+claim, `status: 'draft'`, `market: 'ZA'`, `sourceType: 'manufacturer'`, trust
+tier T5, `authoredBy: 'task-07-draft-research'` (automation provenance, not a
+human name), `reviewedBy`/`reviewedAt` null, `checkedAt`
+`2026-10-12T12:00:00+02:00` (genuinely checked 2026-10-12; no 2026-10-13 date
+appears in any new artifact), and `versionIds` naming exactly the version the
+claim covers:
+
+- Shampoo `96759932-6d87-56c2-8165-8f95260447f4`: identity claim (official
+  en-ZA page names this exact version/size/market), directions claim ("Apply
+  Hair Food Shampoo — as usual. Squeeze, lather, rinse thoroughly." + follow
+  with Hair Food conditioner), formulation-reference claim (F.I.L C244837/1
+  shown for this version; online list is draft formulation evidence,
+  packaging authoritative).
+- Conditioner `6ae2cd7a-2d89-5d16-a07d-36ca44139c59`: identity claim,
+  directions claim ("After shampoo, squeeze, massage into wet hair, rinse
+  thoroughly."), formulation-reference claim (F.I.L C239429/2).
+
+Limitations on every record: web-only, front label unseen, no barcode,
+packaging authoritative, marketing benefit wording excluded from support.
+`evidenceId` values are deterministic UUIDv5 over namespace
+`f498ad3d-744b-591d-a73c-7c5b8efa24ff` (= UUIDv5(DNS,
+`strandcue.guidance-evidence.basic-wash-v1`)) with stable names
+`<product>/identity`, `<product>/directions`,
+`<product>/formulation-reference`. No label photos exist — `labelImageRefs`
+stays empty everywhere (no such field is carried on evidence records).
+
+Capability rows (both `draft`, authored by the same automation marker,
+reviewer fields null, rationale citing directions never the category name):
+shampoo → `cleanse`, conditioner → `condition`. No other capability is
+inferred. The production bundle is untouched: still draft, withdrawn
+placeholder rule, empty capabilities.

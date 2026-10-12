@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { CHECKED_IN_EVIDENCE_REGISTRY } from '../../apps/mobile/src/guidance/evidence-registry.ts';
 import { GuidanceEvidenceRegistrySchema } from '../../packages/domain/src/guidance/index.ts';
 import {
   catalogueVersionsFromSeedSql,
@@ -178,7 +179,8 @@ describe('guidance research pack checked into the repository', () => {
 
   it('carries only catalogue-resolved ids and migration-backed manufacturer URLs in the pack', async () => {
     // The pack is no longer empty: Task 6 inventoried the first two real
-    // local versions. Absence is therefore asserted as resolution instead —
+    // local versions, and Task 7 recorded six draft claim-scoped records
+    // about them. Absence is therefore asserted as resolution instead —
     // every catalogue id in the pack resolves to exactly one catalogue
     // version, and every evidence URL is a manufacturer URL the seed
     // migration itself carries. Nothing here is invented.
@@ -187,15 +189,24 @@ describe('guidance research pack checked into the repository', () => {
     const seedSql = read('supabase/migrations/20261012184009_basic_wash_catalogue_seed.sql');
     for (const artifact of ['inventory.json', 'research-log.md']) {
       const content = read(`${PACK}/${artifact}`);
+      // Non-catalogue UUIDs the pack itself documents: the registry's
+      // evidence ids and the single UUIDv5 namespace they derive from.
+      const documented = new Set(
+        (JSON.parse(read(`${PACK}/evidence-registry.json`)) as { records: { evidenceId: string }[] }).records.map(
+          record => record.evidenceId.toLowerCase(),
+        ),
+      );
+      documented.add('f498ad3d-744b-591d-a73c-7c5b8efa24ff');
       const ids = new Set(
         [...content.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)]
           .map(match => match[0].toLowerCase()),
       );
       for (const id of ids) {
+        const catalogueHits = catalogue.filter(entry => entry.versionId.toLowerCase() === id).length;
         expect(
-          catalogue.filter(entry => entry.versionId.toLowerCase() === id),
-          `${artifact} id ${id} resolves to exactly one catalogue version`,
-        ).toHaveLength(1);
+          catalogueHits === 1 || (artifact === 'research-log.md' && documented.has(id)),
+          `${artifact} id ${id} resolves to exactly one catalogue version or is a documented evidence id`,
+        ).toBe(true);
       }
       const urls = new Set(
         [...content.matchAll(/https?:\/\/[^\s"')\]]+/gi)].map(match => match[0]),
@@ -206,11 +217,52 @@ describe('guidance research pack checked into the repository', () => {
         expect(seedSql, `${artifact} URL ${url} is carried by the seed migration`).toContain(url);
       }
     }
+    {
+      // The registry carries its own evidence ids, which are not catalogue
+      // ids: only its version scopes and its URLs resolve against the seed.
+      const content = read(`${PACK}/evidence-registry.json`);
+      const parsed = JSON.parse(content) as {
+        records: { evidenceId: string; versionIds: string[]; sourceUrl: string }[];
+      };
+      const evidenceIds = parsed.records.map(record => record.evidenceId);
+      expect(new Set(evidenceIds).size).toBe(evidenceIds.length);
+      for (const record of parsed.records) {
+        for (const id of record.versionIds) {
+          expect(
+            catalogue.filter(entry => entry.versionId.toLowerCase() === id.toLowerCase()),
+            `evidence-registry.json version scope ${id} resolves to exactly one catalogue version`,
+          ).toHaveLength(1);
+        }
+        expect(record.sourceUrl).toMatch(/^https:\/\//);
+        expect(record.sourceUrl).not.toContain('example');
+        expect(seedSql, `evidence URL ${record.sourceUrl} is carried by the seed migration`).toContain(record.sourceUrl);
+      }
+    }
     for (const artifact of ['inventory.json', 'evidence-registry.json']) {
       expect(read(`${PACK}/${artifact}`).toLowerCase(), `${artifact} must not name a test host`).not.toContain('example');
     }
-    const registry = JSON.parse(read(`${PACK}/evidence-registry.json`)) as { records: unknown[] };
-    expect(registry.records).toEqual([]);
+    const registry = GuidanceEvidenceRegistrySchema.parse(JSON.parse(read(`${PACK}/evidence-registry.json`)));
+    expect(registry.records).toHaveLength(6);
+    for (const record of registry.records) {
+      expect(record.status).toBe('draft');
+      expect(record.sourceType).toBe('manufacturer');
+      expect(record.trustTier).toBe('T5');
+      expect(record.market).toBe('ZA');
+      expect(record.authoredBy).toBe('task-07-draft-research');
+      expect(record.reviewedBy).toBeNull();
+      expect(record.reviewedAt).toBeNull();
+      expect(record.checkedAt.startsWith('2026-10-12')).toBe(true);
+      expect(record.versionIds).toHaveLength(1);
+      expect(record.claim.trim()).not.toBe('');
+      expect(record.limitations.trim()).not.toBe('');
+    }
+    expect(read(`${PACK}/evidence-registry.json`)).not.toContain('2026-10-13');
+  });
+
+  it('mirrors the docs evidence registry into the mobile copy exactly', () => {
+    expect(JSON.parse(JSON.stringify(CHECKED_IN_EVIDENCE_REGISTRY))).toEqual(
+      JSON.parse(read(`${PACK}/evidence-registry.json`)),
+    );
   });
 
   it('records the blocking catalogue gap whenever no version is inventoried', () => {

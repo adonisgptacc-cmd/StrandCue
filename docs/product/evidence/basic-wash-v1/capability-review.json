@@ -1,5 +1,36 @@
 {
   "reviewId": "basic-wash-v1-capability-review",
   "version": "1",
-  "rows": []
+  "rows": [
+    {
+      "kind": "product",
+      "versionId": "96759932-6d87-56c2-8165-8f95260447f4",
+      "capability": "cleanse",
+      "supportingEvidenceIds": [
+        "1304be5a-122f-5032-b84d-b40451174344",
+        "985e618b-9e69-5dbf-ab0e-238533dd9740"
+      ],
+      "contradictedByEvidenceIds": [],
+      "decision": "draft",
+      "rationale": "Draft only: the manufacturer directions for this exact shampoo version say to squeeze, lather and rinse thoroughly, which describes a rinse-off cleansing use; nothing is decided until independent human review.",
+      "authoredBy": "task-07-draft-research",
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    {
+      "kind": "product",
+      "versionId": "6ae2cd7a-2d89-5d16-a07d-36ca44139c59",
+      "capability": "condition",
+      "supportingEvidenceIds": [
+        "c74677b0-75f8-5b64-bb3a-c18d3148d47f",
+        "fdecd8f8-871e-5a0c-8ed5-e063124e51d7"
+      ],
+      "contradictedByEvidenceIds": [],
+      "decision": "draft",
+      "rationale": "Draft only: the manufacturer directions for this exact conditioner version say to apply after shampoo, massage into wet hair and rinse thoroughly, which describes a rinse-off conditioning use; nothing is decided until independent human review.",
+      "authoredBy": "task-07-draft-research",
+      "reviewedBy": null,
+      "reviewedAt": null
+    }
+  ]
 }

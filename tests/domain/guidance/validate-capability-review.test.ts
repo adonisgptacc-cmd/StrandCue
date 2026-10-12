@@ -9,6 +9,7 @@ import {
   validateCapabilityReview,
   type CapabilityReviewMatrix,
 } from '../../../packages/domain/src/guidance/index.ts';
+import { CHECKED_IN_CAPABILITY_REVIEW } from '../../../apps/mobile/src/guidance/capability-review.ts';
 
 const root = new URL('../../..', import.meta.url);
 const PACK = 'docs/product/evidence/basic-wash-v1';
@@ -166,7 +167,7 @@ describe('capability review matrix checked into the repository', () => {
       JSON.parse(read(`${PACK}/inventory.json`)),
       NOW,
     );
-    expect(parsed.rows.length).toBe(0);
+    expect(parsed.rows.length).toBe(2);
     expect(result.ok).toBe(true);
   });
 
@@ -175,12 +176,44 @@ describe('capability review matrix checked into the repository', () => {
     expect(parsed.rows.filter(entry => entry.decision === 'approved')).toEqual([]);
   });
 
-  it('invents no catalogue id, evidence URL, reviewer identity or date anywhere in the matrix', () => {
+  it('records two draft decisions scoped to the exact inventoried versions', () => {
+    const parsed = CapabilityReviewMatrixSchema.parse(JSON.parse(read(`${PACK}/capability-review.json`)));
+    expect(parsed.rows.map(entry => [entry.versionId, entry.capability, entry.decision])).toEqual([
+      ['96759932-6d87-56c2-8165-8f95260447f4', 'cleanse', 'draft'],
+      ['6ae2cd7a-2d89-5d16-a07d-36ca44139c59', 'condition', 'draft'],
+    ]);
+    const registry = JSON.parse(read(`${PACK}/evidence-registry.json`)) as {
+      records: { evidenceId: string; versionIds: string[] }[];
+    };
+    for (const entry of parsed.rows) {
+      expect(entry.kind).toBe('product');
+      expect(entry.authoredBy).toBe('task-07-draft-research');
+      expect(entry.reviewedBy).toBeNull();
+      expect(entry.reviewedAt).toBeNull();
+      expect(entry.contradictedByEvidenceIds).toEqual([]);
+      expect(entry.supportingEvidenceIds.length).toBeGreaterThan(0);
+      // Every cited record exists and its claim scope covers this version.
+      for (const evidenceId of entry.supportingEvidenceIds) {
+        const record = registry.records.find(candidate => candidate.evidenceId === evidenceId);
+        expect(record, `cited record ${evidenceId} is held by the registry`).toBeDefined();
+        expect(record!.versionIds).toContain(entry.versionId);
+      }
+      // Rationale cites the manufacturer directions, never the category name.
+      expect(entry.rationale.toLowerCase()).toMatch(/direction|rinse|lather|massage/);
+    }
+  });
+
+  it('mirrors the docs capability review into the mobile copy exactly', () => {
+    expect(JSON.parse(JSON.stringify(CHECKED_IN_CAPABILITY_REVIEW))).toEqual(
+      JSON.parse(read(`${PACK}/capability-review.json`)),
+    );
+  });
+
+  it('invents no reviewer identity, review date, or rejected batch date in the matrix', () => {
     const content = read(`${PACK}/capability-review.json`);
-    expect(content).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-    expect(content).not.toMatch(/https?:\/\//i);
-    expect(content).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+    expect(content).not.toContain('2026-10-13');
     expect(content.toLowerCase()).not.toContain('example');
+    expect(content).not.toMatch(/Human [AB]/);
   });
 });
 
