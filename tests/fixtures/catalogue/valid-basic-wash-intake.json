@@ -1,0 +1,43 @@
+{
+  "intake": {
+    "status": "identity_verified",
+    "rows": [
+      {
+        "recordId": "b0000000-0000-4000-8000-000000000001",
+        "kind": "product",
+        "brand": "Synthetic Fixture Wash Co",
+        "productName": "Synthetic Fixture Shampoo",
+        "variant": "Synthetic Trial Variant A",
+        "sizeOrPack": "250 ml",
+        "market": "ZA",
+        "gtin": "6000000000018",
+        "category": "shampoo",
+        "lifecycle": "active",
+        "manufacturerUrl": "https://example.test/manufacturer/synthetic-fixture-shampoo",
+        "labelImageRefs": [],
+        "identityNotes": "Synthetic fixture row for compiler tests. Not a real product.",
+        "status": "identity_verified"
+      },
+      {
+        "recordId": "b0000000-0000-4000-8000-000000000002",
+        "kind": "product",
+        "brand": "Synthetic Fixture Wash Co",
+        "productName": "Synthetic Fixture Conditioner",
+        "variant": "Synthetic Trial Variant A",
+        "sizeOrPack": "250 ml",
+        "market": "ZA",
+        "gtin": "6000000000025",
+        "category": "conditioner",
+        "lifecycle": "active",
+        "manufacturerUrl": "https://example.test/manufacturer/synthetic-fixture-conditioner",
+        "labelImageRefs": [],
+        "identityNotes": "Synthetic fixture row for compiler tests. Not a real product.",
+        "status": "identity_verified"
+      }
+    ]
+  },
+  "provenance": {
+    "firstSeen": "2026-09-01",
+    "lastChecked": "2026-10-01"
+  }
+}
