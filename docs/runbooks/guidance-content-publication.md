@@ -5,7 +5,7 @@ guidance in StrandCue. This runbook governs the boundary between "a person
 checked this" and "the app is allowed to say it".
 
 The production registry lives in `apps/mobile/src/guidance/reviewed-bundle.ts`.
-It is currently a **draft** bundle with no capability mappings and no rules,
+It is currently a **draft** bundle with no capability mappings and no executable rules,
 because the repository contains no approved content artifact. Until reviewed
 content is added and approved under this runbook, Today shows an honest
 "content is still being prepared" state and generates nothing.

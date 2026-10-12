@@ -5,6 +5,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { normalizeLineEndings } from '../helpers/normalize-line-endings';
+
 interface WebsiteConfiguration {
   readonly name: string;
   readonly compatibility_date: string;
@@ -99,7 +101,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('public website security', () => {
   it('sets restrictive static headers', () => {
     expect(existsSync('website/public/_headers')).toBe(true);
-    const headers = readFileSync('website/public/_headers', 'utf8');
+    const headers = normalizeLineEndings(readFileSync('website/public/_headers', 'utf8'));
     const general = headers.split('\n\n')[0];
     expect(general.startsWith('/*\n')).toBe(true);
     for (const [name, value] of Object.entries(secureHeaders).filter(([name]) => name !== 'content-type')) {
@@ -109,7 +111,7 @@ describe('public website security', () => {
 
   it('blocks indexing on workers.dev previews', () => {
     expect(existsSync('website/public/_headers')).toBe(true);
-    const headers = readFileSync('website/public/_headers', 'utf8');
+    const headers = normalizeLineEndings(readFileSync('website/public/_headers', 'utf8'));
     expect(headers).toContain('https://:version.:subdomain.workers.dev/*\n  X-Robots-Tag: noindex');
     expect(headers.split('\n\n')[0]).not.toMatch(/X-Robots-Tag/i);
   });

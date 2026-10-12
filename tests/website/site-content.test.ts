@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { normalizeLineEndings } from '../helpers/normalize-line-endings';
+
 const publicDirectory = resolve('website/public');
 const pages = [
   { route: '/', file: 'index.html' },
@@ -12,7 +14,7 @@ const pages = [
 ] as const;
 
 function readPage(file: string): string {
-  return readFileSync(resolve(publicDirectory, file), 'utf8');
+  return normalizeLineEndings(readFileSync(resolve(publicDirectory, file), 'utf8'));
 }
 
 describe('public website content', () => {

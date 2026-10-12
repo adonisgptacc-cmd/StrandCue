@@ -1,8 +1,10 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
+import { normalizeLineEndings } from '../helpers/normalize-line-endings';
+
 async function workflow(name: string): Promise<string> {
-  return readFile(`.github/workflows/${name}`, 'utf8');
+  return normalizeLineEndings(await readFile(`.github/workflows/${name}`, 'utf8'));
 }
 
 function jobBlocks(source: string): string[] {
