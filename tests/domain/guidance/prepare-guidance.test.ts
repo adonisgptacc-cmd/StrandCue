@@ -638,3 +638,63 @@ describe('prepared context', () => {
     expect(result.status === 'ready' && result.context.goal).toBe('basic_wash');
   });
 });
+
+describe('task 6 integration: exact versions through Today', () => {
+  // A visually similar but different catalogue version: the owner-facing name
+  // is identical to the reviewed product's name, yet the version id is a
+  // different valid UUID with no registry entry. Identity is the version id,
+  // never the name, so nothing is acquired.
+  const SIMILAR_VERSION = '33333333-3333-4333-8333-333333333333';
+
+  it('acquires nothing for a visually similar but different version id', () => {
+    const similar = snapshot({
+      products: [
+        {
+          ownerItemId: 'owner-product-1',
+          versionId: SIMILAR_VERSION,
+          name: 'Owned shampoo',
+          availability: 'available',
+          revision: 3,
+        },
+      ],
+    });
+    const result = prepare(similar);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.context.products).toEqual([]);
+  });
+
+  it('produces byte-equivalent context when several sources arrive reordered', () => {
+    const first = snapshot({
+      products: [
+        {
+          ownerItemId: 'owner-product-1',
+          versionId: PRODUCT_VERSION,
+          name: 'Owned shampoo',
+          availability: 'available',
+          revision: 3,
+        },
+        {
+          ownerItemId: 'owner-product-2',
+          versionId: SIMILAR_VERSION,
+          name: 'Owned shampoo',
+          availability: 'available',
+          revision: 1,
+        },
+      ],
+    });
+    const reordered = snapshot({
+      products: [...first.products].reverse(),
+      tools: [...snapshot().tools].reverse(),
+    });
+    const orderedResult = prepare(first);
+    const reorderedResult = prepare(reordered);
+    expect(orderedResult.status).toBe('ready');
+    expect(reorderedResult.status).toBe('ready');
+    if (orderedResult.status !== 'ready' || reorderedResult.status !== 'ready') return;
+    expect(JSON.stringify(reorderedResult.context)).toBe(JSON.stringify(orderedResult.context));
+    expect(orderedResult.context.products.map(entry => entry.productId)).toEqual([
+      'owner-product-1',
+    ]);
+  });
+});

@@ -454,3 +454,121 @@ describe('today guidance states', () => {
     await act(async () => { renderer.unmount(); });
   });
 });
+
+describe('task 6 integration: honest states without purchase pressure', () => {
+  function labeled(renderer: ReactTestRenderer, label: string) {
+    return renderer.root.find(
+      node => node.type === 'span' && node.props.accessibilityLabel === label,
+    );
+  }
+
+  function hasLabeled(renderer: ReactTestRenderer, label: string): boolean {
+    return (
+      renderer.root.findAll(
+        node => node.type === 'span' && node.props.accessibilityLabel === label,
+      ).length > 0
+    );
+  }
+
+  function unsupportedResult() {
+    return readyResult({
+      status: 'unsupported',
+      decision: readyDecision({
+        status: 'unsupported',
+        noPurchaseNeeded: null,
+        steps: [],
+        omissions: [
+          "No verified available candidate provides required capability 'condition'",
+        ],
+        alternatives: [],
+      }),
+    });
+  }
+
+  it('states what is missing when no reviewed combination is available', async () => {
+    mocks.generate.mockResolvedValue(unsupportedResult());
+    const renderer = await render();
+    await press(renderer, 'Generate my plan');
+    const rendered = text(renderer);
+    expect(rendered).toContain('no verified available candidate');
+    expect(rendered).toContain('condition');
+    expect(hasLabeled(renderer, 'What is missing')).toBe(true);
+    expect(rendered).not.toContain('no purchase needed');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('labels every new state and control for screen readers', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    let renderer = await render();
+    await press(renderer, 'Generate my plan');
+    expect(labeled(renderer, 'Your plan is ready').props.accessibilityRole).toBe('header');
+    expect(hasLabeled(renderer, 'No purchase needed — what you own can do this.')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+
+    mocks.generate.mockResolvedValue(unsupportedResult());
+    renderer = await render();
+    await press(renderer, 'Generate my plan');
+    expect(hasLabeled(renderer, 'What is missing')).toBe(true);
+    expect(
+      hasLabeled(
+        renderer,
+        "No verified available candidate provides required capability 'condition'",
+      ),
+    ).toBe(true);
+    await act(async () => { renderer.unmount(); });
+
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
+    renderer = await render();
+    await press(renderer, 'Generate my plan');
+    expect(hasButton(renderer, 'Retry')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('carries no purchase pressure, retailer direction or outcome promise', async () => {
+    const banned = [
+      /\bbuy\b/i,
+      /\bshop\b/i,
+      /\bretailer\b/i,
+      /\bguarantee\b/i,
+      /https?:\/\//,
+      /\bdiscount\b/i,
+      /\baffiliate\b/i,
+      /\bsponsor/i,
+      /\bmiracle\b/i,
+      /toxic/i,
+      /checkout/i,
+    ];
+    const copy = await import('../../apps/mobile/src/guidance/guidance-copy');
+    const strings: string[] = [];
+    for (const value of Object.values(copy)) {
+      if (typeof value === 'string') strings.push(value);
+      else if (typeof value === 'object' && value !== null) {
+        for (const nested of Object.values(value as Record<string, unknown>)) {
+          if (typeof nested === 'string') strings.push(nested);
+        }
+      }
+    }
+    expect(strings.length).toBeGreaterThan(0);
+    expect(copy.NO_PURCHASE_NEEDED).toBe('No purchase needed — what you own can do this.');
+    for (const candidate of strings) {
+      for (const pattern of banned) {
+        expect(candidate).not.toMatch(pattern);
+      }
+    }
+    for (const status of ['needs_input', 'rule_conflict', 'unsupported'] as const) {
+      const title = copy.statusTitle({ status } as never);
+      for (const pattern of banned) {
+        expect(title).not.toMatch(pattern);
+      }
+    }
+
+    mocks.generate.mockResolvedValue(unsupportedResult());
+    const renderer = await render();
+    await press(renderer, 'Generate my plan');
+    const rendered = text(renderer);
+    for (const pattern of banned) {
+      expect(rendered).not.toMatch(pattern);
+    }
+    await act(async () => { renderer.unmount(); });
+  });
+});

@@ -480,3 +480,120 @@ describe('today guidance orchestration', () => {
     expect(first.input.historyFacts).toEqual({ status: 'active' });
   });
 });
+
+describe('task 6 integration: reviewed versions through Today without purchase pressure', () => {
+  // A valid catalogue UUID with the same owner-facing name as the reviewed
+  // product but no registry entry: visually similar, a different version.
+  const SIMILAR_VERSION = '33333333-3333-4333-8333-333333333333';
+
+  it('returns unsupported naming the capability when only a similar version is owned', async () => {
+    const { dependencies, generateProtocol } = harness({
+      snapshot: snapshot({
+        products: [
+          {
+            ownerItemId: 'owner-product-1',
+            versionId: SIMILAR_VERSION,
+            name: 'Owned shampoo',
+            availability: 'available',
+            revision: 3,
+          },
+        ],
+      }),
+    });
+    const result = await generateTodayGuidance(request(), dependencies);
+    expect(result.status).toBe('unsupported');
+    expect(generateProtocol).toHaveBeenCalledTimes(1);
+    if (result.status !== 'unsupported') return;
+    expect(result.decision.omissions.join(' ')).toContain(
+      `No verified available candidate provides required capability '${CAP}'`,
+    );
+  });
+
+  it('returns unsupported naming the capability when only manual items are owned', async () => {
+    const { dependencies } = harness({
+      snapshot: snapshot({
+        products: [
+          {
+            ownerItemId: 'owner-product-1',
+            versionId: null,
+            name: 'Manual shampoo',
+            availability: 'available',
+            revision: 1,
+          },
+        ],
+      }),
+    });
+    const result = await generateTodayGuidance(request(), dependencies);
+    expect(result.status).toBe('unsupported');
+    if (result.status !== 'unsupported') return;
+    expect(result.decision.steps).toEqual([]);
+    expect(result.decision.omissions.join(' ')).toContain(
+      `No verified available candidate provides required capability '${CAP}'`,
+    );
+    // An unmatched shelf never becomes a candidate: the normalized input
+    // carries no products and no invented version.
+    expect(result.input.products).toEqual([]);
+  });
+
+  it('returns unsupported when the reviewed version is owned but unavailable', async () => {
+    for (const availability of ['archived', 'out_of_stock'] as const) {
+      const { dependencies } = harness({
+        snapshot: snapshot({
+          products: [
+            {
+              ownerItemId: 'owner-product-1',
+              versionId: PRODUCT_VERSION,
+              name: 'Owned shampoo',
+              availability,
+              revision: 3,
+            },
+          ],
+        }),
+      });
+      const result = await generateTodayGuidance(request(), dependencies);
+      expect(result.status).toBe('unsupported');
+      if (result.status !== 'unsupported') return;
+      expect(result.decision.omissions.join(' ')).toContain(
+        `No verified available candidate provides required capability '${CAP}'`,
+      );
+    }
+  });
+
+  it('completes the reviewed route from owned items with no purchase needed', async () => {
+    const { dependencies } = harness();
+    const result = await generateTodayGuidance(request(), dependencies);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.decision.steps.length).toBeGreaterThan(0);
+    for (const step of result.decision.steps) {
+      expect(step.productId).toBe('owner-product-1');
+    }
+    expect(result.decision.noPurchaseNeeded).toBe(true);
+  });
+
+  it('produces byte-equivalent normalized input when shelf order changes', async () => {
+    const secondProduct = {
+      ownerItemId: 'owner-product-2',
+      versionId: SIMILAR_VERSION,
+      name: 'Owned shampoo',
+      availability: 'available' as const,
+      revision: 1,
+    };
+    const firstSnapshot = snapshot({
+      products: [...snapshot().products, secondProduct],
+    });
+    const reorderedSnapshot = snapshot({
+      products: [...firstSnapshot.products].reverse(),
+    });
+    const first = await generateTodayGuidance(request(), harness({ snapshot: firstSnapshot }).dependencies);
+    const reordered = await generateTodayGuidance(
+      request(),
+      harness({ snapshot: reorderedSnapshot }).dependencies,
+    );
+    expect(first.status).toBe('ready');
+    expect(reordered.status).toBe('ready');
+    if (first.status !== 'ready' || reordered.status !== 'ready') return;
+    expect(JSON.stringify(reordered.input)).toBe(JSON.stringify(first.input));
+    expect(reordered.inputFingerprint).toBe(first.inputFingerprint);
+  });
+});

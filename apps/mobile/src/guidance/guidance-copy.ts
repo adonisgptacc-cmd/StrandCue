@@ -56,6 +56,14 @@ export const READY_TITLE = 'Your plan is ready';
 export const NEEDS_SETUP_TITLE = 'A few things are needed first';
 export const SOURCE_ERROR_TITLE = 'Your records could not be read completely';
 
+/**
+ * Heading for the engine's own omission lines on the `unsupported` state.
+ * The lines name the reviewed capability no owned item could cover; the
+ * heading only labels them, and neither names a retailer nor suggests that
+ * buying anything would guarantee an outcome.
+ */
+export const MISSING_HEADING = 'What is missing';
+
 export function statusTitle(result: TodayGuidanceResult): string {
   switch (result.status) {
     case 'ready':

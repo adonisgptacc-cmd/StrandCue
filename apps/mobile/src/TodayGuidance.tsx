@@ -11,6 +11,7 @@ import {
   GENERATING_LABEL,
   gapDestination,
   LOADING_LABEL,
+  MISSING_HEADING,
   NO_PURCHASE_NEEDED,
   RETRY_LABEL,
   SAVE_FAILED,
@@ -103,7 +104,7 @@ function DecisionView({ decision }: { readonly decision: ProtocolDecision }) {
     <Text style={styles.label}>Confidence</Text>
     <Text style={styles.body}>{confidenceLabel(decision.confidence)}</Text>
     {decision.noPurchaseNeeded === true && (
-      <Text style={styles.body} accessibilityRole="text">{NO_PURCHASE_NEEDED}</Text>
+      <Text style={styles.body} accessibilityRole="text" accessibilityLabel={NO_PURCHASE_NEEDED}>{NO_PURCHASE_NEEDED}</Text>
     )}
     <Text style={styles.label}>Steps</Text>
     {decision.steps.map(step => (
@@ -235,7 +236,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
 
     {result !== null && state.phase !== 'loading' && (
       <>
-        <Text style={styles.title}>{statusTitle(result)}</Text>
+        <Text style={styles.title} accessibilityRole="header" accessibilityLabel={statusTitle(result)}>{statusTitle(result)}</Text>
 
         {result.status === 'content_pending' && (
           <Text style={styles.body}>{CONTENT_PENDING_BODY}</Text>
@@ -276,6 +277,10 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
             <Text style={styles.body}>
               No published reviewed rule covers this situation yet. Nothing is being suggested in its place.
             </Text>
+            {result.decision.omissions.length > 0 && <>
+              <Text style={styles.label} accessibilityRole="header" accessibilityLabel={MISSING_HEADING}>{MISSING_HEADING}</Text>
+              {result.decision.omissions.map(omission => <Text key={omission} style={styles.body} accessibilityRole="text" accessibilityLabel={omission}>{omission}</Text>)}
+            </>}
           </View>
         )}
       </>
