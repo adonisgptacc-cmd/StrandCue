@@ -9,15 +9,104 @@ import {
   type PrepareGuidanceInput,
   type ReviewedGuidanceBundle,
 } from '../../../packages/domain/src/index';
-import { CHECKED_IN_CAPABILITY_REVIEW } from '../../../apps/mobile/src/guidance/capability-review';
-import { CHECKED_IN_EVIDENCE_REGISTRY } from '../../../apps/mobile/src/guidance/evidence-registry';
 
 const AS_OF = '2026-10-11T09:00:00.000Z';
 const REVIEWED_AT = '2026-10-01T00:00:00.000Z';
 const NOW = '2026-10-11T09:00:00.000Z';
 
-const CAP_PRODUCT = 'cap-product-1';
-const CAP_TOOL = 'cap-tool-1';
+/**
+ * Capabilities from the closed reviewed vocabulary, and synthetic catalogue
+ * ids. Version `2` is the only bundle version the publication gate executes, so
+ * the fixture has to be one: these tests gate their bundle for real rather than
+ * parsing it, because the gate is the only route into preparation.
+ */
+const CAP_PRODUCT = 'cleanse';
+const CAP_TOOL = 'condition';
+
+const PRODUCT_VERSION = '11111111-1111-4111-8111-111111111111';
+const TOOL_VERSION = '22222222-2222-4222-8222-222222222222';
+const REGISTRY_ID = 'fixture-evidence-registry';
+const PRODUCT_EVIDENCE = 'fixture-evidence-product';
+const TOOL_EVIDENCE = 'fixture-evidence-tool';
+const RULE_EVIDENCE = 'fixture-evidence-rule';
+
+function evidenceRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    evidenceId: PRODUCT_EVIDENCE,
+    sourceType: 'independent_testing',
+    trustTier: 'T3',
+    title: 'Synthetic independent test report recorded for this fixture only',
+    sourceUrl: 'https://strandcue.invalid/fixtures/independent-test',
+    archivedUrl: null,
+    publisher: 'Synthetic fixture publisher',
+    market: 'ZA',
+    versionIds: [PRODUCT_VERSION],
+    claim: 'Synthetic fixture claim about this exact catalogue version.',
+    limitations: 'Synthetic fixture limitations; establishes nothing outside this test.',
+    checkedAt: REVIEWED_AT,
+    authoredBy: 'I. Fixture-Author',
+    reviewedAt: REVIEWED_AT,
+    reviewedBy: 'I. Fixture-Reviewer',
+    status: 'reviewed',
+    ...overrides,
+  };
+}
+
+/** The registry this fixture publishes against: one record per claim scope. */
+function evidenceRegistry() {
+  return {
+    registryId: REGISTRY_ID,
+    version: '1',
+    records: [
+      evidenceRecord(),
+      evidenceRecord({
+        evidenceId: TOOL_EVIDENCE,
+        title: 'Synthetic independent test report for the fixture tool version',
+        sourceUrl: 'https://strandcue.invalid/fixtures/tool',
+        versionIds: [TOOL_VERSION],
+      }),
+      evidenceRecord({
+        evidenceId: RULE_EVIDENCE,
+        title: 'Synthetic guidance source recorded for this fixture only',
+        sourceUrl: 'https://strandcue.invalid/fixtures/order',
+        // A washing-order claim is not a claim about one catalogue version.
+        versionIds: [],
+      }),
+    ],
+  };
+}
+
+function reviewRow(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: 'product',
+    versionId: PRODUCT_VERSION,
+    capability: CAP_PRODUCT,
+    supportingEvidenceIds: [PRODUCT_EVIDENCE],
+    contradictedByEvidenceIds: [],
+    decision: 'approved',
+    rationale: 'Synthetic fixture rationale recorded for this decision.',
+    authoredBy: 'I. Fixture-Row-Author',
+    reviewedBy: 'I. Fixture-Row-Reviewer',
+    reviewedAt: REVIEWED_AT,
+    ...overrides,
+  };
+}
+
+function capabilityReview() {
+  return {
+    reviewId: 'fixture-capability-review',
+    version: '1',
+    rows: [
+      reviewRow(),
+      reviewRow({
+        kind: 'tool',
+        versionId: TOOL_VERSION,
+        capability: CAP_TOOL,
+        supportingEvidenceIds: [TOOL_EVIDENCE],
+      }),
+    ],
+  };
+}
 
 function snapshot(overrides: Partial<GuidanceSnapshot> = {}): GuidanceSnapshot {
   return {
@@ -30,7 +119,7 @@ function snapshot(overrides: Partial<GuidanceSnapshot> = {}): GuidanceSnapshot {
     products: [
       {
         ownerItemId: 'owner-product-1',
-        versionId: 'version-product-1',
+        versionId: PRODUCT_VERSION,
         name: 'Owned shampoo',
         availability: 'available',
         revision: 3,
@@ -39,7 +128,7 @@ function snapshot(overrides: Partial<GuidanceSnapshot> = {}): GuidanceSnapshot {
     tools: [
       {
         ownerItemId: 'owner-tool-1',
-        versionId: 'version-tool-1',
+        versionId: TOOL_VERSION,
         name: 'Owned diffuser',
         availability: 'available',
         revision: 2,
@@ -59,31 +148,36 @@ function snapshot(overrides: Partial<GuidanceSnapshot> = {}): GuidanceSnapshot {
 function bundle(overrides: Partial<ReviewedGuidanceBundle> = {}): ReviewedGuidanceBundle {
   return {
     bundleId: 'bundle-synthetic',
-    version: '1',
+    version: '2',
     status: 'published',
     reviewedAt: REVIEWED_AT,
-    reviewedBy: 'reviewer-a',
+    reviewedBy: 'I. Fixture-Approver',
+    authoredBy: 'I. Fixture-Compiler',
+    evidenceRegistryId: REGISTRY_ID,
+    evidenceRegistryVersion: '1',
     goals: [{ id: 'basic_wash', label: 'Basic wash', requiredProfileFacts: ['naturalPattern'] }],
     capabilities: [
       {
         kind: 'product',
-        versionId: 'version-product-1',
+        versionId: PRODUCT_VERSION,
         displayName: 'Synthetic product',
         verifiedCapabilities: [CAP_PRODUCT],
-        evidenceIds: ['evidence-1'],
+        evidenceIds: [PRODUCT_EVIDENCE],
         status: 'published',
         reviewedAt: REVIEWED_AT,
-        reviewedBy: 'reviewer-a',
+        reviewedBy: 'I. Fixture-Entry-Reviewer',
+        authoredBy: 'I. Fixture-Entry-Author',
       },
       {
         kind: 'tool',
-        versionId: 'version-tool-1',
+        versionId: TOOL_VERSION,
         displayName: 'Synthetic tool',
         verifiedCapabilities: [CAP_TOOL],
-        evidenceIds: ['evidence-2'],
+        evidenceIds: [TOOL_EVIDENCE],
         status: 'published',
         reviewedAt: REVIEWED_AT,
-        reviewedBy: 'reviewer-a',
+        reviewedBy: 'I. Fixture-Entry-Reviewer',
+        authoredBy: 'I. Fixture-Entry-Author',
       },
     ],
     rules: [
@@ -95,7 +189,7 @@ function bundle(overrides: Partial<ReviewedGuidanceBundle> = {}): ReviewedGuidan
         condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
         effects: [{ kind: 'require_capability', capability: CAP_PRODUCT }],
         reason: 'Synthetic wash rule.',
-        evidenceIds: ['evidence-1'],
+        evidenceIds: [RULE_EVIDENCE],
       },
     ],
     ...overrides,
@@ -110,7 +204,7 @@ function prepare(
 ) {
   return prepareGuidance({
     snapshot: snapshotInput,
-    bundle: validatePublishedBundle(bundleInput, CHECKED_IN_EVIDENCE_REGISTRY, CHECKED_IN_CAPABILITY_REVIEW, NOW),
+    bundle: validatePublishedBundle(bundleInput, evidenceRegistry(), capabilityReview(), NOW),
     goalId,
     requestId,
     asOf: AS_OF,
@@ -185,7 +279,7 @@ describe('capability acquisition', () => {
       entry => entry.productId === 'owner-product-1',
     );
     expect(product).toBeDefined();
-    expect(product?.versionId).toBe('version-product-1');
+    expect(product?.versionId).toBe(PRODUCT_VERSION);
     expect(product?.verifiedCapabilities).toEqual([CAP_PRODUCT]);
     expect(product?.owned).toBe(true);
   });
@@ -236,7 +330,7 @@ describe('capability acquisition', () => {
       ),
     });
     expect(() =>
-      validatePublishedBundle(withdrawn, CHECKED_IN_EVIDENCE_REGISTRY, CHECKED_IN_CAPABILITY_REVIEW, NOW),
+      validatePublishedBundle(withdrawn, evidenceRegistry(), capabilityReview(), NOW),
     ).toThrow(/withdrawn/i);
   });
 
@@ -245,7 +339,7 @@ describe('capability acquisition', () => {
       products: [
         {
           ownerItemId: 'owner-product-1',
-          versionId: 'version-product-1',
+          versionId: PRODUCT_VERSION,
           name: 'Old shampoo',
           availability: 'archived',
           revision: 3,
@@ -254,7 +348,7 @@ describe('capability acquisition', () => {
       tools: [
         {
           ownerItemId: 'owner-tool-1',
-          versionId: 'version-tool-1',
+          versionId: TOOL_VERSION,
           name: 'Empty diffuser',
           availability: 'out_of_stock',
           revision: 2,
@@ -427,7 +521,7 @@ describe('prepared context', () => {
   it('carries bundle identity on a ready preparation', () => {
     const result = prepare();
     expect(result.status === 'ready' && result.bundleId).toBe('bundle-synthetic');
-    expect(result.status === 'ready' && result.bundleVersion).toBe('1');
+    expect(result.status === 'ready' && result.bundleVersion).toBe('2');
   });
 
   it('reports no hair_profile gap when the goal requires no profile facts', () => {

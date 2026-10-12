@@ -6,8 +6,6 @@ import type {
   TodayGuidanceDependencies,
   TodayGuidanceRequest,
 } from '../../apps/mobile/src/guidance/today-guidance-service';
-import { CHECKED_IN_CAPABILITY_REVIEW } from '../../apps/mobile/src/guidance/capability-review';
-import { CHECKED_IN_EVIDENCE_REGISTRY } from '../../apps/mobile/src/guidance/evidence-registry';
 import {
   generateProtocol as realGenerateProtocol,
   RECOMMENDATION_ENGINE_VERSION,
@@ -40,7 +38,87 @@ vi.mock('../../apps/mobile/src/guidance/guidance-snapshot', () => ({
 const AS_OF = '2026-10-11T09:00:00.000Z';
 const LOADED_AT = '2026-10-11T09:00:05.000Z';
 const REVIEWED_AT = '2026-10-01T00:00:00.000Z';
-const CAP = 'mild-cleanse';
+/** A capability from the closed reviewed vocabulary. */
+const CAP = 'cleanse';
+
+/**
+ * Synthetic identities and catalogue ids for the service fixtures. A version
+ * `2` bundle is the only version the publication gate will execute, so the
+ * harness has to carry a real registry and review matrix alongside it — which is
+ * the point: the service now hands the gate everything it needs to refuse
+ * unchecked content.
+ */
+const PRODUCT_VERSION = '11111111-1111-4111-8111-111111111111';
+const REGISTRY_ID = 'fixture-evidence-registry';
+const VERSION_EVIDENCE = 'fixture-evidence-version';
+const RULE_EVIDENCE = 'fixture-evidence-rule';
+const BUNDLE_AUTHOR = 'I. Fixture-Compiler';
+const BUNDLE_REVIEWER = 'I. Fixture-Approver';
+const ENTRY_AUTHOR = 'I. Fixture-Entry-Author';
+const ENTRY_REVIEWER = 'I. Fixture-Entry-Reviewer';
+const ROW_AUTHOR = 'I. Fixture-Row-Author';
+const ROW_REVIEWER = 'I. Fixture-Row-Reviewer';
+
+function evidenceRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    evidenceId: VERSION_EVIDENCE,
+    sourceType: 'independent_testing',
+    trustTier: 'T3',
+    title: 'Synthetic independent test report recorded for this fixture only',
+    sourceUrl: 'https://strandcue.invalid/fixtures/independent-test',
+    archivedUrl: null,
+    publisher: 'Synthetic fixture publisher',
+    market: 'ZA',
+    versionIds: [PRODUCT_VERSION],
+    claim: 'Synthetic fixture claim about this exact catalogue version.',
+    limitations: 'Synthetic fixture limitations; establishes nothing outside this test.',
+    checkedAt: REVIEWED_AT,
+    authoredBy: 'I. Fixture-Author',
+    reviewedAt: REVIEWED_AT,
+    reviewedBy: 'I. Fixture-Reviewer',
+    status: 'reviewed',
+    ...overrides,
+  };
+}
+
+/** The registry the harness publishes against: one version claim, one rule claim. */
+function evidenceRegistry() {
+  return {
+    registryId: REGISTRY_ID,
+    version: '1',
+    records: [
+      evidenceRecord(),
+      evidenceRecord({
+        evidenceId: RULE_EVIDENCE,
+        title: 'Synthetic guidance source recorded for this fixture only',
+        sourceUrl: 'https://strandcue.invalid/fixtures/order',
+        versionIds: [],
+        claim: 'Synthetic fixture claim about the order of a wash.',
+      }),
+    ],
+  };
+}
+
+function capabilityReview() {
+  return {
+    reviewId: 'fixture-capability-review',
+    version: '1',
+    rows: [
+      {
+        kind: 'product',
+        versionId: PRODUCT_VERSION,
+        capability: CAP,
+        supportingEvidenceIds: [VERSION_EVIDENCE],
+        contradictedByEvidenceIds: [],
+        decision: 'approved',
+        rationale: 'Synthetic fixture rationale recorded for this decision.',
+        authoredBy: ROW_AUTHOR,
+        reviewedBy: ROW_REVIEWER,
+        reviewedAt: REVIEWED_AT,
+      },
+    ],
+  };
+}
 
 function snapshot(overrides: Partial<GuidanceSnapshot> = {}): GuidanceSnapshot {
   return {
@@ -53,7 +131,7 @@ function snapshot(overrides: Partial<GuidanceSnapshot> = {}): GuidanceSnapshot {
     products: [
       {
         ownerItemId: 'owner-product-1',
-        versionId: 'version-product-1',
+        versionId: PRODUCT_VERSION,
         name: 'Owned shampoo',
         availability: 'available',
         revision: 3,
@@ -87,21 +165,25 @@ function activityFact(
 function publishedBundle(overrides: Partial<ReviewedGuidanceBundle> = {}): ReviewedGuidanceBundle {
   return {
     bundleId: 'bundle-synthetic',
-    version: '1',
+    version: '2',
     status: 'published',
     reviewedAt: REVIEWED_AT,
-    reviewedBy: 'reviewer-a',
+    reviewedBy: BUNDLE_REVIEWER,
+    authoredBy: BUNDLE_AUTHOR,
+    evidenceRegistryId: REGISTRY_ID,
+    evidenceRegistryVersion: '1',
     goals: [{ id: 'basic_wash', label: 'Basic wash', requiredProfileFacts: ['naturalPattern'] }],
     capabilities: [
       {
         kind: 'product',
-        versionId: 'version-product-1',
+        versionId: PRODUCT_VERSION,
         displayName: 'Synthetic product',
         verifiedCapabilities: [CAP],
-        evidenceIds: ['evidence-1'],
+        evidenceIds: [VERSION_EVIDENCE],
         status: 'published',
         reviewedAt: REVIEWED_AT,
-        reviewedBy: 'reviewer-a',
+        reviewedBy: ENTRY_REVIEWER,
+        authoredBy: ENTRY_AUTHOR,
       },
     ],
     rules: [
@@ -113,7 +195,7 @@ function publishedBundle(overrides: Partial<ReviewedGuidanceBundle> = {}): Revie
         condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
         effects: [{ kind: 'require_capability', capability: CAP }],
         reason: 'Synthetic wash rule.',
-        evidenceIds: ['evidence-1'],
+        evidenceIds: [RULE_EVIDENCE],
       },
     ],
     ...overrides,
@@ -142,8 +224,8 @@ function harness(options: { bundle?: ReviewedGuidanceBundle; snapshot?: Guidance
       loadSnapshot,
       generateProtocol,
       currentBundle: () => bundle,
-      evidenceRegistry: () => CHECKED_IN_EVIDENCE_REGISTRY,
-      capabilityReview: () => CHECKED_IN_CAPABILITY_REVIEW,
+      evidenceRegistry,
+      capabilityReview,
       validateBundle: (input, registry, review) =>
         validatePublishedBundle(input, registry, review, AS_OF),
       hashText: text => createHash('sha256').update(text, 'utf8').digest('hex'),
@@ -208,7 +290,7 @@ describe('today guidance orchestration', () => {
     if (result.status !== 'ready') return;
     expect(result.engineVersion).toBe(RECOMMENDATION_ENGINE_VERSION);
     expect(result.bundleId).toBe('bundle-synthetic');
-    expect(result.bundleVersion).toBe('1');
+    expect(result.bundleVersion).toBe('2');
     expect(result.asOf).toBe(AS_OF);
     expect(result.inputFingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(result.input).toMatchObject({
@@ -226,7 +308,7 @@ describe('today guidance orchestration', () => {
     expect(result.decision.status).toBe('ready');
     expect(result.decision.steps.length).toBeGreaterThan(0);
     expect(result.decision.confidence).toBeDefined();
-    expect(result.decision.audit.evaluatedRules[0].evidenceIds).toEqual(['evidence-1']);
+    expect(result.decision.audit.evaluatedRules[0].evidenceIds).toEqual([RULE_EVIDENCE]);
     expect(result.decision.noPurchaseNeeded).toBe(true);
   });
 
@@ -241,7 +323,7 @@ describe('today guidance orchestration', () => {
           condition: { kind: 'fact_equals', fact: 'profile.unrecorded', value: 'x' },
           effects: [{ kind: 'require_capability', capability: CAP }],
           reason: 'Needs a fact nobody recorded.',
-          evidenceIds: ['evidence-2'],
+          evidenceIds: [RULE_EVIDENCE],
         },
       ],
     });
@@ -263,7 +345,7 @@ describe('today guidance orchestration', () => {
           condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
           effects: [{ kind: 'require_capability', capability: CAP }],
           reason: 'Requires the capability.',
-          evidenceIds: ['evidence-1'],
+          evidenceIds: [RULE_EVIDENCE],
         },
         {
           ruleId: 'rule-b',
@@ -273,7 +355,7 @@ describe('today guidance orchestration', () => {
           condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
           effects: [{ kind: 'exclude_capability', capability: CAP }],
           reason: 'Excludes the capability.',
-          evidenceIds: ['evidence-2'],
+          evidenceIds: [RULE_EVIDENCE],
         },
       ],
     });
@@ -293,7 +375,7 @@ describe('today guidance orchestration', () => {
           condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
           effects: [{ kind: 'prefer_capability', capability: CAP }],
           reason: 'Advisory only.',
-          evidenceIds: ['evidence-1'],
+          evidenceIds: [RULE_EVIDENCE],
         },
       ],
     });
@@ -317,7 +399,7 @@ describe('today guidance orchestration', () => {
           products: [
             {
               ownerItemId: 'owner-product-1',
-              versionId: 'version-product-1',
+              versionId: PRODUCT_VERSION,
               name: 'Owned shampoo (different label)',
               availability: 'available',
               revision: 4,

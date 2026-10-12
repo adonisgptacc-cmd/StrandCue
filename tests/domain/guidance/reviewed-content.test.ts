@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { validatePublishedBundle } from '../../../packages/domain/src/guidance/reviewed-content.ts';
+import {
+  ReviewedContentError,
+  validatePublishedBundle,
+} from '../../../packages/domain/src/guidance/reviewed-content.ts';
 import { CURRENT_REVIEWED_BUNDLE } from '../../../apps/mobile/src/guidance/reviewed-bundle.ts';
 import { CHECKED_IN_CAPABILITY_REVIEW } from '../../../apps/mobile/src/guidance/capability-review.ts';
 import { CHECKED_IN_EVIDENCE_REGISTRY } from '../../../apps/mobile/src/guidance/evidence-registry.ts';
@@ -189,22 +192,48 @@ function reviewedBundle(overrides: Record<string, unknown> = {}) {
 }
 
 describe('publication gate', () => {
-  it('returns the parsed bundle when it is published, evidenced and current', () => {
-    const parsed = validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW);
-    expect(parsed.status).toBe('published');
-    expect(parsed.bundleId).toBe('bundle-fixture');
+  it('refuses to publish a version 1 bundle, which predates the reviewed content contract', () => {
+    // Version 1 stays parseable so a decision run made under it can still be
+    // replayed. It must never publish: the production bundle in this repository
+    // is version 1, so a gate that published it would publish unchecked content.
+    expect(() =>
+      validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
+    ).toThrow(ReviewedContentError);
+    expect(() =>
+      validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
+    ).toThrow(/is version '1'/);
+    expect(() =>
+      validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
+    ).toThrow(/may publish/);
+  });
+
+  it('refuses a version 1 bundle however complete it looks', () => {
+    // A version 1 bundle may carry an author and a registry reference, but
+    // naming them does not make it the reviewed contract, so it still refuses.
+    expect(() =>
+      validatePublishedBundle(
+        bundle({
+          authoredBy: BUNDLE_AUTHOR,
+          evidenceRegistryId: REGISTRY_ID,
+          evidenceRegistryVersion: '1',
+        }),
+        evidenceRegistry(),
+        capabilityReview(),
+        NOW,
+      ),
+    ).toThrow(/is version '1'/);
   });
 
   it('refuses a draft bundle', () => {
     expect(() =>
       validatePublishedBundle(bundle({ status: 'draft' }), evidenceRegistry(), capabilityReview(), NOW),
-    ).toThrow(/published/i);
+    ).toThrow(/is 'draft' and is not published/);
   });
 
   it('refuses a withdrawn bundle', () => {
     expect(() =>
       validatePublishedBundle(bundle({ status: 'withdrawn' }), evidenceRegistry(), capabilityReview(), NOW),
-    ).toThrow(/published/i);
+    ).toThrow(/is 'withdrawn' and is not published/);
   });
 
   it('refuses a bundle whose review is in the future', () => {
@@ -326,9 +355,14 @@ describe('publication gate', () => {
   });
 
   it('produces byte-equivalent normalized JSON for the same input', () => {
-    const first = validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW);
+    const first = validatePublishedBundle(
+      reviewedBundle(),
+      evidenceRegistry(),
+      capabilityReview(),
+      NOW,
+    );
     const second = validatePublishedBundle(
-      JSON.parse(JSON.stringify(bundle())),
+      JSON.parse(JSON.stringify(reviewedBundle())),
       evidenceRegistry(),
       capabilityReview(),
       NOW,
@@ -339,6 +373,8 @@ describe('publication gate', () => {
 
 describe('publication gate referential integrity', () => {
   it('publishes a bundle whose evidence resolves and whose capabilities were independently approved', () => {
+    // The only bundle this gate returns: the version 2 reviewed contract, with
+    // every citation resolved and every capability independently approved.
     const parsed = validatePublishedBundle(
       reviewedBundle(),
       evidenceRegistry(),
@@ -346,6 +382,7 @@ describe('publication gate referential integrity', () => {
       NOW,
     );
     expect(parsed.status).toBe('published');
+    expect(parsed.bundleId).toBe('bundle-fixture');
     expect(parsed.capabilities).toHaveLength(1);
     expect(parsed.rules).toHaveLength(1);
   });
@@ -676,6 +713,22 @@ describe('production reviewed registry', () => {
         NOW,
       ),
     ).toThrow();
+  });
+
+  it('would still be refused if it were marked published, because it is a version 1 bundle', () => {
+    // The production bundle is version 1. A gate that let it publish would
+    // execute content with no registry, no review matrix, no market or claim
+    // scope check and no second reviewer — so flipping the status must not be
+    // enough to make it executable.
+    const flipped = { ...CURRENT_REVIEWED_BUNDLE, status: 'published' };
+    expect(() =>
+      validatePublishedBundle(
+        flipped,
+        CHECKED_IN_EVIDENCE_REGISTRY,
+        CHECKED_IN_CAPABILITY_REVIEW,
+        NOW,
+      ),
+    ).toThrow(/is version '1'/);
   });
 
   it('carries no synthetic item, fixture, or fabricated evidence', () => {

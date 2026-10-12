@@ -19,17 +19,15 @@ export class ReviewedContentError extends Error {
 }
 
 /**
- * The reviewed-content contract, and the version these referential checks
- * apply to.
+ * The only bundle version that may publish.
  *
- * A version `2` bundle names its author, the evidence registry it was built
- * from, and carries only capabilities a person other than the author approved.
- * Version `1` predates all three: it records no author, no registry reference,
- * and capability names from before the closed vocabulary existed, so there is
- * nothing in this gate to check such a bundle against. It stays supported only
- * so an already-executed bundle can still be replayed under the contract that
- * produced it — which is why tightening version `1` would change what that
- * contract meant, and why no new content is published under it.
+ * Version `2` is the reviewed-content contract: it names its author, the
+ * evidence registry it was built from, and carries only capabilities a person
+ * other than the author approved. Version `1` predates all three — no author,
+ * no registry reference, capability names from before the closed vocabulary
+ * existed — so there is nothing in this gate to check it against. It stays a
+ * supported, parseable version so a decision run already executed under it can
+ * still be replayed, but replay is not publication: only version `2` executes.
  */
 const REVIEWED_CONTRACT_BUNDLE_VERSION = '2';
 
@@ -199,15 +197,15 @@ function ruleRefusal(
 }
 
 /**
- * Referential integrity for a version `2` bundle.
+ * Referential integrity for a published bundle.
  *
- * The bundle claims which registry it was built from, so the registry handed to
- * the gate has to be that one; every citation has to resolve inside it to a
- * reviewed, current, ZA record whose claim scope covers the exact thing being
- * claimed; and every capability has to come from a review-matrix decision a
- * named second person approved against that same evidence (EV-01, EV-02, EV-05,
- * P-03, P-11). Any refusal stops the whole bundle: there is no partial
- * acceptance.
+ * Only the reviewed-content contract version reaches this, so the registry it
+ * names has to be the registry actually handed in; every citation has to resolve
+ * inside it to a reviewed, current, ZA record whose claim scope covers the exact
+ * thing being claimed; and every capability has to come from a review-matrix
+ * decision a named second person approved against that same evidence (EV-01,
+ * EV-02, EV-05, P-03, P-11). Any refusal stops the whole bundle: there is no
+ * partial acceptance.
  */
 function assertPublicationIntegrity(
   bundle: ReviewedGuidanceBundle,
@@ -247,11 +245,12 @@ function assertPublicationIntegrity(
  * Publication gate.
  *
  * `validatePublishedBundle` is the only route from reviewed content to
- * generation. It parses strictly, then refuses anything that is not a fully
- * published, independently reviewed, evidenced, non-withdrawn bundle reviewed
- * no later than `now`, and whose every citation resolves inside the checked-in
- * evidence registry and review matrix. There is no partial acceptance: a bundle
- * that fails any check cannot produce guidance.
+ * generation. It parses strictly, then refuses anything that is not the
+ * reviewed-content contract version, a fully published, independently reviewed,
+ * evidenced, non-withdrawn bundle reviewed no later than `now`, whose every
+ * citation resolves inside the checked-in evidence registry and review matrix.
+ * There is no partial acceptance: a bundle that fails any check cannot produce
+ * guidance.
  */
 export function validatePublishedBundle(
   input: unknown,
@@ -326,8 +325,16 @@ export function validatePublishedBundle(
       `Reviewed content bundle '${bundle.bundleId}' carries a withdrawn rule '${withdrawnRule.ruleId}'`,
     );
   }
-  if (bundle.version === REVIEWED_CONTRACT_BUNDLE_VERSION) {
-    assertPublicationIntegrity(bundle, evidenceRegistry, capabilityReview, nowAt);
+  // Last, so that a bundle with a more specific fault — an unowned reviewer, a
+  // date after now, withdrawn content — is still reported as that fault. Only a
+  // bundle that survives every other check reaches the contract question, and
+  // version `1` cannot answer it: the version this repository ships is `1`, so
+  // publishing it here would execute content no registry or review ever checked.
+  if (bundle.version !== REVIEWED_CONTRACT_BUNDLE_VERSION) {
+    throw new ReviewedContentError(
+      `Reviewed content bundle '${bundle.bundleId}' is version '${bundle.version}'; only version ${REVIEWED_CONTRACT_BUNDLE_VERSION}, the reviewed content contract, may publish. A version ${bundle.version} bundle stays parseable so a decision run already executed under it can still be replayed, but it never executes`,
+    );
   }
+  assertPublicationIntegrity(bundle, evidenceRegistry, capabilityReview, nowAt);
   return bundle;
 }
