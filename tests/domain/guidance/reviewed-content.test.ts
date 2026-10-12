@@ -687,10 +687,23 @@ describe('publication gate referential integrity', () => {
 });
 
 describe('production reviewed registry', () => {
-  it('is a parseable draft bundle', () => {
+  it('is a parseable draft version 2 bundle with no executable content', () => {
     expect(CURRENT_REVIEWED_BUNDLE.status).toBe('draft');
+    expect(CURRENT_REVIEWED_BUNDLE.version).toBe('2');
     expect(CURRENT_REVIEWED_BUNDLE.capabilities).toEqual([]);
-    expect(CURRENT_REVIEWED_BUNDLE.rules).toEqual([]);
+    // The draft rule below is the non-executable placeholder for the basic
+    // wash route: no entry in this bundle may carry a published status until
+    // an independent review approves real mappings under the runbook.
+    expect(CURRENT_REVIEWED_BUNDLE.rules).toHaveLength(1);
+    for (const rule of CURRENT_REVIEWED_BUNDLE.rules) {
+      expect(rule.status).not.toBe('published');
+    }
+    expect(CURRENT_REVIEWED_BUNDLE.authoredBy).toBeDefined();
+    expect(CURRENT_REVIEWED_BUNDLE.reviewedBy).not.toBe(CURRENT_REVIEWED_BUNDLE.authoredBy);
+    expect(CURRENT_REVIEWED_BUNDLE.evidenceRegistryId).toBe(CHECKED_IN_EVIDENCE_REGISTRY.registryId);
+    expect(CURRENT_REVIEWED_BUNDLE.evidenceRegistryVersion).toBe(
+      CHECKED_IN_EVIDENCE_REGISTRY.version,
+    );
   });
 
   it('cannot be executed by the publication gate', () => {
@@ -715,11 +728,10 @@ describe('production reviewed registry', () => {
     ).toThrow();
   });
 
-  it('would still be refused if it were marked published, because it is a version 1 bundle', () => {
-    // The production bundle is version 1. A gate that let it publish would
-    // execute content with no registry, no review matrix, no market or claim
-    // scope check and no second reviewer — so flipping the status must not be
-    // enough to make it executable.
+  it('would still be refused if it were marked published, because its draft rule is not executable', () => {
+    // The production bundle is a version 2 draft whose only rule is a
+    // non-executable placeholder. Flipping the bundle status must not make it
+    // executable: the gate still refuses the withdrawn draft rule.
     const flipped = { ...CURRENT_REVIEWED_BUNDLE, status: 'published' };
     expect(() =>
       validatePublishedBundle(
@@ -728,7 +740,7 @@ describe('production reviewed registry', () => {
         CHECKED_IN_CAPABILITY_REVIEW,
         NOW,
       ),
-    ).toThrow(/is version '1'/);
+    ).toThrow(/withdrawn/i);
   });
 
   it('carries no synthetic item, fixture, or fabricated evidence', () => {

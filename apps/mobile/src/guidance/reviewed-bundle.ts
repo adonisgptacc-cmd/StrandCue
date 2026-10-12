@@ -4,25 +4,33 @@ import type { ReviewedGuidanceBundle } from '../../../../packages/domain/src/ind
 /**
  * The production reviewed-content registry.
  *
- * It is deliberately a `draft` bundle with no capability mappings and no
- * rules. Nothing in this repository contains an approved content artifact
- * that maps a real product or tool version to reviewed capabilities with
- * evidence, so publishing anything here would be invention.
+ * A version `2` draft bundle: the reviewed-content contract version, still
+ * awaiting its first independent review. It carries no capability mappings —
+ * this repository holds zero catalogue rows and zero approved capability rows,
+ * so any mapping here would be invention — and its single rule is a
+ * non-executable placeholder. `withdrawn` is the rule DSL's only
+ * non-executable state, so the draft route uses it; the rule has never been
+ * published, cites no evidence, and cannot execute while the bundle is a
+ * draft. The named author and reviewer below are honest draft markers, not
+ * people who reviewed content: no independent review has happened.
  *
  * To publish real guidance content later, follow
  * `docs/runbooks/guidance-content-publication.md`: research the exact
- * version, record evidence with reviewer and date, add the mapping and rules
- * here with status `published`, then have a second reviewer approve the
- * change before release.
+ * version, record evidence with reviewer and date, add the mapping and the
+ * rule with an executable status, then have a second reviewer approve the
+ * change before release. Version `1` stays parseable for replay but is never
+ * edited in place.
  */
 export const CURRENT_REVIEWED_BUNDLE: ReviewedGuidanceBundle = ReviewedGuidanceBundleSchema.parse({
   bundleId: 'today-core-guidance',
-  version: '1',
+  version: '2',
   status: 'draft',
   reviewedAt: '2026-10-11T00:00:00.000Z',
-  // Named reviewer of the bundle as a whole. There is no approved content to
-  // review yet, so this records the current reviewer of the draft only.
-  reviewedBy: 'unassigned-draft',
+  // Draft markers only. No independent review of bundle content has happened.
+  reviewedBy: 'unassigned-draft-reviewer',
+  authoredBy: 'unassigned-draft-author',
+  evidenceRegistryId: 'basic-wash-evidence',
+  evidenceRegistryVersion: '1',
   goals: [
     {
       id: 'basic_wash',
@@ -31,5 +39,22 @@ export const CURRENT_REVIEWED_BUNDLE: ReviewedGuidanceBundle = ReviewedGuidanceB
     },
   ],
   capabilities: [],
-  rules: [],
+  rules: [
+    {
+      ruleId: 'basic-wash-cleanse-condition',
+      versionId: '1',
+      // Non-executable placeholder for the basic wash route. Uses only the
+      // reviewed capability vocabulary: cleanse, then condition, no tool.
+      status: 'withdrawn',
+      strength: 'hard',
+      condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
+      effects: [
+        { kind: 'require_capability', capability: 'cleanse' },
+        { kind: 'require_capability', capability: 'condition' },
+        { kind: 'order_before', before: 'cleanse', after: 'condition' },
+      ],
+      reason: 'A basic wash cleanses first and then conditions; no tool is required.',
+      evidenceIds: [],
+    },
+  ],
 });

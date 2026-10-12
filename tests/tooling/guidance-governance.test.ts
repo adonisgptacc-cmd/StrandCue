@@ -64,10 +64,13 @@ describe('reviewed guidance content governance', () => {
   });
 
   it('keeps the production registry free of real or synthetic mappings', () => {
+    // The production bundle is a draft: it must stay a draft, keep no
+    // capability mappings, and carry no entry with a published status. A draft
+    // placeholder rule is allowed; an executable entry is not.
     const bundle = read(BUNDLE);
     expect(bundle).toContain("status: 'draft'");
     expect(bundle).toContain('capabilities: []');
-    expect(bundle).toContain('rules: []');
+    expect(bundle).not.toMatch(/status:\s*'published'/);
   });
 
 it('requires a named reviewer in the schema the gate enforces', () => {
