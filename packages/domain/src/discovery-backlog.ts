@@ -226,9 +226,9 @@ const MEDICINAL_NAME_PATTERNS: { pattern: RegExp; reason: string }[] = [
       'Quarantine: therapeutic hair-loss/psoriasis positioning; excluded from cosmetic discovery until human review confirms classification.',
   },
   {
-    pattern: /medicated|therapeutic|schedule ?0|sahpra/i,
+    pattern: /medic(ated|al|inal)|therapeutic|schedule ?0|sahpra/i,
     reason:
-      'Quarantine: medicated/therapeutic/SAHPRA language; excluded from cosmetic discovery until human review confirms classification.',
+      'Quarantine: medicated/medical/medicinal/therapeutic/SAHPRA language; excluded from cosmetic discovery until human review confirms classification.',
   },
   {
     pattern: /disinfect|sterilis|medical device/i,

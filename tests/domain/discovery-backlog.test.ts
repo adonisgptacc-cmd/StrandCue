@@ -343,11 +343,52 @@ describe('discovery backlog builder', () => {
         '200 ml',
         'https://example-brand.com/',
       ),
+      eighteenRow(
+        'ZA-SHAMPOO-0061',
+        'Synthetic Brand',
+        'Synthetic Medicinal Shampoo',
+        'standard',
+        '200 ml',
+        'https://example-brand.com/',
+      ),
+      eighteenRow(
+        'ZA-SHAMPOO-0062',
+        'Synthetic Brand',
+        'Synthetic Medical Scalp Lotion',
+        'standard',
+        '100 ml',
+        'https://example-brand.com/',
+      ),
     ]);
     const backlog = buildDiscoveryBacklog([batch]);
     for (const row of backlog) {
       expect(row.identityStatus).toBe('excluded_scope');
       expect(row.exclusionReason).not.toBeNull();
+    }
+  });
+
+  it('does not quarantine ordinary cosmetic wording', () => {
+    const batch = batchWith('shampoo-batch-01', [
+      eighteenRow(
+        'ZA-SHAMPOO-0001',
+        'Synthetic Brand',
+        'Synthetic Shampoo For Sensitive Scalp',
+        'standard',
+        '400 ml',
+        'https://example-brand.co.za/',
+      ),
+      eighteenRow(
+        'ZA-SHAMPOO-0002',
+        'Synthetic Brand',
+        'Synthetic Moisturising Shampoo',
+        'standard',
+        '400 ml',
+        'https://example-brand.co.za/',
+      ),
+    ]);
+    const backlog = buildDiscoveryBacklog([batch]);
+    for (const row of backlog) {
+      expect(row.identityStatus).not.toBe('excluded_scope');
     }
   });
 
