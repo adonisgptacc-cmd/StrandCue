@@ -115,3 +115,15 @@ authorised-stockist-only support stays insufficient per the marketing-only rule.
   all are draft. A conditioner batch with the same structure (exact versions, official SA
   manufacturer/brand pages, directions, true check dates) is required before evidence work can
   complete the route.
+
+## 7. Batch02 update (2026-10-12): matching conditioner supplied separately
+
+A Batch02 conditioner document arrived after this report. Its matching Banana conditioner
+(ZA-CONDITIONER-0001) was live-verified 2026-10-12 and added to `intake.json` as a `draft` row
+(recordId `34d97753-6f62-550d-85b2-6216b7a8cab7`); see `batch02-rejection-and-gaps.md` for the full
+Batch02 accounting. Separately, the user supplied authoritative source-backed values for the Banana
+shampoo row (brand `Garnier Ultimate Blends`, unprefixed product name, `350 ml`, variant
+`Hair Food Banana and Coconut for dry hair`), which supersede §3's Batch01-transcribed field
+values; the shampoo recordId `ee3dc8a3-4c5f-5511-9c5d-bc6065bf1056` is unchanged. All other rows in
+this report stand as written. The §6 conditioner gap above is closed as a draft-input gap; label,
+barcode, packaging, possession, authorship and review gaps remain open.

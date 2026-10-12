@@ -4,17 +4,17 @@
     {
       "recordId": "ee3dc8a3-4c5f-5511-9c5d-bc6065bf1056",
       "kind": "product",
-      "brand": "Garnier",
-      "productName": "Garnier Ultimate Blends Hair Food Nourishing Banana Hair Food Shampoo For Dry Hair",
-      "variant": "Hair Food - Banana & Coconut, for dry hair",
-      "sizeOrPack": "350ml",
+      "brand": "Garnier Ultimate Blends",
+      "productName": "Ultimate Blends Hair Food Nourishing Banana Hair Food Shampoo For Dry Hair",
+      "variant": "Hair Food Banana and Coconut for dry hair",
+      "sizeOrPack": "350 ml",
       "market": "ZA",
       "gtin": null,
       "category": "shampoo",
       "lifecycle": "active",
       "manufacturerUrl": "https://africa.garnier.com/en-za/about-our-brands/ultimate-blends-hub/ultimate-blends/hair-food/ultimate-blends-hair-food-banana-shampoo",
       "labelImageRefs": [],
-      "identityNotes": "Official Garnier South Africa en-ZA product page; category listing shows same name and 350ml. F.I.L C244837/1 shown online. Front-label wording unverified; no barcode captured. Batch01 DRAFT research input (untrusted): all batch check dates read 2026-10-13, which postdates 2026-10-12 Africa/Johannesburg and is therefore future-dated; re-check with true dates required before identity_verified.",
+      "identityNotes": "User-supplied source-backed draft identity (2026-10-12), live-verified same day: official Garnier South Africa en-ZA PDP shows matching name, 350ml, directions \"Apply Hair Food Shampoo - as usual. Squeeze, lather, rinse thoroughly\" with follow-with-conditioner instruction, and F.I.L C244837/1. 350ml ZA product. Front/back label verification, barcode confirmation and package-to-page formulation comparison outstanding. Possession unknown - do not claim the owner possesses or can test this product. Marketing statements (nourishment, smoothness, detangling, vegan, natural-origin) excluded from capabilities. Batch01 research dates (2026-10-13) remain rejected; only the 2026-10-12 user supply and live check support this row.",
       "status": "draft"
     },
     {
@@ -159,6 +159,22 @@
       "manufacturerUrl": "https://www.nativechild.co/product/moisturising-shampoo/",
       "labelImageRefs": [],
       "identityNotes": "Official Native Child brand site (South African brand; SA shipping, address and phone shown). Brand page states intended use (gently cleanses) but publishes no application directions, no ingredient list and no warnings. Brand-site SKU 6009880151134 recorded as an UNCONFIRMED GTIN candidate only - confirm EAN-13 barcode on packaging before recording gtin. No barcode captured. Batch01 DRAFT research input (untrusted): all batch check dates read 2026-10-13, which postdates 2026-10-12 Africa/Johannesburg and is therefore future-dated; re-check with true dates required before identity_verified.",
+      "status": "draft"
+    },
+    {
+      "recordId": "34d97753-6f62-550d-85b2-6216b7a8cab7",
+      "kind": "product",
+      "brand": "Garnier Ultimate Blends",
+      "productName": "Ultimate Blends Hair Food Nourishing Banana Hair Food Conditioner For Dry Hair",
+      "variant": "Hair Food Banana and Coconut for dry hair",
+      "sizeOrPack": "350 ml",
+      "market": "ZA",
+      "gtin": null,
+      "category": "conditioner",
+      "lifecycle": "active",
+      "manufacturerUrl": "https://africa.garnier.com/en-za/about-our-brands/ultimate-blends-hub/ultimate-blends/hair-food/ultimate-blends-hair-food-banana-conditioner",
+      "labelImageRefs": [],
+      "identityNotes": "Batch02 draft research input (untrusted) plus user-supplied identity, live-verified 2026-10-12: official Garnier South Africa en-ZA PDP shows matching name, 350ml size, directions \"After shampoo, squeeze, massage into wet hair, rinse thoroughly\", and F.I.L C239429/2; range cross-links confirm the pairing with the Banana Hair Food shampoo. Presented as the matching conditioner for the Banana Hair Food shampoo. Front/back label verification, barcode confirmation and package-to-page formulation comparison outstanding. Possession unknown - do not claim the owner possesses or can test this product. Marketing statements excluded from capabilities. Batch02 check dates (2026-10-13) rejected; only the 2026-10-12 user supply and live check support this row.",
       "status": "draft"
     }
   ]
