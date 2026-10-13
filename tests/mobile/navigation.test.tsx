@@ -194,7 +194,9 @@ describe('product destinations', () => {
 
   it('opens on Today and keeps existing screens reachable', async () => {
     const renderer = await renderRecords();
-    expect(renderedText(renderer)).toContain('Generate my plan');
+    // Today opens on the preflight check-in entry: nothing generates until
+    // the owner completes a check-in and asks for a plan.
+    expect(renderedText(renderer)).toContain('Start check-in');
 
     await act(async () => { press(renderer, 'My Hair: passport and services'); });
     expect(renderedText(renderer)).toContain('Your Hair Passport');

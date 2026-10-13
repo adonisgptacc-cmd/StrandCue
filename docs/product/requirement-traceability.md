@@ -57,12 +57,12 @@ so draft content may not execute and Today yields `content_pending`.
 | ID-04 | R0 | — | — | Not started |
 | ID-05 | R0 | — | — | Not started |
 | ID-06 | R0 | — | — | Not started |
-| HP-01 | R0 | — | — | Not started |
+| HP-01 | R0 | Temporary check-in collects cosmetic concerns per request only; stored Passport capture not started | tests/mobile/current-condition-state.test.ts, tests/mobile/today-check-in.test.tsx | Not started |
 | HP-02 | R0 | — | — | Not started |
 | HP-03 | R0 | — | — | Not started |
 | HP-04 | R0 | — | — | Not started |
-| HP-05 | R1 | — | — | Not started |
-| HP-06 | R1 | — | — | Not started |
+| HP-05 | R1 | Temporary check-in only; goal-scoped completeness explanation not started | tests/mobile/current-condition-state.test.ts | Not started |
+| HP-06 | R1 | apps/mobile/src/TodayCheckIn.tsx, apps/mobile/src/guidance/current-condition-state.ts, apps/mobile/src/TodayGuidance.tsx (temporary per-request check-in; `saveToPassport` defaults off and nothing here writes to the Passport) | tests/mobile/current-condition-state.test.ts, tests/mobile/today-check-in.test.tsx, tests/mobile/today-guidance.test.tsx | Partial |
 | HP-07 | R1 | — | — | Not started |
 | SH-01 | R0 | — | — | Not started |
 | SH-02 | R0 | — | — | Not started |
@@ -89,10 +89,10 @@ so draft content may not execute and Today yields `content_pending`.
 | EN-07 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-08 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-09 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
-| TD-01 | R1 | apps/mobile/src/TodayGuidance.tsx (primary action surface; generation is user-initiated, execution surface later) | tests/mobile/today-guidance.test.tsx, tests/mobile/navigation.test.tsx | Partial |
-| TD-02 | R1 | apps/mobile/src/guidance/guidance-activity-api.ts, apps/mobile/src/guidance/guidance-snapshot.ts, packages/domain/src/guidance/prepare-guidance.ts (owner-scoped histories use separate effective and recorded cutoffs; normalized activity facts include applied revision provenance) | tests/mobile/guidance-activity-api.test.ts, tests/mobile/guidance-snapshot.test.ts, tests/mobile/today-guidance-service.test.ts, tests/domain/guidance/prepare-guidance.test.ts | Partial |
-| TD-03 | R1 | packages/domain/src/guidance/prepare-guidance.ts (sorted setup gaps naming the missing fact and its destination) | tests/domain/guidance/prepare-guidance.test.ts, tests/mobile/today-guidance.test.tsx | Partial |
-| TD-04 | R1 | apps/mobile/src/TodayGuidance.tsx, apps/mobile/src/guidance/guidance-copy.ts (steps, reasons, confidence, evidence, alternatives shown before execution) | tests/mobile/today-guidance.test.tsx | Partial |
+| TD-01 | R1 | apps/mobile/src/TodayGuidance.tsx (preflight `idle → checking_in → ready_to_generate → generating → result`; user-initiated, never on mount or owner change), apps/mobile/src/TodayCheckIn.tsx | tests/mobile/today-guidance.test.tsx, tests/mobile/today-check-in.test.tsx, tests/mobile/current-condition-state.test.ts, tests/mobile/navigation.test.tsx | Partial |
+| TD-02 | R1 | apps/mobile/src/guidance/guidance-activity-api.ts, apps/mobile/src/guidance/guidance-snapshot.ts, packages/domain/src/guidance/prepare-guidance.ts (owner-scoped histories use separate effective and recorded cutoffs; normalized activity facts include applied revision provenance), apps/mobile/src/TodayCheckIn.tsx + apps/mobile/src/guidance/current-condition-state.ts (check-in captures goal, available minutes and temporary condition per request) | tests/mobile/guidance-activity-api.test.ts, tests/mobile/guidance-snapshot.test.ts, tests/mobile/today-guidance-service.test.ts, tests/domain/guidance/prepare-guidance.test.ts, tests/mobile/current-condition-state.test.ts, tests/mobile/today-check-in.test.tsx | Partial |
+| TD-03 | R1 | packages/domain/src/guidance/prepare-guidance.ts (sorted setup gaps naming the missing fact and its destination), apps/mobile/src/TodayGuidance.tsx (`current_condition` gaps loop back to the check-in with the draft intact) | tests/domain/guidance/prepare-guidance.test.ts, tests/mobile/today-guidance.test.tsx | Partial |
+| TD-04 | R1 | apps/mobile/src/TodayGuidance.tsx, apps/mobile/src/guidance/guidance-copy.ts (steps, reasons, confidence, evidence, alternatives shown before execution; check-in summary shown before generation) | tests/mobile/today-guidance.test.tsx | Partial |
 | TD-05 | R1 | supabase/migrations/20261011082525_bitemporal_activity_guidance.sql, supabase/migrations/20261011090000_recommendation_runs.sql (stored normalized input is the replay authority; migrations are not applied to hosted Supabase) | tests/database/guidance-activity-history.test.ts, tests/database/recommendation-runs.test.ts, tests/mobile/recommendation-run-api.test.ts, tests/mobile/today-guidance-service.test.ts | Partial |
 | TD-06 | R1 | apps/mobile/src/TodayGuidance.tsx (generating and viewing produce no recorded wash, application or heat event) | tests/mobile/today-guidance.test.tsx | Partial |
 | TD-07 | R1 | — | — | Not started |
@@ -147,7 +147,7 @@ so draft content may not execute and Today yields `content_pending`.
 | AI-05 | R5 | — | — | Not started |
 | AI-06 | R5 | — | — | Not started |
 | AI-07 | R5 | — | — | Not started |
-| SF-01 | R1 | Engine emits no diagnosis copy; UI keeps the cosmetic-records boundary | tests/mobile/navigation.test.tsx, tests/domain/recommendations/ | Partial |
+| SF-01 | R1 | Engine emits no diagnosis copy; UI keeps the cosmetic-records boundary; check-in copy states self-reported observations, never diagnosis/treatment, with no purchase pressure | tests/mobile/navigation.test.tsx, tests/domain/recommendations/, tests/mobile/today-check-in.test.tsx, tests/mobile/today-guidance.test.tsx | Partial |
 | SF-02 | R5 | — | — | Not started |
 | SF-03 | R1 | — | — | Not started |
 | SF-04 | R1 | — | — | Not started |

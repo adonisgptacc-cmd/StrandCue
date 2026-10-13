@@ -1,9 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 
-import type { GuidanceGap, ProtocolDecision } from '../../../packages/domain/src/index';
 import {
+  normalizeCurrentCondition,
+  type CurrentConditionInput,
+  type GuidanceGap,
+  type ProtocolDecision,
+} from '../../../packages/domain/src/index';
+import {
+  CHECK_IN_IDLE_BODY,
+  CHECK_IN_START_LABEL,
+  CHECK_IN_SUMMARY_HEADING,
+  CHECK_IN_SUMMARY_SAVE_OFF,
+  CHECK_IN_SUMMARY_SAVE_ON,
+  CHECK_IN_SUMMARY_TIME,
+  CONCERN_LABELS,
   CONTENT_PENDING_BODY,
   confidenceLabel,
   DESTINATION_LABELS,
@@ -14,13 +26,20 @@ import {
   MISSING_HEADING,
   NO_PURCHASE_NEEDED,
   RETRY_LABEL,
+  REVIEW_CHECK_IN_LABEL,
   SAVE_FAILED,
+  START_OVER_LABEL,
   statusTitle,
   stepLabel,
 } from './guidance/guidance-copy';
+import {
+  initialPreflight,
+  preflightReducer,
+  type CheckInDraft,
+} from './guidance/current-condition-state';
 import { recordRecommendationRun } from './guidance/recommendation-run-api';
-import type { TodayGuidanceResult } from './guidance/today-guidance-service';
 import { generateTodayGuidance } from './guidance/today-guidance-service';
+import { TodayCheckIn } from './TodayCheckIn';
 import type { DestinationId } from './navigation';
 import { Button, styles } from './ui';
 
@@ -30,37 +49,30 @@ export interface TodayGuidanceProps {
 }
 
 /**
- * Today's guidance state machine.
+ * Today's guidance preflight state machine.
  *
- * States: `loading` (records being read), `blocked` (a safe refusal — setup
- * gaps, pending content, conflicts, unsupported), `ready` (a protocol to
- * show), and `error` (a source could not be read).
+ * States: `idle → checking_in → ready_to_generate → generating → result`,
+ * with owner and request epochs. The check-in is a temporary cosmetic
+ * self-report for one request only — never a diagnosis, never a Passport
+ * write, never invented advice.
  *
- * Three rules this component exists to enforce:
+ * Four rules this component exists to enforce:
  *
- * 1. A late response from an older request never overwrites the current
- *    owner's result. Every request carries an epoch; only the newest one may
- *    apply, and nothing applies after unmount.
- * 2. A generated plan is persisted exactly once. If saving fails, the plan is
+ * 1. Nothing generates on mount or on owner change. Guidance is produced
+ *    only when the owner completes a check-in and asks for a plan. An owner
+ *    change resets the machine to `idle` and discards in-flight responses.
+ * 2. A late response from an older request never overwrites the current
+ *    result. Every generation carries a request epoch; only the newest one
+ *    may apply, and nothing applies after unmount.
+ * 3. Duplicate taps generate once. An in-flight guard plus the reducer's
+ *    `generation_started` gate mean one epoch is one generation.
+ * 4. A generated plan is persisted exactly once. If saving fails, the plan is
  *    still shown and the failure is stated — it is never regenerated, because
- *    regenerating would silently change the decision the user is reading.
- * 3. Nothing is shown that a reviewed decision did not produce. There is no
- *    cached or generic fallback when a source fails.
+ *    regenerating would silently change the decision being read.
  */
 
 const GOAL_ID = 'basic_wash' as const;
 const GOAL_LABEL = 'Basic wash';
-
-type Phase = 'idle' | 'loading' | 'blocked' | 'ready' | 'error';
-
-interface State {
-  readonly phase: Phase;
-  readonly result: TodayGuidanceResult | null;
-  readonly saving: boolean;
-  readonly saveFailed: boolean;
-}
-
-const INITIAL: State = { phase: 'idle', result: null, saving: false, saveFailed: false };
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -75,9 +87,11 @@ function requestId(): string {
 function GapList({
   gaps,
   onNavigate,
+  onReviewCheckIn,
 }: {
   readonly gaps: readonly GuidanceGap[];
   readonly onNavigate: (destination: DestinationId) => void;
+  readonly onReviewCheckIn: (() => void) | null;
 }) {
   return <View style={styles.card}>
     <Text style={styles.heading}>What is needed</Text>
@@ -93,8 +107,31 @@ function GapList({
             onPress={() => onNavigate(destination)}
           />
         )}
+        {destination === null && gap.kind === 'current_condition' && onReviewCheckIn !== null && (
+          <Button
+            title={REVIEW_CHECK_IN_LABEL}
+            accessibilityLabel={REVIEW_CHECK_IN_LABEL}
+            secondary
+            onPress={onReviewCheckIn}
+          />
+        )}
       </View>;
     })}
+  </View>;
+}
+
+function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
+  return <View style={styles.card}>
+    <Text style={styles.heading} accessibilityRole="header" accessibilityLabel={CHECK_IN_SUMMARY_HEADING}>
+      {CHECK_IN_SUMMARY_HEADING}
+    </Text>
+    <Text style={styles.body}>
+      {draft.concerns.map(concern => CONCERN_LABELS[concern]).join(', ')}
+    </Text>
+    <Text style={styles.body}>{CHECK_IN_SUMMARY_TIME(draft.availableMinutes ?? 0)}</Text>
+    <Text style={styles.body}>
+      {draft.saveToPassport ? CHECK_IN_SUMMARY_SAVE_ON : CHECK_IN_SUMMARY_SAVE_OFF}
+    </Text>
   </View>;
 }
 
@@ -134,23 +171,72 @@ function DecisionView({ decision }: { readonly decision: ProtocolDecision }) {
 }
 
 export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
-  const [state, setState] = useState<State>(INITIAL);
-  const epoch = useRef(0);
+  const [preflight, dispatch] = useReducer(preflightReducer, ownerId, initialPreflight);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const requestEpoch = useRef(0);
+  const ownerToken = useRef(0);
+  const inflight = useRef(false);
   const mounted = useRef(true);
+  const resultRef = useRef<Text | null>(null);
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       // Supersede any request still in flight for this owner.
-      epoch.current += 1;
+      requestEpoch.current += 1;
+      ownerToken.current += 1;
+      inflight.current = false;
     };
   }, []);
 
+  // The parent keys this component by owner, so a different owner normally
+  // remounts it. This effect keeps the same guarantee when the prop changes
+  // without a remount: the old owner's draft and result are discarded and no
+  // generation follows.
+  useEffect(() => {
+    dispatch({ type: 'owner_changed', ownerId });
+    ownerToken.current += 1;
+    inflight.current = false;
+  }, [ownerId]);
+
+  useEffect(() => {
+    if (preflight.phase === 'result') resultRef.current?.focus?.();
+  }, [preflight.phase]);
+
   const run = useCallback(async () => {
-    const current = ++epoch.current;
-    setState(previous => ({ ...previous, phase: 'loading', saveFailed: false }));
+    if (preflight.phase !== 'ready_to_generate' && preflight.phase !== 'result') return;
+    if (inflight.current) return;
+    // Normalize the validated draft with an explicit instant before anything
+    // generates. Unreachable after form validation, but a check-in that
+    // cannot be normalized must return to the form — never generate.
     const asOf = nowIso();
+    let currentCondition: CurrentConditionInput;
+    try {
+      currentCondition = normalizeCurrentCondition(
+        {
+          observedAt: preflight.checkIn.observedAt,
+          concerns: [...preflight.checkIn.concerns],
+          goal: preflight.checkIn.goal,
+          availableMinutes: preflight.checkIn.availableMinutes,
+          saveToPassport: preflight.checkIn.saveToPassport,
+        },
+        new Date(asOf),
+      );
+    } catch {
+      dispatch({ type: 'back_to_check_in' });
+      return;
+    }
+    inflight.current = true;
+    const current = ++requestEpoch.current;
+    const owner = ownerToken.current;
+    // A response applies only while mounted, current for this owner, and
+    // from the newest request: anything else is a late response and is
+    // discarded before it can render or persist.
+    const live = () => mounted.current && owner === ownerToken.current && current === requestEpoch.current;
+    dispatch({ type: 'generation_started', requestEpoch: current });
+    setSaveFailed(false);
     try {
       const result = await generateTodayGuidance({
         ownerId,
@@ -158,13 +244,16 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         requestId: requestId(),
         asOf,
         loadedAt: nowIso(),
+        currentCondition,
+        now: asOf,
       });
-      // A response from a superseded request, or after unmount, is discarded.
-      if (!mounted.current || current !== epoch.current) return;
+      if (!live()) return;
+
+      dispatch({ type: 'generation_finished', requestEpoch: current, result });
 
       if (result.status === 'ready' || result.status === 'needs_input'
         || result.status === 'rule_conflict' || result.status === 'unsupported') {
-        setState({ phase: 'ready', result, saving: true, saveFailed: false });
+        setSaving(true);
         try {
           await recordRecommendationRun({
             requestId: result.requestId,
@@ -177,73 +266,111 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
             input: result.input,
             decision: result.decision,
           });
-          if (!mounted.current || current !== epoch.current) return;
-          setState(previous => ({ ...previous, saving: false, saveFailed: false }));
+          if (!live()) return;
+          setSaving(false);
+          setSaveFailed(false);
         } catch {
           // The plan stands; only the private copy failed. Never regenerate.
-          if (!mounted.current || current !== epoch.current) return;
-          setState(previous => ({ ...previous, saving: false, saveFailed: true }));
+          if (!live()) return;
+          setSaving(false);
+          setSaveFailed(true);
         }
         return;
       }
-
-      setState({
-        phase: result.status === 'source_error' ? 'error' : 'blocked',
-        result,
-        saving: false,
-        saveFailed: false,
-      });
     } catch {
-      if (!mounted.current || current !== epoch.current) return;
-      setState({
-        phase: 'error',
+      if (!live()) return;
+      dispatch({
+        type: 'generation_finished',
+        requestEpoch: current,
         result: { status: 'source_error', detail: 'Your records could not be read completely.' },
-        saving: false,
-        saveFailed: false,
       });
+    } finally {
+      inflight.current = false;
     }
-  }, [ownerId]);
+  }, [ownerId, preflight.checkIn, preflight.phase]);
 
-  // Today never generates on mount: guidance is produced only when the user
-  // asks for it, so simply opening the screen cannot create a stored decision
-  // run. The parent keys this component by owner, so a different owner starts
-  // clean and any request in flight for the previous owner is superseded.
+  // Today never generates on mount: guidance is produced only when the owner
+  // completes a check-in and asks for it, so simply opening the screen cannot
+  // create a stored decision run.
 
-  const busy = state.phase === 'loading' || state.saving;
-  const result = state.result;
+  const busy = preflight.phase === 'generating' || saving;
+  const result = preflight.result;
 
   return <View style={{ gap: 16 }}>
     <Text style={styles.kicker}>TODAY · {GOAL_LABEL.toUpperCase()}</Text>
-    <Button
-      title={busy ? GENERATING_LABEL : GENERATE_LABEL}
-      accessibilityLabel={busy ? GENERATING_LABEL : GENERATE_LABEL}
-      disabled={busy}
-      onPress={() => void run()}
-    />
 
-    {state.phase === 'loading' && <Text style={styles.body}>{LOADING_LABEL}</Text>}
-    {state.phase === 'idle' && (
-      <Text style={styles.body}>
-        Generate a basic wash plan when you are ready. Nothing is created until you ask for it.
-      </Text>
+    {preflight.phase === 'idle' && <>
+      <Text style={styles.body}>{CHECK_IN_IDLE_BODY}</Text>
+      <Button
+        title={CHECK_IN_START_LABEL}
+        accessibilityLabel={CHECK_IN_START_LABEL}
+        onPress={() => dispatch({ type: 'begin_check_in', observedAt: nowIso() })}
+      />
+    </>}
+
+    {preflight.phase === 'checking_in' && (
+      <TodayCheckIn
+        draft={preflight.checkIn}
+        errors={preflight.errors}
+        nowIso={nowIso}
+        dispatch={dispatch}
+      />
     )}
 
-    {state.saveFailed && (
+    {preflight.phase === 'ready_to_generate' && <>
+      <CheckInSummary draft={preflight.checkIn} />
+      <Button
+        title={busy ? GENERATING_LABEL : GENERATE_LABEL}
+        accessibilityLabel={busy ? GENERATING_LABEL : GENERATE_LABEL}
+        disabled={busy}
+        onPress={() => void run()}
+      />
+      <Button
+        title={REVIEW_CHECK_IN_LABEL}
+        accessibilityLabel={REVIEW_CHECK_IN_LABEL}
+        secondary
+        onPress={() => dispatch({ type: 'back_to_check_in' })}
+      />
+    </>}
+
+    {preflight.phase === 'generating' && <>
+      <Text style={styles.body}>{LOADING_LABEL}</Text>
+      <Button
+        title={GENERATING_LABEL}
+        accessibilityLabel={GENERATING_LABEL}
+        disabled
+        onPress={() => undefined}
+      />
+    </>}
+
+    {saveFailed && (
       <View style={styles.notice}>
         <Text accessibilityRole="alert" style={styles.error}>{SAVE_FAILED}</Text>
       </View>
     )}
 
-    {result !== null && state.phase !== 'loading' && (
+    {result !== null && preflight.phase === 'result' && (
       <>
-        <Text style={styles.title} accessibilityRole="header" accessibilityLabel={statusTitle(result)}>{statusTitle(result)}</Text>
+        <Text
+          ref={resultRef}
+          style={styles.title}
+          accessibilityRole="header"
+          accessibilityLabel={statusTitle(result)}
+        >
+          {statusTitle(result)}
+        </Text>
+        <CheckInSummary draft={preflight.checkIn} />
 
         {result.status === 'content_pending' && (
           <Text style={styles.body}>{CONTENT_PENDING_BODY}</Text>
         )}
 
         {result.status === 'needs_setup' && (
-          <GapList gaps={result.missing} onNavigate={onNavigate} />
+          <GapList
+            gaps={result.missing}
+            onNavigate={onNavigate}
+            onReviewCheckIn={() => dispatch({ type: 'back_to_check_in' })}
+          />
         )}
 
         {result.status === 'source_error' && (
@@ -283,6 +410,13 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
             </>}
           </View>
         )}
+
+        <Button
+          title={START_OVER_LABEL}
+          accessibilityLabel={START_OVER_LABEL}
+          secondary
+          onPress={() => dispatch({ type: 'reset' })}
+        />
       </>
     )}
 

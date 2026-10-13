@@ -1,5 +1,6 @@
-import type { GuidanceGapKind } from '../../../../packages/domain/src/index';
+import type { CurrentConditionConcern, GuidanceGapKind } from '../../../../packages/domain/src/index';
 import type { DestinationId } from '../navigation';
+import type { CheckInErrorCode } from './current-condition-state';
 import type { TodayGuidanceResult } from './today-guidance-service';
 
 /**
@@ -46,8 +47,9 @@ const GAP_DESTINATION: Readonly<Record<GuidanceGapKind, DestinationId | null>> =
   tool_capability: 'my_tools',
   source_incomplete: 'journey',
   reviewed_content: null,
-  // Temporary check-in answers are fixed in the check-in step itself, not in
-  // a records destination; null renders them as text (Task 4 consequential).
+  // A temporary check-in answer is fixed in the check-in step itself: the
+  // result screen offers "Review check-in answers", which returns to the form
+  // with the draft intact. No records destination can fix it.
   current_condition: null,
 };
 
@@ -103,3 +105,76 @@ export function confidenceLabel(confidence: keyof typeof CONFIDENCE_LABELS): str
 }
 
 export const NO_PURCHASE_NEEDED = 'No purchase needed — what you own can do this.';
+
+/**
+ * Today preflight check-in copy (HP-06, TD-02–TD-03, SF-01, UX-01–UX-03).
+ *
+ * The check-in collects temporary cosmetic self-reports for one routine
+ * only. Wording rules, in addition to the file header: name only what can be
+ * seen or felt today, never a diagnosis or treatment; never promise an
+ * outcome; never direct to a retailer; "unknown" and "none" are valid,
+ * shame-free answers.
+ */
+
+export const CHECK_IN_TITLE = 'How is your hair today?';
+export const CHECK_IN_START_LABEL = 'Start check-in';
+export const CHECK_IN_IDLE_BODY =
+  'Start with a quick check-in about how your hair looks and feels today. Nothing is created until you ask for a plan.';
+export const CHECK_IN_CONTINUE_LABEL = 'Continue to plan';
+export const REVIEW_CHECK_IN_LABEL = 'Review check-in answers';
+export const START_OVER_LABEL = 'Start a new check-in';
+
+export const CHECK_IN_BOUNDARY =
+  'Your answers are self-reported observations about how your hair looks and feels today. They are not a diagnosis, they change nothing in My Hair unless you choose to save them, and they promise no result.';
+
+export const CONCERNS_LABEL = 'What do you notice today?';
+export const CONCERNS_HINT = 'Choose all that apply. “I am not sure” and “None of these” each stand alone.';
+
+export const CONCERN_LABELS: Readonly<Record<CurrentConditionConcern, string>> = {
+  dryness: 'Dryness',
+  frizz: 'Frizz',
+  tangling: 'Tangling',
+  breakage: 'Breakage',
+  stiffness: 'Stiffness',
+  dullness: 'Dullness',
+  'scalp-dryness': 'Scalp dryness',
+  'scalp-oiliness': 'Scalp oiliness',
+  'reported-damage': 'Damage you can see or feel',
+  none: 'None of these',
+  unknown: 'I am not sure',
+};
+
+export const CHECK_IN_GOAL_LABEL = 'Goal for this plan';
+export const CHECK_IN_GOAL_LABELS: Readonly<Record<string, string>> = {
+  basic_wash: 'Basic wash',
+};
+
+export const TIME_LABEL = 'Time available (minutes)';
+export const TIME_HELP =
+  'Whole minutes from 0 to 1440 (one day). Use 0 when you have no time to spare today.';
+
+export const OBSERVED_AT_LABEL = 'Observation time';
+export const REFRESH_TIME_LABEL = 'Use current time';
+
+export const SAVE_LABEL = 'Save these answers to My Hair';
+export const SAVE_HELP =
+  'Off unless you turn it on. Nothing here changes My Hair by itself.';
+
+export const CHECK_IN_ERRORS_HEADING = 'Check your check-in answers';
+
+export const CHECK_IN_ERROR_TEXT: Readonly<Record<CheckInErrorCode, string>> = {
+  concerns_required: 'Choose at least one answer for what you notice today.',
+  concerns_exclusive:
+    '“I am not sure” and “None of these” each stand alone. Choose one of them, or choose from the other observations.',
+  time_required: 'Enter the time you have available in minutes.',
+  time_range: 'Enter whole minutes from 0 to 1440 (one day).',
+  observed_at_required: 'Record when you made these observations.',
+  observed_at_invalid: 'Record the observation time with its timezone, for example 2026-10-13T08:00:00+02:00.',
+  observed_at_future: 'Record an observation time that is not later than now.',
+};
+
+export const CHECK_IN_SUMMARY_HEADING = 'Your check-in';
+export const CHECK_IN_SUMMARY_TIME = (minutes: number): string =>
+  minutes === 1 ? '1 minute available' : `${minutes} minutes available`;
+export const CHECK_IN_SUMMARY_SAVE_ON = 'You chose to save these answers to My Hair.';
+export const CHECK_IN_SUMMARY_SAVE_OFF = 'These answers stay with this plan request only.';

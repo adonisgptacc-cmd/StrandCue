@@ -37,6 +37,20 @@ export interface TodayGuidanceRequest {
   readonly asOf: string;
   readonly loadedAt: string;
   readonly signal?: AbortSignal;
+  /**
+   * Raw temporary current-condition check-in for this request only. Absent
+   * (`undefined`) keeps the legacy path byte-identical: no `current.*`
+   * facts, no new gaps, and the same normalized input and fingerprint for
+   * the same records. When present it is normalized inside preparation with
+   * an explicit `now` (never the wall-clock default); an unusable payload
+   * becomes stable `current_condition` gaps, never stored writes.
+   */
+  readonly currentCondition?: unknown;
+  /**
+   * Reference time for check-in validation as an ISO string. Defaults to
+   * `asOf` when omitted so the fallback stays deterministic.
+   */
+  readonly now?: string;
 }
 
 /**
@@ -151,6 +165,10 @@ export async function generateTodayGuidance(
     goalId: request.goalId,
     requestId: request.requestId,
     asOf: request.asOf,
+    currentCondition: request.currentCondition,
+    // Explicit instant, never the wall-clock default: `asOf` keeps the
+    // fallback deterministic when the caller passes no reference time.
+    now: request.now === undefined ? new Date(request.asOf) : new Date(request.now),
   });
 
   if (preparation.status === 'unavailable') {

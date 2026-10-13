@@ -597,3 +597,66 @@ describe('task 6 integration: reviewed versions through Today without purchase p
     expect(reordered.inputFingerprint).toBe(first.inputFingerprint);
   });
 });
+
+describe('task 5 integration: temporary check-in through the service', () => {
+  const CHECK_IN = {
+    observedAt: AS_OF,
+    concerns: ['dryness'],
+    goal: 'basic_wash',
+    availableMinutes: 20,
+    saveToPassport: false,
+  };
+
+  it('returns content_pending for a draft bundle even with a completed check-in', async () => {
+    const { dependencies, generateProtocol } = harness({ bundle: draftBundle() });
+    const result = await generateTodayGuidance(
+      request({ currentCondition: CHECK_IN, now: AS_OF }),
+      dependencies,
+    );
+    expect(result.status).toBe('content_pending');
+    expect(generateProtocol).not.toHaveBeenCalled();
+  });
+
+  it('carries normalized check-in facts into the engine input without touching the snapshot', async () => {
+    const { dependencies } = harness();
+    const result = await generateTodayGuidance(
+      request({ currentCondition: CHECK_IN, now: AS_OF }),
+      dependencies,
+    );
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.input.environmentFacts['current.observedAt']).toBe(AS_OF);
+    expect(result.input.environmentFacts['current.goal']).toBe('basic_wash');
+    expect(result.input.environmentFacts['current.availableMinutes']).toBe(20);
+    expect(result.input.environmentFacts['current.concerns.dryness']).toBe(true);
+    expect(result.input.profileFacts).toEqual({ naturalPattern: 'curly' });
+  });
+
+  it('maps an unknown check-in to targeted gaps without running the engine', async () => {
+    const { dependencies, generateProtocol } = harness();
+    const result = await generateTodayGuidance(
+      request({
+        currentCondition: { ...CHECK_IN, concerns: ['unknown'] },
+        now: AS_OF,
+      }),
+      dependencies,
+    );
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(generateProtocol).not.toHaveBeenCalled();
+    expect(result.missing.map(gap => gap.kind)).toContain('current_condition');
+  });
+
+  it('keeps the normalized input byte-identical when no check-in is passed', async () => {
+    const first = await generateTodayGuidance(request(), harness().dependencies);
+    const second = await generateTodayGuidance(
+      request({ currentCondition: undefined, now: undefined }),
+      harness().dependencies,
+    );
+    expect(first.status).toBe('ready');
+    expect(second.status).toBe('ready');
+    if (first.status !== 'ready' || second.status !== 'ready') return;
+    expect(JSON.stringify(second.input)).toBe(JSON.stringify(first.input));
+    expect(second.inputFingerprint).toBe(first.inputFingerprint);
+  });
+});

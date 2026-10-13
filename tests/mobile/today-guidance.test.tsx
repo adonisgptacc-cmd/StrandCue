@@ -3,7 +3,17 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { GuidanceGap, ProtocolDecision } from '../../packages/domain/src/index';
+import { normalizeCurrentCondition } from '../../packages/domain/src/index';
 import { TodayGuidance } from '../../apps/mobile/src/TodayGuidance';
+import {
+  CHECK_IN_CONTINUE_LABEL,
+  CHECK_IN_START_LABEL,
+  CHECK_IN_SUMMARY_HEADING,
+  CONCERNS_LABEL,
+  REVIEW_CHECK_IN_LABEL,
+  START_OVER_LABEL,
+  TIME_LABEL,
+} from '../../apps/mobile/src/guidance/guidance-copy';
 
 const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
@@ -158,11 +168,11 @@ function hasButton(renderer: ReactTestRenderer, label: string): boolean {
   );
 }
 
-async function render(): Promise<ReactTestRenderer> {
+async function render(ownerId: string = OWNER, onNavigate: () => void = vi.fn()): Promise<ReactTestRenderer> {
   let renderer!: ReactTestRenderer;
   await act(async () => {
     renderer = create(
-      createElement(TodayGuidance, { ownerId: OWNER, onNavigate: vi.fn() }),
+      createElement(TodayGuidance, { ownerId, onNavigate: onNavigate as never }),
     );
     await Promise.resolve();
   });
@@ -174,6 +184,36 @@ async function press(renderer: ReactTestRenderer, label: string): Promise<void> 
     button(renderer, label).props.onPress();
     await Promise.resolve();
   });
+}
+
+/** Drives the check-in form through to the ready-to-generate summary. */
+async function completeCheckIn(
+  renderer: ReactTestRenderer,
+  concerns: string[] = ['Dryness'],
+  minutes: string = '20',
+): Promise<void> {
+  await press(renderer, CHECK_IN_START_LABEL);
+  for (const concern of concerns) {
+    await press(renderer, `${CONCERNS_LABEL}: ${concern}`);
+  }
+  const time = renderer.root.find(
+    node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+  );
+  await act(async () => {
+    time.props.onChangeText(minutes);
+    await Promise.resolve();
+  });
+  await press(renderer, CHECK_IN_CONTINUE_LABEL);
+}
+
+/** Full preflight: check-in, then generate. */
+async function generate(
+  renderer: ReactTestRenderer,
+  concerns: string[] = ['Dryness'],
+  minutes: string = '20',
+): Promise<void> {
+  await completeCheckIn(renderer, concerns, minutes);
+  await press(renderer, 'Generate my plan');
 }
 
 const originalConsoleError = console.error.bind(console);
@@ -202,6 +242,7 @@ describe('today guidance states', () => {
       () => new Promise(resolve => { release = resolve; }),
     );
     const renderer = await render();
+    await completeCheckIn(renderer);
     expect(button(renderer, 'Generate my plan').props.accessibilityState.disabled).toBe(false);
     await act(async () => {
       button(renderer, 'Generate my plan').props.onPress();
@@ -210,7 +251,7 @@ describe('today guidance states', () => {
     expect(text(renderer)).toContain('loading');
     expect(button(renderer, 'Working…').props.accessibilityState.disabled).toBe(true);
     await act(async () => { release({ status: 'content_pending' }); await Promise.resolve(); });
-    expect(button(renderer, 'Generate my plan').props.accessibilityState.disabled).toBe(false);
+    expect(button(renderer, 'Start a new check-in').props.accessibilityState.disabled).toBe(false);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -223,7 +264,7 @@ describe('today guidance states', () => {
 
   it('shows the honest draft-content message and no protocol in production', async () => {
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(text(renderer)).toContain('reviewed guidance content is still being prepared');
     expect(text(renderer)).not.toContain('step 1');
     expect(text(renderer)).not.toContain('no purchase needed');
@@ -233,12 +274,8 @@ describe('today guidance states', () => {
   it('links each setup gap to the destination that can fix it', async () => {
     mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [GAP] });
     const onNavigate = vi.fn();
-    let renderer!: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(createElement(TodayGuidance, { ownerId: OWNER, onNavigate }));
-      await Promise.resolve();
-    });
-    await press(renderer, 'Generate my plan');
+    const renderer = await render(OWNER, onNavigate);
+    await generate(renderer);
     expect(text(renderer)).toContain('naturalpattern');
     expect(hasButton(renderer, 'Go to My Hair')).toBe(true);
     await press(renderer, 'Go to My Hair');
@@ -256,12 +293,8 @@ describe('today guidance states', () => {
       ],
     });
     const onNavigate = vi.fn();
-    let renderer!: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(createElement(TodayGuidance, { ownerId: OWNER, onNavigate }));
-      await Promise.resolve();
-    });
-    await press(renderer, 'Generate my plan');
+    const renderer = await render(OWNER, onNavigate);
+    await generate(renderer);
     expect(hasButton(renderer, 'Go to My Shelf')).toBe(true);
     expect(hasButton(renderer, 'Go to My Tools')).toBe(true);
     await act(async () => { renderer.unmount(); });
@@ -270,7 +303,7 @@ describe('today guidance states', () => {
   it('renders steps, reasons, confidence, evidence, omissions and alternatives', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     const rendered = text(renderer);
     expect(rendered).toContain('step 1');
     expect(rendered).toContain('step 2');
@@ -285,7 +318,7 @@ describe('today guidance states', () => {
   it('states no purchase needed only when the decision says so', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     let renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(text(renderer)).toContain('no purchase needed');
     await act(async () => { renderer.unmount(); });
 
@@ -293,7 +326,7 @@ describe('today guidance states', () => {
       readyResult({ decision: readyDecision({ noPurchaseNeeded: false }) }),
     );
     renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(text(renderer)).not.toContain('no purchase needed');
     await act(async () => { renderer.unmount(); });
   });
@@ -310,7 +343,7 @@ describe('today guidance states', () => {
         }),
       );
       const renderer = await render();
-      await press(renderer, 'Generate my plan');
+      await generate(renderer);
       const rendered = text(renderer);
       expect(rendered).not.toContain('your plan is ready');
       expect(rendered).toContain(status.replaceAll('_', ' '));
@@ -322,7 +355,7 @@ describe('today guidance states', () => {
   it('offers Retry on a source error and keeps the selected goal', async () => {
     mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(text(renderer)).toContain('could not read records');
     expect(hasButton(renderer, 'Retry')).toBe(true);
     expect(text(renderer)).toContain('basic wash');
@@ -335,7 +368,7 @@ describe('today guidance states', () => {
   it('never substitutes cached or generic advice when generation fails', async () => {
     mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Network unavailable.' });
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     const rendered = text(renderer);
     expect(rendered).not.toContain('step 1');
     expect(rendered).not.toContain('try this instead');
@@ -345,7 +378,7 @@ describe('today guidance states', () => {
   it('persists the decision exactly once after generating', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(mocks.recordRun).toHaveBeenCalledTimes(1);
     const command = mocks.recordRun.mock.calls[0][0];
     expect(command.status).toBe('ready');
@@ -364,7 +397,7 @@ describe('today guidance states', () => {
   it('does not persist a plan that was never generated', async () => {
     mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [GAP] });
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(mocks.recordRun).not.toHaveBeenCalled();
     await act(async () => { renderer.unmount(); });
   });
@@ -373,7 +406,7 @@ describe('today guidance states', () => {
     mocks.generate.mockResolvedValue(readyResult());
     mocks.recordRun.mockRejectedValue(new Error('run-conflict'));
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(text(renderer)).toContain('plan created, audit save failed');
     expect(text(renderer)).toContain('step 1');
     expect(mocks.generate).toHaveBeenCalledTimes(1);
@@ -392,7 +425,11 @@ describe('today guidance states', () => {
       renderer = create(createElement(TodayGuidance, { ownerId: OWNER, onNavigate: vi.fn() }));
       await Promise.resolve();
     });
-    await press(renderer, 'Generate my plan');
+    await completeCheckIn(renderer);
+    await act(async () => {
+      button(renderer, 'Generate my plan').props.onPress();
+      await Promise.resolve();
+    });
     mocks.generate.mockResolvedValue({ status: 'content_pending' });
     await act(async () => {
       renderer.update(createElement(TodayGuidance, { key: 'owner-2', ownerId: 'owner-2', onNavigate: vi.fn() }));
@@ -413,7 +450,11 @@ describe('today guidance states', () => {
       () => new Promise(resolve => { resolveGenerate = resolve; }),
     );
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await completeCheckIn(renderer);
+    await act(async () => {
+      button(renderer, 'Generate my plan').props.onPress();
+      await Promise.resolve();
+    });
     await act(async () => { renderer.unmount(); });
     await act(async () => {
       resolveGenerate(readyResult());
@@ -433,7 +474,7 @@ describe('today guidance states', () => {
       renderer = create(tree(OWNER));
       await Promise.resolve();
     });
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(text(renderer)).toContain('step 1');
     await act(async () => {
       renderer.update(tree('owner-2'));
@@ -445,10 +486,10 @@ describe('today guidance states', () => {
 
   it('labels controls for screen readers and meets minimum target size', async () => {
     const renderer = await render();
-    const generate = button(renderer, 'Generate my plan');
-    expect(generate.props.accessibilityRole).toBe('button');
-    expect(generate.props.accessibilityLabel).toBe('Generate my plan');
-    const style = generate.props.style as Record<string, unknown>[];
+    await press(renderer, CHECK_IN_START_LABEL);
+    const dryness = button(renderer, `${CONCERNS_LABEL}: Dryness`);
+    expect(dryness.props.accessibilityRole).toBe('checkbox');
+    const style = dryness.props.style as Record<string, unknown>[];
     const base = style[0] as { minHeight?: number };
     expect(base.minHeight).toBeGreaterThanOrEqual(44);
     await act(async () => { renderer.unmount(); });
@@ -488,7 +529,7 @@ describe('task 6 integration: honest states without purchase pressure', () => {
   it('states what is missing when no reviewed combination is available', async () => {
     mocks.generate.mockResolvedValue(unsupportedResult());
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     const rendered = text(renderer);
     expect(rendered).toContain('no verified available candidate');
     expect(rendered).toContain('condition');
@@ -500,14 +541,14 @@ describe('task 6 integration: honest states without purchase pressure', () => {
   it('labels every new state and control for screen readers', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     let renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(labeled(renderer, 'Your plan is ready').props.accessibilityRole).toBe('header');
     expect(hasLabeled(renderer, 'No purchase needed — what you own can do this.')).toBe(true);
     await act(async () => { renderer.unmount(); });
 
     mocks.generate.mockResolvedValue(unsupportedResult());
     renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(hasLabeled(renderer, 'What is missing')).toBe(true);
     expect(
       hasLabeled(
@@ -519,7 +560,7 @@ describe('task 6 integration: honest states without purchase pressure', () => {
 
     mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
     renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     expect(hasButton(renderer, 'Retry')).toBe(true);
     await act(async () => { renderer.unmount(); });
   });
@@ -545,6 +586,14 @@ describe('task 6 integration: honest states without purchase pressure', () => {
       else if (typeof value === 'object' && value !== null) {
         for (const nested of Object.values(value as Record<string, unknown>)) {
           if (typeof nested === 'string') strings.push(nested);
+          else if (typeof nested === 'function') {
+            for (const sample of [0, 1, 20, 45]) {
+              try {
+                const produced = (nested as (minutes: number) => unknown)(sample);
+                if (typeof produced === 'string') strings.push(produced);
+              } catch { /* not a minutes formatter */ }
+            }
+          }
         }
       }
     }
@@ -564,11 +613,191 @@ describe('task 6 integration: honest states without purchase pressure', () => {
 
     mocks.generate.mockResolvedValue(unsupportedResult());
     const renderer = await render();
-    await press(renderer, 'Generate my plan');
+    await generate(renderer);
     const rendered = text(renderer);
     for (const pattern of banned) {
       expect(rendered).not.toMatch(pattern);
     }
     await act(async () => { renderer.unmount(); });
   });
+});
+
+describe('task 5 preflight: condition-aware generation', () => {
+  it('opens on a check-in start and never generates on mount or on owner change', async () => {
+    const renderer = await render();
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(hasButton(renderer, 'Generate my plan')).toBe(false);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    await act(async () => {
+      renderer.update(createElement(TodayGuidance, { ownerId: 'owner-2', onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('passes the exact normalized check-in with an explicit reference time', async () => {
+    const renderer = await render();
+    // Tapped frizz-first: normalization must still sort concerns.
+    await generate(renderer, ['Frizz', 'Dryness'], '20');
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    const request = mocks.generate.mock.calls[0][0];
+    expect(request.ownerId).toBe(OWNER);
+    expect(request.goalId).toBe('basic_wash');
+    expect(request.now).toBe(request.asOf);
+    const expected = normalizeCurrentCondition(
+      {
+        observedAt: (request.currentCondition as { observedAt: string }).observedAt,
+        concerns: ['frizz', 'dryness'],
+        goal: 'basic_wash',
+        availableMinutes: 20,
+        saveToPassport: false,
+      },
+      new Date(request.asOf),
+    );
+    expect(request.currentCondition).toEqual(expected);
+    expect(request.currentCondition.concerns).toEqual(['dryness', 'frizz']);
+    expect(request.currentCondition.saveToPassport).toBe(false);
+    expect(Object.isFrozen(request.currentCondition)).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('generates only once for duplicate taps on Generate', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    mocks.generate.mockImplementation(
+      () => new Promise(resolve => { release = resolve; }),
+    );
+    const renderer = await render();
+    await completeCheckIn(renderer);
+    await act(async () => {
+      const generateButton = button(renderer, 'Generate my plan');
+      generateButton.props.onPress();
+      generateButton.props.onPress();
+      await Promise.resolve();
+    });
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { release({ status: 'content_pending' }); await Promise.resolve(); });
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('discards a late response when the owner changes without a remount', async () => {
+    mocks.generate.mockImplementation(
+      () => new Promise(resolve => { setTimeout(() => resolve(readyResult()), 25); }),
+    );
+    const renderer = await render();
+    await completeCheckIn(renderer);
+    await act(async () => {
+      button(renderer, 'Generate my plan').props.onPress();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      renderer.update(createElement(TodayGuidance, { ownerId: 'owner-2', onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await Promise.resolve();
+    });
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('clears an in-progress check-in when the owner changes', async () => {
+    const renderer = await render();
+    await press(renderer, CHECK_IN_START_LABEL);
+    await press(renderer, `${CONCERNS_LABEL}: Dryness`);
+    expect(
+      button(renderer, `${CONCERNS_LABEL}: Dryness`).props.accessibilityState,
+    ).toMatchObject({ checked: true });
+    await act(async () => {
+      renderer.update(createElement(TodayGuidance, { ownerId: 'owner-2', onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(hasButton(renderer, `${CONCERNS_LABEL}: Dryness`)).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('shows the completed check-in beside pending content with no invented advice', async () => {
+    const renderer = await render();
+    await generate(renderer, ['Dryness'], '20');
+    const rendered = text(renderer);
+    expect(hasLabeledPreflight(renderer, CHECK_IN_SUMMARY_HEADING)).toBe(true);
+    expect(rendered).toContain('dryness');
+    expect(rendered).toContain('20 minutes available');
+    expect(rendered).toContain('reviewed guidance content is still being prepared');
+    expect(rendered).not.toContain('step 1');
+    expect(rendered).not.toContain('no purchase needed');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('returns check-in validation failures to the form with its draft intact', async () => {
+    const renderer = await render();
+    await press(renderer, CHECK_IN_START_LABEL);
+    await press(renderer, `${CONCERNS_LABEL}: Dryness`);
+    await press(renderer, CHECK_IN_CONTINUE_LABEL);
+    expect(text(renderer)).toContain('time you have available');
+    expect(
+      button(renderer, `${CONCERNS_LABEL}: Dryness`).props.accessibilityState,
+    ).toMatchObject({ checked: true });
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('loops a current-condition gap back to the check-in with the draft intact', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [
+        {
+          kind: 'current_condition',
+          detail: "No current condition was reported ('unknown').",
+          subject: 'current.concerns',
+        },
+      ],
+    });
+    const renderer = await render();
+    await generate(renderer, ['Dryness'], '20');
+    expect(hasButton(renderer, REVIEW_CHECK_IN_LABEL)).toBe(true);
+    expect(hasButton(renderer, 'Go to My Hair')).toBe(false);
+    await press(renderer, REVIEW_CHECK_IN_LABEL);
+    expect(
+      button(renderer, `${CONCERNS_LABEL}: Dryness`).props.accessibilityState,
+    ).toMatchObject({ checked: true });
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('retries a source error with the same normalized check-in', async () => {
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
+    const renderer = await render();
+    await generate(renderer, ['Frizz'], '30');
+    const first = mocks.generate.mock.calls[0][0].currentCondition;
+    await press(renderer, 'Retry');
+    expect(mocks.generate).toHaveBeenCalledTimes(2);
+    expect(mocks.generate.mock.calls[1][0].currentCondition).toEqual(first);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('starts over from a result without carrying the previous check-in', async () => {
+    const renderer = await render();
+    await generate(renderer, ['Dryness'], '20');
+    expect(hasButton(renderer, START_OVER_LABEL)).toBe(true);
+    await press(renderer, START_OVER_LABEL);
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(hasButton(renderer, 'Generate my plan')).toBe(false);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  function hasLabeledPreflight(renderer: ReactTestRenderer, label: string): boolean {
+    return (
+      renderer.root.findAll(
+        node => node.type === 'span' && node.props.accessibilityLabel === label,
+      ).length > 0
+    );
+  }
 });
