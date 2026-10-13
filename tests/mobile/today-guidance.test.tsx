@@ -18,6 +18,8 @@ import {
 const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
   recordRun: vi.fn(),
+  executionStart: vi.fn(),
+  executionTransition: vi.fn(),
   nowIso: '2026-10-11T09:00:00.000Z',
   uuidCounter: { value: 0 },
 }));
@@ -54,6 +56,14 @@ vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({
 
 vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
   recordRecommendationRun: mocks.recordRun,
+}));
+
+// The execution surface mounts beside a ready plan but records nothing until
+// an explicit start tap. Mocking the boundary keeps these preflight tests
+// hermetic; execution behavior is proven in protocol-execution.test.tsx.
+vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
+  startProtocolExecution: mocks.executionStart,
+  transitionProtocolExecution: mocks.executionTransition,
 }));
 
 const OWNER = 'owner-1';

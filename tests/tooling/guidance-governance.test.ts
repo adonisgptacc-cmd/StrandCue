@@ -143,17 +143,23 @@ describe('traceability honesty for today guidance', () => {
   };
 
   it('keeps every TD requirement with a foundation Partial while content is draft', () => {
-    // TD-07 (execution recording) and TD-08 (pause/resume) have no
-    // implementation at all and stay Not started; claiming Partial for them
-    // would overstate what exists.
-    for (const id of ['TD-01', 'TD-02', 'TD-03', 'TD-04', 'TD-05', 'TD-06', 'TD-09']) {
+    // TD-07 (execution recording) and TD-08 (pause/resume) now have a
+    // demonstrated foundation: domain contracts, owner-isolated idempotent
+    // persistence, and the confirmed-only execution surface, all proven with
+    // fixtures in tests/domain/protocol-execution.test.ts,
+    // tests/database/protocol-executions.test.ts,
+    // tests/mobile/protocol-execution-api.test.ts,
+    // tests/mobile/protocol-execution.test.tsx and
+    // tests/mobile/protocol-execution-state.test.ts. Production content is
+    // still draft, so no TD requirement can claim Implemented yet.
+    for (const id of ['TD-01', 'TD-02', 'TD-03', 'TD-04', 'TD-05', 'TD-06', 'TD-07', 'TD-08', 'TD-09']) {
       expect(statusOf(id)).toBe('Partial');
     }
   });
 
-  it('does not claim a foundation for requirements that have none', () => {
-    for (const id of ['TD-07', 'TD-08']) {
-      expect(statusOf(id)).toBe('Not started');
+  it('does not claim an Implemented TD requirement while content is draft', () => {
+    for (const id of ['TD-01', 'TD-02', 'TD-03', 'TD-04', 'TD-05', 'TD-06', 'TD-07', 'TD-08', 'TD-09']) {
+      expect(statusOf(id)).not.toBe('Implemented');
     }
   });
 

@@ -1,0 +1,581 @@
+import { createElement } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { ProtocolDecision } from '../../packages/domain/src/index.ts';
+import { ProtocolExecution } from '../../apps/mobile/src/ProtocolExecution.tsx';
+
+const mocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  transition: vi.fn(),
+  uuidCounter: { value: 0 },
+}));
+
+vi.mock('react-native', () => {
+  const host = (tag: string) => {
+    function HostComponent({ children, ...props }: { children?: unknown } & Record<string, unknown>) {
+      return createElement(tag, props, children as never);
+    }
+    HostComponent.displayName = `Mock${tag}`;
+    return HostComponent;
+  };
+  return {
+    Platform: { OS: 'web' },
+    Pressable: host('button'),
+    ScrollView: host('main'),
+    StyleSheet: { create: (value: unknown) => value },
+    Text: host('span'),
+    TextInput: host('input'),
+    View: host('div'),
+  };
+});
+
+vi.mock('expo-crypto', () => ({
+  randomUUID: () => {
+    mocks.uuidCounter.value += 1;
+    return `00000000-0000-4000-8000-${String(mocks.uuidCounter.value).padStart(12, '0')}`;
+  },
+}));
+
+vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
+  startProtocolExecution: mocks.start,
+  transitionProtocolExecution: mocks.transition,
+}));
+
+const OWNER = 'owner-1';
+const T0 = '2026-10-13T12:00:00+02:00';
+const T1 = '2026-10-13T12:05:00+02:00';
+
+function readyDecision(): ProtocolDecision {
+  return {
+    status: 'ready',
+    requestId: '11111111-1111-4111-8111-111111111111',
+    confidence: 'high',
+    noPurchaseNeeded: true,
+    steps: [
+      {
+        stepId: 'step-1',
+        position: 1,
+        action: 'apply',
+        productId: 'prod-cleanse',
+        productVersionId: 'v3',
+        toolId: null,
+        toolVersionId: null,
+        waitSeconds: null,
+        rinse: null,
+        reasons: ['rule a@1 requires cleansing'],
+      },
+      {
+        stepId: 'step-2',
+        position: 2,
+        action: 'rinse',
+        productId: null,
+        productVersionId: null,
+        toolId: null,
+        toolVersionId: null,
+        waitSeconds: null,
+        rinse: true,
+        reasons: ['rule a@1 requires rinsing'],
+      },
+    ],
+    omissions: [],
+    alternatives: [],
+    missingInputs: [],
+    audit: {
+      requestId: '11111111-1111-4111-8111-111111111111',
+      engineVersion: '1',
+      evaluatedRules: [],
+      conflicts: [],
+      rankedCandidates: [],
+      rejectedCandidates: [],
+      restrictions: [],
+      missingInputs: [],
+    },
+  } as unknown as ProtocolDecision;
+}
+
+function pendingStep(stepId: string, position: number, action: string) {
+  return {
+    stepId,
+    position,
+    planned: {
+      stepId,
+      position,
+      action,
+      productId: null,
+      productVersionId: null,
+      toolId: null,
+      toolVersionId: null,
+      waitSeconds: null,
+      rinse: null,
+      reasons: ['rule a@1 requires it'],
+    },
+    state: 'pending',
+    confirmedAt: null,
+    deviation: null,
+  };
+}
+
+function executionFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    executionId: '22222222-2222-4222-8222-222222222222',
+    recommendationRunId: '11111111-1111-4111-8111-111111111111',
+    startedAt: T0,
+    updatedAt: T0,
+    status: 'in_progress',
+    steps: [pendingStep('step-1', 1, 'apply'), pendingStep('step-2', 2, 'rinse')],
+    finishedAt: null,
+    closeReason: null,
+    ...overrides,
+  };
+}
+
+function receiptFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    executionId: '22222222-2222-4222-8222-222222222222',
+    recommendationRunId: '11111111-1111-4111-8111-111111111111',
+    status: 'in_progress',
+    revision: 0,
+    updatedAt: T0,
+    createdAt: T0,
+    execution: executionFixture(),
+    ...overrides,
+  };
+}
+
+function text(renderer: ReactTestRenderer): string {
+  return JSON.stringify(renderer.toJSON()).toLowerCase();
+}
+
+function button(renderer: ReactTestRenderer, label: string) {
+  return renderer.root.find(
+    node => node.type === 'button' && node.props.accessibilityLabel === label,
+  );
+}
+
+function hasButton(renderer: ReactTestRenderer, label: string): boolean {
+  return (
+    renderer.root.findAll(
+      node => node.type === 'button' && node.props.accessibilityLabel === label,
+    ).length > 0
+  );
+}
+
+function input(renderer: ReactTestRenderer, label: string) {
+  return renderer.root.find(
+    node => node.type === 'input' && node.props.accessibilityLabel === label,
+  );
+}
+
+async function render(
+  decision: ProtocolDecision = readyDecision(),
+  ownerId: string = OWNER,
+): Promise<ReactTestRenderer> {
+  let renderer!: ReactTestRenderer;
+  await act(async () => {
+    renderer = create(createElement(ProtocolExecution, { ownerId, decision }));
+    await Promise.resolve();
+  });
+  return renderer;
+}
+
+async function press(renderer: ReactTestRenderer, label: string): Promise<void> {
+  await act(async () => {
+    button(renderer, label).props.onPress();
+    await Promise.resolve();
+  });
+}
+
+async function type(renderer: ReactTestRenderer, label: string, value: string): Promise<void> {
+  await act(async () => {
+    input(renderer, label).props.onChangeText(value);
+    await Promise.resolve();
+  });
+}
+
+async function start(renderer: ReactTestRenderer): Promise<void> {
+  mocks.start.mockResolvedValue(receiptFixture());
+  await press(renderer, 'Start this plan');
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+const originalConsoleError = console.error.bind(console);
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((message?: unknown, ...rest: unknown[]) => {
+    if (String(message).includes('react-test-renderer is deprecated')) return;
+    originalConsoleError(message, ...rest);
+  });
+});
+afterAll(() => {
+  consoleErrorSpy.mockRestore();
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.uuidCounter.value = 0;
+  mocks.start.mockResolvedValue(receiptFixture());
+  mocks.transition.mockImplementation(async (command: unknown) => {
+    const parsed = command as { expectedRevision: number; executionId: string; result: unknown };
+    return receiptFixture({ revision: parsed.expectedRevision + 1, execution: parsed.result });
+  });
+});
+
+describe('protocol execution surface', () => {
+  it('mounts and renders without calling any execution API', async () => {
+    const renderer = await render();
+    expect(text(renderer)).toContain('start this plan');
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.transition).not.toHaveBeenCalled();
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('starts only on an explicit start tap', async () => {
+    const renderer = await render();
+    expect(mocks.start).not.toHaveBeenCalled();
+    await start(renderer);
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    const command = mocks.start.mock.calls[0][0] as Record<string, unknown>;
+    expect(command.recommendationRunId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(text(renderer)).toContain('planned steps');
+    expect(text(renderer)).toContain('actually done');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('viewing steps after start performs no further API calls', async () => {
+    const renderer = await render();
+    await start(renderer);
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      renderer.update(createElement(ProtocolExecution, { ownerId: OWNER, decision: readyDecision() }));
+      await Promise.resolve();
+    });
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    expect(mocks.transition).not.toHaveBeenCalled();
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('records a completed step only after confirmation', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Mark done: Step 1');
+    expect(mocks.transition).not.toHaveBeenCalled();
+    await press(renderer, 'Confirm done: Step 1');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    const command = mocks.transition.mock.calls[0][0] as Record<string, unknown>;
+    expect(command).toMatchObject({
+      command: { kind: 'complete-step', stepId: 'step-1' },
+      expectedRevision: 0,
+    });
+    expect(text(renderer)).toContain('actually done');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('records nothing when a deviation is armed but never confirmed', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Skip: Step 1');
+    await type(renderer, 'Reason for skipping', 'ran out of time');
+    expect(mocks.transition).not.toHaveBeenCalled();
+    expect(text(renderer)).toContain('nothing confirmed yet');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('records a skip with its reason shown as record text', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Skip: Step 1');
+    await type(renderer, 'Reason for skipping', 'ran out of time');
+    await press(renderer, 'Confirm skip: Step 1');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    const command = mocks.transition.mock.calls[0][0] as Record<string, unknown>;
+    expect(command).toMatchObject({
+      command: { kind: 'skip-step', stepId: 'step-1', reason: 'ran out of time' },
+    });
+    expect(text(renderer)).toContain('ran out of time');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('records a substitution naming an owned product and no fact keys', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Substitute: Step 1');
+    await type(renderer, 'Reason for substituting', 'used what I own');
+    await type(renderer, 'Owned product id', 'prod-owned');
+    await type(renderer, 'Owned product version id', 'v9');
+    await press(renderer, 'Confirm substitution: Step 1');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    const command = mocks.transition.mock.calls[0][0] as Record<string, unknown>;
+    expect(command).toMatchObject({
+      command: {
+        kind: 'substitute-step',
+        stepId: 'step-1',
+        replacement: { productId: 'prod-owned', productVersionId: 'v9', owned: true },
+      },
+    });
+    const serialized = JSON.stringify(command);
+    expect(serialized).not.toMatch(/facts|snapshot|profileFacts|historyFacts|environmentFacts/i);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('records a modification with its detail shown as record text', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Change: Step 2');
+    await type(renderer, 'Reason for changing', 'less time today');
+    await type(renderer, 'What changed', 'rinsed sooner');
+    await press(renderer, 'Confirm change: Step 2');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    expect(mocks.transition.mock.calls[0][0]).toMatchObject({
+      command: { kind: 'modify-step', stepId: 'step-2', reason: 'less time today', detail: 'rinsed sooner' },
+    });
+    expect(text(renderer)).toContain('rinsed sooner');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('pauses and resumes with confirmed transitions', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Pause this plan');
+    expect(mocks.transition.mock.calls[0][0]).toMatchObject({ command: { kind: 'pause' } });
+    await press(renderer, 'Resume this plan');
+    const resume = mocks.transition.mock.calls[1][0] as Record<string, unknown>;
+    expect(resume).toMatchObject({ command: { kind: 'resume' }, expectedRevision: 1 });
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('abandons only after a confirmed reason', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Stop this plan');
+    expect(mocks.transition).not.toHaveBeenCalled();
+    await type(renderer, 'Reason for stopping', 'no time left');
+    await press(renderer, 'Confirm stop');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    expect(mocks.transition.mock.calls[0][0]).toMatchObject({
+      command: { kind: 'abandon', reason: 'no time left' },
+    });
+    expect(text(renderer)).toContain('no time left');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('retries a failed save with the same operation id', async () => {
+    const renderer = await render();
+    await start(renderer);
+    mocks.transition.mockRejectedValueOnce(new Error('connection reset'));
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    expect(text(renderer)).toContain('could not be saved');
+    expect(hasButton(renderer, 'Retry save')).toBe(true);
+    mocks.transition.mockClear();
+    await press(renderer, 'Retry save');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    const retry = mocks.transition.mock.calls[0][0] as Record<string, unknown>;
+    const firstOperation = '00000000-0000-4000-8000-000000000003';
+    expect(retry.operationId).toBe(firstOperation);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('shows a start failure and retries with the same operation id', async () => {
+    mocks.start.mockRejectedValueOnce(new Error('connection reset'));
+    const renderer = await render();
+    await press(renderer, 'Start this plan');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(text(renderer)).toContain('could not be started');
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    const first = mocks.start.mock.calls[0][0] as Record<string, unknown>;
+    mocks.start.mockClear();
+    await press(renderer, 'Start this plan');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    const retry = mocks.start.mock.calls[0][0] as Record<string, unknown>;
+    expect(retry.operationId).toBe(first.operationId);
+    expect(retry.executionId).toBe(first.executionId);
+    expect(text(renderer)).toContain('planned steps');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('requires a reason before confirming a deviation', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Skip: Step 1');
+    await press(renderer, 'Confirm skip: Step 1');
+    expect(mocks.transition).not.toHaveBeenCalled();
+    expect(text(renderer)).toContain('stays honest');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('requires owned product identity before confirming a substitution', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Substitute: Step 1');
+    await type(renderer, 'Reason for substituting', 'used what I own');
+    await press(renderer, 'Confirm substitution: Step 1');
+    expect(mocks.transition).not.toHaveBeenCalled();
+    expect(text(renderer)).toContain('stays honest');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('cancels an armed flow without recording anything', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Change: Step 2');
+    await press(renderer, 'Cancel');
+    expect(mocks.transition).not.toHaveBeenCalled();
+    expect(hasButton(renderer, 'Confirm change: Step 2')).toBe(false);
+    expect(text(renderer)).toContain('nothing confirmed yet');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('finishes only after every step is handled and then stops offering controls', async () => {
+    const renderer = await render();
+    await start(renderer);
+    expect(hasButton(renderer, 'Finish plan')).toBe(false);
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    await press(renderer, 'Mark done: Step 2');
+    await press(renderer, 'Confirm done: Step 2');
+    expect(hasButton(renderer, 'Finish plan')).toBe(true);
+    await press(renderer, 'Finish plan');
+    const finish = mocks.transition.mock.calls[2][0] as Record<string, unknown>;
+    expect(finish).toMatchObject({ command: { kind: 'complete' }, expectedRevision: 2 });
+    expect(text(renderer)).toContain('completed');
+    expect(hasButton(renderer, 'Pause this plan')).toBe(false);
+    expect(hasButton(renderer, 'Mark done: Step 1')).toBe(false);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('keeps planned and actually-done visibly distinct after a deviation', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Skip: Step 1');
+    await type(renderer, 'Reason for skipping', 'ran out of time');
+    await press(renderer, 'Confirm skip: Step 1');
+    const rendered = text(renderer);
+    expect(rendered).toContain('planned steps');
+    expect(rendered).toContain('actually done');
+    expect(rendered.indexOf('planned steps')).toBeLessThan(rendered.indexOf('actually done'));
+    expect(rendered).toContain('apply');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('discards a late start response after the owner changes', async () => {
+    let release!: (value: unknown) => void;
+    mocks.start.mockImplementation(() => new Promise(resolve => {
+      release = resolve;
+    }));
+    const renderer = await render();
+    await press(renderer, 'Start this plan');
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      renderer.update(createElement(ProtocolExecution, { ownerId: 'owner-2', decision: readyDecision() }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      release(receiptFixture());
+      await Promise.resolve();
+    });
+    expect(text(renderer)).toContain('start this plan');
+    expect(text(renderer)).not.toContain('planned steps');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('ignores a transition response that arrives after unmount', async () => {
+    const renderer = await render();
+    await start(renderer);
+    let release!: (value: unknown) => void;
+    mocks.transition.mockImplementationOnce(() => new Promise(resolve => {
+      release = resolve;
+    }));
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    await act(async () => {
+      renderer.unmount();
+    });
+    await act(async () => {
+      release(receiptFixture({ revision: 1, execution: confirmedResult() }));
+      await Promise.resolve();
+    });
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels controls for screen readers with large touch targets', async () => {
+    const renderer = await render();
+    const startButton = button(renderer, 'Start this plan');
+    expect(startButton.props.accessibilityRole).toBe('button');
+    await start(renderer);
+    const done = button(renderer, 'Mark done: Step 1');
+    expect(done.props.accessibilityRole).toBe('button');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('keeps cosmetic-boundary copy and carries no medical or outcome wording', async () => {
+    const renderer = await render();
+    await start(renderer);
+    const rendered = text(renderer);
+    expect(rendered).toContain('not a diagnosis');
+    expect(rendered).toContain('promises no result');
+    for (const pattern of [/\btreatment\b/i, /\bcure\b/i, /\bguarantee/i, /\bshop\b/i, /\bbuy\b/i, /will improve/i]) {
+      expect(rendered).not.toMatch(pattern);
+    }
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  function confirmedResult() {
+    const execution = executionFixture({ updatedAt: T1 });
+    return {
+      ...execution,
+      steps: execution.steps.map((step: { stepId: string }) => (step.stepId === 'step-1'
+        ? { ...step, state: 'confirmed', confirmedAt: T1, deviation: null }
+        : step)),
+    };
+  }
+});

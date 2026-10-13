@@ -40,6 +40,7 @@ import {
 import { recordRecommendationRun } from './guidance/recommendation-run-api';
 import { generateTodayGuidance } from './guidance/today-guidance-service';
 import { TodayCheckIn } from './TodayCheckIn';
+import { ProtocolExecution } from './ProtocolExecution';
 import type { DestinationId } from './navigation';
 import { Button, styles } from './ui';
 
@@ -380,7 +381,12 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           </View>
         )}
 
-        {result.status === 'ready' && <DecisionView decision={result.decision} />}
+        {result.status === 'ready' && <>
+          <DecisionView decision={result.decision} />
+          {result.decision.steps.length > 0 && (
+            <ProtocolExecution ownerId={ownerId} decision={result.decision} />
+          )}
+        </>}
 
         {result.status === 'needs_input' && (
           <View style={styles.card}>

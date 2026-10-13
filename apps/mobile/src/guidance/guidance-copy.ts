@@ -180,4 +180,65 @@ export const CHECK_IN_SUMMARY_HEADING = 'Your check-in';
 export const CHECK_IN_SUMMARY_TIME = (minutes: number): string =>
   minutes === 1 ? '1 minute available' : `${minutes} minutes available`;
 export const CHECK_IN_SUMMARY_SAVE_ON = 'You chose to save these answers to My Hair.';
-export const CHECK_IN_SUMMARY_SAVE_OFF = 'These answers stay with this plan request only.';
+export const CHECK_IN_SUMMARY_SAVE_OFF = 'These answers stay with this plan request only';
+
+/**
+ * Protocol execution copy (TD-07–TD-08).
+ *
+ * The execution surface records what actually happened while following one
+ * stored plan. Wording rules, in addition to the file header: planned and
+ * actually-done stay in separate sections and are never merged; deviation
+ * reasons are shown as record text only; nothing promises an outcome and
+ * nothing names a diagnosis, treatment, retailer or purchase.
+ */
+
+export const EXECUTION_START_LABEL = 'Start this plan';
+export const EXECUTION_STARTING_LABEL = 'Starting…';
+export const EXECUTION_START_BODY =
+  'Follow your plan step by step. Nothing is recorded until you confirm it here.';
+export const EXECUTION_PLANNED_HEADING = 'Planned steps';
+export const EXECUTION_ACTUAL_HEADING = 'Actually done';
+export const EXECUTION_NOTHING_CONFIRMED =
+  'Nothing confirmed yet. What you confirm here becomes your private record.';
+export const EXECUTION_SAVE_FAILED =
+  'Your confirmation could not be saved. Nothing was recorded yet.';
+export const EXECUTION_START_FAILED =
+  'Your plan could not be started. Nothing was recorded yet.';
+export const EXECUTION_RETRY_LABEL = 'Retry save';
+export const EXECUTION_PAUSE_LABEL = 'Pause this plan';
+export const EXECUTION_RESUME_LABEL = 'Resume this plan';
+export const EXECUTION_FINISH_LABEL = 'Finish plan';
+export const EXECUTION_FINISH_HINT =
+  'Confirm every step above before finishing. Skipped, substituted and changed steps count as handled.';
+export const EXECUTION_ABANDON_LABEL = 'Stop this plan';
+export const EXECUTION_CONFIRM_STOP_LABEL = 'Confirm stop';
+export const EXECUTION_CANCEL_LABEL = 'Cancel';
+export const EXECUTION_STATUS_LABELS = {
+  in_progress: 'In progress',
+  paused: 'Paused',
+  completed: 'Completed',
+  abandoned: 'Stopped',
+} as const;
+export const EXECUTION_BOUNDARY =
+  'Cosmetic hair-care guidance from your own records, not a diagnosis. Confirming a step records what you did; it promises no result.';
+
+export const markDoneLabel = (position: number): string => `Mark done: Step ${position}`;
+export const confirmDoneLabel = (position: number): string => `Confirm done: Step ${position}`;
+export const skipLabel = (position: number): string => `Skip: Step ${position}`;
+export const confirmSkipLabel = (position: number): string => `Confirm skip: Step ${position}`;
+export const substituteLabel = (position: number): string => `Substitute: Step ${position}`;
+export const confirmSubstituteLabel = (position: number): string =>
+  `Confirm substitution: Step ${position}`;
+export const modifyLabel = (position: number): string => `Change: Step ${position}`;
+export const confirmModifyLabel = (position: number): string => `Confirm change: Step ${position}`;
+
+export const EXECUTION_REASON_SKIP_LABEL = 'Reason for skipping';
+export const EXECUTION_REASON_SUBSTITUTE_LABEL = 'Reason for substituting';
+export const EXECUTION_REASON_MODIFY_LABEL = 'Reason for changing';
+export const EXECUTION_DETAIL_MODIFY_LABEL = 'What changed';
+export const EXECUTION_PRODUCT_ID_LABEL = 'Owned product id';
+export const EXECUTION_PRODUCT_VERSION_LABEL = 'Owned product version id';
+export const EXECUTION_PRODUCT_HELP =
+  'Name a product you own, with its exact version. Anything else is rejected.';
+export const EXECUTION_REASON_ABANDON_LABEL = 'Reason for stopping';
+export const EXECUTION_EMPTY_REASON = 'Add a short reason so your record stays honest.';
