@@ -12,11 +12,19 @@
 --   RPC takes an owner argument, so a caller cannot write another owner's
 --   row even if it wants to (verified by test).
 -- - Run ownership is verified FIRST on every start and transition, before
---   any execution row is touched. A run owned by another owner is refused
+--   any execution write. A run owned by another owner is refused
 --   with 'run-not-owned' and no row or event is written.
 -- - Append-only for the authenticated role: the only table policy granted
 --   to `authenticated` is SELECT. Every write goes through the hardened RPC
---   core below. Events are insert-only history; decisions are immutable.
+--   core below. Events are insert-only history; decisions are immutable by a
+--   BEFORE UPDATE trigger (`decision-immutable`), not merely by omission.
+-- - Result integrity is enforced server-side: a transition persists only when
+--   `p_result` is exactly the stored execution plus the commanded delta —
+--   the commanded step moves `pending` to its terminal state with
+--   well-formed fields (confirmation timestamps equal the transition time,
+--   deviations equal the command content, copied plans byte-identical) and
+--   every other step is byte-identical. Anything else raises
+--   `result-mismatch` with the stored state untouched.
 -- - Idempotent on (user_id, operation_id): replaying the same operation id
 --   with the same request returns the original receipt without writing new
 --   rows or events. Replaying it with different content raises
@@ -28,11 +36,12 @@
 -- - Deviation free text (`reason`/`detail`) is execution history only. This
 --   migration builds no facts, snapshots, or recommendation input from it.
 -- - Service-role maintenance path: the `strandcue_mutator` role (the
---   SECURITY DEFINER owner of the private core) holds the same narrow,
---   owner-confined policies as the recommendation-runs migration. ABSENT was
---   considered and rejected: under forced RLS the definer core still needs
---   table access, and owner-confined mutator policies are the narrowest
---   mechanism that provides it. Every mutator policy is confined to
+--   SECURITY DEFINER owner of the private core) holds narrow, owner-confined,
+--   per-command policies scoped to exactly the writes the core performs
+--   (executions: SELECT/INSERT/UPDATE; events and operations: SELECT/INSERT).
+--   ABSENT was considered and rejected: under forced RLS the definer core
+--   still needs table access, and owner-confined mutator policies are the
+--   narrowest mechanism that provides it. Every mutator policy is confined to
 --   `user_id = request_uid()`, so no cross-owner maintenance is possible,
 --   and cleanup still flows through the profiles foreign-key cascade. A real
 --   service-role connection is granted nothing here.
@@ -107,14 +116,25 @@ create policy protocol_execution_event_read on public.protocol_execution_events 
      and exists (select 1 from public.profiles p
                   where p.user_id = (select strandcue_private.request_uid())
                     and p.account_status = 'active'));
--- Owner-confined maintenance access for the definer core only. Every policy
--- below is confined to the caller's own rows; there is deliberately no
--- cross-owner or anonymous maintenance path.
-create policy protocol_execution_service on public.protocol_executions for all to strandcue_mutator
+-- Owner-confined maintenance access for the definer core only. Policies are
+-- scoped per command to exactly the writes the core performs (executions:
+-- SELECT/INSERT/UPDATE; events: SELECT/INSERT); there is deliberately no
+-- DELETE or event-UPDATE path, and no cross-owner or anonymous path.
+create policy protocol_execution_service_select on public.protocol_executions
+  for select to strandcue_mutator
+  using (user_id = (select strandcue_private.request_uid()));
+create policy protocol_execution_service_insert on public.protocol_executions
+  for insert to strandcue_mutator
+  with check (user_id = (select strandcue_private.request_uid()));
+create policy protocol_execution_service_update on public.protocol_executions
+  for update to strandcue_mutator
   using (user_id = (select strandcue_private.request_uid()))
   with check (user_id = (select strandcue_private.request_uid()));
-create policy protocol_execution_event_service on public.protocol_execution_events for all to strandcue_mutator
-  using (user_id = (select strandcue_private.request_uid()))
+create policy protocol_execution_event_service_select on public.protocol_execution_events
+  for select to strandcue_mutator
+  using (user_id = (select strandcue_private.request_uid()));
+create policy protocol_execution_event_service_insert on public.protocol_execution_events
+  for insert to strandcue_mutator
   with check (user_id = (select strandcue_private.request_uid()));
 create policy protocol_execution_operation_read on strandcue_private.protocol_execution_operations
   for select to strandcue_mutator
@@ -122,6 +142,21 @@ create policy protocol_execution_operation_read on strandcue_private.protocol_ex
 create policy protocol_execution_operation_append on strandcue_private.protocol_execution_operations
   for insert to strandcue_mutator
   with check (user_id = (select strandcue_private.request_uid()));
+
+create or replace function strandcue_private.forbid_decision_rewrite()
+returns trigger language plpgsql set search_path = '' as $$
+begin
+  if old.decision is distinct from new.decision then
+    raise exception 'decision-immutable' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+alter function strandcue_private.forbid_decision_rewrite() owner to strandcue_mutator;
+
+create trigger protocol_executions_decision_immutable
+  before update on public.protocol_executions
+  for each row execute function strandcue_private.forbid_decision_rewrite();
 
 create or replace function strandcue_private.build_initial_execution(
   p_execution_id uuid, p_run_id uuid, p_decision jsonb, p_started_at timestamptz)
@@ -245,6 +280,8 @@ declare
   uid uuid := strandcue_private.request_uid();
   kind text := p_command ->> 'kind';
   next_status text;
+  expected_state text;
+  expected_deviation jsonb;
   existing public.protocol_executions%rowtype;
   existing_op strandcue_private.protocol_execution_operations%rowtype;
   request jsonb;
@@ -253,6 +290,11 @@ declare
   step jsonb;
   stored_ids jsonb;
   result_ids jsonb;
+  nsteps integer;
+  position integer;
+  stored_step jsonb;
+  result_step jsonb;
+  resolved boolean;
 begin
   if uid is null then raise exception 'authentication-required' using errcode = '42501'; end if;
   if p_operation_id is null or p_execution_id is null or p_expected_revision is null
@@ -284,9 +326,6 @@ begin
     return existing_op.result;
   end if;
 
-  if p_expected_revision is distinct from existing.revision then
-    raise exception 'revision-conflict' using errcode = '23505';
-  end if;
   if existing.status in ('completed', 'abandoned') then
     raise exception 'execution-terminal' using errcode = '22023';
   end if;
@@ -334,24 +373,109 @@ begin
     raise exception 'unknown-command' using errcode = '22023';
   end if;
 
+  -- Result integrity: the caller-computed snapshot must be exactly the
+  -- stored execution plus the commanded delta. Identities, order, envelope
+  -- fields, and every untouched byte must match; the commanded step alone
+  -- may move from pending to its terminal state with well-formed fields.
+  -- Anything else raises result-mismatch with the stored state untouched.
   if (p_result ->> 'executionId') is distinct from p_execution_id::text
      or (p_result ->> 'recommendationRunId') is distinct from existing.recommendation_run_id::text
-     or (p_result ->> 'status') is distinct from next_status then
+     or (p_result ->> 'status') is distinct from next_status
+     or (p_result ->> 'startedAt')::timestamptz is distinct from
+        (existing.execution ->> 'startedAt')::timestamptz then
     raise exception 'result-mismatch' using errcode = '22023';
   end if;
-  select jsonb_agg(item.value ->> 'stepId') into stored_ids
-    from jsonb_array_elements(existing.execution -> 'steps') as item(value);
-  select jsonb_agg(item.value ->> 'stepId') into result_ids
-    from jsonb_array_elements(p_result -> 'steps') as item(value);
+  select jsonb_agg(ordered.value ->> 'stepId' order by ordered.position) into stored_ids
+    from jsonb_array_elements(existing.execution -> 'steps')
+      with ordinality as ordered(value, position);
+  select jsonb_agg(ordered.value ->> 'stepId' order by ordered.position) into result_ids
+    from jsonb_array_elements(p_result -> 'steps')
+      with ordinality as ordered(value, position);
   if stored_ids is distinct from result_ids then
     raise exception 'result-mismatch' using errcode = '22023';
   end if;
+  nsteps := jsonb_array_length(existing.execution -> 'steps');
 
+  if kind in ('complete-step', 'skip-step', 'substitute-step', 'modify-step') then
+    expected_state := case kind
+      when 'complete-step' then 'confirmed'
+      when 'skip-step' then 'skipped'
+      when 'substitute-step' then 'substituted'
+      else 'modified' end;
+    if kind = 'complete-step' then
+      expected_deviation := 'null'::jsonb;
+    elsif kind = 'skip-step' then
+      expected_deviation := jsonb_build_object('kind', 'skip', 'reason', p_command ->> 'reason');
+    elsif kind = 'substitute-step' then
+      expected_deviation := jsonb_build_object('kind', 'substitute',
+        'reason', p_command ->> 'reason', 'replacement', p_command -> 'replacement');
+    else
+      expected_deviation := jsonb_build_object('kind', 'modify',
+        'reason', p_command ->> 'reason', 'detail', p_command ->> 'detail');
+    end if;
+    resolved := false;
+    for position in 0..(nsteps - 1) loop
+      stored_step := (existing.execution -> 'steps') -> position;
+      result_step := (p_result -> 'steps') -> position;
+      if (stored_step ->> 'stepId') is distinct from (p_command ->> 'stepId') then
+        if result_step is distinct from stored_step then
+          raise exception 'result-mismatch' using errcode = '22023';
+        end if;
+      else
+        resolved := true;
+        if (result_step ->> 'state') is distinct from expected_state
+           or (result_step -> 'planned') is distinct from (stored_step -> 'planned')
+           or (result_step ->> 'position') is distinct from (stored_step ->> 'position')
+           or (result_step -> 'deviation') is distinct from expected_deviation
+           or (p_result -> 'finishedAt') is distinct from 'null'::jsonb
+           or (p_result -> 'closeReason') is distinct from (existing.execution -> 'closeReason') then
+          raise exception 'result-mismatch' using errcode = '22023';
+        end if;
+        if kind = 'complete-step' then
+          if (result_step ->> 'confirmedAt')::timestamptz is distinct from p_at then
+            raise exception 'result-mismatch' using errcode = '22023';
+          end if;
+        elsif (result_step -> 'confirmedAt') is distinct from 'null'::jsonb then
+          raise exception 'result-mismatch' using errcode = '22023';
+        end if;
+      end if;
+    end loop;
+    if not resolved then
+      raise exception 'result-mismatch' using errcode = '22023';
+    end if;
+  else
+    if (p_result -> 'steps') is distinct from (existing.execution -> 'steps') then
+      raise exception 'result-mismatch' using errcode = '22023';
+    end if;
+    if kind in ('pause', 'resume') then
+      if (p_result -> 'finishedAt') is distinct from 'null'::jsonb
+         or (p_result -> 'closeReason') is distinct from (existing.execution -> 'closeReason') then
+        raise exception 'result-mismatch' using errcode = '22023';
+      end if;
+    elsif kind = 'abandon' then
+      if (p_result ->> 'finishedAt')::timestamptz is distinct from p_at
+         or (p_result ->> 'closeReason') is distinct from (p_command ->> 'reason') then
+        raise exception 'result-mismatch' using errcode = '22023';
+      end if;
+    else
+      if (p_result ->> 'finishedAt')::timestamptz is distinct from p_at
+         or (p_result -> 'closeReason') is distinct from 'null'::jsonb then
+        raise exception 'result-mismatch' using errcode = '22023';
+      end if;
+    end if;
+  end if;
+
+  -- Lost-update guard: the revision predicate makes the write conditional, so
+  -- a stale expected revision updates zero rows instead of overwriting.
   update public.protocol_executions
     set execution = p_result, revision = existing.revision + 1,
         status = next_status, updated_at = now()
     where user_id = uid and execution_id = p_execution_id
+      and revision = p_expected_revision
     returning * into existing;
+  if not found then
+    raise exception 'revision-conflict' using errcode = '23505';
+  end if;
 
   select coalesce(max(sequence), 0) + 1 into next_sequence
     from public.protocol_execution_events
@@ -481,6 +605,7 @@ begin
 end;
 $$;
 
+revoke all on function strandcue_private.forbid_decision_rewrite() from public, anon, authenticated;
 revoke all on function strandcue_private.build_initial_execution(uuid, uuid, jsonb, timestamptz)
   from public, anon, authenticated;
 grant execute on function strandcue_private.build_initial_execution(uuid, uuid, jsonb, timestamptz)
@@ -517,10 +642,10 @@ grant execute on function strandcue_private.request_uid() to authenticated;
 
 revoke all on table public.protocol_executions from public, anon, authenticated;
 grant select on table public.protocol_executions to authenticated;
-grant select, insert, update, delete on table public.protocol_executions to strandcue_mutator;
+grant select, insert, update on table public.protocol_executions to strandcue_mutator;
 revoke all on table public.protocol_execution_events from public, anon, authenticated;
 grant select on table public.protocol_execution_events to authenticated;
-grant select, insert, update, delete on table public.protocol_execution_events to strandcue_mutator;
+grant select, insert on table public.protocol_execution_events to strandcue_mutator;
 revoke all on table strandcue_private.protocol_execution_operations from public, anon, authenticated;
 grant select, insert on table strandcue_private.protocol_execution_operations to strandcue_mutator;
 

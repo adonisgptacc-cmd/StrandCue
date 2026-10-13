@@ -260,6 +260,8 @@ describe('protocol execution persistence boundary', () => {
       'pending-steps-remain',
       'unknown-step',
       'step-already-resolved',
+      'unknown-command',
+      'result-mismatch',
       'not-ready-decision',
       'account-not-active',
       'authentication-required',

@@ -335,15 +335,22 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await complete(db);
     await recordRun(db);
     const started = await start(db);
-    const command = { kind: 'complete-step', stepId: 'step-1' };
-    const result = confirmedResult(started.execution, 'step-1', AT);
-    await transition(db, { command, result });
+    const first = confirmedResult(started.execution, 'step-1', AT);
+    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: first });
+    // A still-legal command on the next step with a stale revision must hit the
+    // guarded update predicate, not a legality gate.
+    const second = confirmedResult(first, 'step-2', AT);
     await expect(
-      transition(db, { expectedRevision: 0, command, result }),
+      transition(db, {
+        expectedRevision: 0,
+        command: { kind: 'complete-step', stepId: 'step-2' },
+        result: second,
+      }),
     ).rejects.toThrow(/revision-conflict/i);
     const rows = await listExecutionRows(db);
     expect(rows[0].revision).toBe(1);
     expect(rows[0].execution.steps[0]).toMatchObject({ state: 'confirmed' });
+    expect(rows[0].execution.steps[1]).toMatchObject({ state: 'pending' });
   });
 
   it('enforces status legality for pause, resume, and terminal commands', async () => {
@@ -602,6 +609,230 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     }
     expect(grants.rows.length).toBeGreaterThan(0);
     await asUser(db, USER_A);
+  });
+
+  it('refuses a forged result that resolves the wrong step', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const forged = confirmedResult(started.execution, 'step-2', AT);
+    await expect(
+      transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: forged }),
+    ).rejects.toThrow(/result-mismatch/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution.steps).toEqual(started.execution.steps);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('refuses a forged result that resolves no step', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    await expect(
+      transition(db, {
+        command: { kind: 'complete-step', stepId: 'step-1' },
+        result: started.execution,
+      }),
+    ).rejects.toThrow(/result-mismatch/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution.steps).toEqual(started.execution.steps);
+  });
+
+  it('refuses a forged result that resurrects a resolved step', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const first = confirmedResult(started.execution, 'step-1', AT);
+    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: first });
+    const resurrected = {
+      ...first,
+      steps: [
+        { ...first.steps[0], state: 'pending', confirmedAt: null },
+        { ...first.steps[1], state: 'confirmed', confirmedAt: AT, deviation: null },
+      ],
+    };
+    await expect(
+      transition(db, {
+        expectedRevision: 1,
+        command: { kind: 'complete-step', stepId: 'step-2' },
+        result: resurrected,
+      }),
+    ).rejects.toThrow(/result-mismatch/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(1);
+    expect(rows[0].execution.steps).toEqual(first.steps);
+    expect(await listEventRows(db)).toHaveLength(2);
+  });
+
+  it('refuses a fabricated confirmation timestamp', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const forged = confirmedResult(started.execution, 'step-1', '2026-10-13T09:06:00.000Z');
+    await expect(
+      transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: forged }),
+    ).rejects.toThrow(/result-mismatch/i);
+    expect((await listExecutionRows(db))[0].revision).toBe(0);
+  });
+
+  it('refuses deviation content that does not match the command', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const forged = {
+      ...started.execution,
+      updatedAt: AT,
+      steps: started.execution.steps.map((step: any) =>
+        step.stepId === 'step-1'
+          ? { ...step, state: 'skipped', deviation: { kind: 'skip', reason: 'forged reason' } }
+          : step,
+      ),
+    };
+    await expect(
+      transition(db, {
+        command: { kind: 'skip-step', stepId: 'step-1', reason: 'owner skipped' },
+        result: forged,
+      }),
+    ).rejects.toThrow(/result-mismatch/i);
+    expect((await listExecutionRows(db))[0].revision).toBe(0);
+  });
+
+  it('refuses a forged result that rewrites the copied plan', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const forged = confirmedResult(started.execution, 'step-1', AT);
+    forged.steps[0] = {
+      ...forged.steps[0],
+      planned: { ...forged.steps[0].planned, action: 'Forged action' },
+    };
+    await expect(
+      transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: forged }),
+    ).rejects.toThrow(/result-mismatch/i);
+    expect((await listExecutionRows(db))[0].revision).toBe(0);
+  });
+
+  it('refuses results with mismatched identity, status, or step ids', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    await expect(
+      transition(db, { command: { kind: 'pause' }, result: started.execution }),
+    ).rejects.toThrow(/result-mismatch/i);
+    await expect(
+      transition(db, {
+        command: { kind: 'pause' },
+        result: { ...pausedResult(), executionId: crypto.randomUUID() },
+      }),
+    ).rejects.toThrow(/result-mismatch/i);
+    await expect(
+      transition(db, {
+        command: { kind: 'pause' },
+        result: { ...pausedResult(), recommendationRunId: crypto.randomUUID() },
+      }),
+    ).rejects.toThrow(/result-mismatch/i);
+    const dropped = pausedResult();
+    await expect(
+      transition(db, {
+        command: { kind: 'pause' },
+        result: { ...dropped, steps: [dropped.steps[0]] },
+      }),
+    ).rejects.toThrow(/result-mismatch/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution.steps).toEqual(started.execution.steps);
+  });
+
+  it('limits mutator table grants to the writes the core performs', async () => {
+    await db.exec('set session authorization postgres');
+    const privileges = async (schema: string, table: string) =>
+      (
+        await db.query<{ privilege_type: string }>(
+          `select privilege_type from information_schema.role_table_grants
+           where grantee = 'strandcue_mutator' and table_schema = $1 and table_name = $2
+           order by 1`,
+          [schema, table],
+        )
+      ).rows.map(row => row.privilege_type);
+    expect(await privileges('public', 'protocol_executions')).toEqual([
+      'INSERT',
+      'SELECT',
+      'UPDATE',
+    ]);
+    expect(await privileges('public', 'protocol_execution_events')).toEqual(['INSERT', 'SELECT']);
+    expect(await privileges('strandcue_private', 'protocol_execution_operations')).toEqual([
+      'INSERT',
+      'SELECT',
+    ]);
+    const commands = await db.query<{ tablename: string; cmd: string }>(
+      `select tablename, cmd from pg_policies where schemaname = 'public'
+       and tablename in ('protocol_executions','protocol_execution_events')`,
+    );
+    const byTable = new Map<string, string[]>();
+    for (const row of commands.rows) {
+      byTable.set(row.tablename, [...(byTable.get(row.tablename) ?? []), row.cmd]);
+    }
+    expect(byTable.get('protocol_executions')).not.toContain('ALL');
+    expect(byTable.get('protocol_executions')).not.toContain('DELETE');
+    expect(byTable.get('protocol_execution_events')).not.toContain('UPDATE');
+    expect(byTable.get('protocol_execution_events')).not.toContain('DELETE');
+    expect(byTable.get('protocol_execution_events')).not.toContain('ALL');
+    await asUser(db, USER_A);
+  });
+
+  it('refuses decision rewrites at the database while allowing legitimate updates', async () => {
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    await db.exec('set session authorization postgres');
+    await expect(
+      db.query(`update public.protocol_executions set decision = '{}'::jsonb`),
+    ).rejects.toThrow(/decision-immutable/i);
+    await db.query(`update public.protocol_executions set status = 'paused'`);
+    const rows = (
+      await db.query<{ status: string; decision: any }>(
+        'select status, decision from public.protocol_executions',
+      )
+    ).rows;
+    expect(rows[0].status).toBe('paused');
+    expect(rows[0].decision).toMatchObject({ status: 'ready' });
+    await asUser(db, USER_A);
+  });
+
+  it('guards the revision predicate inside the transition update', async () => {
+    const sql = await readFile(
+      'supabase/migrations/20261013175703_protocol_executions.sql',
+      'utf8',
+    );
+    expect(sql).toMatch(/and revision = p_expected_revision/);
+  });
+
+  it('pages history through cursors to a terminal null', async () => {
+    await complete(db);
+    await recordRun(db);
+    const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    for (const executionId of ids) await start(db, { executionId });
+    const first = await listHistory(db, 2);
+    expect(first.items).toHaveLength(2);
+    expect(first.nextCursor).not.toBeNull();
+    const second = await listHistory(db, 2, first.nextCursor);
+    expect(second.items).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
+    const seen = [...first.items, ...second.items]
+      .map((item: any) => item.executionId)
+      .sort();
+    expect(seen).toEqual([...ids].sort());
+  });
+
+  it('states run-ownership verification as before any execution write', async () => {
+    const sql = await readFile(
+      'supabase/migrations/20261013175703_protocol_executions.sql',
+      'utf8',
+    );
+    expect(sql).toMatch(/any execution write/);
+    expect(sql).not.toMatch(/row is touched/);
   });
 
   it('never gates persistence on substitution availability', async () => {
