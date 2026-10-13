@@ -366,6 +366,28 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     setFormError(null);
   }
 
+  // Paint-window guard: the reset to `idle` for a new owner lands in an
+  // effect, i.e. AFTER the first commit with the new `ownerId`. Rendering
+  // `ui.execution` here would paint the previous owner's steps, deviations
+  // and results under the new owner's session for that commit. While the
+  // stored owner disagrees with the prop, render only the owner-neutral start
+  // card — old execution data can never reach this render path. (The `key`
+  // at the mount site remounts the whole surface for the app path; this guard
+  // covers every prop-change path.)
+  if (ui.ownerId !== ownerId) {
+    return <View style={styles.card}>
+      <Text style={styles.heading}>Follow this plan</Text>
+      <Text style={styles.body}>{EXECUTION_START_BODY}</Text>
+      <Button
+        title={EXECUTION_START_LABEL}
+        accessibilityLabel={EXECUTION_START_LABEL}
+        disabled
+        onPress={() => undefined}
+      />
+      <Text style={styles.subtitle}>{EXECUTION_BOUNDARY}</Text>
+    </View>;
+  }
+
   if (ui.phase === 'idle' || (ui.phase === 'save_failed' && ui.execution === null && ui.startRequest !== null && ui.pending === null)) {
     return <View style={styles.card}>
       <Text style={styles.heading}>Follow this plan</Text>

@@ -384,7 +384,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         {result.status === 'ready' && <>
           <DecisionView decision={result.decision} />
           {result.decision.steps.length > 0 && (
-            <ProtocolExecution ownerId={ownerId} decision={result.decision} />
+            <ProtocolExecution key={ownerId} ownerId={ownerId} decision={result.decision} />
           )}
         </>}
 

@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, useLayoutEffect } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -541,6 +541,78 @@ describe('protocol execution surface', () => {
       await Promise.resolve();
     });
     expect(mocks.transition).toHaveBeenCalledTimes(1);
+  });
+
+  it('never paints the previous owner execution after an owner switch', async () => {
+    // Layout effects run at each commit, before the passive reset effect.
+    // Capturing the tree there records the FIRST post-switch commit itself —
+    // the only place a cross-owner paint can be observed.
+    const snapshots: string[] = [];
+    let probeRenderer: ReactTestRenderer | null = null;
+    function OwnerProbe({ ownerId, decision, onCommit }: {
+      readonly ownerId: string;
+      readonly decision: ProtocolDecision;
+      readonly onCommit: () => void;
+    }) {
+      useLayoutEffect(() => {
+        onCommit();
+      }, [ownerId, onCommit]);
+      return createElement(ProtocolExecution, { ownerId, decision });
+    }
+    const handleCommit = () => {
+      if (probeRenderer !== null) {
+        snapshots.push(JSON.stringify(probeRenderer.toJSON()).toLowerCase());
+      }
+    };
+    await act(async () => {
+      probeRenderer = create(
+        createElement(OwnerProbe, { ownerId: OWNER, decision: readyDecision(), onCommit: handleCommit }),
+      );
+      await Promise.resolve();
+    });
+    if (probeRenderer === null) throw new Error('expected the probe surface to mount');
+    const renderer: ReactTestRenderer = probeRenderer;
+    await start(renderer);
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    await press(renderer, 'Skip: Step 2');
+    await type(renderer, 'Reason for skipping', 'ran out of time');
+    await press(renderer, 'Confirm skip: Step 2');
+    expect(text(renderer)).toContain('done step 1');
+    expect(text(renderer)).toContain('ran out of time');
+    snapshots.length = 0;
+    await act(async () => {
+      renderer.update(
+        createElement(OwnerProbe, { ownerId: 'owner-2', decision: readyDecision(), onCommit: handleCommit }),
+      );
+      await Promise.resolve();
+    });
+    expect(snapshots.length).toBeGreaterThan(0);
+    const firstCommit = snapshots[0] ?? '';
+    expect(firstCommit).not.toContain('done step 1');
+    expect(firstCommit).not.toContain('ran out of time');
+    expect(firstCommit).toContain('start this plan');
+    expect(text(renderer)).toContain('start this plan');
+    expect(text(renderer)).not.toContain('ran out of time');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('renders every control on the shared large-target spec', async () => {
+    const { styles: shared } = await import('../../apps/mobile/src/ui');
+    expect(shared.button.minHeight).toBeGreaterThanOrEqual(44);
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Skip: Step 1');
+    const controls = renderer.root.findAll(node => node.type === 'button');
+    expect(controls.length).toBeGreaterThan(0);
+    for (const control of controls) {
+      expect((control.props.style as unknown[])).toContain(shared.button);
+    }
+    await act(async () => {
+      renderer.unmount();
+    });
   });
 
   it('labels controls for screen readers with large touch targets', async () => {
