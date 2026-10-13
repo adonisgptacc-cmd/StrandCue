@@ -5,6 +5,7 @@ export * from './dates.ts';
 export * from './discovery-backlog.ts';
 export * from './guidance/index.ts';
 export * from './passport.ts';
+export * from './protocol-execution.ts';
 export * from './recommendations/index.ts';
 export {
   BaselineRevisionSchema,
