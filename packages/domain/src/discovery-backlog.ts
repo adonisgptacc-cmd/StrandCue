@@ -24,7 +24,8 @@
  *   mismatches. Always carries an exclusionReason.
  * - `duplicate_candidate`: a later normalized repeat of an earlier row.
  * - `possible_reformulation`: the source text flags a reformulation, name
- *   change, or new/old formula signal.
+ *   change, or new/old formula signal — or a normalized repeat carries
+ *   conflicting exact version/formulation markers.
  */
 
 import { z } from 'zod';
@@ -85,9 +86,50 @@ export type DiscoveryIdentityStatus = z.output<typeof DiscoveryIdentityStatusSch
 
 const DAY_PATTERN = /^([1-9]\d{3})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
+/**
+ * Real calendar check (no wall-clock): round-trips the date parts through UTC
+ * so shape-valid but impossible dates (`2026-02-31`) and invalid leap days
+ * (`2023-02-29`) fail while a real leap day (`2024-02-29`) passes.
+ */
+function isCalendarDay(value: string): boolean {
+  const [yearText, monthText, dayText] = value.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  return (
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day
+  );
+}
+
+/**
+ * Pure discovery-date validator with injected-`today` semantics (never the
+ * wall clock). Rejects malformed values, timestamps where a calendar date is
+ * required, impossible dates, and dates after `today`; returns the validated
+ * date string unchanged.
+ */
+export function validateDiscoveryDate(value: string, today: string): string {
+  if (!DAY_PATTERN.test(value) || !isCalendarDay(value)) {
+    throw new Error(`Invalid discovery date (expected a real YYYY-MM-DD calendar day): ${value}`);
+  }
+  if (!DAY_PATTERN.test(today) || !isCalendarDay(today)) {
+    throw new Error(`Invalid reference date (expected a real YYYY-MM-DD calendar day): ${today}`);
+  }
+  if (value > today) {
+    throw new Error(`Discovery date ${value} is after ${today}`);
+  }
+  return value;
+}
+
 const sourceCheckedAtSchema = z
   .string()
-  .refine(value => DAY_PATTERN.test(value), 'Expected a valid ISO calendar day')
+  .refine(
+    value => DAY_PATTERN.test(value) && isCalendarDay(value),
+    'Expected a valid ISO calendar day',
+  )
   .refine(
     value => value <= DISCOVERY_CUTOFF_DATE,
     `Source check dates after ${DISCOVERY_CUTOFF_DATE} are not supported`,
@@ -242,6 +284,39 @@ const COLOUR_CHEMISTRY_PATTERN =
 
 const REFORMULATION_SIGNAL_PATTERN =
   /reformulat|name change|packaging change|new formula|old formula|relaunch|previously formulated/i;
+
+/**
+ * Exact version/formulation markers used only to separate a conflicting repeat
+ * from a plain duplicate: `new/old formula`, `reformulation` wording,
+ * `relaunch`/`name change` signals, and explicit version tokens (`v1`,
+ * `version 2`). Cosmetic parentheticals (`long title variant`, SKU notes) and
+ * bare words like `variant` never match, so near-duplicate packs stay
+ * `duplicate_candidate`.
+ */
+const FORMULATION_MARKER_PATTERN =
+  /new formula|old formula|reformulat\w*|relaunch|name change|packaging change|previously formulated|versions?\s*\d+|\bv\s*\.?\s*\d+/gi;
+
+function formulationMarkersOf(row: {
+  readonly listedName: string;
+  readonly listedVariant: string | null;
+  readonly listedSize: string | null;
+}): Set<string> {
+  const text = [row.listedName, row.listedVariant ?? '', row.listedSize ?? ''].join('\n');
+  const markers = new Set<string>();
+  for (const hit of text.match(FORMULATION_MARKER_PATTERN) ?? []) {
+    markers.add(hit.toLowerCase());
+  }
+  return markers;
+}
+
+function formulationMarkersConflict(first: Set<string>, current: Set<string>): boolean {
+  if (first.size === 0 || current.size === 0) return false;
+  if (first.size !== current.size) return true;
+  for (const marker of first) {
+    if (!current.has(marker)) return true;
+  }
+  return false;
+}
 
 export interface IdentityAssignmentInput {
   readonly category: DiscoveryCategory;
@@ -640,7 +715,13 @@ function sourceTypeRank(sourceType: DiscoverySourceType): number {
   }
 }
 
+const TIMESTAMP_PREFIX_PATTERN = /20\d{2}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
+
 function extractDate(cell: string): string {
+  // Never silently truncate a timestamp to its date prefix: surface the
+  // timestamp token so validation rejects it where a date is required.
+  const timestamp = TIMESTAMP_PREFIX_PATTERN.exec(cell);
+  if (timestamp !== null) return timestamp[0];
   const match = /20\d{2}-\d{2}-\d{2}/.exec(cell);
   return match !== null ? match[0] : DISCOVERY_CUTOFF_DATE;
 }
@@ -656,9 +737,12 @@ function splitQuestions(cell: string): string[] {
 
 /**
  * Deterministic builder: parse every batch's OUTPUT 2 table in canonical
- * batch order, assign states, mark exact normalized repeats (brand, name,
- * variant, size) after the first occurrence as `duplicate_candidate`,
- * fingerprint each row, and schema-validate the result.
+ * batch order, validate each check date with `validateDiscoveryDate` against
+ * the cutoff, assign states, mark exact normalized repeats (brand, name,
+ * variant, size) after the first occurrence as `duplicate_candidate` — unless
+ * the repeat carries conflicting exact version/formulation markers, which
+ * marks it `possible_reformulation` instead — fingerprint each row, and
+ * schema-validate the result.
  */
 export function buildDiscoveryBacklog(inputs: readonly DiscoveryBatchInput[]): DiscoveryRow[] {
   const ordered = [...inputs].sort(
@@ -677,8 +761,9 @@ export function buildDiscoveryBacklog(inputs: readonly DiscoveryBatchInput[]): D
     return { row, sourceType, assignment };
   });
 
-  const seen = new Set<string>();
+  const seen = new Map<string, Set<string>>();
   return provisional.map(({ row, sourceType, assignment }) => {
+    validateDiscoveryDate(row.sourceCheckedAt, DISCOVERY_CUTOFF_DATE);
     let identityStatus = assignment.identityStatus;
     let exclusionReason = assignment.exclusionReason;
     if (identityStatus !== 'excluded_scope') {
@@ -688,11 +773,16 @@ export function buildDiscoveryBacklog(inputs: readonly DiscoveryBatchInput[]): D
         normalizeDiscoveryText(row.listedVariant ?? ''),
         normalizeDiscoveryText(row.listedSize ?? ''),
       ].join('\0');
-      if (seen.has(key)) {
-        identityStatus = 'duplicate_candidate';
+      const markers = formulationMarkersOf(row);
+      const firstMarkers = seen.get(key);
+      if (firstMarkers === undefined) {
+        seen.set(key, markers);
+      } else if (formulationMarkersConflict(firstMarkers, markers)) {
+        identityStatus = 'possible_reformulation';
         exclusionReason = null;
       } else {
-        seen.add(key);
+        identityStatus = 'duplicate_candidate';
+        exclusionReason = null;
       }
     }
     const fingerprint = fingerprintDiscoveryRow({

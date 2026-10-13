@@ -50,3 +50,40 @@ reconstructed here.
 - Retailer feeds and brand homepages never verify identity (all such rows are `identity_unverified`).
 - Catalogue identity and single-day feed prices are not uniformly reliable; both claims are removed, not repeated.
 - All 313 rows remain discovery leads. Nothing here is importable into intake, evidence, capability, bundle, or migration artifacts.
+
+## 5. Validation hardening (2026-10-13; `packages/domain/src/discovery-backlog.ts`)
+
+Resolved and locked by tests in `tests/domain/discovery-backlog.test.ts`:
+
+- **Calendar validity is now a real check, not shape-only.** `validateDiscoveryDate(value, today)`
+  (pure, exported) round-trips date parts through UTC: rejects `2026-02-31` and `2023-02-29`,
+  accepts `2024-02-29`. The row schema enforces the same check; the builder calls the validator
+  for every row against the `2026-10-12` cutoff. Injected-`today` semantics only — no wall-clock.
+- **Timestamps are rejected where dates are required** (validator, schema, and builder). The table
+  parser no longer truncates a timestamp to its date prefix; it surfaces the timestamp token so
+  validation fails loudly.
+- **Fingerprint case semantics are locked.** Brand/name/variant/size are identity-insensitive to
+  case (normalization); temporary id, source batch, and source URL are case-significant. A test
+  rebuilds all 313 rows from the ten batches and asserts every checked-in fingerprint is
+  byte-identical, and a second test asserts no identity state or quarantine reason changed.
+- **`possible_reformulation` is exercised synthetically** (zero real-data instances): normalized
+  repeats with conflicting exact markers (`(New Formula)` vs `(Old Formula)`, `(v1)` vs
+  `(v2 …)`) become `possible_reformulation`; identical, cosmetic-only (`long title variant`),
+  or one-sided markers stay `duplicate_candidate`. All 5 real duplicates verified unchanged.
+- **Selsun/medicinal/antifungal quarantine is locked with absence proof.** Seven synthetic name
+  classes (Selsun, Nizoral, ketoconazole, selenium sulfide, anti-fungal, medicinal, therapeutic
+  hair-loss) land in `excluded_scope` with a human-review reason, carry exactly the discovery key
+  set, and contain no capability key or token.
+
+Remaining gaps (open for human review):
+
+1. `extractDate` still falls back to the cutoff date when a `lastChecked` cell holds no date at
+   all — a fabricated date, not evidence. Human to fix the source cell.
+2. One invalid date aborts the whole builder run (loud by design, never silent). Human to fix the
+   source cell before the next catalogue batch.
+3. A `possible_reformulation` notes-text signal on a row that is also a normalized repeat is still
+   overwritten to `duplicate_candidate`. No real-data instance; listed so the signal loss is known.
+4. Single-row version-conflict language in free text (e.g. "Version 1 vs Version 2") with no
+   dedup collision is not classified as `possible_reformulation`.
+5. No discovery record was promoted: the rebuild-vs-checked-in comparison proves all 313 identity
+   states, quarantine reasons, and fingerprints are unchanged.

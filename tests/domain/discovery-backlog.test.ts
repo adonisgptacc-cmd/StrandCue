@@ -10,6 +10,7 @@ import {
   classifySourceType,
   fingerprintDiscoveryRow,
   parseDiscoveryTable,
+  validateDiscoveryDate,
   type DiscoveryBatchInput,
   type DiscoverySourceBatch,
 } from '../../packages/domain/src/discovery-backlog.ts';
@@ -665,5 +666,374 @@ describe('discovery count reconciliation against source batches', () => {
       expect(byId.get(id)?.identityStatus).toBe('excluded_scope');
     }
     expect(byId.get('ZA-INDUSTRIAL-0031')?.identityStatus).toBe('excluded_scope');
+  });
+});
+
+describe('validateDiscoveryDate', () => {
+  it('accepts a valid past date and returns it unchanged', () => {
+    expect(validateDiscoveryDate('2026-10-12', '2026-10-13')).toBe('2026-10-12');
+  });
+
+  it('accepts today when today is the injected reference day', () => {
+    expect(validateDiscoveryDate('2026-10-13', '2026-10-13')).toBe('2026-10-13');
+  });
+
+  it('accepts a real leap day', () => {
+    expect(validateDiscoveryDate('2024-02-29', '2026-10-13')).toBe('2024-02-29');
+  });
+
+  it('rejects impossible calendar dates', () => {
+    expect(() => validateDiscoveryDate('2026-02-31', '2026-10-13')).toThrow();
+    expect(() => validateDiscoveryDate('2026-04-31', '2026-10-13')).toThrow();
+    expect(() => validateDiscoveryDate('2026-13-01', '2026-10-13')).toThrow();
+  });
+
+  it('rejects an invalid leap day', () => {
+    expect(() => validateDiscoveryDate('2023-02-29', '2026-10-13')).toThrow();
+  });
+
+  it('rejects timestamps where a calendar date is required', () => {
+    expect(() => validateDiscoveryDate('2026-10-12T08:00:00', '2026-10-13')).toThrow();
+    expect(() => validateDiscoveryDate('2026-10-12 08:00', '2026-10-13')).toThrow();
+    expect(() => validateDiscoveryDate('2026-10-12T00:00:00Z', '2026-10-13')).toThrow();
+  });
+
+  it('rejects dates after the injected today', () => {
+    expect(() => validateDiscoveryDate('2026-10-14', '2026-10-13')).toThrow();
+    expect(() => validateDiscoveryDate('2027-01-01', '2026-10-13')).toThrow();
+  });
+
+  it('rejects malformed values and a malformed reference day', () => {
+    expect(() => validateDiscoveryDate('not-a-date', '2026-10-13')).toThrow();
+    expect(() => validateDiscoveryDate('', '2026-10-13')).toThrow();
+    expect(() => validateDiscoveryDate('2026-10-12', 'not-a-date')).toThrow();
+  });
+});
+
+describe('discovery date calendar validity', () => {
+  it('rejects impossible calendar dates at the schema', () => {
+    expect(() =>
+      DiscoveryRowSchema.parse(rowWith({ sourceCheckedAt: '2026-02-31' })),
+    ).toThrow();
+    expect(() =>
+      DiscoveryRowSchema.parse(rowWith({ sourceCheckedAt: '2026-04-31' })),
+    ).toThrow();
+  });
+
+  it('rejects invalid leap days but accepts a real leap day', () => {
+    expect(() =>
+      DiscoveryRowSchema.parse(rowWith({ sourceCheckedAt: '2023-02-29' })),
+    ).toThrow();
+    expect(() =>
+      DiscoveryRowSchema.parse(rowWith({ sourceCheckedAt: '2024-02-29' })),
+    ).not.toThrow();
+  });
+
+  it('rejects timestamps where a calendar date is required', () => {
+    expect(() =>
+      DiscoveryRowSchema.parse(rowWith({ sourceCheckedAt: '2026-10-12T08:00:00' })),
+    ).toThrow();
+    expect(() =>
+      DiscoveryRowSchema.parse(rowWith({ sourceCheckedAt: '2026-10-12 08:00' })),
+    ).toThrow();
+  });
+});
+
+describe('discovery builder date rejection', () => {
+  const datedRow = (id: string, lastChecked: string) =>
+    `| ${id} | Synthetic Brand | Synthetic Shampoo | Standard | product | 400 ml | ZA | null | active | https://example-brand.co.za/ | confirmed | unverified | unverified | none observed | none | insufficient_evidence | ${lastChecked} | Open |`;
+
+  const datedBatch = (lines: string[]): DiscoveryBatchInput => ({
+    sourceBatch: 'shampoo-batch-01',
+    markdown: [
+      '## OUTPUT 2 — PRODUCT TABLE',
+      '',
+      EIGHTEEN_COL_HEADER,
+      EIGHTEEN_COL_SEP,
+      ...lines,
+      '',
+      '## OUTPUT 3 — SOURCE REGISTER',
+    ].join('\n'),
+  });
+
+  it('rejects a batch row carrying an impossible calendar date', () => {
+    expect(() =>
+      buildDiscoveryBacklog([datedBatch([datedRow('ZA-SHAMPOO-0101', '2026-02-31')])]),
+    ).toThrow();
+  });
+
+  it('rejects a batch row carrying a timestamp instead of a date', () => {
+    expect(() =>
+      buildDiscoveryBacklog([datedBatch([datedRow('ZA-SHAMPOO-0102', '2026-10-12T08:00')])]),
+    ).toThrow();
+  });
+});
+
+describe('discovery reformulation-marker conflicts', () => {
+  const markerRow = (id: string, name: string, variant: string) =>
+    `| ${id} | Synthetic Brand | ${name} | ${variant} | product | 400 ml | ZA | null | active | https://example-brand.co.za/ | confirmed | unverified | unverified | none observed | none | insufficient_evidence | 2026-10-12 | Open |`;
+
+  const markerBatch = (lines: string[]): DiscoveryBatchInput => ({
+    sourceBatch: 'shampoo-batch-01',
+    markdown: [
+      '## OUTPUT 2 — PRODUCT TABLE',
+      '',
+      EIGHTEEN_COL_HEADER,
+      EIGHTEEN_COL_SEP,
+      ...lines,
+      '',
+      '## OUTPUT 3 — SOURCE REGISTER',
+    ].join('\n'),
+  });
+
+  it('flags conflicting exact formulation markers as possible_reformulation', () => {
+    const backlog = buildDiscoveryBacklog([
+      markerBatch([
+        markerRow('ZA-SHAMPOO-0111', 'Synthetic Shampoo (New Formula)', 'Standard'),
+        markerRow('ZA-SHAMPOO-0112', 'Synthetic Shampoo (Old Formula)', 'Standard'),
+      ]),
+    ]);
+    expect(backlog[1]?.identityStatus).toBe('possible_reformulation');
+  });
+
+  it('flags conflicting exact version markers as possible_reformulation', () => {
+    const backlog = buildDiscoveryBacklog([
+      markerBatch([
+        markerRow('ZA-SHAMPOO-0121', 'Synthetic Shampoo (v1)', 'Standard'),
+        markerRow('ZA-SHAMPOO-0122', 'Synthetic Shampoo (v2 New Formula)', 'Standard'),
+      ]),
+    ]);
+    expect(backlog[1]?.identityStatus).toBe('possible_reformulation');
+  });
+
+  it('keeps identical formulation markers as duplicate_candidate', () => {
+    const backlog = buildDiscoveryBacklog([
+      markerBatch([
+        markerRow('ZA-SHAMPOO-0131', 'Synthetic Shampoo (New Formula)', 'Standard'),
+        markerRow('ZA-SHAMPOO-0132', 'Synthetic Shampoo (New Formula)', 'Standard'),
+      ]),
+    ]);
+    expect(backlog[1]?.identityStatus).toBe('duplicate_candidate');
+  });
+
+  it('keeps cosmetic parenthetical differences as duplicate_candidate', () => {
+    const backlog = buildDiscoveryBacklog([
+      markerBatch([
+        markerRow('ZA-SHAMPOO-0141', 'Synthetic Shampoo', 'All Soft / Argan-6'),
+        markerRow(
+          'ZA-SHAMPOO-0142',
+          'Synthetic Shampoo',
+          'All Soft / Argan-6 (long title variant)',
+        ),
+      ]),
+    ]);
+    expect(backlog[1]?.identityStatus).toBe('duplicate_candidate');
+  });
+
+  it('keeps a one-sided formulation marker as duplicate_candidate', () => {
+    const backlog = buildDiscoveryBacklog([
+      markerBatch([
+        markerRow('ZA-SHAMPOO-0151', 'Synthetic Shampoo', 'Standard'),
+        markerRow('ZA-SHAMPOO-0152', 'Synthetic Shampoo (New Formula)', 'Standard'),
+      ]),
+    ]);
+    expect(backlog[1]?.identityStatus).toBe('duplicate_candidate');
+  });
+});
+
+describe('discovery medicinal quarantine without capability', () => {
+  const quarantineRow = (id: string, name: string) =>
+    `| ${id} | Synthetic Brand | ${name} | Standard | product | 400 ml | ZA | null | active | https://example-brand.com/ | confirmed | unverified | unverified | none observed | none | insufficient_evidence | 2026-10-12 | Open |`;
+
+  const quarantineBatch = (lines: string[]): DiscoveryBatchInput => ({
+    sourceBatch: 'shampoo-batch-01',
+    markdown: [
+      '## OUTPUT 2 — PRODUCT TABLE',
+      '',
+      EIGHTEEN_COL_HEADER,
+      EIGHTEEN_COL_SEP,
+      ...lines,
+      '',
+      '## OUTPUT 3 — SOURCE REGISTER',
+    ].join('\n'),
+  });
+
+  const QUARANTINE_NAMES = [
+    'Selsun Blue 2.5% Anti-Dandruff Shampoo',
+    'Nizoral Anti-Dandruff Shampoo',
+    'Ketoconazole 2% Shampoo',
+    'Selenium Sulfide Scalp Lotion',
+    'Rosemary Anti-Fungal Shampoo',
+    'Medicinal Scalp Tonic',
+    'Therapeutic Hair Loss Treatment',
+  ];
+
+  const DISCOVERY_KEYS = new Set([
+    'temporaryResearchId',
+    'category',
+    'brand',
+    'listedName',
+    'listedVariant',
+    'listedSize',
+    'marketClaim',
+    'discoverySourceUrl',
+    'discoverySourceType',
+    'sourceCheckedAt',
+    'identityStatus',
+    'exclusionReason',
+    'unresolvedQuestions',
+    'sourceBatch',
+    'fingerprint',
+  ]);
+
+  it('holds Selsun/medicinal/antifungal leads for human classification', () => {
+    const backlog = buildDiscoveryBacklog([
+      quarantineBatch(QUARANTINE_NAMES.map((name, index) => quarantineRow(`ZA-SHAMPOO-02${index}1`, name))),
+    ]);
+    expect(backlog).toHaveLength(QUARANTINE_NAMES.length);
+    for (const row of backlog) {
+      expect(row.identityStatus).toBe('excluded_scope');
+      expect(row.exclusionReason).toMatch(/human review/i);
+    }
+  });
+
+  it('attaches no capability to quarantined leads', () => {
+    const backlog = buildDiscoveryBacklog([
+      quarantineBatch(QUARANTINE_NAMES.map((name, index) => quarantineRow(`ZA-SHAMPOO-03${index}1`, name))),
+    ]);
+    for (const row of backlog) {
+      expect(new Set(Object.keys(row))).toEqual(DISCOVERY_KEYS);
+      expect(Object.keys(row).some(key => /capab/i.test(key))).toBe(false);
+      expect(JSON.stringify(row)).not.toMatch(/capability/i);
+    }
+  });
+});
+
+describe('discovery fingerprint case semantics', () => {
+  const BASE_FINGERPRINT_INPUT = {
+    sourceBatch: 'masks-batch-01',
+    temporaryResearchId: 'ZA-MASK-0001',
+    brand: 'Synthetic Brand',
+    listedName: 'Synthetic Mask',
+    listedVariant: 'Standard',
+    listedSize: '250 ml',
+    discoverySourceUrl: 'https://example-brand.com/products/synthetic-mask',
+  } as const;
+
+  it('is equal under case differences in brand, name, variant, and size', () => {
+    const base = fingerprintDiscoveryRow(BASE_FINGERPRINT_INPUT);
+    expect(
+      fingerprintDiscoveryRow({
+        ...BASE_FINGERPRINT_INPUT,
+        brand: 'SYNTHETIC BRAND',
+        listedName: 'sYnThEtIc MaSk',
+        listedVariant: 'STANDARD',
+        listedSize: '250 ML',
+      }),
+    ).toBe(base);
+    expect(
+      fingerprintDiscoveryRow({ ...BASE_FINGERPRINT_INPUT, brand: 'Synthétic Bränd' }),
+    ).toBe(fingerprintDiscoveryRow({ ...BASE_FINGERPRINT_INPUT, brand: 'Synthetic Brand' }));
+  });
+
+  it('differs where case is identity-significant', () => {
+    const base = fingerprintDiscoveryRow(BASE_FINGERPRINT_INPUT);
+    expect(
+      fingerprintDiscoveryRow({ ...BASE_FINGERPRINT_INPUT, temporaryResearchId: 'za-mask-0001' }),
+    ).not.toBe(base);
+    expect(
+      fingerprintDiscoveryRow({
+        ...BASE_FINGERPRINT_INPUT,
+        discoverySourceUrl: 'https://example-brand.com/products/Synthetic-Mask',
+      }),
+    ).not.toBe(base);
+    expect(
+      fingerprintDiscoveryRow({ ...BASE_FINGERPRINT_INPUT, sourceBatch: 'scalp-batch-01' }),
+    ).not.toBe(base);
+  });
+
+  it('keeps every checked-in fingerprint byte-identical after normalization', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const stored = JSON.parse(
+      readFileSync(join(here, '..', '..', 'docs', 'product', 'discovery', 'discovery-backlog.json'), 'utf8'),
+    ) as { rows: { temporaryResearchId: string; fingerprint: string }[] };
+    expect(stored.rows).toHaveLength(313);
+    const catalogueDir = join(
+      here,
+      '..',
+      '..',
+      'docs',
+      'product',
+      'discovery',
+      'master-catalogue',
+    );
+    const order: DiscoverySourceBatch[] = [
+      'shampoo-batch-01',
+      'conditioner-batch-01',
+      'scalp-batch-01',
+      'masks-batch-01',
+      'styling-batch-01',
+      'leavein-batch-01',
+      'heatprotect-batch-01',
+      'serumoil-batch-01',
+      'heatedtools-batch-01',
+      'industrial-batch-01',
+    ];
+    const batches = order.map(
+      (sourceBatch): DiscoveryBatchInput => ({
+        sourceBatch,
+        markdown: readFileSync(join(catalogueDir, `${sourceBatch}.md`), 'utf8'),
+      }),
+    );
+    const rebuilt = buildDiscoveryBacklog(batches);
+    expect(rebuilt).toHaveLength(313);
+    const rebuiltById = new Map(rebuilt.map(row => [row.temporaryResearchId, row.fingerprint]));
+    for (const row of stored.rows) {
+      expect(rebuiltById.get(row.temporaryResearchId)).toBe(row.fingerprint);
+    }
+  });
+
+  it('changes no checked-in identity state or quarantine reason', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const stored = JSON.parse(
+      readFileSync(join(here, '..', '..', 'docs', 'product', 'discovery', 'discovery-backlog.json'), 'utf8'),
+    ) as {
+      rows: { temporaryResearchId: string; identityStatus: string; exclusionReason: string | null }[];
+    };
+    const catalogueDir = join(
+      here,
+      '..',
+      '..',
+      'docs',
+      'product',
+      'discovery',
+      'master-catalogue',
+    );
+    const order: DiscoverySourceBatch[] = [
+      'shampoo-batch-01',
+      'conditioner-batch-01',
+      'scalp-batch-01',
+      'masks-batch-01',
+      'styling-batch-01',
+      'leavein-batch-01',
+      'heatprotect-batch-01',
+      'serumoil-batch-01',
+      'heatedtools-batch-01',
+      'industrial-batch-01',
+    ];
+    const rebuilt = buildDiscoveryBacklog(
+      order.map(
+        (sourceBatch): DiscoveryBatchInput => ({
+          sourceBatch,
+          markdown: readFileSync(join(catalogueDir, `${sourceBatch}.md`), 'utf8'),
+        }),
+      ),
+    );
+    const rebuiltById = new Map(rebuilt.map(row => [row.temporaryResearchId, row]));
+    for (const row of stored.rows) {
+      const fresh = rebuiltById.get(row.temporaryResearchId);
+      expect(fresh?.identityStatus).toBe(row.identityStatus);
+      expect(fresh?.exclusionReason).toBe(row.exclusionReason);
+    }
   });
 });
