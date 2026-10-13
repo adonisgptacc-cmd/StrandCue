@@ -11,6 +11,32 @@ authority; replay does not reconstruct inputs from mutable source records. The
 bitemporal and recommendation-run migrations are verified locally and are not
 applied to hosted Supabase.
 
+## Condition-aware guided alpha (baseline 2026-10-13 @ `7460751`)
+
+Requirement-to-task map for
+`docs/superpowers/plans/2026-10-13-condition-aware-guided-alpha-continuation.md`.
+Full audit: `docs/verification/condition-aware-guided-alpha-baseline.md`.
+No Status cell was changed by this baseline: the production reviewed bundle
+(`today-core-guidance` v2) is draft with empty capabilities and a withdrawn
+placeholder rule, the six evidence records and two capability rows are draft
+(`authoredBy: task-07-draft-research`, reviewer fields null), the catalogue
+seed and guidance migrations are local-only and unapplied to hosted Supabase,
+and the Task 8 two-human packet still awaits Human A and a distinct Human B —
+so draft content may not execute and Today yields `content_pending`.
+
+| Requirement(s) | Plan task(s) |
+|---|---|
+| HP-01 + HP-05 + HP-06 | Task 5 (demonstrated check-in behavior only) |
+| EN-01 through EN-09 | consumed as-is (EN-02 Partial: adapters remain); Task 4 passes condition facts through the existing boundary |
+| TD-01 through TD-04 | Task 5 (preflight state machine + copy) |
+| TD-05 through TD-09 | Tasks 6–8 (execution persistence + UI) |
+| CC-01 through CC-07 | Tasks 9–11 |
+| P-01 through P-05, P-07 through P-10, P-12 | Tasks 3–5, 11 (standing principles: no invention, determinism, honesty, neutrality) |
+| P-06 and P-11 | Task 11 (non-causal summaries, decision evidence details) |
+| Cosmetic boundary (SF-01) | Task 5 (cosmetic-boundary copy) |
+| EV-01 through EV-05 | Task 11 for evidence rendering only; review/publication stays in the non-code content lane behind the two-human gate |
+| UX-01 through UX-04 | Task 5 (accessible check-in UI) |
+
 | Requirement | Release stage | Implementation | Tests/evidence | Status |
 |---|---|---|---|---|
 | P-01 | Standing | — | — | Not started |
