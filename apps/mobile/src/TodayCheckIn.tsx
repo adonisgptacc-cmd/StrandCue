@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
-import { CHECK_IN_CONCERNS, type CheckInDraft, type CheckInErrorCode, type PreflightAction } from './guidance/current-condition-state';
+import { CHECK_IN_CONCERNS, type CheckInDraft, type CheckInErrorCode, type CheckInGoal, type PreflightAction } from './guidance/current-condition-state';
 import {
   CHECK_IN_BOUNDARY,
   CHECK_IN_CONTINUE_LABEL,
@@ -81,16 +81,16 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch }: TodayCheckInPr
         {CHECK_IN_GOAL_LABEL}
       </Text>
       <View style={styles.row}>
-        {Object.entries(CHECK_IN_GOAL_LABELS).map(([goal, goalLabel]) => (
+        {(Object.keys(CHECK_IN_GOAL_LABELS) as CheckInGoal[]).map(goal => (
           <Pressable
             key={goal}
             accessibilityRole="radio"
-            accessibilityLabel={`${CHECK_IN_GOAL_LABEL}: ${goalLabel}`}
+            accessibilityLabel={`${CHECK_IN_GOAL_LABEL}: ${CHECK_IN_GOAL_LABELS[goal]}`}
             accessibilityState={{ selected: draft.goal === goal }}
-            onPress={() => dispatch({ type: 'set_goal', goal: 'basic_wash' })}
+            onPress={() => dispatch({ type: 'set_goal', goal })}
             style={[styles.pill, draft.goal === goal && styles.selected]}
           >
-            <Text style={[styles.body, draft.goal === goal && { color: colors.white }]}>{goalLabel}</Text>
+            <Text style={[styles.body, draft.goal === goal && { color: colors.white }]}>{CHECK_IN_GOAL_LABELS[goal]}</Text>
           </Pressable>
         ))}
       </View>

@@ -1,6 +1,6 @@
 import type { CurrentConditionConcern, GuidanceGapKind } from '../../../../packages/domain/src/index';
 import type { DestinationId } from '../navigation';
-import type { CheckInErrorCode } from './current-condition-state';
+import type { CheckInErrorCode, CheckInGoal } from './current-condition-state';
 import type { TodayGuidanceResult } from './today-guidance-service';
 
 /**
@@ -145,7 +145,10 @@ export const CONCERN_LABELS: Readonly<Record<CurrentConditionConcern, string>> =
 };
 
 export const CHECK_IN_GOAL_LABEL = 'Goal for this plan';
-export const CHECK_IN_GOAL_LABELS: Readonly<Record<string, string>> = {
+// Keyed by the goal union itself (not `string`): adding a goal without a
+// label — or dispatching anything outside the union — becomes a compile
+// error instead of a silent mismatch.
+export const CHECK_IN_GOAL_LABELS: Readonly<Record<CheckInGoal, string>> = {
   basic_wash: 'Basic wash',
 };
 

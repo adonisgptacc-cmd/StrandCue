@@ -166,6 +166,22 @@ describe('today check-in labels and screen-reader behavior', () => {
     await act(async () => { renderer.unmount(); });
   });
 
+  it('dispatches the tapped pill goal rather than a hardcoded one', async () => {
+    // Honest RED note: with the single-member goal union this passes pre-fix
+    // too — it pins the wiring, while the `Record<CheckInGoal, string>` type
+    // change is the real recurrence guard. See the fix report.
+    const { renderer, dispatch } = await renderCheckIn();
+    const goal = renderer.root.find(node => node.props.accessibilityRole === 'radio');
+    const labelledGoal = (goal.props.accessibilityLabel as string).replace('Goal for this plan: ', '');
+    await act(async () => {
+      goal.props.onPress();
+      await Promise.resolve();
+    });
+    expect(labelledGoal).toBe('Basic wash');
+    expect(dispatch).toHaveBeenCalledWith({ type: 'set_goal', goal: 'basic_wash' });
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('dispatches toggle, time, observation and save actions without inventing values', async () => {
     const { renderer, dispatch } = await renderCheckIn();
     const dryness = renderer.root.find(
