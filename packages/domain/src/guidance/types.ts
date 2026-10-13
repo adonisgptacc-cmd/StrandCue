@@ -134,7 +134,8 @@ export type GuidanceGapKind =
   | 'tool_version'
   | 'tool_capability'
   | 'source_incomplete'
-  | 'reviewed_content';
+  | 'reviewed_content'
+  | 'current_condition';
 
 export interface GuidanceGap {
   readonly kind: GuidanceGapKind;

@@ -5,6 +5,7 @@ import {
   prepareGuidance,
   RecommendationContextSchema,
   validatePublishedBundle,
+  type GuidancePreparation,
   type GuidanceSnapshot,
   type PrepareGuidanceInput,
   type ReviewedGuidanceBundle,
@@ -696,5 +697,316 @@ describe('task 6 integration: exact versions through Today', () => {
     expect(orderedResult.context.products.map(entry => entry.productId)).toEqual([
       'owner-product-1',
     ]);
+  });
+});
+
+describe('task 4: temporary current-condition check-ins', () => {
+  // Explicit reference time threaded into preparation: later than the fixture
+  // observedAt (08:00+02:00) but earlier than the wall clock, so any test that
+  // depends on it proves injection rather than a hidden `new Date()`.
+  const CHECK_IN_NOW = new Date('2026-10-11T09:00:00.000+02:00');
+
+  function checkIn(overrides: Record<string, unknown> = {}) {
+    return {
+      observedAt: '2026-10-11T08:00:00.000+02:00',
+      concerns: ['dryness'],
+      goal: 'basic_wash',
+      availableMinutes: 20,
+      saveToPassport: false,
+      ...overrides,
+    };
+  }
+
+  function prepareWithCheckIn(
+    currentCondition: unknown,
+    snapshotInput: GuidanceSnapshot = snapshot(),
+    bundleInput: ReviewedGuidanceBundle = bundle(),
+    now: Date = CHECK_IN_NOW,
+  ) {
+    return prepareGuidance({
+      snapshot: snapshotInput,
+      bundle: validatePublishedBundle(bundleInput, evidenceRegistry(), capabilityReview(), NOW),
+      goalId: 'basic_wash',
+      requestId: 'request-checkin',
+      asOf: AS_OF,
+      currentCondition,
+      now,
+    } satisfies PrepareGuidanceInput);
+  }
+
+  function factKeys(result: GuidancePreparation): string[] {
+    if (result.status !== 'ready') return [];
+    return [
+      ...Object.keys(result.context.environmentFacts),
+      ...Object.keys(result.context.historyFacts),
+      ...Object.keys(result.context.profileFacts),
+    ];
+  }
+
+  it('maps a valid check-in to namespaced current.* facts and leaves the stored snapshot byte-identical', () => {
+    const snapshotInput = snapshot();
+    const before = JSON.stringify(snapshotInput);
+    const result = prepareWithCheckIn(
+      checkIn({ concerns: ['frizz', 'dryness'], availableMinutes: 20 }),
+    );
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.context.environmentFacts['current.observedAt']).toBe(
+      '2026-10-11T08:00:00.000+02:00',
+    );
+    expect(result.context.environmentFacts['current.goal']).toBe('basic_wash');
+    expect(result.context.environmentFacts['current.availableMinutes']).toBe(20);
+    expect(result.context.environmentFacts['current.concerns.dryness']).toBe(true);
+    expect(result.context.environmentFacts['current.concerns.frizz']).toBe(true);
+    // Stored Passport facts govern nothing here: they are preserved exactly,
+    // and no current.* fact leaks into the profile namespace.
+    expect(result.context.profileFacts).toEqual(snapshotInput.passportFacts);
+    expect(
+      Object.keys(result.context.profileFacts).some(key => key.startsWith('current.')),
+    ).toBe(false);
+    // HP-06: the temporary answers exist only in this request's context.
+    expect(JSON.stringify(snapshotInput)).toBe(before);
+  });
+
+  it('keeps inputs without a check-in byte-stable with no current.* facts', () => {
+    const result = prepare();
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(factKeys(result).filter(key => key.startsWith('current.'))).toEqual([]);
+  });
+
+  it.each([
+    'dryness',
+    'frizz',
+    'tangling',
+    'breakage',
+    'stiffness',
+    'dullness',
+    'scalp-dryness',
+    'scalp-oiliness',
+    'reported-damage',
+  ])('manufactures no capability for a %s check-in', concern => {
+    const legacy = prepare();
+    const result = prepareWithCheckIn(checkIn({ concerns: [concern] }));
+    expect(legacy.status).toBe('ready');
+    expect(result.status).toBe('ready');
+    if (legacy.status !== 'ready' || result.status !== 'ready') return;
+    // The check-in was admitted (positive control): namespaced facts exist.
+    expect(result.context.environmentFacts[`current.concerns.${concern}`]).toBe(true);
+    // Capability sets are unchanged by the check-in.
+    expect(result.context.products).toEqual(legacy.context.products);
+    expect(result.context.tools).toEqual(legacy.context.tools);
+    const legacyJson = JSON.stringify(legacy);
+    const resultJson = JSON.stringify(result);
+    for (const invented of ['repair', 'protein', 'bond']) {
+      expect(resultJson).not.toContain(invented);
+    }
+    // 'condition' is a legitimate reviewed tool capability in this fixture, so
+    // the check-in must add no new occurrence of it.
+    const occurrences = (json: string) => json.split('condition').length - 1;
+    expect(occurrences(resultJson)).toBe(occurrences(legacyJson));
+  });
+
+  it('manufactures no capability when every concern is reported together', () => {
+    const concerns = [
+      'dryness',
+      'frizz',
+      'tangling',
+      'breakage',
+      'stiffness',
+      'dullness',
+      'scalp-dryness',
+      'scalp-oiliness',
+      'reported-damage',
+    ];
+    const legacy = prepare();
+    const result = prepareWithCheckIn(checkIn({ concerns }));
+    expect(legacy.status).toBe('ready');
+    expect(result.status).toBe('ready');
+    if (legacy.status !== 'ready' || result.status !== 'ready') return;
+    // The check-in was admitted (positive control): every concern has a fact.
+    for (const concern of concerns) {
+      expect(result.context.environmentFacts[`current.concerns.${concern}`]).toBe(true);
+    }
+    expect(result.context.products).toEqual(legacy.context.products);
+    expect(result.context.tools).toEqual(legacy.context.tools);
+    const resultJson = JSON.stringify(result);
+    for (const invented of ['repair', 'protein', 'bond']) {
+      expect(resultJson).not.toContain(invented);
+    }
+    const occurrences = (json: string) => json.split('condition').length - 1;
+    expect(occurrences(resultJson)).toBe(occurrences(JSON.stringify(legacy)));
+  });
+
+  it('returns stable targeted gaps for unknown concerns', () => {
+    const first = prepareWithCheckIn(checkIn({ concerns: ['unknown'] }));
+    const second = prepareWithCheckIn(checkIn({ concerns: ['unknown'] }));
+    expect(first.status).toBe('needs_setup');
+    if (first.status !== 'needs_setup') return;
+    expect(first.missing.map(gap => gap.kind)).toEqual(['current_condition']);
+    expect(first.missing.map(gap => gap.subject)).toEqual(['current.concerns']);
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+  });
+
+  it('returns byte-identical gaps for contradictory concerns regardless of order', () => {
+    const first = prepareWithCheckIn(checkIn({ concerns: ['none', 'dryness'] }));
+    const second = prepareWithCheckIn(checkIn({ concerns: ['dryness', 'none'] }));
+    expect(first.status).toBe('needs_setup');
+    if (first.status !== 'needs_setup') return;
+    expect(first.missing.every(gap => gap.kind === 'current_condition')).toBe(true);
+    expect(first.missing.map(gap => gap.subject)).toContain('current.concerns');
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+  });
+
+  it('returns stable targeted gaps for missing answers', () => {
+    const { concerns: _dropped, ...withoutConcerns } = checkIn();
+    void _dropped;
+    const missingField = prepareWithCheckIn(withoutConcerns);
+    expect(missingField.status).toBe('needs_setup');
+    if (missingField.status !== 'needs_setup') return;
+    expect(missingField.missing.map(gap => gap.subject)).toContain('current.concerns');
+    // Non-object payloads carry no field path: they collapse to one stable
+    // check-in-level gap.
+    for (const raw of [[], null, 'dryness']) {
+      const shapeless = prepareWithCheckIn(raw);
+      expect(shapeless.status).toBe('needs_setup');
+      if (shapeless.status !== 'needs_setup') return;
+      expect(shapeless.missing.map(gap => gap.subject)).toEqual(['current.checkIn']);
+    }
+    const first = prepareWithCheckIn({});
+    const second = prepareWithCheckIn({});
+    expect(first.status).toBe('needs_setup');
+    if (first.status !== 'needs_setup') return;
+    expect(first.missing.length).toBeGreaterThan(0);
+    expect(first.missing.every(gap => gap.kind === 'current_condition')).toBe(true);
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+  });
+
+  it('defaults now to asOf deterministically when omitted', () => {
+    const explicit = prepareGuidance({
+      snapshot: snapshot(),
+      bundle: validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
+      goalId: 'basic_wash',
+      requestId: 'request-checkin',
+      asOf: AS_OF,
+      currentCondition: checkIn(),
+      now: new Date(AS_OF),
+    } satisfies PrepareGuidanceInput);
+    const fallback = prepareGuidance({
+      snapshot: snapshot(),
+      bundle: validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
+      goalId: 'basic_wash',
+      requestId: 'request-checkin',
+      asOf: AS_OF,
+      currentCondition: checkIn(),
+    } satisfies PrepareGuidanceInput);
+    expect(fallback.status).toBe('ready');
+    expect(JSON.stringify(fallback)).toBe(JSON.stringify(explicit));
+  });
+
+  it('rethrown unexpected failures loudly instead of turning them into gaps', () => {
+    const exploding = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('boom');
+        },
+      },
+    );
+    expect(() => prepareWithCheckIn(exploding)).toThrow('boom');
+  });
+
+  it('treats none as a definitive answer and stays ready', () => {
+    const result = prepareWithCheckIn(checkIn({ concerns: ['none'] }));
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.context.environmentFacts['current.goal']).toBe('basic_wash');
+    expect(result.context.environmentFacts['current.availableMinutes']).toBe(20);
+    expect(
+      Object.keys(result.context.environmentFacts).filter(key =>
+        key.startsWith('current.concerns.'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('rejects notes and unrecognized keys through the allowlist', () => {
+    const result = prepareWithCheckIn(
+      checkIn({
+        notes: 'Scribbled free-text symptom',
+        extraKey: 'planted-unknown-value',
+        maximumProductBudgetZar: 987654,
+      }),
+    );
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing.every(gap => gap.kind === 'current_condition')).toBe(true);
+    const output = JSON.stringify(result);
+    // Planted values never reach the context: only the targeted subjects name
+    // the offending fields.
+    expect(output).not.toContain('Scribbled free-text symptom');
+    expect(output).not.toContain('planted-unknown-value');
+    expect(output).not.toContain('987654');
+  });
+
+  it('never turns the saveToPassport flag into a fact', () => {
+    const result = prepareWithCheckIn(checkIn({ saveToPassport: true }));
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    // The check-in was admitted (positive control): namespaced facts exist.
+    expect(result.context.environmentFacts['current.goal']).toBe('basic_wash');
+    expect(JSON.stringify(result.context)).not.toContain('saveToPassport');
+  });
+
+  it('rejects nested unknown zone keys through the preparation boundary', () => {
+    const tainted = prepareWithCheckIn(
+      checkIn({ zones: [{ region: 'front', segment: 'roots', bogusZoneKey: 'planted-zone-value' }] }),
+    );
+    expect(tainted.status).toBe('needs_setup');
+    if (tainted.status !== 'needs_setup') return;
+    const output = JSON.stringify(tainted);
+    expect(output).not.toContain('bogusZoneKey');
+    expect(output).not.toContain('planted-zone-value');
+    // Positive control: well-formed zones are accepted, and structured zones
+    // are not flattened into invented scalars.
+    const accepted = prepareWithCheckIn(
+      checkIn({ zones: [{ region: 'front', segment: 'roots' }] }),
+    );
+    expect(accepted.status).toBe('ready');
+    if (accepted.status !== 'ready') return;
+    expect(
+      Object.keys(accepted.context.environmentFacts).filter(key => key.startsWith('current.zone')),
+    ).toEqual([]);
+  });
+
+  it('honours the injected now instead of the wall clock', () => {
+    // 2026-10-12 is after the injected now (10-11) but before the wall clock
+    // (2026-10-13), so only explicit threading rejects it.
+    const result = prepareWithCheckIn(
+      checkIn({ observedAt: '2026-10-12T08:00:00.000+02:00' }),
+    );
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing.map(gap => gap.subject)).toContain('current.observedAt');
+  });
+
+  it('refuses draft or withdrawn bundles even with a check-in present', () => {
+    // Guard: the publication gate runs before preparation, so a check-in can
+    // never make draft content executable. The service maps this throw to
+    // content_pending; preparation itself is never reached.
+    for (const status of ['draft', 'withdrawn'] as const) {
+      expect(() => prepareWithCheckIn(checkIn(), snapshot(), bundle({ status }))).toThrow();
+    }
+  });
+
+  it('produces a context the engine accepts with a check-in present', () => {
+    const result = prepareWithCheckIn(checkIn({ concerns: ['dryness', 'frizz'] }));
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    // The check-in was admitted (positive control): namespaced facts exist.
+    expect(result.context.environmentFacts['current.concerns.dryness']).toBe(true);
+    expect(() => RecommendationContextSchema.parse(result.context)).not.toThrow();
+    const decision = generateProtocol(result.context);
+    expect(decision.status).toBe('ready');
+    expect(decision.steps.length).toBeGreaterThan(0);
   });
 });

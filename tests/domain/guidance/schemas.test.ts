@@ -603,4 +603,23 @@ describe('guidance preparation contracts', () => {
       }),
     ).toThrow();
   });
+
+  it('parses a current-condition gap and round-trips it in a preparation', () => {
+    const parsed = GuidancePreparationSchema.parse({
+      status: 'needs_setup',
+      missing: [
+        {
+          kind: 'current_condition',
+          detail: 'The temporary check-in needs attention.',
+          subject: 'current.concerns',
+        },
+      ],
+    });
+    expect(parsed.status === 'needs_setup' && parsed.missing.length).toBe(1);
+    expect(GuidanceGapSchema.parse({
+      kind: 'current_condition',
+      detail: 'The temporary check-in needs attention.',
+      subject: 'current.concerns',
+    }).kind).toBe('current_condition');
+  });
 });

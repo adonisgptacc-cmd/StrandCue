@@ -452,6 +452,7 @@ export const GuidanceGapKindSchema = z.enum([
   'tool_capability',
   'source_incomplete',
   'reviewed_content',
+  'current_condition',
 ]);
 
 export const GuidanceGapSchema = frozen(

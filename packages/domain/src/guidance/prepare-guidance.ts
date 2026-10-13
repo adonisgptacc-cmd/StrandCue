@@ -1,9 +1,15 @@
+import { z } from 'zod';
+
 import type {
   FactValue,
   ProductCandidate,
   RecommendationContext,
   ToolCandidate,
 } from '../recommendations/types.ts';
+import {
+  normalizeCurrentCondition,
+  type CurrentConditionInput,
+} from '../current-condition.ts';
 import type {
   GuidanceGap,
   GuidanceGoal,
@@ -36,6 +42,20 @@ export interface PrepareGuidanceInput {
   readonly goalId: GuidanceGoalId;
   readonly requestId: string;
   readonly asOf: string;
+  /**
+   * Raw temporary current-condition check-in for this request only. Absent
+   * (`undefined`) keeps the legacy path byte-identical: no `current.*`
+   * facts and no new gaps. When present it is normalized inside preparation
+   * with an explicit `now` (never the wall-clock default); an unusable
+   * payload becomes stable `current_condition` gaps, never stored writes.
+   */
+  readonly currentCondition?: unknown;
+  /**
+   * Reference time for check-in validation. Always passed explicitly to
+   * `normalizeCurrentCondition`; defaults to `asOf` when omitted so the
+   * fallback stays deterministic.
+   */
+  readonly now?: Date;
 }
 
 const GAP_ORDER: Readonly<Record<GuidanceGap['kind'], number>> = {
@@ -47,6 +67,7 @@ const GAP_ORDER: Readonly<Record<GuidanceGap['kind'], number>> = {
   tool_capability: 5,
   source_incomplete: 6,
   reviewed_content: 7,
+  current_condition: 8,
 };
 
 /**
@@ -164,6 +185,87 @@ function serviceFacts(snapshot: GuidanceSnapshot): Record<string, FactValue> {
   return facts;
 }
 
+/**
+ * Explicit allowlist mapping a normalized check-in onto namespaced facts.
+ * Only these names may enter the engine context: `saveToPassport` is a
+ * control flag rather than a fact (HP-06: nothing here writes to the
+ * Passport), structured `zones` are not flattened into invented scalars
+ * (mirroring the snapshot loader's scalar-only rule), and free text or
+ * unrecognized keys never survive normalization, so they cannot appear here.
+ * Commercial variables (EN-09) have no entry by construction.
+ */
+function currentConditionFacts(checkIn: CurrentConditionInput): Record<string, FactValue> {
+  const facts: Record<string, FactValue> = {
+    'current.observedAt': checkIn.observedAt,
+    'current.goal': checkIn.goal,
+    'current.availableMinutes': checkIn.availableMinutes,
+  };
+  for (const concern of checkIn.concerns) {
+    // `none` is a definitive absence of concerns and `unknown` never reaches
+    // here (it becomes a gap below): neither is a matchable concern fact.
+    if (concern === 'none' || concern === 'unknown') continue;
+    facts[`current.concerns.${concern}`] = true;
+  }
+  return facts;
+}
+
+function currentConditionGap(subject: string, detail: string): GuidanceGap {
+  return { kind: 'current_condition', detail, subject };
+}
+
+/**
+ * Converts a check-in validation failure into stable targeted gaps. One gap
+ * per reported issue, subjecting the offending `current.*` field; details are
+ * fixed strings so no raw value (and no free text) leaks into the output.
+ * Anything this function does not recognize is rethrown: only known
+ * validation failures become gaps.
+ */
+function rejectionGaps(error: unknown): GuidanceGap[] {
+  if (error instanceof z.ZodError) {
+    const gaps = error.issues.map(issue => {
+      const field = typeof issue.path[0] === 'string' ? issue.path[0] : 'checkIn';
+      const subject = `current.${field}`;
+      return currentConditionGap(
+        subject,
+        `The temporary check-in answer for '${subject}' was not usable. Review that check-in answer and try again.`,
+      );
+    });
+    if (gaps.length > 0) return gaps;
+  }
+  if (error instanceof RangeError && /observedAt/.test(error.message)) {
+    return [
+      currentConditionGap(
+        'current.observedAt',
+        'The temporary check-in observation time is in the future. Record an observation time that is not later than now.',
+      ),
+    ];
+  }
+  throw error;
+}
+
+function resolveCurrentCondition(
+  raw: unknown,
+  now: Date,
+): { facts: Record<string, FactValue> } | { gaps: GuidanceGap[] } {
+  let normalized: CurrentConditionInput;
+  try {
+    normalized = normalizeCurrentCondition(raw, now);
+  } catch (error) {
+    return { gaps: rejectionGaps(error) };
+  }
+  if (normalized.concerns.length === 1 && normalized.concerns[0] === 'unknown') {
+    return {
+      gaps: [
+        currentConditionGap(
+          'current.concerns',
+          "No current condition was reported ('unknown'). Describe what is true today, or skip the check-in to use the stored My Hair facts.",
+        ),
+      ],
+    };
+  }
+  return { facts: currentConditionFacts(normalized) };
+}
+
 function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGap[] {
   const gaps: GuidanceGap[] = [];
   for (const fact of goal.requiredProfileFacts) {
@@ -217,6 +319,7 @@ function buildContext(
   bundle: ReviewedGuidanceBundle,
   products: readonly ProductCandidate[],
   tools: readonly ToolCandidate[],
+  currentFacts: Readonly<Record<string, FactValue>>,
 ): RecommendationContext {
   return {
     requestId: input.requestId,
@@ -226,7 +329,10 @@ function buildContext(
     products: [...products],
     tools: [...tools],
     historyFacts: historyFacts(snapshot),
-    environmentFacts: serviceFacts(snapshot),
+    // Temporary check-in facts ride in the transient environment namespace and
+    // win on collision (first-write-wins reads environment first), so they
+    // govern this request only. The stored snapshot is never rewritten.
+    environmentFacts: { ...serviceFacts(snapshot), ...currentFacts },
     rules: [...bundle.rules],
   };
 }
@@ -235,6 +341,9 @@ function buildContext(
  * Prepares a safe, deterministic engine context from an owner snapshot and a
  * published reviewed bundle. Never throws for an ordinary unsafe or
  * incomplete situation: it returns `unavailable` or `needs_setup` instead.
+ * A temporary check-in (`currentCondition`) is normalized with an explicit
+ * `now` and merged per-request only; the stored Passport snapshot is never
+ * modified, and concerns never manufacture product capabilities.
  */
 export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparation {
   if (isIncomplete(input.snapshot)) return unavailable('snapshot_incomplete');
@@ -242,6 +351,18 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
   if (goal === undefined) return unavailable('no_supported_goal');
 
   const gaps = [...profileGaps(input.snapshot, goal), ...serviceGaps(input.snapshot)];
+  let currentFacts: Record<string, FactValue> = {};
+  if (input.currentCondition !== undefined) {
+    // `asOf` keeps the fallback deterministic; callers pass `now`
+    // explicitly. normalizeCurrentCondition is always invoked with an
+    // explicit instant, never its wall-clock default.
+    const resolved = resolveCurrentCondition(
+      input.currentCondition,
+      input.now ?? new Date(input.asOf),
+    );
+    if ('gaps' in resolved) gaps.push(...resolved.gaps);
+    else currentFacts = resolved.facts;
+  }
   if (gaps.length > 0) return needsSetup(gaps);
 
   const products = buildProducts(sortById(input.snapshot.products), input.bundle);
@@ -249,7 +370,7 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
 
   return {
     status: 'ready',
-    context: buildContext(input, input.snapshot, input.bundle, products, tools),
+    context: buildContext(input, input.snapshot, input.bundle, products, tools, currentFacts),
     bundleId: input.bundle.bundleId,
     bundleVersion: input.bundle.version,
   };

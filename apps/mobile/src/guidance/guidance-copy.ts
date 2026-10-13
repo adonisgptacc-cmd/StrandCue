@@ -46,6 +46,9 @@ const GAP_DESTINATION: Readonly<Record<GuidanceGapKind, DestinationId | null>> =
   tool_capability: 'my_tools',
   source_incomplete: 'journey',
   reviewed_content: null,
+  // Temporary check-in answers are fixed in the check-in step itself, not in
+  // a records destination; null renders them as text (Task 4 consequential).
+  current_condition: null,
 };
 
 export function gapDestination(kind: GuidanceGapKind): DestinationId | null {
