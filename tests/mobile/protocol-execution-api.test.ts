@@ -8,9 +8,12 @@ import {
 } from '../../apps/mobile/src/guidance/protocol-execution-api';
 
 const rpcMocks = vi.hoisted(() => ({ rpc: vi.fn() }));
+const clientMocks = vi.hoisted(() => ({ supabase: null as unknown }));
 
 vi.mock('../../apps/mobile/src/client', () => ({
-  supabase: { rpc: rpcMocks.rpc },
+  get supabase() {
+    return clientMocks.supabase;
+  },
 }));
 
 const OPERATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -104,6 +107,7 @@ function validTransition(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clientMocks.supabase = { rpc: rpcMocks.rpc };
 });
 
 describe('protocol execution persistence boundary', () => {
@@ -288,5 +292,23 @@ describe('protocol execution persistence boundary', () => {
       error: { message: 'connection reset', code: '08006' },
     });
     await expect(startProtocolExecution(validStart())).rejects.toThrow(/connection reset/i);
+  });
+
+  it('maps stable errors on transitions, reads, and history without raw text', async () => {
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'revision-conflict', code: 'P0001' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^revision-conflict$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'account-not-active', code: '42501' } });
+    await expect(getActiveProtocolExecution()).rejects.toThrow(/^account-not-active$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'invalid-limit', code: '22023' } });
+    await expect(listProtocolExecutions({ limit: 25, cursor: null })).rejects.toThrow(/^invalid-limit$/);
+  });
+
+  it('throws unavailable on every entry point until the client is configured', async () => {
+    clientMocks.supabase = null;
+    await expect(startProtocolExecution(validStart())).rejects.toThrow(/unavailable until the client is configured/i);
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/unavailable until the client is configured/i);
+    await expect(getActiveProtocolExecution()).rejects.toThrow(/unavailable until the client is configured/i);
+    await expect(listProtocolExecutions({ limit: 25, cursor: null })).rejects.toThrow(/unavailable until the client is configured/i);
+    expect(rpcMocks.rpc).not.toHaveBeenCalled();
   });
 });
