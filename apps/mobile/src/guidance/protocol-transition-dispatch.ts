@@ -52,6 +52,13 @@ export const TRANSITION_USER_COPY: Readonly<Record<string, string>> = {
   'step-already-resolved': 'This step is already confirmed. Nothing was recorded twice.',
   'unknown-command': 'This confirmation was not understood. Nothing was recorded.',
   'invalid-command': 'This confirmation was not complete. Nothing was recorded.',
+  'timestamp-out-of-range':
+    'This confirmation could not be sent because the device time looks wrong. Check your clock and try again.',
+  'too-many-active-executions':
+    'You already have many plans in progress. Finish or stop one before starting another.',
+  'too-many-events':
+    'This plan has reached its history limit. Nothing more can be recorded.',
+  'too-many-steps': 'This plan has too many steps to follow. Nothing was recorded.',
   // Multibyte free text can pass the client character bound yet exceed the
   // server octet bound: say the note was kept on screen while the server
   // rejected it, instead of echoing `text-too-large`.

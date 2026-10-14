@@ -341,6 +341,10 @@ describe('protocol execution persistence boundary', () => {
       'step-already-resolved',
       'unknown-command',
       'invalid-command',
+      'timestamp-out-of-range',
+      'too-many-active-executions',
+      'too-many-events',
+      'too-many-steps',
       'text-too-large',
       'unowned-substitution',
       'unknown-shelf-item',
@@ -372,6 +376,10 @@ describe('protocol execution persistence boundary', () => {
     await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^invalid-command$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'text-too-large', code: '22023' } });
     await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^text-too-large$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'timestamp-out-of-range', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^timestamp-out-of-range$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'too-many-events', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^too-many-events$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'unowned-substitution', code: '22023' } });
     await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^unowned-substitution$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'unknown-shelf-item', code: '22023' } });

@@ -781,6 +781,9 @@ describe('protocol execution surface', () => {
     ['unknown-product-version', 'could not be verified'],
     ['revision-conflict', 'latest confirmed record is shown'],
     ['operation-conflict', 'already saving'],
+    ['timestamp-out-of-range', 'device time'],
+    ['too-many-events', 'history limit'],
+    ['too-many-steps', 'too many steps'],
   ] as const)('maps %s to user copy instead of the raw code', async (code, snippet) => {
     const renderer = await render();
     await start(renderer);
@@ -804,6 +807,7 @@ describe('protocol execution surface', () => {
     ['not-ready-decision', 'not ready to follow'],
     ['operation-conflict', 'already saving'],
     ['account-not-active', 'not active'],
+    ['too-many-active-executions', 'many plans'],
   ] as const)('maps start failure %s to user copy instead of the raw code', async (code, snippet) => {
     mocks.start.mockRejectedValueOnce(new Error(code));
     const renderer = await render();

@@ -209,6 +209,10 @@ describe('protocol transition dispatch', () => {
     expect(codes).toContain('unknown-shelf-item');
     expect(codes).toContain('archived-shelf-item');
     expect(codes).toContain('unknown-product-version');
+    expect(codes).toContain('timestamp-out-of-range');
+    expect(codes).toContain('too-many-active-executions');
+    expect(codes).toContain('too-many-events');
+    expect(codes).toContain('too-many-steps');
     expect(codes).toContain('revision-conflict');
     expect(codes).toContain('operation-conflict');
     for (const code of codes) {

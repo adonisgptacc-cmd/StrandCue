@@ -39,6 +39,7 @@ const trustedMigrationNames = [
   '20261014192008_protocol_start_trusted_decision.sql',
   '20261014194531_protocol_transition_server_constructed.sql',
   '20261014203908_protocol_substitute_shelf_verified.sql',
+  '20261014211011_protocol_execution_bounds_integrity.sql',
 ] as const;
 
 const candidateMigrationNames = [

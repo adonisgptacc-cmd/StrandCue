@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
@@ -10,8 +10,16 @@ import {
 
 const EXECUTION_ID = '44444444-4444-4444-8444-444444444444';
 const RUN_ID = '55555555-5555-4555-8555-555555555555';
-const STARTED_AT = '2026-10-13T09:00:00.000Z';
-const AT = '2026-10-13T09:05:00.000Z';
+// Fixed instants are kept only for the removed-signature probe below (which
+// never reaches the clock). Live starts/transitions default to the current
+// time because Task 7 bounds caller timestamps to a documented skew window
+// around server now(): a frozen 2026-10-13 instant is outside that window.
+const LEGACY_AT = '2026-10-13T09:05:00.000Z';
+
+/** Fresh caller timestamp inside the skew window (server now). */
+function nowIso(): string {
+  return new Date().toISOString();
+}
 
 function stepFixture(stepId: string, position: number) {
   return {
@@ -129,7 +137,7 @@ async function start(
         overrides.operationId ?? crypto.randomUUID(),
         overrides.executionId ?? EXECUTION_ID,
         overrides.runId ?? RUN_ID,
-        overrides.startedAt ?? STARTED_AT,
+        overrides.startedAt ?? nowIso(),
       ],
     )
   ).rows[0].result;
@@ -155,7 +163,7 @@ async function transition(
         options.executionId ?? EXECUTION_ID,
         options.expectedRevision ?? 0,
         JSON.stringify(options.command ?? { kind: 'pause' }),
-        options.at ?? AT,
+        options.at ?? nowIso(),
       ],
     )
   ).rows[0].result;
@@ -477,8 +485,12 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await complete(db);
     await recordRun(db);
     const operationId = crypto.randomUUID();
-    const first = await start(db, { operationId });
-    const second = await start(db, { operationId });
+    // Retries resend the stored timestamp (the dispatcher never re-reads
+    // the clock), so both calls share one startedAt exactly like a real
+    // retry; only then is the request byte-identical and replayable.
+    const startedAt = nowIso();
+    const first = await start(db, { operationId, startedAt });
+    const second = await start(db, { operationId, startedAt });
     expect(second).toEqual(first);
     expect(await listExecutionRows(db)).toHaveLength(1);
     expect(await listEventRows(db)).toHaveLength(1);
@@ -490,8 +502,9 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await start(db);
     const operationId = crypto.randomUUID();
     const command = { kind: 'complete-step', stepId: 'step-1' };
-    const first = await transition(db, { operationId, command });
-    const second = await transition(db, { operationId, command });
+    const at = nowIso();
+    const first = await transition(db, { operationId, command, at });
+    const second = await transition(db, { operationId, command, at });
     expect(second).toEqual(first);
     expect(first).toMatchObject({ revision: 1 });
     expect(first.execution.steps.find((step: any) => step.stepId === 'step-1')).toMatchObject({
@@ -505,6 +518,9 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await recordRun(db);
     const operationId = crypto.randomUUID();
     await start(db, { operationId });
+    // The replay check compares the stored request before any skew logic
+    // runs, so a reused id with differing content conflicts even though the
+    // differing timestamp below is itself outside the skew window.
     await expect(start(db, { operationId, startedAt: '2026-10-13T10:00:00.000Z' })).rejects.toThrow(
       /operation-conflict/i,
     );
@@ -780,7 +796,7 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     // The old 6-argument result-carrying forms are gone at both layers.
     await expect(
       db.query('select public.apply_protocol_execution_command($1,$2,$3,$4::jsonb,$5::timestamptz,$6::jsonb)',
-        [crypto.randomUUID(), EXECUTION_ID, 0, '{}', AT, '{}']),
+        [crypto.randomUUID(), EXECUTION_ID, 0, '{}', LEGACY_AT, '{}']),
     ).rejects.toThrow(/does not exist|no function/i);
   });
 
@@ -788,14 +804,15 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await complete(db);
     await recordRun(db);
     const started = await start(db);
-    const receipt = await transition(db, { command: { kind: 'pause' } });
+    const at = nowIso();
+    const receipt = await transition(db, { at, command: { kind: 'pause' } });
     expect(receipt).toMatchObject({ status: 'paused', revision: 1 });
     expect(receipt.execution.steps).toEqual(started.execution.steps);
     expect(Object.keys(receipt.execution).sort()).toEqual(
       ['closeReason', 'executionId', 'finishedAt', 'recommendationRunId', 'startedAt', 'status', 'steps', 'updatedAt'],
     );
     // updatedAt is server-owned: the caller-sent `at` is never copied there.
-    expect(receipt.execution.updatedAt).not.toBe(AT);
+    expect(receipt.execution.updatedAt).not.toBe(at);
     expect(Number.isNaN(Date.parse(receipt.execution.updatedAt))).toBe(false);
     const rows = await listExecutionRows(db);
     expect(rows[0].execution).toEqual(receipt.execution);
@@ -822,14 +839,15 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     ];
     for (const { command } of legal) {
       const executionId = crypto.randomUUID();
-      const started = await start(db, { executionId });
-      const preview = applyExecutionCommand(started.execution, command as ExecutionCommand, { at: AT });
-      const receipt = await transition(db, { executionId, command });
+      const at = nowIso();
+      const started = await start(db, { executionId, startedAt: at });
+      const preview = applyExecutionCommand(started.execution, command as ExecutionCommand, { at });
+      const receipt = await transition(db, { executionId, command, at });
       expect(normalized(receipt.execution)).toEqual(normalized(preview));
       expect(receipt).toMatchObject({ status: preview.status, revision: 1 });
       await db.exec('set session authorization postgres');
-      await db.exec('delete from public.protocol_executions');
       await db.exec('delete from public.protocol_execution_events');
+      await db.exec('delete from public.protocol_executions');
       await db.exec('delete from strandcue_private.protocol_execution_operations');
       await asUser(db, USER_A);
     }
@@ -849,8 +867,9 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
       { kind: 'complete' },
     ];
     for (const command of sequence) {
-      expected = applyExecutionCommand(expected, command as ExecutionCommand, { at: AT });
-      const receipt = await transition(db, { executionId, expectedRevision: revision, command });
+      const at = nowIso();
+      expected = applyExecutionCommand(expected, command as ExecutionCommand, { at });
+      const receipt = await transition(db, { executionId, expectedRevision: revision, command, at });
       revision += 1;
       expect(normalized(receipt.execution)).toEqual(normalized(expected));
       expect(receipt).toMatchObject({ status: expected.status, revision });
@@ -864,7 +883,7 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await recordRun(db);
     const executionId = crypto.randomUUID();
     const started = (await start(db, { executionId })).execution;
-    const paused = applyExecutionCommand(started, { kind: 'pause' }, { at: AT });
+    const paused = applyExecutionCommand(started, { kind: 'pause' }, { at: nowIso() });
     const cases: { base: unknown; command: unknown; pattern: RegExp }[] = [
       { base: started, command: { kind: 'resume' }, pattern: /invalid-status-transition/i },
       { base: started, command: { kind: 'complete' }, pattern: /pending-steps-remain/i },
@@ -873,7 +892,7 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
       { base: paused, command: { kind: 'complete' }, pattern: /invalid-status-transition/i },
     ];
     for (const { base, command, pattern } of cases) {
-      expect(() => applyExecutionCommand(base as any, command as ExecutionCommand, { at: AT })).toThrow();
+      expect(() => applyExecutionCommand(base as any, command as ExecutionCommand, { at: nowIso() })).toThrow();
       const id = crypto.randomUUID();
       let revision = 0;
       let status = (await start(db, { executionId: id })).status;
@@ -887,8 +906,8 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
         transition(db, { executionId: id, expectedRevision: revision, command }),
       ).rejects.toThrow(pattern);
       await db.exec('set session authorization postgres');
-      await db.exec(`delete from public.protocol_executions where execution_id = '${id}'`);
       await db.exec(`delete from public.protocol_execution_events where execution_id = '${id}'`);
+      await db.exec(`delete from public.protocol_executions where execution_id = '${id}'`);
       await db.exec('delete from strandcue_private.protocol_execution_operations');
       await asUser(db, USER_A);
     }
@@ -985,7 +1004,8 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('keeps owner, run, and protocol identities from the stored row', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    const startedAt = nowIso();
+    const started = await start(db, { startedAt });
     const { userProductId } = await shelfAdd(db);
     const receipt = await transition(db, {
       command: {
@@ -1000,7 +1020,7 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
       recommendationRunId: RUN_ID,
     });
     // startedAt renders in the session zone; compare as an instant.
-    expect(new Date(receipt.execution.startedAt).getTime()).toBe(new Date(STARTED_AT).getTime());
+    expect(new Date(receipt.execution.startedAt).getTime()).toBe(new Date(startedAt).getTime());
     expect(receipt.execution.steps[0].planned).toEqual(started.execution.steps[0].planned);
     expect(receipt.execution.steps[0]).toMatchObject({
       state: 'substituted',
@@ -1037,8 +1057,9 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await start(db);
     const operationId = crypto.randomUUID();
     const command = { kind: 'pause' };
-    const first = await transition(db, { operationId, command });
-    const second = await transition(db, { operationId, command });
+    const at = nowIso();
+    const first = await transition(db, { operationId, command, at });
+    const second = await transition(db, { operationId, command, at });
     expect(second).toEqual(first);
     expect(await listEventRows(db)).toHaveLength(2);
     await expect(
@@ -1160,12 +1181,12 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     // predicate, re-checked inside the definer) plus the three stable
     // rejection codes must all be present, and the migration must add no new
     // grants — the core reuses the existing mutator SELECT grants.
-    const names = (await readdir('supabase/migrations'))
-      .filter(name => name.endsWith('.sql'))
-      .sort();
-    const latest = names[names.length - 1] as string;
-    expect(latest).toMatch(/^20261014\d{6}_/);
-    const sql = await readFile(`supabase/migrations/${latest}`, 'utf8');
+    // Pinned to the Task-6 file by name (not "latest"): Task 7 appends a
+    // later bounds/integrity migration, so "latest" no longer names this one.
+    const sql = await readFile(
+      'supabase/migrations/20261014203908_protocol_substitute_shelf_verified.sql',
+      'utf8',
+    );
     expect(sql).toMatch(/from public\.user_products\s+where id = \S+ and owner = /i);
     expect(sql).toMatch(/from public\.product_versions\s+where id = /i);
     expect(sql).toMatch(/unknown-shelf-item/);
@@ -1381,5 +1402,481 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     expect(rows[0].revision).toBe(0);
     expect(rows[0].execution).toEqual(started.execution);
     expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  // ---- Task 7 (DB-002): the operation reservation lock ----
+  //
+  // Both cores reserve (user_id, operation_id) with a transaction-scoped
+  // advisory lock BEFORE the replay SELECT, so a concurrent retry of the
+  // same operation blocks until the winner commits and then replays the
+  // committed receipt instead of colliding on the operations primary key
+  // with a raw 23505. PGlite runs a single backend, so two sessions cannot
+  // block against each other here; these tests prove the lock is actually
+  // held (RED without the reservation) and that concurrent same-op callers
+  // converge on one receipt and one row/event set.
+
+  it('holds a transaction-scoped reservation lock for the operation during start', async () => {
+    await complete(db);
+    await recordRun(db);
+    const operationId = crypto.randomUUID();
+    await asUser(db, USER_A);
+    await db.exec('BEGIN');
+    try {
+      await start(db, { operationId });
+      // Same backend, so the role switch below changes nothing about which
+      // locks are visible: pg_locks is backend-scoped, not role-scoped.
+      await db.exec('set session authorization postgres');
+      const locks = (
+        await db.query<{ classid: number; objid: string }>(
+          `select classid::integer classid, objid::bigint::text objid from pg_locks
+           where locktype = 'advisory' and pid = pg_backend_pid()`,
+        )
+      ).rows;
+      const expectedClass = (
+        await db.query<{ k: number }>(`select hashtext('protocol-execution-op') k`)
+      ).rows[0].k;
+      const expectedObj = (
+        await db.query<{ k: number }>(`select hashtext($1) k`, [`${USER_A}:${operationId}`])
+      ).rows[0].k;
+      const unsigned = (n: number) => (n >>> 0).toString();
+      expect(
+        locks.filter(
+          row => row.classid === expectedClass && row.objid === unsigned(expectedObj),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await db.exec('ROLLBACK');
+      await asUser(db, USER_A);
+    }
+  });
+
+  it('holds a transaction-scoped reservation lock for the operation during transition', async () => {
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    const operationId = crypto.randomUUID();
+    await asUser(db, USER_A);
+    await db.exec('BEGIN');
+    try {
+      await transition(db, { operationId, command: { kind: 'pause' } });
+      await db.exec('set session authorization postgres');
+      const locks = (
+        await db.query<{ classid: number; objid: string }>(
+          `select classid::integer classid, objid::bigint::text objid from pg_locks
+           where locktype = 'advisory' and pid = pg_backend_pid()`,
+        )
+      ).rows;
+      const expectedClass = (
+        await db.query<{ k: number }>(`select hashtext('protocol-execution-op') k`)
+      ).rows[0].k;
+      const expectedObj = (
+        await db.query<{ k: number }>(`select hashtext($1) k`, [`${USER_A}:${operationId}`])
+      ).rows[0].k;
+      const unsigned = (n: number) => (n >>> 0).toString();
+      expect(
+        locks.filter(
+          row => row.classid === expectedClass && row.objid === unsigned(expectedObj),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await db.exec('ROLLBACK');
+      await asUser(db, USER_A);
+    }
+  });
+
+  it('replays a concurrently retried start to both callers with one execution row', async () => {
+    await complete(db);
+    await recordRun(db);
+    const operationId = crypto.randomUUID();
+    // Two in-flight callers sharing one operation id AND the one stored
+    // timestamp (retries never re-read the clock). PGlite serializes the
+    // two RPCs on its single backend; on real Postgres the reservation lock
+    // makes the loser wait for the winner's commit and then replay it. In
+    // both cases both callers must see the winner's receipt and exactly one
+    // execution row plus its single started event.
+    const startedAt = nowIso();
+    const [first, second] = await Promise.all([
+      start(db, { operationId, startedAt }),
+      start(db, { operationId, startedAt }),
+    ]);
+    expect(second).toEqual(first);
+    expect(await listExecutionRows(db)).toHaveLength(1);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('replays a concurrently retried transition to both callers with one event', async () => {
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    const operationId = crypto.randomUUID();
+    const command = { kind: 'pause' };
+    const at = nowIso();
+    const [first, second] = await Promise.all([
+      transition(db, { operationId, command, at }),
+      transition(db, { operationId, command, at }),
+    ]);
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ revision: 1 });
+    expect(await listEventRows(db)).toHaveLength(2);
+  });
+
+  // ---- Task 7 (DB-004): caller timestamps inside a documented skew window ----
+  //
+  // p_started_at / p_at are claimed event times. They must sit inside
+  // +5 minutes / -24 hours around server now() (see the migration header
+  // for the rationale). Server receipt times (events.recorded_at,
+  // operations.created_at, executions.created_at/updated_at) stay
+  // server-owned. The skew check sits after the idempotent replay
+  // early-return, so retrying a previously accepted operation still replays
+  // even after its timestamp has aged out of the window.
+
+  it('rejects a start far outside the skew window without writing rows', async () => {
+    await complete(db);
+    await recordRun(db);
+    await expect(
+      start(db, { startedAt: '2099-06-01T00:00:00.000Z' }),
+    ).rejects.toThrow(/timestamp-out-of-range/i);
+    await expect(
+      start(db, {
+        executionId: crypto.randomUUID(),
+        startedAt: '1999-06-01T00:00:00.000Z',
+      }),
+    ).rejects.toThrow(/timestamp-out-of-range/i);
+    expect(await listExecutionRows(db)).toEqual([]);
+    expect(await listEventRows(db)).toEqual([]);
+  });
+
+  it('rejects a transition far outside the skew window without touching rows', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    await expect(
+      transition(db, { command: { kind: 'pause' }, at: '2099-06-01T00:00:00.000Z' }),
+    ).rejects.toThrow(/timestamp-out-of-range/i);
+    await expect(
+      transition(db, { command: { kind: 'pause' }, at: '1999-06-01T00:00:00.000Z' }),
+    ).rejects.toThrow(/timestamp-out-of-range/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution).toEqual(started.execution);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('accepts timestamps at the skew boundary and rejects just past it', async () => {
+    await complete(db);
+    const minutes = (n: number) => new Date(Date.now() + n * 60_000).toISOString();
+    const hours = (n: number) => new Date(Date.now() + n * 3_600_000).toISOString();
+    // Each accepted start needs a fresh owned run (FK) and execution id.
+    const freshStart = async (startedAt: string) => {
+      const runId = crypto.randomUUID();
+      await recordRun(db, { requestId: runId, decision: decisionFixture(runId) });
+      return start(db, { executionId: crypto.randomUUID(), runId, startedAt });
+    };
+    await freshStart(minutes(4));
+    await freshStart(hours(-23));
+    await expect(freshStart(minutes(10))).rejects.toThrow(/timestamp-out-of-range/i);
+    await expect(freshStart(hours(-25))).rejects.toThrow(/timestamp-out-of-range/i);
+    expect(await listExecutionRows(db)).toHaveLength(2);
+  });
+
+  it('keeps server receipt times server-owned while the caller time is skew-bounded', async () => {
+    await complete(db);
+    await recordRun(db);
+    const startedAt = nowIso();
+    const receipt = await start(db, { startedAt });
+    const executions = await listExecutionRows(db);
+    const events = await listEventRows(db);
+    await db.exec('set session authorization postgres');
+    const ops = (
+      await db.query<{ created_at: string }>(
+        'select created_at from strandcue_private.protocol_execution_operations',
+      )
+    ).rows;
+    await asUser(db, USER_A);
+    // The claimed startedAt is preserved in the snapshot; every receipt
+    // timestamp is stamped by the server clock instead.
+    expect(new Date(receipt.execution.startedAt).getTime()).toBe(new Date(startedAt).getTime());
+    expect(events[0].recorded_at).toBeDefined();
+    expect(ops[0].created_at).toBeDefined();
+    expect(new Date(events[0].recorded_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(startedAt).getTime() - 5 * 60_000,
+    );
+    expect(executions[0].created_at).toBeDefined();
+    expect(executions[0].updated_at).toBeDefined();
+  });
+
+  // ---- Task 7 (DB-001): per-owner and per-execution bounds ----
+
+  it('caps non-terminal executions per owner and frees the slot on abandon', async () => {
+    await complete(db);
+    const ids: { runId: string; executionId: string }[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const runId = crypto.randomUUID();
+      const executionId = crypto.randomUUID();
+      await recordRun(db, { requestId: runId, decision: decisionFixture(runId) });
+      await start(db, { executionId, runId });
+      ids.push({ runId, executionId });
+    }
+    expect(await listExecutionRows(db)).toHaveLength(10);
+    const overflowRun = crypto.randomUUID();
+    await recordRun(db, { requestId: overflowRun, decision: decisionFixture(overflowRun) });
+    await expect(
+      start(db, { executionId: crypto.randomUUID(), runId: overflowRun }),
+    ).rejects.toThrow(/too-many-active-executions/i);
+    expect(await listExecutionRows(db)).toHaveLength(10);
+    // A terminal execution no longer occupies a slot: abandoning the first
+    // execution lets the previously rejected start through.
+    await transition(db, {
+      executionId: ids[0].executionId,
+      command: { kind: 'abandon', reason: 'owner stopped' },
+    });
+    const admitted = await start(db, { executionId: crypto.randomUUID(), runId: overflowRun });
+    expect(admitted).toMatchObject({ revision: 0, status: 'in_progress' });
+  });
+
+  it('caps total events per execution at the documented sequence bound', async () => {
+    await complete(db);
+    await recordRun(db);
+    const executionId = crypto.randomUUID();
+    await start(db, { executionId });
+    // The start wrote sequence 1; plant 2..499 as postgres so the next
+    // legal command writes exactly the 500th event (boundary: accepted).
+    await db.exec('set session authorization postgres');
+    await db.query(
+      `insert into public.protocol_execution_events(user_id, execution_id, sequence, kind, command, revision)
+       select $1, $2, generate_series(2, 499), 'command', '{}'::jsonb, 0`,
+      [USER_A, executionId],
+    );
+    await asUser(db, USER_A);
+    const paused = await transition(db, { executionId, command: { kind: 'pause' } });
+    expect(paused).toMatchObject({ revision: 1 });
+    expect(await listEventRows(db)).toHaveLength(500);
+    // The 501st event is refused with a stable code; the stored row is
+    // untouched and no event is appended.
+    await expect(
+      transition(db, { executionId, expectedRevision: 1, command: { kind: 'resume' } }),
+    ).rejects.toThrow(/too-many-events/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(1);
+    expect(rows[0].status).toBe('paused');
+    expect(await listEventRows(db)).toHaveLength(500);
+  });
+
+  it('caps steps per execution with a stable code at the boundary', async () => {
+    await complete(db);
+    const steps = (count: number, requestId: string) =>
+      Array.from({ length: count }, (_, index) => stepFixture(`step-${index + 1}`, index + 1));
+    const wide = crypto.randomUUID();
+    await recordRun(db, {
+      requestId: wide,
+      decision: { status: 'ready', requestId: wide, steps: steps(200, wide) },
+    });
+    const admitted = await start(db, { executionId: crypto.randomUUID(), runId: wide });
+    expect(admitted.execution.steps).toHaveLength(200);
+    const over = crypto.randomUUID();
+    await recordRun(db, {
+      requestId: over,
+      decision: { status: 'ready', requestId: over, steps: steps(201, over) },
+    });
+    await expect(
+      start(db, { executionId: crypto.randomUUID(), runId: over }),
+    ).rejects.toThrow(/too-many-steps/i);
+    expect(
+      (await listExecutionRows(db)).filter(row => row.recommendation_run_id === over),
+    ).toEqual([]);
+  });
+
+  it('caps idempotency-ledger and event payloads that the cores never bound', async () => {
+    await complete(db);
+    await recordRun(db);
+    const executionId = crypto.randomUUID();
+    await start(db, { executionId });
+    await db.exec('set session authorization postgres');
+    try {
+      // The 512 KiB ledger bound is 2x the largest single bounded field, so
+      // no legitimate receipt can trip it; a 600 KiB planted row must fail.
+      await expect(
+        db.query(
+          `insert into strandcue_private.protocol_execution_operations(user_id, operation_id, request, result)
+           values ($1, $2, to_jsonb(repeat('x', 600000)), '{}'::jsonb)`,
+          [USER_A, crypto.randomUUID()],
+        ),
+      ).rejects.toThrow(/check|too large|payload/i);
+      await expect(
+        db.query(
+          `insert into public.protocol_execution_events(user_id, execution_id, sequence, kind, command, revision)
+           values ($1, $2, 999, 'command', to_jsonb(repeat('y', 300000)), 0)`,
+          [USER_A, executionId],
+        ),
+      ).rejects.toThrow(/check|too large|payload/i);
+    } finally {
+      await asUser(db, USER_A);
+    }
+  });
+
+  // ---- Task 7 (DB-003): executions reference runs, events reference executions ----
+
+  it('refuses orphan executions and orphan events at the database', async () => {
+    await complete(db);
+    await recordRun(db);
+    await db.exec('set session authorization postgres');
+    try {
+      await expect(
+        db.query(
+          `insert into public.protocol_executions(user_id, execution_id, recommendation_run_id, decision, execution, revision, status)
+           values ($1, $2, $3, '{}'::jsonb, '{}'::jsonb, 0, 'in_progress')`,
+          [USER_A, crypto.randomUUID(), crypto.randomUUID()],
+        ),
+      ).rejects.toThrow(/foreign key/i);
+      const executionId = crypto.randomUUID();
+      await expect(
+        db.query(
+          `insert into public.protocol_execution_events(user_id, execution_id, sequence, kind, command, revision)
+           values ($1, $2, 1, 'started', '{}'::jsonb, 0)`,
+          [USER_A, executionId],
+        ),
+      ).rejects.toThrow(/foreign key/i);
+    } finally {
+      await asUser(db, USER_A);
+    }
+    expect(await listExecutionRows(db)).toEqual([]);
+    expect(await listEventRows(db)).toEqual([]);
+  });
+
+  it('refuses an execution that names another owner run at the database', async () => {
+    await complete(db);
+    await recordRun(db);
+    await asUser(db, USER_B);
+    await complete(db, 'user_b');
+    await asUser(db, USER_A);
+    await db.exec('set session authorization postgres');
+    try {
+      // The run exists but under (USER_A, RUN_ID): the composite key
+      // (USER_B, RUN_ID) matches nothing, so the insert fails even though
+      // both the owner profile and the run row exist independently.
+      await expect(
+        db.query(
+          `insert into public.protocol_executions(user_id, execution_id, recommendation_run_id, decision, execution, revision, status)
+           values ($1, $2, $3, '{}'::jsonb, '{}'::jsonb, 0, 'in_progress')`,
+          [USER_B, crypto.randomUUID(), RUN_ID],
+        ),
+      ).rejects.toThrow(/foreign key/i);
+    } finally {
+      await asUser(db, USER_A);
+    }
+  });
+
+  it('purges the whole execution chain when the owning profile is deleted', async () => {
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' } });
+    expect(await listExecutionRows(db)).toHaveLength(1);
+    expect(await listEventRows(db)).toHaveLength(2);
+    await db.exec('set session authorization postgres');
+    try {
+      await db.exec(`delete from public.profiles where user_id = '${USER_A}'`);
+      const remaining = async (sql: string) => (await db.query(sql)).rows;
+      expect(await remaining('select * from public.protocol_executions')).toEqual([]);
+      expect(await remaining('select * from public.protocol_execution_events')).toEqual([]);
+      expect(
+        await remaining('select * from strandcue_private.protocol_execution_operations'),
+      ).toEqual([]);
+      expect(await remaining('select * from public.recommendation_runs')).toEqual([]);
+    } finally {
+      await asUser(db, USER_A);
+    }
+  });
+
+  // ---- Task 7 (Task-4 minor): `complete` forces closeReason null ----
+
+  it('forces closeReason null on complete even when the stored row carries one', async () => {
+    await complete(db);
+    await recordRun(db, { decision: decisionFixture(RUN_ID, 'ready', 1) });
+    const executionId = crypto.randomUUID();
+    // Plant an in_progress row whose snapshot (all steps resolved) admits
+    // `complete` but carries a stale closeReason no core would write today.
+    // Reachable only by direct maintenance writes; the migrated core must
+    // still normalize it to null like the domain does.
+    const planted = {
+      executionId,
+      recommendationRunId: RUN_ID,
+      startedAt: nowIso(),
+      updatedAt: nowIso(),
+      status: 'in_progress',
+      steps: [
+        {
+          stepId: 'step-1',
+          position: 1,
+          planned: stepFixture('step-1', 1),
+          state: 'confirmed',
+          confirmedAt: nowIso(),
+          deviation: null,
+        },
+      ],
+      finishedAt: null,
+      closeReason: 'leftover',
+    };
+    await db.exec('set session authorization postgres');
+    try {
+      await db.query(
+        `insert into public.protocol_executions(user_id, execution_id, recommendation_run_id, decision, execution, revision, status)
+         values ($1, $2, $3, $4::jsonb, $5::jsonb, 0, 'in_progress')`,
+        [USER_A, executionId, RUN_ID, JSON.stringify(decisionFixture(RUN_ID, 'ready', 1)), JSON.stringify(planted)],
+      );
+    } finally {
+      await asUser(db, USER_A);
+    }
+    const receipt = await transition(db, { executionId, command: { kind: 'complete' } });
+    expect(receipt).toMatchObject({ status: 'completed', revision: 1 });
+    expect(receipt.execution.closeReason).toBeNull();
+  });
+
+  it('grants the definer core no new table access and opens no new write paths', async () => {
+    await db.exec('set session authorization postgres');
+    try {
+      const privileges = async (schema: string, table: string) =>
+        (
+          await db.query<{ privilege_type: string }>(
+            `select privilege_type from information_schema.role_table_grants
+             where grantee = 'strandcue_mutator' and table_schema = $1 and table_name = $2
+             order by 1`,
+            [schema, table],
+          )
+        ).rows.map(row => row.privilege_type);
+      expect(await privileges('public', 'protocol_executions')).toEqual([
+        'INSERT',
+        'SELECT',
+        'UPDATE',
+      ]);
+      expect(await privileges('public', 'protocol_execution_events')).toEqual(['INSERT', 'SELECT']);
+      expect(await privileges('strandcue_private', 'protocol_execution_operations')).toEqual([
+        'INSERT',
+        'SELECT',
+      ]);
+      // Authenticated keeps exactly one read policy per table and no write
+      // policy anywhere on the chain; foreign keys add integrity, not reads.
+      const writePolicies = (
+        await db.query<{ policyname: string }>(
+          `select policyname from pg_policies
+           where ((schemaname = 'public'
+             and tablename in ('protocol_executions', 'protocol_execution_events'))
+             or (schemaname = 'strandcue_private' and tablename = 'protocol_execution_operations'))
+             and roles = '{authenticated}' and cmd <> 'SELECT'`,
+        )
+      ).rows;
+      expect(writePolicies).toEqual([]);
+      const anonGrants = (
+        await db.query(
+          `select table_schema || '.' || table_name "table" from information_schema.role_table_grants
+           where table_schema in ('public', 'strandcue_private')
+             and table_name in ('protocol_executions', 'protocol_execution_events', 'protocol_execution_operations')
+             and grantee in ('anon', 'PUBLIC', 'service_role')`,
+        )
+      ).rows;
+      expect(anonGrants).toEqual([]);
+    } finally {
+      await asUser(db, USER_A);
+    }
   });
 });
