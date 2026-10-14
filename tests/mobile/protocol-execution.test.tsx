@@ -729,6 +729,43 @@ describe('protocol execution surface', () => {
     });
   });
 
+  it.each([
+    ['run-not-owned', 'different session'],
+    ['not-ready-decision', 'not ready to follow'],
+    ['operation-conflict', 'already saving'],
+    ['account-not-active', 'not active'],
+  ] as const)('maps start failure %s to user copy instead of the raw code', async (code, snippet) => {
+    mocks.start.mockRejectedValueOnce(new Error(code));
+    const renderer = await render();
+    await press(renderer, 'Start this plan');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const rendered = text(renderer);
+    expect(rendered).toContain('could not be started');
+    expect(rendered).toContain(snippet);
+    expect(rendered).not.toContain(code);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('maps an unmapped start failure to generic copy with no transport text', async () => {
+    mocks.start.mockRejectedValueOnce(new Error('connection reset'));
+    const renderer = await render();
+    await press(renderer, 'Start this plan');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const rendered = text(renderer);
+    expect(rendered).toContain('could not be started');
+    expect(rendered).toContain('check your connection');
+    expect(rendered).not.toContain('connection reset');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
   function confirmedResult() {
     const execution = executionFixture({ updatedAt: T1 });
     return {

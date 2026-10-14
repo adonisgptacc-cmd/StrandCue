@@ -74,6 +74,9 @@ export const TRANSITION_USER_COPY: Readonly<Record<string, string>> = {
 export const TRANSITION_SAVE_FAILED_COPY =
   'Your confirmation could not be saved. Nothing was recorded yet.';
 
+export const TRANSITION_START_FAILED_COPY =
+  'The plan could not be started. Check your connection and try again.';
+
 export interface TransitionErrorMapping {
   readonly code: string;
   readonly copy: string;
@@ -85,6 +88,14 @@ export function transitionErrorCopy(error: unknown): TransitionErrorMapping {
   const copy = TRANSITION_USER_COPY[message];
   if (copy !== undefined) return { code: message, copy };
   return { code: 'unmapped', copy: TRANSITION_SAVE_FAILED_COPY };
+}
+
+/** Map a start failure to user copy: stable codes share the transition table, anything else gets honest generic copy. */
+export function startErrorCopy(error: unknown): TransitionErrorMapping {
+  const message = error instanceof Error ? error.message : '';
+  const copy = TRANSITION_USER_COPY[message];
+  if (copy !== undefined) return { code: message, copy };
+  return { code: 'unmapped', copy: TRANSITION_START_FAILED_COPY };
 }
 
 export interface TransitionWireRequest {

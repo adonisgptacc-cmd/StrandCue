@@ -6,7 +6,9 @@ import {
 } from '../../packages/domain/src/index.ts';
 import {
   createProtocolTransitionDispatcher,
+  startErrorCopy,
   TRANSITION_SAVE_FAILED_COPY,
+  TRANSITION_START_FAILED_COPY,
   TRANSITION_USER_COPY,
   transitionErrorCopy,
 } from '../../apps/mobile/src/guidance/protocol-transition-dispatch.ts';
@@ -223,6 +225,17 @@ describe('protocol transition dispatch', () => {
     const { copy } = transitionErrorCopy(new Error('connection reset'));
     expect(copy).toBe(TRANSITION_SAVE_FAILED_COPY);
     expect(transitionErrorCopy('boom').copy).toBe(TRANSITION_SAVE_FAILED_COPY);
+  });
+
+  it('maps start failures through the shared stable-code table with a start-appropriate fallback', () => {
+    expect(startErrorCopy(new Error('run-not-owned'))).toMatchObject({
+      code: 'run-not-owned',
+      copy: TRANSITION_USER_COPY['run-not-owned'],
+    });
+    const { code, copy } = startErrorCopy(new Error('connection reset'));
+    expect(code).toBe('unmapped');
+    expect(copy).toBe(TRANSITION_START_FAILED_COPY);
+    expect(copy.toLowerCase()).not.toContain('connection reset');
   });
 
   it('pins terminal-vs-shape precedence: domain shape errors surface before terminal, the server is authoritative', () => {

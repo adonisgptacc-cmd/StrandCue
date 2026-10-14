@@ -51,6 +51,7 @@ import {
 } from './guidance/protocol-execution-state';
 import {
   createProtocolTransitionDispatcher,
+  startErrorCopy,
   type ProtocolTransitionDispatcher,
   type TransitionWireRequest,
 } from './guidance/protocol-transition-dispatch';
@@ -76,10 +77,6 @@ function nowIso(): string {
 
 function asExecution(value: unknown): ProtocolExecutionRecord {
   return value as ProtocolExecutionRecord;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message !== '' ? error.message : 'save failed';
 }
 
 function positionOf(execution: ProtocolExecutionRecord, stepId: string): number {
@@ -193,7 +190,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
         });
       } catch (error) {
         if (!live() || token !== ownerToken.current) return;
-        dispatch({ type: 'start_failed', error: errorMessage(error) });
+        dispatch({ type: 'start_failed', error: startErrorCopy(error).copy });
       }
       return;
     }
@@ -221,7 +218,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
       });
     } catch (error) {
       if (!live() || token !== ownerToken.current) return;
-      dispatch({ type: 'start_failed', error: errorMessage(error) });
+      dispatch({ type: 'start_failed', error: startErrorCopy(error).copy });
     }
   }
 
