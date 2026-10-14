@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
+import {
+  applyExecutionCommand,
+  type ExecutionCommand,
+} from '../../packages/domain/src/protocol-execution.ts';
 
 const EXECUTION_ID = '44444444-4444-4444-8444-444444444444';
 const RUN_ID = '55555555-5555-4555-8555-555555555555';
@@ -139,19 +143,19 @@ async function transition(
     expectedRevision?: number;
     command?: unknown;
     at?: string;
-    result?: unknown;
   } = {},
 ) {
+  // SC-003: the transition RPC carries only the bounded command. There is
+  // no result snapshot at any layer; the server constructs the execution.
   return (
     await db.query<{ result: any }>(
-      `select public.apply_protocol_execution_command($1,$2,$3,$4::jsonb,$5::timestamptz,$6::jsonb) result`,
+      `select public.apply_protocol_execution_command($1,$2,$3,$4::jsonb,$5::timestamptz) result`,
       [
         options.operationId ?? crypto.randomUUID(),
         options.executionId ?? EXECUTION_ID,
         options.expectedRevision ?? 0,
         JSON.stringify(options.command ?? { kind: 'pause' }),
         options.at ?? AT,
-        JSON.stringify(options.result ?? pausedResult()),
       ],
     )
   ).rows[0].result;
@@ -161,38 +165,22 @@ function startedExecution(result: any) {
   return result.execution;
 }
 
-function pausedResult(execution?: any) {
-  const base =
-    execution ??
-    ({
-      executionId: EXECUTION_ID,
-      recommendationRunId: RUN_ID,
-      startedAt: STARTED_AT,
-      updatedAt: AT,
-      status: 'paused',
-      steps: [pendingStep('step-1', 1), pendingStep('step-2', 2)],
-      finishedAt: null,
-      closeReason: null,
-    } as const);
-  return { ...base, status: 'paused', updatedAt: AT };
-}
-
-function pendingStep(stepId: string, position: number) {
-  const planned = stepFixture(stepId, position);
-  return { stepId, position, planned, state: 'pending', confirmedAt: null, deviation: null };
-}
-
-function confirmedResult(execution: any, stepId: string, at: string) {
-  return {
-    ...execution,
-    status: 'in_progress',
-    updatedAt: at,
-    steps: execution.steps.map((step: any) =>
-      step.stepId === stepId
-        ? { ...step, state: 'confirmed', confirmedAt: at, deviation: null }
-        : step,
+/**
+ * Canonical form for server-vs-preview parity: everything must match
+ * byte-for-byte except the server-owned `updatedAt`, and timestamps are
+ * compared as instants (PostgreSQL renders `+00:00` where the client sent
+ * `Z` for the same instant).
+ */
+function normalized(execution: any) {
+  const { updatedAt: _serverOwned, ...rest } = execution;
+  void _serverOwned;
+  return JSON.parse(
+    JSON.stringify(rest, (_key, value) =>
+      typeof value === 'string' && !Number.isNaN(Date.parse(value)) && /[T]/.test(value)
+        ? new Date(value).getTime()
+        : value,
     ),
-  };
+  );
 }
 
 async function listExecutionRows(db: PGlite): Promise<any[]> {
@@ -453,14 +441,16 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('replays an identical transition without duplicating events', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
     const operationId = crypto.randomUUID();
     const command = { kind: 'complete-step', stepId: 'step-1' };
-    const result = confirmedResult(started.execution, 'step-1', AT);
-    const first = await transition(db, { operationId, command, result });
-    const second = await transition(db, { operationId, command, result });
+    const first = await transition(db, { operationId, command });
+    const second = await transition(db, { operationId, command });
     expect(second).toEqual(first);
     expect(first).toMatchObject({ revision: 1 });
+    expect(first.execution.steps.find((step: any) => step.stepId === 'step-1')).toMatchObject({
+      state: 'confirmed',
+    });
     expect(await listEventRows(db)).toHaveLength(2);
   });
 
@@ -478,17 +468,14 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('rejects a stale expected revision without overwriting', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
-    const first = confirmedResult(started.execution, 'step-1', AT);
-    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: first });
+    await start(db);
+    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' } });
     // A still-legal command on the next step with a stale revision must hit the
     // guarded update predicate, not a legality gate.
-    const second = confirmedResult(first, 'step-2', AT);
     await expect(
       transition(db, {
         expectedRevision: 0,
         command: { kind: 'complete-step', stepId: 'step-2' },
-        result: second,
       }),
     ).rejects.toThrow(/revision-conflict/i);
     const rows = await listExecutionRows(db);
@@ -500,23 +487,20 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('enforces status legality for pause, resume, and terminal commands', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
     await transition(db);
     await expect(
-      transition(db, { expectedRevision: 1, command: { kind: 'pause' }, result: pausedResult() }),
+      transition(db, { expectedRevision: 1, command: { kind: 'pause' } }),
     ).rejects.toThrow(/invalid-status-transition/i);
-    const resumed = { ...started.execution, status: 'in_progress', updatedAt: AT };
     const afterResume = await transition(db, {
       expectedRevision: 1,
       command: { kind: 'resume' },
-      result: resumed,
     });
     expect(afterResume).toMatchObject({ revision: 2 });
     await expect(
       transition(db, {
         expectedRevision: 2,
         command: { kind: 'complete' },
-        result: { ...resumed, status: 'completed', updatedAt: AT, finishedAt: AT, closeReason: null },
       }),
     ).rejects.toThrow(/pending-steps-remain/i);
   });
@@ -524,33 +508,22 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('rejects step commands while paused and every command once terminal', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
     await transition(db);
-    const stepResult = confirmedResult({ ...started.execution, status: 'paused' }, 'step-1', AT);
     await expect(
       transition(db, {
         expectedRevision: 1,
         command: { kind: 'complete-step', stepId: 'step-1' },
-        result: stepResult,
       }),
     ).rejects.toThrow(/execution-not-active/i);
-    const abandoned = {
-      ...started.execution,
-      status: 'abandoned',
-      updatedAt: AT,
-      finishedAt: AT,
-      closeReason: 'owner stopped',
-    };
     await transition(db, {
       expectedRevision: 1,
       command: { kind: 'abandon', reason: 'owner stopped' },
-      result: abandoned,
     });
     await expect(
       transition(db, {
         expectedRevision: 2,
         command: { kind: 'pause' },
-        result: pausedResult(),
       }),
     ).rejects.toThrow(/execution-terminal/i);
   });
@@ -558,27 +531,23 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('rejects unknown steps, resolved steps, and unknown commands', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
     await expect(
       transition(db, {
         command: { kind: 'complete-step', stepId: 'step-99' },
-        result: started.execution,
       }),
     ).rejects.toThrow(/unknown-step/i);
-    const once = confirmedResult(started.execution, 'step-1', AT);
-    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: once });
+    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' } });
     await expect(
       transition(db, {
         expectedRevision: 1,
         command: { kind: 'complete-step', stepId: 'step-1' },
-        result: once,
       }),
     ).rejects.toThrow(/step-already-resolved/i);
     await expect(
       transition(db, {
         expectedRevision: 1,
         command: { kind: 'celebrate' },
-        result: once,
       }),
     ).rejects.toThrow(/unknown-command/i);
   });
@@ -586,10 +555,9 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('appends events in order and forbids direct rewrites', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
     await transition(db, {
       command: { kind: 'complete-step', stepId: 'step-1' },
-      result: confirmedResult(started.execution, 'step-1', AT),
     });
     const events = await listEventRows(db);
     expect(events.map(row => row.sequence)).toEqual([1, 2]);
@@ -612,11 +580,10 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('keeps stored decision bytes immutable across transitions', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
     const before = (await listExecutionRows(db))[0].decision;
     await transition(db, {
       command: { kind: 'complete-step', stepId: 'step-1' },
-      result: confirmedResult(started.execution, 'step-1', AT),
     });
     const after = (await listExecutionRows(db))[0];
     expect(after.decision).toEqual(before);
@@ -652,19 +619,11 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('returns null from read-active once the execution is terminal', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
     await transition(db);
-    const abandoned = {
-      ...started.execution,
-      status: 'abandoned',
-      updatedAt: AT,
-      finishedAt: AT,
-      closeReason: 'owner stopped',
-    };
     await transition(db, {
       expectedRevision: 1,
       command: { kind: 'abandon', reason: 'owner stopped' },
-      result: abandoned,
     });
     expect(await getActive(db)).toBeNull();
     expect((await listHistory(db)).items).toHaveLength(1);
@@ -755,138 +714,291 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await asUser(db, USER_A);
   });
 
-  it('refuses a forged result that resolves the wrong step', async () => {
+  it('exposes no result snapshot on the transition RPC (SC-003 closed)', async () => {
+    await db.exec('set session authorization postgres');
+    const rows = (
+      await db.query<{ name: string; args: string }>(
+        `select p.proname name, pg_get_function_arguments(p.oid) args from pg_proc p
+          where p.proname in ('apply_protocol_execution_command','apply_execution_command')`,
+      )
+    ).rows;
+    await asUser(db, USER_A);
+    const signatures = rows.map(row => `${row.name}(${row.args})`);
+    expect(signatures).toHaveLength(2);
+    for (const signature of signatures) {
+      expect(signature).not.toMatch(/p_result/i);
+    }
+    expect(signatures).toContainEqual(
+      expect.stringMatching(/^apply_protocol_execution_command\(.*p_operation_id.*p_execution_id.*p_expected_revision.*p_command.*p_at.*\)$/),
+    );
+    // The old 6-argument result-carrying forms are gone at both layers.
+    await expect(
+      db.query('select public.apply_protocol_execution_command($1,$2,$3,$4::jsonb,$5::timestamptz,$6::jsonb)',
+        [crypto.randomUUID(), EXECUTION_ID, 0, '{}', AT, '{}']),
+    ).rejects.toThrow(/does not exist|no function/i);
+  });
+
+  it('constructs the next snapshot on the server with server-owned updatedAt', async () => {
     await complete(db);
     await recordRun(db);
     const started = await start(db);
-    const forged = confirmedResult(started.execution, 'step-2', AT);
-    await expect(
-      transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: forged }),
-    ).rejects.toThrow(/result-mismatch/i);
+    const receipt = await transition(db, { command: { kind: 'pause' } });
+    expect(receipt).toMatchObject({ status: 'paused', revision: 1 });
+    expect(receipt.execution.steps).toEqual(started.execution.steps);
+    expect(Object.keys(receipt.execution).sort()).toEqual(
+      ['closeReason', 'executionId', 'finishedAt', 'recommendationRunId', 'startedAt', 'status', 'steps', 'updatedAt'],
+    );
+    // updatedAt is server-owned: the caller-sent `at` is never copied there.
+    expect(receipt.execution.updatedAt).not.toBe(AT);
+    expect(Number.isNaN(Date.parse(receipt.execution.updatedAt))).toBe(false);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].execution).toEqual(receipt.execution);
+    expect(new Date(receipt.updatedAt).getTime()).toBe(
+      new Date(rows[0].updated_at).getTime(),
+    );
+  });
+
+  it('matches the domain preview for every legal state x command pair', async () => {
+    await complete(db);
+    await recordRun(db);
+    const replacement = { productId: 'prod-owned', productVersionId: 'v9', owned: true };
+    const legal: { command: unknown }[] = [
+      { command: { kind: 'complete-step', stepId: 'step-1' } },
+      { command: { kind: 'skip-step', stepId: 'step-1', reason: 'owner skipped' } },
+      { command: { kind: 'substitute-step', stepId: 'step-1', reason: 'owner swapped', replacement } },
+      { command: { kind: 'modify-step', stepId: 'step-1', reason: 'owner changed', detail: 'less water' } },
+      { command: { kind: 'pause' } },
+      { command: { kind: 'abandon', reason: 'owner stopped' } },
+    ];
+    for (const { command } of legal) {
+      const executionId = crypto.randomUUID();
+      const started = await start(db, { executionId });
+      const preview = applyExecutionCommand(started.execution, command as ExecutionCommand, { at: AT });
+      const receipt = await transition(db, { executionId, command });
+      expect(normalized(receipt.execution)).toEqual(normalized(preview));
+      expect(receipt).toMatchObject({ status: preview.status, revision: 1 });
+      await db.exec('set session authorization postgres');
+      await db.exec('delete from public.protocol_executions');
+      await db.exec('delete from public.protocol_execution_events');
+      await db.exec('delete from strandcue_private.protocol_execution_operations');
+      await asUser(db, USER_A);
+    }
+  });
+
+  it('matches the domain preview across multi-step and paused sequences', async () => {
+    await complete(db);
+    await recordRun(db);
+    const executionId = crypto.randomUUID();
+    let expected = (await start(db, { executionId })).execution;
+    let revision = 0;
+    const sequence: unknown[] = [
+      { kind: 'complete-step', stepId: 'step-1' },
+      { kind: 'pause' },
+      { kind: 'resume' },
+      { kind: 'skip-step', stepId: 'step-2', reason: 'owner skipped' },
+      { kind: 'complete' },
+    ];
+    for (const command of sequence) {
+      expected = applyExecutionCommand(expected, command as ExecutionCommand, { at: AT });
+      const receipt = await transition(db, { executionId, expectedRevision: revision, command });
+      revision += 1;
+      expect(normalized(receipt.execution)).toEqual(normalized(expected));
+      expect(receipt).toMatchObject({ status: expected.status, revision });
+    }
+    const events = await listEventRows(db);
+    expect(events.map(row => row.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('agrees with the domain on illegal state x command pairs (both fail closed)', async () => {
+    await complete(db);
+    await recordRun(db);
+    const executionId = crypto.randomUUID();
+    const started = (await start(db, { executionId })).execution;
+    const paused = applyExecutionCommand(started, { kind: 'pause' }, { at: AT });
+    const cases: { base: unknown; command: unknown; pattern: RegExp }[] = [
+      { base: started, command: { kind: 'resume' }, pattern: /invalid-status-transition/i },
+      { base: started, command: { kind: 'complete' }, pattern: /pending-steps-remain/i },
+      { base: paused, command: { kind: 'pause' }, pattern: /invalid-status-transition/i },
+      { base: paused, command: { kind: 'complete-step', stepId: 'step-1' }, pattern: /execution-not-active/i },
+      { base: paused, command: { kind: 'complete' }, pattern: /invalid-status-transition/i },
+    ];
+    for (const { base, command, pattern } of cases) {
+      expect(() => applyExecutionCommand(base as any, command as ExecutionCommand, { at: AT })).toThrow();
+      const id = crypto.randomUUID();
+      let revision = 0;
+      let status = (await start(db, { executionId: id })).status;
+      if ((base as any).status === 'paused') {
+        const pausedReceipt = await transition(db, { executionId: id, command: { kind: 'pause' } });
+        status = pausedReceipt.status;
+        revision = 1;
+      }
+      expect(status).toBe((base as any).status);
+      await expect(
+        transition(db, { executionId: id, expectedRevision: revision, command }),
+      ).rejects.toThrow(pattern);
+      await db.exec('set session authorization postgres');
+      await db.exec(`delete from public.protocol_executions where execution_id = '${id}'`);
+      await db.exec(`delete from public.protocol_execution_events where execution_id = '${id}'`);
+      await db.exec('delete from strandcue_private.protocol_execution_operations');
+      await asUser(db, USER_A);
+    }
+  });
+
+  it('rejects unknown top-level command keys with invalid-command', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const smuggled = {
+      kind: 'pause',
+      result: { ...started.execution, status: 'paused', forgedKey: 'attacker-controlled' },
+    };
+    const malformed: [unknown, RegExp][] = [
+      [smuggled, /invalid-command/i],
+      [{ kind: 'pause', extra: true }, /invalid-command/i],
+      [{ kind: 'pause', stepId: 'step-1' }, /invalid-command/i],
+      [{ kind: 'complete-step' }, /invalid-command/i],
+      [{ kind: 'complete-step', stepId: 'step-1', reason: 'not allowed here' }, /invalid-command/i],
+      [{ kind: 'skip-step', stepId: 'step-1' }, /invalid-command/i],
+      [{ kind: 'substitute-step', stepId: 'step-1', reason: 'x' }, /invalid-command/i],
+      [{ kind: 'modify-step', stepId: 'step-1', reason: 'x' }, /invalid-command/i],
+      [{ kind: 'abandon' }, /invalid-command/i],
+      [{ kind: 'complete', reason: 'x' }, /invalid-command/i],
+      ['"pause"', /invalid-command/i],
+      // No kind at all is outside the transition allowlist.
+      [{ stepId: 'step-1' }, /unknown-command/i],
+    ];
+    for (const [command, pattern] of malformed) {
+      await expect(transition(db, { command })).rejects.toThrow(pattern);
+    }
     const rows = await listExecutionRows(db);
     expect(rows[0].revision).toBe(0);
-    expect(rows[0].execution.steps).toEqual(started.execution.steps);
+    expect(rows[0].execution).toEqual(started.execution);
     expect(await listEventRows(db)).toHaveLength(1);
   });
 
-  it('refuses a forged result that resolves no step', async () => {
+  it('rejects oversize deviation text with text-too-large at the 2 KiB boundary', async () => {
     await complete(db);
     await recordRun(db);
-    const started = await start(db);
+    await start(db);
+    const over = 'r'.repeat(2049);
+    await expect(
+      transition(db, { command: { kind: 'skip-step', stepId: 'step-1', reason: over } }),
+    ).rejects.toThrow(/text-too-large/i);
     await expect(
       transition(db, {
-        command: { kind: 'complete-step', stepId: 'step-1' },
-        result: started.execution,
+        command: { kind: 'modify-step', stepId: 'step-1', reason: 'owner changed', detail: over },
       }),
-    ).rejects.toThrow(/result-mismatch/i);
-    const rows = await listExecutionRows(db);
-    expect(rows[0].revision).toBe(0);
-    expect(rows[0].execution.steps).toEqual(started.execution.steps);
+    ).rejects.toThrow(/text-too-large/i);
+    const boundary = 'r'.repeat(2048);
+    const receipt = await transition(db, {
+      command: { kind: 'skip-step', stepId: 'step-1', reason: boundary },
+    });
+    expect(receipt).toMatchObject({ revision: 1 });
+    expect(
+      receipt.execution.steps.find((step: any) => step.stepId === 'step-1').deviation,
+    ).toEqual({ kind: 'skip', reason: boundary });
   });
 
-  it('refuses a forged result that resurrects a resolved step', async () => {
+  it('rejects malformed substitute replacements without touching rows', async () => {
     await complete(db);
     await recordRun(db);
     const started = await start(db);
-    const first = confirmedResult(started.execution, 'step-1', AT);
-    await transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: first });
-    const resurrected = {
-      ...first,
-      steps: [
-        { ...first.steps[0], state: 'pending', confirmedAt: null },
-        { ...first.steps[1], state: 'confirmed', confirmedAt: AT, deviation: null },
-      ],
-    };
+    const base = { kind: 'substitute-step', stepId: 'step-1', reason: 'owner swapped' };
     await expect(
       transition(db, {
-        expectedRevision: 1,
-        command: { kind: 'complete-step', stepId: 'step-2' },
-        result: resurrected,
+        command: { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: false } },
       }),
-    ).rejects.toThrow(/result-mismatch/i);
+    ).rejects.toThrow(/unowned-substitution/i);
+    const malformed: unknown[] = [
+      { ...base, replacement: { productId: 'p', productVersionId: 'v' } },
+      { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: true, extra: 1 } },
+      { ...base, replacement: { productId: '', productVersionId: 'v', owned: true } },
+      { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: 'yes' } },
+      { ...base, replacement: 'prod-owned' },
+      { ...base, reason: '   ' },
+      { ...base, reason: 'owner swapped', detail: 'not allowed here' },
+    ];
+    for (const command of malformed) {
+      await expect(transition(db, { command })).rejects.toThrow(/invalid-command/i);
+    }
     const rows = await listExecutionRows(db);
-    expect(rows[0].revision).toBe(1);
-    expect(rows[0].execution.steps).toEqual(first.steps);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution).toEqual(started.execution);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('keeps owner, run, and protocol identities from the stored row', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const receipt = await transition(db, {
+      command: {
+        kind: 'substitute-step',
+        stepId: 'step-1',
+        reason: 'owner swapped',
+        replacement: { productId: 'prod-owned', productVersionId: 'v9', owned: true },
+      },
+    });
+    expect(receipt.execution).toMatchObject({
+      executionId: EXECUTION_ID,
+      recommendationRunId: RUN_ID,
+    });
+    // startedAt renders in the session zone; compare as an instant.
+    expect(new Date(receipt.execution.startedAt).getTime()).toBe(new Date(STARTED_AT).getTime());
+    expect(receipt.execution.steps[0].planned).toEqual(started.execution.steps[0].planned);
+    expect(receipt.execution.steps[0]).toMatchObject({
+      state: 'substituted',
+      deviation: {
+        kind: 'substitute',
+        reason: 'owner swapped',
+        replacement: { productId: 'prod-owned', productVersionId: 'v9', owned: true },
+      },
+    });
+    expect(receipt.execution.steps[1]).toEqual(started.execution.steps[1]);
+  });
+
+  it('stores the bounded command (never a snapshot) in the event row', async () => {
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    const command = { kind: 'modify-step', stepId: 'step-1', reason: 'owner changed', detail: 'less water' };
+    await transition(db, { command });
+    const events = await listEventRows(db);
+    expect(events).toHaveLength(2);
+    expect(events[1].command).toEqual(command);
+    expect(events[1]).toMatchObject({ kind: 'command', revision: 1 });
+  });
+
+  it('replays an identical bounded command but conflicts on a differing one', async () => {
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    const operationId = crypto.randomUUID();
+    const command = { kind: 'pause' };
+    const first = await transition(db, { operationId, command });
+    const second = await transition(db, { operationId, command });
+    expect(second).toEqual(first);
+    expect(await listEventRows(db)).toHaveLength(2);
+    await expect(
+      transition(db, { operationId, command: { kind: 'resume' } }),
+    ).rejects.toThrow(/operation-conflict/i);
     expect(await listEventRows(db)).toHaveLength(2);
   });
 
-  it('refuses a fabricated confirmation timestamp', async () => {
-    await complete(db);
-    await recordRun(db);
-    const started = await start(db);
-    const forged = confirmedResult(started.execution, 'step-1', '2026-10-13T09:06:00.000Z');
-    await expect(
-      transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: forged }),
-    ).rejects.toThrow(/result-mismatch/i);
-    expect((await listExecutionRows(db))[0].revision).toBe(0);
-  });
-
-  it('refuses deviation content that does not match the command', async () => {
-    await complete(db);
-    await recordRun(db);
-    const started = await start(db);
-    const forged = {
-      ...started.execution,
-      updatedAt: AT,
-      steps: started.execution.steps.map((step: any) =>
-        step.stepId === 'step-1'
-          ? { ...step, state: 'skipped', deviation: { kind: 'skip', reason: 'forged reason' } }
-          : step,
-      ),
-    };
-    await expect(
-      transition(db, {
-        command: { kind: 'skip-step', stepId: 'step-1', reason: 'owner skipped' },
-        result: forged,
-      }),
-    ).rejects.toThrow(/result-mismatch/i);
-    expect((await listExecutionRows(db))[0].revision).toBe(0);
-  });
-
-  it('refuses a forged result that rewrites the copied plan', async () => {
-    await complete(db);
-    await recordRun(db);
-    const started = await start(db);
-    const forged = confirmedResult(started.execution, 'step-1', AT);
-    forged.steps[0] = {
-      ...forged.steps[0],
-      planned: { ...forged.steps[0].planned, action: 'Forged action' },
-    };
-    await expect(
-      transition(db, { command: { kind: 'complete-step', stepId: 'step-1' }, result: forged }),
-    ).rejects.toThrow(/result-mismatch/i);
-    expect((await listExecutionRows(db))[0].revision).toBe(0);
-  });
-
-  it('refuses results with mismatched identity, status, or step ids', async () => {
+  it('rejects empty deviation text and empty step ids', async () => {
     await complete(db);
     await recordRun(db);
     const started = await start(db);
     await expect(
-      transition(db, { command: { kind: 'pause' }, result: started.execution }),
-    ).rejects.toThrow(/result-mismatch/i);
+      transition(db, { command: { kind: 'skip-step', stepId: 'step-1', reason: '' } }),
+    ).rejects.toThrow(/invalid-command/i);
     await expect(
-      transition(db, {
-        command: { kind: 'pause' },
-        result: { ...pausedResult(), executionId: crypto.randomUUID() },
-      }),
-    ).rejects.toThrow(/result-mismatch/i);
+      transition(db, { command: { kind: 'complete-step', stepId: '' } }),
+    ).rejects.toThrow(/invalid-command/i);
     await expect(
-      transition(db, {
-        command: { kind: 'pause' },
-        result: { ...pausedResult(), recommendationRunId: crypto.randomUUID() },
-      }),
-    ).rejects.toThrow(/result-mismatch/i);
-    const dropped = pausedResult();
-    await expect(
-      transition(db, {
-        command: { kind: 'pause' },
-        result: { ...dropped, steps: [dropped.steps[0]] },
-      }),
-    ).rejects.toThrow(/result-mismatch/i);
-    const rows = await listExecutionRows(db);
-    expect(rows[0].revision).toBe(0);
-    expect(rows[0].execution.steps).toEqual(started.execution.steps);
+      transition(db, { command: { kind: 'abandon', reason: '' } }),
+    ).rejects.toThrow(/invalid-command/i);
+    expect((await listExecutionRows(db))[0].execution).toEqual(started.execution);
   });
 
   it('limits mutator table grants to the writes the core performs', async () => {
@@ -947,7 +1059,7 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
 
   it('guards the revision predicate inside the transition update', async () => {
     const sql = await readFile(
-      'supabase/migrations/20261013175703_protocol_executions.sql',
+      'supabase/migrations/20261014194531_protocol_transition_server_constructed.sql',
       'utf8',
     );
     expect(sql).toMatch(/and revision = p_expected_revision/);
@@ -980,11 +1092,18 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   });
 
   it('never gates persistence on substitution availability', async () => {
-    const sql = await readFile(
+    const legacy = await readFile(
       'supabase/migrations/20261013175703_protocol_executions.sql',
       'utf8',
     ).catch(() => '');
-    expect(sql).not.toBe('');
-    expect(sql).not.toMatch(/stock|availability|inventory|owned_product|user_products/i);
+    const constructed = await readFile(
+      'supabase/migrations/20261014194531_protocol_transition_server_constructed.sql',
+      'utf8',
+    ).catch(() => '');
+    expect(legacy).not.toBe('');
+    expect(constructed).not.toBe('');
+    for (const sql of [legacy, constructed]) {
+      expect(sql).not.toMatch(/stock|availability|inventory|owned_product|user_products/i);
+    }
   });
 });

@@ -94,13 +94,14 @@ function validStart(overrides: Record<string, unknown> = {}) {
 }
 
 function validTransition(overrides: Record<string, unknown> = {}) {
+  // SC-003: the wire command carries only bounded command fields. There is
+  // no `result` snapshot: the server constructs the authoritative execution.
   return {
     operationId: OPERATION_ID,
     executionId: EXECUTION_ID,
     expectedRevision: 0,
     command: { kind: 'pause' },
     at: AT,
-    result: executionFixture({ status: 'paused', updatedAt: AT }),
     ...overrides,
   };
 }
@@ -146,9 +147,23 @@ describe('protocol execution persistence boundary', () => {
       p_expected_revision: 0,
       p_command: { kind: 'pause' },
       p_at: AT,
-      p_result: executionFixture({ status: 'paused', updatedAt: AT }),
     });
+    const parameters = rpcMocks.rpc.mock.calls[0][1] as Record<string, unknown>;
+    expect(parameters).not.toHaveProperty('p_result');
     expect(result.revision).toBe(1);
+  });
+
+  it('rejects a caller-supplied result snapshot before calling the database', async () => {
+    rpcMocks.rpc.mockClear();
+    await expect(
+      transitionProtocolExecution(
+        validTransition({ result: executionFixture({ status: 'paused', updatedAt: AT }) }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      transitionProtocolExecution(validTransition({ p_result: { status: 'paused' } })),
+    ).rejects.toThrow();
+    expect(rpcMocks.rpc).not.toHaveBeenCalled();
   });
 
   it('refuses an owner id from the caller rather than forwarding it', async () => {
@@ -186,10 +201,7 @@ describe('protocol execution persistence boundary', () => {
     ];
     rpcMocks.rpc.mockResolvedValue({ data: receiptFixture({ revision: 1 }), error: null });
     for (const command of commands) {
-      const result = (command as { kind: string }).kind === 'pause'
-        ? executionFixture({ status: 'paused', updatedAt: AT })
-        : executionFixture();
-      await transitionProtocolExecution(validTransition({ command, result }));
+      await transitionProtocolExecution(validTransition({ command }));
     }
     expect(rpcMocks.rpc).toHaveBeenCalledTimes(commands.length);
 
@@ -203,6 +215,20 @@ describe('protocol execution persistence boundary', () => {
     await expect(
       transitionProtocolExecution(
         validTransition({ command: { kind: 'skip-step', stepId: 'step-1' } }),
+      ),
+    ).rejects.toThrow();
+    // A result smuggled inside the command is an unknown key, not a snapshot.
+    await expect(
+      transitionProtocolExecution(
+        validTransition({ command: { kind: 'pause', result: executionFixture() } }),
+      ),
+    ).rejects.toThrow();
+    // Deviation text past the 2 KiB server cap fails fast client-side.
+    await expect(
+      transitionProtocolExecution(
+        validTransition({
+          command: { kind: 'skip-step', stepId: 'step-1', reason: 'r'.repeat(2049) },
+        }),
       ),
     ).rejects.toThrow();
     expect(rpcMocks.rpc).not.toHaveBeenCalled();
@@ -274,7 +300,9 @@ describe('protocol execution persistence boundary', () => {
       'unknown-step',
       'step-already-resolved',
       'unknown-command',
-      'result-mismatch',
+      'invalid-command',
+      'text-too-large',
+      'unowned-substitution',
       'not-ready-decision',
       'untrusted-decision',
       'malformed-protocol',
@@ -297,6 +325,12 @@ describe('protocol execution persistence boundary', () => {
   it('maps stable errors on transitions, reads, and history without raw text', async () => {
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'revision-conflict', code: 'P0001' } });
     await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^revision-conflict$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'invalid-command', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^invalid-command$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'text-too-large', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^text-too-large$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'unowned-substitution', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^unowned-substitution$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'account-not-active', code: '42501' } });
     await expect(getActiveProtocolExecution()).rejects.toThrow(/^account-not-active$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'invalid-limit', code: '22023' } });

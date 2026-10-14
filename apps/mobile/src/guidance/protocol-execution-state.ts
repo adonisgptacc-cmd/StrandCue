@@ -10,11 +10,14 @@ import {
  *
  * Ownership: this reducer owns only the screen lifecycle — which request is
  * in flight, what the last confirmed server revision is, and what is waiting
- * on a retry. It never reimplements the state machine: the confirmed `result`
- * of every transition is computed by the caller with the domain's pure
- * `applyExecutionCommand`, and the server receipt is the authority applied on
- * success. Deviation free text (`reason`/`detail`) travels only inside the
- * command and its result: there is no facts path here.
+ * on a retry. It never reimplements the state machine: the `result` carried
+ * alongside every transition is a LOCAL optimistic preview computed by the
+ * caller with the domain's pure `applyExecutionCommand`. That preview is
+ * never sent to the server — the wire command carries only the bounded
+ * command fields (`command`, `at`, ids, revision) and the server constructs
+ * the authoritative snapshot (SC-003). The server receipt is the authority
+ * applied on success. Deviation free text (`reason`/`detail`) travels only
+ * inside the command and its preview: there is no facts path here.
  *
  * Epochs mirror the Today preflight: `ownerEpoch` counts owner changes (an
  * owner change resets the whole surface to `idle` and discards in-flight
@@ -36,6 +39,8 @@ export interface PendingTransition {
   readonly operationId: string;
   readonly command: ExecutionCommand;
   readonly at: string;
+  /** Local optimistic preview only — rendered while saving, never sent to
+   * the server. Retries resend the same `command`/`at`, not this value. */
   readonly result: ProtocolExecution;
   readonly expectedRevision: number;
 }

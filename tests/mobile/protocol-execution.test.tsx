@@ -3,12 +3,14 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProtocolDecision } from '../../packages/domain/src/index.ts';
+import { applyExecutionCommand } from '../../packages/domain/src/index.ts';
 import { ProtocolExecution } from '../../apps/mobile/src/ProtocolExecution.tsx';
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   transition: vi.fn(),
   uuidCounter: { value: 0 },
+  server: { execution: null as unknown, revision: 0 },
 }));
 
 vi.mock('react-native', () => {
@@ -219,9 +221,30 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.uuidCounter.value = 0;
   mocks.start.mockResolvedValue(receiptFixture());
+  // The fake server constructs the authoritative snapshot from the bounded
+  // command (mirroring the database core) and never accepts a client
+  // snapshot: the command carries no `result`, so the mock applies the
+  // domain transition to its own stored execution instead of echoing one.
+  mocks.server.execution = executionFixture();
+  mocks.server.revision = 0;
   mocks.transition.mockImplementation(async (command: unknown) => {
-    const parsed = command as { expectedRevision: number; executionId: string; result: unknown };
-    return receiptFixture({ revision: parsed.expectedRevision + 1, execution: parsed.result });
+    const parsed = command as {
+      expectedRevision: number;
+      executionId: string;
+      command: Parameters<typeof applyExecutionCommand>[1];
+      at: string;
+    };
+    mocks.server.execution = applyExecutionCommand(
+      mocks.server.execution as never,
+      parsed.command,
+      { at: parsed.at },
+    );
+    mocks.server.revision = parsed.expectedRevision + 1;
+    return receiptFixture({
+      revision: mocks.server.revision,
+      status: (mocks.server.execution as { status: string }).status,
+      execution: mocks.server.execution,
+    });
   });
 });
 
@@ -279,6 +302,28 @@ describe('protocol execution surface', () => {
       expectedRevision: 0,
     });
     expect(text(renderer)).toContain('actually done');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('sends bounded command fields and never a client snapshot', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    const command = mocks.transition.mock.calls[0][0] as Record<string, unknown>;
+    expect(command).toMatchObject({
+      command: { kind: 'complete-step', stepId: 'step-1' },
+      expectedRevision: 0,
+    });
+    expect(command).not.toHaveProperty('result');
+    expect(command).not.toHaveProperty('p_result');
+    expect(typeof command.at).toBe('string');
+    expect(typeof command.operationId).toBe('string');
+    // The server-constructed receipt still confirms the step on screen.
+    expect(text(renderer)).toContain('done step 1');
     await act(async () => {
       renderer.unmount();
     });

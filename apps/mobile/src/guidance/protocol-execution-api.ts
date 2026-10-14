@@ -20,6 +20,10 @@ import { supabase } from '../client';
 const nonEmptyString = z.string().trim().min(1);
 const uuid = z.string().uuid();
 const isoTimestamp = z.iso.datetime({ offset: true });
+/** Server-side deviation cap is 2 KiB (octets); this client-side character
+ * bound fails fast on clearly oversized text. The server remains
+ * authoritative for multibyte input. */
+const deviationText = z.string().trim().min(1).max(2048);
 
 const OwnedProductReferenceSchema = z
   .object({
@@ -31,12 +35,12 @@ const OwnedProductReferenceSchema = z
 
 const ExecutionCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('complete-step'), stepId: nonEmptyString }).strict(),
-  z.object({ kind: z.literal('skip-step'), stepId: nonEmptyString, reason: nonEmptyString }).strict(),
+  z.object({ kind: z.literal('skip-step'), stepId: nonEmptyString, reason: deviationText }).strict(),
   z
     .object({
       kind: z.literal('substitute-step'),
       stepId: nonEmptyString,
-      reason: nonEmptyString,
+      reason: deviationText,
       replacement: OwnedProductReferenceSchema,
     })
     .strict(),
@@ -44,13 +48,13 @@ const ExecutionCommandSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('modify-step'),
       stepId: nonEmptyString,
-      reason: nonEmptyString,
-      detail: nonEmptyString,
+      reason: deviationText,
+      detail: deviationText,
     })
     .strict(),
   z.object({ kind: z.literal('pause') }).strict(),
   z.object({ kind: z.literal('resume') }).strict(),
-  z.object({ kind: z.literal('abandon'), reason: nonEmptyString }).strict(),
+  z.object({ kind: z.literal('abandon'), reason: deviationText }).strict(),
   z.object({ kind: z.literal('complete') }).strict(),
 ]);
 
@@ -65,6 +69,13 @@ const StartProtocolExecutionCommandSchema = z
   })
   .strict();
 
+/**
+ * The transition command carries only bounded command fields. There is no
+ * `result` snapshot: the server constructs the authoritative execution from
+ * the stored row, the command, and the server clock (SC-003). A `result`
+ * key is rejected client-side by this strict schema and no longer exists on
+ * the RPC signature, so a forged snapshot cannot be forwarded.
+ */
 const TransitionProtocolExecutionCommandSchema = z
   .object({
     operationId: uuid,
@@ -72,7 +83,6 @@ const TransitionProtocolExecutionCommandSchema = z
     expectedRevision: z.number().int().nonnegative(),
     command: ExecutionCommandSchema,
     at: isoTimestamp,
-    result: z.record(z.string(), z.unknown()),
   })
   .strict();
 
@@ -124,7 +134,9 @@ const STABLE_ERRORS: Readonly<Record<string, string>> = {
   'unknown-step': 'unknown-step',
   'step-already-resolved': 'step-already-resolved',
   'unknown-command': 'unknown-command',
-  'result-mismatch': 'result-mismatch',
+  'invalid-command': 'invalid-command',
+  'text-too-large': 'text-too-large',
+  'unowned-substitution': 'unowned-substitution',
   'not-ready-decision': 'not-ready-decision',
   'untrusted-decision': 'untrusted-decision',
   'malformed-protocol': 'malformed-protocol',
@@ -167,7 +179,6 @@ export async function transitionProtocolExecution(
     p_expected_revision: parsed.expectedRevision,
     p_command: parsed.command,
     p_at: parsed.at,
-    p_result: parsed.result,
   });
   if (error) throw stableError(error.message);
   return ProtocolExecutionReceiptSchema.parse(data);

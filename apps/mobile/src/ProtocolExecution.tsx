@@ -215,11 +215,10 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     }
   }
 
-  async function sendTransition(command: ExecutionCommand, result: ProtocolExecutionRecord): Promise<void> {
+  async function sendTransition(command: ExecutionCommand, result: ProtocolExecutionRecord, at: string): Promise<void> {
     const current = ui.execution;
     if (current === null || ui.revision < 0) return;
     const operationId = Crypto.randomUUID();
-    const at = nowIso();
     const expectedRevision = ui.revision;
     dispatch({ type: 'transition_requested', operationId, command, at, result, expectedRevision });
     await deliverTransition({
@@ -228,7 +227,6 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
       expectedRevision,
       command,
       at,
-      result,
     });
   }
 
@@ -238,7 +236,6 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     readonly expectedRevision: number;
     readonly command: ExecutionCommand;
     readonly at: string;
-    readonly result: ProtocolExecutionRecord;
   }): Promise<void> {
     const token = ownerToken.current;
     try {
@@ -248,7 +245,6 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
         expectedRevision: args.expectedRevision,
         command: args.command,
         at: args.at,
-        result: args.result as unknown as Record<string, unknown>,
       });
       if (!live() || token !== ownerToken.current) return;
       dispatch({
@@ -275,7 +271,6 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
         expectedRevision: retrying.expectedRevision,
         command: retrying.command,
         at: retrying.at,
-        result: retrying.result,
       });
       return;
     }
@@ -287,9 +282,13 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   function confirmed(command: ExecutionCommand): void {
     const current = ui.execution;
     if (current === null || ui.phase !== 'ready') return;
+    // One timestamp for both the local preview and the wire command. The
+    // preview is optimistic only: the server constructs the authoritative
+    // snapshot from this command and never sees the preview.
+    const at = nowIso();
     let result: ProtocolExecutionRecord;
     try {
-      result = applyExecutionCommand(current, command, { at: nowIso() });
+      result = applyExecutionCommand(current, command, { at });
     } catch {
       return;
     }
@@ -299,7 +298,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     setProductId('');
     setProductVersionId('');
     setFormError(null);
-    void sendTransition(command, result);
+    void sendTransition(command, result, at);
   }
 
   function confirmArmed(): void {
@@ -570,8 +569,9 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
             disabled={busy}
             onPress={() => {
               try {
-                const result = applyExecutionCommand(execution, { kind: 'pause' }, { at: nowIso() });
-                void sendTransition({ kind: 'pause' }, result);
+                const at = nowIso();
+                const result = applyExecutionCommand(execution, { kind: 'pause' }, { at });
+                void sendTransition({ kind: 'pause' }, result, at);
               } catch {
                 return;
               }
@@ -586,8 +586,9 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
             disabled={busy}
             onPress={() => {
               try {
-                const result = applyExecutionCommand(execution, { kind: 'resume' }, { at: nowIso() });
-                void sendTransition({ kind: 'resume' }, result);
+                const at = nowIso();
+                const result = applyExecutionCommand(execution, { kind: 'resume' }, { at });
+                void sendTransition({ kind: 'resume' }, result, at);
               } catch {
                 return;
               }
@@ -601,8 +602,9 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
             disabled={busy}
             onPress={() => {
               try {
-                const result = applyExecutionCommand(execution, { kind: 'complete' }, { at: nowIso() });
-                void sendTransition({ kind: 'complete' }, result);
+                const at = nowIso();
+                const result = applyExecutionCommand(execution, { kind: 'complete' }, { at });
+                void sendTransition({ kind: 'complete' }, result, at);
               } catch {
                 return;
               }
