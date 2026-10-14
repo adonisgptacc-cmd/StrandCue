@@ -687,6 +687,48 @@ describe('protocol execution surface', () => {
     });
   });
 
+  it('dispatches a double-tapped confirmation only once', async () => {
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Mark done: Step 1');
+    mocks.transition.mockClear();
+    await act(async () => {
+      button(renderer, 'Confirm done: Step 1').props.onPress();
+      button(renderer, 'Confirm done: Step 1').props.onPress();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it.each([
+    ['text-too-large', 'too long'],
+    ['unowned-substitution', 'only a product you own'],
+    ['revision-conflict', 'latest confirmed record is shown'],
+    ['operation-conflict', 'already saving'],
+  ] as const)('maps %s to user copy instead of the raw code', async (code, snippet) => {
+    const renderer = await render();
+    await start(renderer);
+    mocks.transition.mockRejectedValueOnce(new Error(code));
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const rendered = text(renderer);
+    expect(rendered).toContain('could not be saved');
+    expect(rendered).toContain(snippet);
+    expect(rendered).not.toContain(code);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
   function confirmedResult() {
     const execution = executionFixture({ updatedAt: T1 });
     return {

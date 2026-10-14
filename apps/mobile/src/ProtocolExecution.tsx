@@ -3,7 +3,6 @@ import { Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 
 import {
-  applyExecutionCommand,
   type ExecutionCommand,
   type ProtocolDecision,
   type ProtocolExecution as ProtocolExecutionRecord,
@@ -51,10 +50,11 @@ import {
   initialExecutionUi,
 } from './guidance/protocol-execution-state';
 import {
-  startProtocolExecution,
-  transitionProtocolExecution,
-  type ProtocolExecutionReceipt,
-} from './guidance/protocol-execution-api';
+  createProtocolTransitionDispatcher,
+  type ProtocolTransitionDispatcher,
+  type TransitionWireRequest,
+} from './guidance/protocol-transition-dispatch';
+import { startProtocolExecution } from './guidance/protocol-execution-api';
 import { Button, Field, styles } from './ui';
 
 export interface ProtocolExecutionProps {
@@ -139,17 +139,27 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   const ownerToken = useRef(0);
   const mounted = useRef(true);
   const stepsRef = useRef<Text | null>(null);
+  const dispatcherRef = useRef<ProtocolTransitionDispatcher | null>(null);
+  if (dispatcherRef.current === null) {
+    dispatcherRef.current = createProtocolTransitionDispatcher({
+      nowIso,
+      newOperationId: () => Crypto.randomUUID(),
+    });
+  }
+  const dispatcher = dispatcherRef.current;
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       ownerToken.current += 1;
+      dispatcherRef.current?.reset();
     };
   }, []);
 
   useEffect(() => {
     dispatch({ type: 'owner_changed', ownerId });
+    dispatcherRef.current?.reset();
     ownerToken.current += 1;
   }, [ownerId]);
 
@@ -215,47 +225,22 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     }
   }
 
-  async function sendTransition(command: ExecutionCommand, result: ProtocolExecutionRecord, at: string): Promise<void> {
-    const current = ui.execution;
-    if (current === null || ui.revision < 0) return;
-    const operationId = Crypto.randomUUID();
-    const expectedRevision = ui.revision;
-    dispatch({ type: 'transition_requested', operationId, command, at, result, expectedRevision });
-    await deliverTransition({
-      operationId,
-      executionId: current.executionId,
-      expectedRevision,
-      command,
-      at,
-    });
-  }
-
-  async function deliverTransition(args: {
-    readonly operationId: string;
-    readonly executionId: string;
-    readonly expectedRevision: number;
-    readonly command: ExecutionCommand;
-    readonly at: string;
-  }): Promise<void> {
+  async function deliverTransition(request: TransitionWireRequest): Promise<void> {
     const token = ownerToken.current;
-    try {
-      const receipt: ProtocolExecutionReceipt = await transitionProtocolExecution({
-        operationId: args.operationId,
-        executionId: args.executionId,
-        expectedRevision: args.expectedRevision,
-        command: args.command,
-        at: args.at,
-      });
-      if (!live() || token !== ownerToken.current) return;
+    const outcome = await dispatcher.deliver(request);
+    if (!live() || token !== ownerToken.current) return;
+    if (outcome.status === 'succeeded') {
       dispatch({
         type: 'transition_succeeded',
-        execution: asExecution(receipt.execution),
-        revision: receipt.revision,
+        execution: asExecution(outcome.receipt.execution),
+        revision: outcome.receipt.revision,
       });
-    } catch (error) {
-      if (!live() || token !== ownerToken.current) return;
-      dispatch({ type: 'transition_failed', error: errorMessage(error) });
+    } else if (outcome.status === 'failed') {
+      // The dispatcher already mapped the stable code to user copy: the raw
+      // code never reaches the screen.
+      dispatch({ type: 'transition_failed', error: outcome.copy });
     }
+    // `busy` means a newer operation owns the guard; nothing to apply.
   }
 
   async function handleRetry(): Promise<void> {
@@ -279,26 +264,38 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     }
   }
 
-  function confirmed(command: ExecutionCommand): void {
+  function beginTransition(command: ExecutionCommand): void {
     const current = ui.execution;
-    if (current === null || ui.phase !== 'ready') return;
-    // One timestamp for both the local preview and the wire command. The
-    // preview is optimistic only: the server constructs the authoritative
-    // snapshot from this command and never sees the preview.
-    const at = nowIso();
-    let result: ProtocolExecutionRecord;
-    try {
-      result = applyExecutionCommand(current, command, { at });
-    } catch {
-      return;
-    }
+    if (current === null || ui.phase !== 'ready' || ui.revision < 0) return;
+    // One dispatcher, one clock read, one pending guard for every action. The
+    // optimistic preview and the wire command share the same `eventAt`; the
+    // authoritative server receipt reconciles on delivery.
+    const begun = dispatcher.begin({
+      command,
+      execution: current,
+      executionId: current.executionId,
+      expectedRevision: ui.revision,
+    });
+    if (begun.status !== 'ready') return;
     setArmed(null);
     setReason('');
     setDetail('');
     setProductId('');
     setProductVersionId('');
     setFormError(null);
-    void sendTransition(command, result, at);
+    dispatch({
+      type: 'transition_requested',
+      operationId: begun.request.operationId,
+      command,
+      at: begun.request.at,
+      result: begun.preview,
+      expectedRevision: ui.revision,
+    });
+    void deliverTransition(begun.request);
+  }
+
+  function confirmed(command: ExecutionCommand): void {
+    beginTransition(command);
   }
 
   function confirmArmed(): void {
@@ -568,13 +565,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
             secondary
             disabled={busy}
             onPress={() => {
-              try {
-                const at = nowIso();
-                const result = applyExecutionCommand(execution, { kind: 'pause' }, { at });
-                void sendTransition({ kind: 'pause' }, result, at);
-              } catch {
-                return;
-              }
+              beginTransition({ kind: 'pause' });
             }}
           />
         )}
@@ -585,13 +576,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
             secondary
             disabled={busy}
             onPress={() => {
-              try {
-                const at = nowIso();
-                const result = applyExecutionCommand(execution, { kind: 'resume' }, { at });
-                void sendTransition({ kind: 'resume' }, result, at);
-              } catch {
-                return;
-              }
+              beginTransition({ kind: 'resume' });
             }}
           />
         )}
@@ -601,13 +586,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
             accessibilityLabel={EXECUTION_FINISH_LABEL}
             disabled={busy}
             onPress={() => {
-              try {
-                const at = nowIso();
-                const result = applyExecutionCommand(execution, { kind: 'complete' }, { at });
-                void sendTransition({ kind: 'complete' }, result, at);
-              } catch {
-                return;
-              }
+              beginTransition({ kind: 'complete' });
             }}
           />
         )}
