@@ -20,6 +20,25 @@ const RunStatusSchema = z.enum([
   'source_error',
 ]);
 
+/**
+ * SC-001: the only statuses the authenticated client path may submit.
+ * `ready` is executable and requires the dedicated trusted-writer path
+ * (`strandcue_private.record_trusted_run`, mutator only), so the command
+ * schema below rejects it before any RPC call is made. The receipt schema
+ * above stays on the full server enum: it validates server output, and
+ * strictness there would not close any write hole.
+ */
+export const CLIENT_PERSISTABLE_RUN_STATUSES = [
+  'needs_setup',
+  'content_pending',
+  'needs_input',
+  'rule_conflict',
+  'unsupported',
+  'source_error',
+] as const;
+
+const ClientPersistableStatusSchema = z.enum(CLIENT_PERSISTABLE_RUN_STATUSES);
+
 const RecommendationRunCommandSchema = z
   .object({
     requestId: z.string().uuid(),
@@ -28,7 +47,7 @@ const RecommendationRunCommandSchema = z
     engineVersion: z.string().trim().min(1).max(40),
     bundleId: z.string().trim().min(1).max(120),
     bundleVersion: z.string().trim().min(1).max(40),
-    status: RunStatusSchema,
+    status: ClientPersistableStatusSchema,
     input: z.record(z.string(), z.unknown()),
     decision: z.record(z.string(), z.unknown()),
   })
@@ -59,6 +78,8 @@ const STABLE_ERRORS: Readonly<Record<string, string>> = {
   'run-conflict': 'run-conflict',
   'payload-too-large': 'payload-too-large',
   'unknown-status': 'unknown-status',
+  'executable-status-forbidden': 'executable-status-forbidden',
+  'malformed-protocol': 'malformed-protocol',
   'account-not-active': 'account-not-active',
   'authentication-required': 'authentication-required',
 };

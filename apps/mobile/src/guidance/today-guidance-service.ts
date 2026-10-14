@@ -107,6 +107,19 @@ const SOURCE_ERROR =
   'Your records could not be read completely. Nothing was generated and no earlier plan was reused.';
 
 /**
+ * SC-001 client-persistable gate. `ready` is executable and may only be
+ * persisted through the dedicated trusted-writer path (mutator only), so a
+ * ready result must never be submitted over the authenticated persistence
+ * path — the narrowed `recordRecommendationRun` contract rejects it before
+ * any RPC call. Every other service outcome is a non-executable,
+ * fail-closed status the client may persist. Draft guidance keeps producing
+ * `content_pending`, which stays persistable here.
+ */
+export function isClientPersistableGuidanceResult(result: TodayGuidanceResult): boolean {
+  return result.status !== 'ready';
+}
+
+/**
  * Production dependencies. `hashText` uses the platform SHA-256 so the
  * fingerprint stored with a run is reproducible on device.
  */

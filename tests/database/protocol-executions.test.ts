@@ -37,22 +37,32 @@ function decisionFixture(requestId: string, statuses = 'ready', stepCount = 2) {
 async function recordRun(db: PGlite, overrides: { requestId?: string; decision?: unknown } = {}) {
   const requestId = overrides.requestId ?? RUN_ID;
   const decision = overrides.decision ?? decisionFixture(requestId);
-  return (
-    await db.query<{ result: any }>(
-      `select public.record_recommendation_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb) result`,
-      [
-        requestId,
-        'd'.repeat(64),
-        '2026-10-13T08:00:00.000Z',
-        '1',
-        'bundle-synthetic',
-        '1',
-        'ready',
-        JSON.stringify({ requestId, goal: 'basic_wash' }),
-        JSON.stringify(decision),
-      ],
-    )
-  ).rows[0].result;
+  // SC-001: ready decisions are executable, so the authenticated public RPC
+  // no longer persists them. The harness seeds through the dedicated
+  // trusted-writer path as strandcue_mutator; the request identity still
+  // comes from request.jwt.claim.sub, so rows stay owned by USER_A.
+  await db.exec('set session authorization postgres');
+  await db.exec('set session authorization strandcue_mutator');
+  try {
+    return (
+      await db.query<{ result: any }>(
+        `select strandcue_private.record_trusted_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb) result`,
+        [
+          requestId,
+          'd'.repeat(64),
+          '2026-10-13T08:00:00.000Z',
+          '1',
+          'bundle-synthetic',
+          '1',
+          'ready',
+          JSON.stringify({ requestId, goal: 'basic_wash' }),
+          JSON.stringify(decision),
+        ],
+      )
+    ).rows[0].result;
+  } finally {
+    await asUser(db, USER_A);
+  }
 }
 
 async function start(

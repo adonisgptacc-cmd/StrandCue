@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
-import { generateTodayGuidance } from '../../apps/mobile/src/guidance/today-guidance-service';
+import { generateTodayGuidance, isClientPersistableGuidanceResult } from '../../apps/mobile/src/guidance/today-guidance-service';
 import type {
   TodayGuidanceDependencies,
   TodayGuidanceRequest,
@@ -9,6 +9,7 @@ import type {
 import {
   generateProtocol as realGenerateProtocol,
   RECOMMENDATION_ENGINE_VERSION,
+  ReviewedContentError,
   validatePublishedBundle,
   type GuidanceSnapshot,
   type ReviewedGuidanceBundle,
@@ -478,6 +479,70 @@ describe('today guidance orchestration', () => {
     expect(JSON.stringify(reordered.input)).toBe(JSON.stringify(first.input));
     expect(reordered.inputFingerprint).toBe(first.inputFingerprint);
     expect(first.input.historyFacts).toEqual({ status: 'active' });
+  });
+});
+
+describe('SC-001 client-persistable gate', () => {
+  it('refuses a ready result on the authenticated path without changing it', async () => {
+    const { dependencies } = harness();
+    const result = await generateTodayGuidance(request(), dependencies);
+    expect(result.status).toBe('ready');
+    expect(isClientPersistableGuidanceResult(result)).toBe(false);
+  });
+
+  it('keeps draft content_pending persistable with no ready regression', async () => {
+    const { dependencies } = harness({ bundle: draftBundle() });
+    const result = await generateTodayGuidance(request(), dependencies);
+    expect(result.status).toBe('content_pending');
+    expect(isClientPersistableGuidanceResult(result)).toBe(true);
+  });
+
+  it('admits every fail-closed outcome and only those', () => {
+    const persistable = [
+      { status: 'needs_setup', missing: [] },
+      { status: 'content_pending' },
+      { status: 'needs_input', decision: {}, input: {}, requestId: 'r', asOf: AS_OF, engineVersion: '1', bundleId: 'b', bundleVersion: '1', inputFingerprint: 'f' },
+      { status: 'rule_conflict', decision: {}, input: {}, requestId: 'r', asOf: AS_OF, engineVersion: '1', bundleId: 'b', bundleVersion: '1', inputFingerprint: 'f' },
+      { status: 'unsupported', decision: {}, input: {}, requestId: 'r', asOf: AS_OF, engineVersion: '1', bundleId: 'b', bundleVersion: '1', inputFingerprint: 'f' },
+      { status: 'source_error', detail: 'x' },
+    ] as never[];
+    for (const result of persistable) {
+      expect(isClientPersistableGuidanceResult(result)).toBe(true);
+    }
+    expect(
+      isClientPersistableGuidanceResult({ status: 'ready' } as never),
+    ).toBe(false);
+  });
+});
+
+describe('engine failure fail-closed mapping', () => {
+  it('keeps producing content_pending when the engine rejects draft content', async () => {
+    const { dependencies, generateProtocol } = harness();
+    generateProtocol.mockImplementation(() => {
+      throw new ReviewedContentError('draft');
+    });
+    const result = await generateTodayGuidance(request(), dependencies);
+    expect(result.status).toBe('content_pending');
+    expect(isClientPersistableGuidanceResult(result)).toBe(true);
+  });
+
+  it('maps a generic engine failure to source_error without inventing advice', async () => {
+    const { dependencies, generateProtocol } = harness();
+    generateProtocol.mockImplementation(() => {
+      throw new Error('engine exploded');
+    });
+    const result = await generateTodayGuidance(request(), dependencies);
+    expect(result.status).toBe('source_error');
+  });
+
+  it('rethrows an engine abort instead of reporting it as a source error', async () => {
+    const { dependencies, generateProtocol } = harness();
+    const abort = new Error('aborted');
+    abort.name = 'AbortError';
+    generateProtocol.mockImplementation(() => {
+      throw abort;
+    });
+    await expect(generateTodayGuidance(request(), dependencies)).rejects.toThrow('aborted');
   });
 });
 

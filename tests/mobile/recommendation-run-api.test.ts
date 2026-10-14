@@ -18,9 +18,9 @@ function validRun(overrides: Record<string, unknown> = {}) {
     engineVersion: '1',
     bundleId: 'bundle-synthetic',
     bundleVersion: '1',
-    status: 'ready' as const,
+    status: 'content_pending' as const,
     input: { requestId: REQUEST_ID, goal: 'basic_wash' },
-    decision: { status: 'ready', steps: [] },
+    decision: { status: 'content_pending', steps: [] },
     ...overrides,
   };
 }
@@ -30,7 +30,7 @@ function receipt(overrides: Record<string, unknown> = {}) {
     id: '22222222-2222-4222-8222-222222222222',
     requestId: REQUEST_ID,
     inputFingerprint: 'a'.repeat(64),
-    status: 'ready',
+    status: 'content_pending',
     engineVersion: '1',
     bundleId: 'bundle-synthetic',
     bundleVersion: '1',
@@ -55,9 +55,9 @@ describe('recommendation run persistence boundary', () => {
       p_engine_version: '1',
       p_bundle_id: 'bundle-synthetic',
       p_bundle_version: '1',
-      p_status: 'ready',
+      p_status: 'content_pending',
       p_input: { requestId: REQUEST_ID, goal: 'basic_wash' },
-      p_decision: { status: 'ready', steps: [] },
+      p_decision: { status: 'content_pending', steps: [] },
     });
     expect(result.requestId).toBe(REQUEST_ID);
     expect(result.inputFingerprint).toBe('a'.repeat(64));
@@ -83,6 +83,39 @@ describe('recommendation run persistence boundary', () => {
       recordRecommendationRun(validRun({ status: 'totally_made_up' })),
     ).rejects.toThrow();
     expect(rpcMocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses a ready status before calling the database', async () => {
+    rpcMocks.rpc.mockClear();
+    await expect(recordRecommendationRun(validRun({ status: 'ready' }))).rejects.toThrow();
+    expect(rpcMocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses every executable status and still accepts each fail-closed status', async () => {
+    for (const status of [
+      'needs_setup',
+      'content_pending',
+      'needs_input',
+      'rule_conflict',
+      'unsupported',
+      'source_error',
+    ] as const) {
+      rpcMocks.rpc.mockClear();
+      rpcMocks.rpc.mockResolvedValue({ data: receipt({ status }), error: null });
+      await expect(
+        recordRecommendationRun(validRun({ status, decision: { status, steps: [] } })),
+      ).resolves.toMatchObject({ status });
+      expect(rpcMocks.rpc).toHaveBeenCalledTimes(1);
+    }
+    rpcMocks.rpc.mockClear();
+    await expect(recordRecommendationRun(validRun({ status: 'ready' }))).rejects.toThrow();
+    expect(rpcMocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('still parses a ready receipt from server output without sending one', async () => {
+    rpcMocks.rpc.mockResolvedValue({ data: receipt({ status: 'ready' }), error: null });
+    const result = await recordRecommendationRun(validRun());
+    expect(result.status).toBe('ready');
   });
 
   it('rejects a missing or malformed fingerprint', async () => {
@@ -121,6 +154,13 @@ describe('recommendation run persistence boundary', () => {
       error: { message: 'payload-too-large', code: '22023' },
     });
     await expect(recordRecommendationRun(validRun())).rejects.toThrow(/payload-too-large/i);
+  });
+
+  it('maps trust-boundary rejections to stable codes, never raw database text', async () => {
+    for (const code of ['executable-status-forbidden', 'malformed-protocol'] as const) {
+      rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: code, code: '42501' } });
+      await expect(recordRecommendationRun(validRun())).rejects.toThrow(new RegExp(code, 'i'));
+    }
   });
 
   it('surfaces a generic database failure without pretending it saved', async () => {

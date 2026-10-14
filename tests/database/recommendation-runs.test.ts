@@ -22,7 +22,7 @@ function runInput(overrides: RunInput = {}): unknown[] {
     overrides.engineVersion ?? '1',
     overrides.bundleId ?? 'bundle-synthetic',
     overrides.bundleVersion ?? '1',
-    overrides.status ?? 'ready',
+    overrides.status ?? 'content_pending',
     JSON.stringify(overrides.input ?? { requestId: 'r', goal: 'basic_wash' }),
     JSON.stringify(overrides.decision ?? { status: 'ready', steps: [] }),
   ];
@@ -42,6 +42,22 @@ async function listRuns(db: PGlite): Promise<any[]> {
   return (await db.query('select * from public.recommendation_runs')).rows;
 }
 
+async function recordTrusted(db: PGlite, overrides: RunInput = {}) {
+  const params = runInput(overrides);
+  await db.exec('set session authorization postgres');
+  await db.exec('set session authorization strandcue_mutator');
+  try {
+    return (
+      await db.query<{ result: any }>(
+        `select strandcue_private.record_trusted_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb) result`,
+        params,
+      )
+    ).rows[0].result;
+  } finally {
+    await asUser(db, USER_A);
+  }
+}
+
 describe('recommendation runs private immutable audit', () => {
   let db: PGlite;
   beforeAll(async () => { db = await database(); }, 60_000);
@@ -58,7 +74,7 @@ describe('recommendation runs private immutable audit', () => {
     const result = await record(db, { requestId: '11111111-1111-4111-8111-111111111111' });
     expect(result).toMatchObject({
       requestId: '11111111-1111-4111-8111-111111111111',
-      status: 'ready',
+      status: 'content_pending',
       engineVersion: '1',
     });
     const rows = await listRuns(db);
@@ -68,14 +84,30 @@ describe('recommendation runs private immutable audit', () => {
 
   it('takes the owner from auth.uid and never from an argument', async () => {
     await complete(db);
-    const signature = (
+    const publicSignature = (
       await db.query<{ args: string[] }>(
         `select pg_get_function_arguments(oid) args from pg_proc
          where proname = 'record_recommendation_run' and pronamespace = 'public'::regnamespace`,
       )
     ).rows[0].args;
-    expect(signature).not.toMatch(/owner|user_id/i);
-    expect(signature).toMatch(/p_request_id/);
+    expect(publicSignature).not.toMatch(/owner|user_id/i);
+    expect(publicSignature).toMatch(/p_request_id/);
+    // No trusted-path selector either: the grant on the trusted function is
+    // the only gate, so there is nothing for a client to forge. (The
+    // internal core carries the enforcement flag but has no grants to
+    // anon/authenticated, proven by the grant tests below.)
+    const privateSignatures = (
+      await db.query<{ args: string[] }>(
+        `select pg_get_function_arguments(oid) args from pg_proc
+         where proname in ('record_run','record_trusted_run')
+           and pronamespace = 'strandcue_private'::regnamespace`,
+      )
+    ).rows.map(row => row.args);
+    expect(privateSignatures).toHaveLength(2);
+    for (const signature of privateSignatures) {
+      expect(signature).not.toMatch(/owner|user_id/i);
+      expect(signature).not.toMatch(/trusted|allow_executable|executable|role|path/i);
+    }
   });
 
   it('ignores any attempt to write another owner row directly', async () => {
@@ -141,10 +173,21 @@ describe('recommendation runs private immutable audit', () => {
 
   it('restricts status to engine or orchestration result statuses', async () => {
     await complete(db);
-    for (const status of ['needs_setup', 'content_pending', 'needs_input', 'rule_conflict', 'unsupported', 'source_error', 'ready']) {
+    for (const status of ['needs_setup', 'content_pending', 'needs_input', 'rule_conflict', 'unsupported', 'source_error']) {
       await expect(record(db, { status })).resolves.toBeDefined();
     }
     await expect(record(db, { status: 'definitely_not_a_status' })).rejects.toThrow(/unknown-status/i);
+  });
+
+  it('rejects malformed protocol payloads instead of storing them verbatim', async () => {
+    await complete(db);
+    await expect(record(db, { input: 5 })).rejects.toThrow(/malformed-protocol/i);
+    await expect(record(db, { input: [1, 2, 3] })).rejects.toThrow(/malformed-protocol/i);
+    await expect(record(db, { decision: 'ready' })).rejects.toThrow(/malformed-protocol/i);
+    await expect(record(db, { decision: [{ status: 'ready' }] })).rejects.toThrow(
+      /malformed-protocol/i,
+    );
+    expect(await listRuns(db)).toEqual([]);
   });
 
   it('never accepts an email, username, or token in the stored payload', async () => {
@@ -226,5 +269,66 @@ it('protects the table with forced row level security', async () => {
 
   it('requires an active account to record a run', async () => {
     await expect(record(db)).rejects.toThrow(/account-not-active/i);
+  });
+
+  it('refuses to mint a ready decision on the authenticated path', async () => {
+    await complete(db);
+    await expect(record(db, { status: 'ready' })).rejects.toThrow(/executable-status-forbidden/i);
+    expect(await listRuns(db)).toEqual([]);
+  });
+
+  it('persists a ready decision only through the trusted mutator path', async () => {
+    await complete(db);
+    const result = await recordTrusted(db, {
+      requestId: '33333333-3333-4333-8333-333333333333',
+      status: 'ready',
+    });
+    expect(result).toMatchObject({
+      requestId: '33333333-3333-4333-8333-333333333333',
+      status: 'ready',
+    });
+    const rows = await listRuns(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].user_id).toBe(USER_A);
+    expect(rows[0].status).toBe('ready');
+  });
+
+  it('denies the trusted path to authenticated and anonymous callers', async () => {
+    await complete(db);
+    await expect(
+      db.query(
+        `select strandcue_private.record_trusted_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`,
+        runInput({ status: 'ready' }),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+    await asUser(db, null);
+    await expect(
+      db.query(
+        `select strandcue_private.record_trusted_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`,
+        runInput({ status: 'ready' }),
+      ),
+    ).rejects.toThrow(/permission denied/i);
+    await asUser(db, USER_A);
+    expect(await listRuns(db)).toEqual([]);
+  });
+
+  it('grants the trusted path and the shared core to the mutator only', async () => {
+    await db.exec('set session authorization postgres');
+    for (const proname of ['record_trusted_run', 'record_run_core']) {
+      const rows = await db.query<{ grantee: string; privilege_type: string }>(
+        `select coalesce(r.rolname, 'PUBLIC') grantee, x.privilege_type
+         from pg_proc p, aclexplode(p.proacl) x
+         left join pg_roles r on r.oid = x.grantee
+         where p.proname = '${proname}'
+           and p.pronamespace = 'strandcue_private'::regnamespace
+           and x.privilege_type = 'EXECUTE'`,
+      );
+      const grantees = rows.rows.map(row => row.grantee);
+      expect(grantees).toContain('strandcue_mutator');
+      expect(grantees).not.toContain('authenticated');
+      expect(grantees).not.toContain('anon');
+      expect(grantees).not.toContain('PUBLIC');
+    }
+    await asUser(db, USER_A);
   });
 });
