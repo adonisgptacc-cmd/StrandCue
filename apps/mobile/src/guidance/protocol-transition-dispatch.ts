@@ -58,6 +58,9 @@ export const TRANSITION_USER_COPY: Readonly<Record<string, string>> = {
   'text-too-large':
     'Your note was kept on this screen, but the server rejected it as too long. Shorten it and try again.',
   'unowned-substitution': 'Only a product you own can be substituted. Nothing was recorded.',
+  'unknown-shelf-item': 'This shelf product could not be found. Nothing was recorded.',
+  'archived-shelf-item': 'This product is no longer on your shelf. Nothing was recorded.',
+  'unknown-product-version': 'The exact version for this shelf product could not be verified. Nothing was recorded.',
   'not-ready-decision': 'This plan is not ready to follow yet. Nothing was recorded.',
   'untrusted-decision': 'This plan could not be verified. Nothing was recorded.',
   'malformed-protocol': 'This plan could not be read. Nothing was recorded.',

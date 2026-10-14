@@ -236,9 +236,18 @@ export const EXECUTION_REASON_SKIP_LABEL = 'Reason for skipping';
 export const EXECUTION_REASON_SUBSTITUTE_LABEL = 'Reason for substituting';
 export const EXECUTION_REASON_MODIFY_LABEL = 'Reason for changing';
 export const EXECUTION_DETAIL_MODIFY_LABEL = 'What changed';
-export const EXECUTION_PRODUCT_ID_LABEL = 'Owned product id';
-export const EXECUTION_PRODUCT_VERSION_LABEL = 'Owned product version id';
-export const EXECUTION_PRODUCT_HELP =
-  'Name a product you own, with its exact version. Anything else is rejected.';
+export const EXECUTION_SHELF_PICKER_LABEL = 'Choose from your shelf';
+export const EXECUTION_SHELF_ITEM_HELP =
+  'Choose a product you own from your shelf. Only items on your shelf are accepted; anything else is rejected.';
+export const EXECUTION_SHELF_LOADING = 'Loading your shelf...';
+export const EXECUTION_SHELF_EMPTY =
+  'Your shelf is empty. Add a product to your shelf before substituting.';
+export const EXECUTION_SHELF_LOAD_FAILED =
+  'Your shelf could not be loaded. Check your connection and try again.';
+export const EXECUTION_SHELF_REQUIRED =
+  'Choose a product from your shelf so your record stays honest.';
+export const shelfItemOptionLabel = (id: string): string => `Use shelf item ${id}`;
+export const selectedShelfItemLabel = (id: string): string => `Selected shelf item ${id}`;
+export const shelfItemVersionLabel = (versionId: string): string => `Exact version ${versionId}`;
 export const EXECUTION_REASON_ABANDON_LABEL = 'Reason for stopping';
 export const EXECUTION_EMPTY_REASON = 'Add a short reason so your record stays honest.';

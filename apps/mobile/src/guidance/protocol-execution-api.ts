@@ -25,11 +25,9 @@ const isoTimestamp = z.iso.datetime({ offset: true });
  * authoritative for multibyte input. */
 const deviationText = z.string().trim().min(1).max(2048);
 
-const OwnedProductReferenceSchema = z
+const ShelfItemReferenceSchema = z
   .object({
-    productId: nonEmptyString,
-    productVersionId: nonEmptyString,
-    owned: z.literal(true),
+    shelfItemId: uuid,
   })
   .strict();
 
@@ -41,7 +39,7 @@ const ExecutionCommandSchema = z.discriminatedUnion('kind', [
       kind: z.literal('substitute-step'),
       stepId: nonEmptyString,
       reason: deviationText,
-      replacement: OwnedProductReferenceSchema,
+      replacement: ShelfItemReferenceSchema,
     })
     .strict(),
   z
@@ -137,6 +135,9 @@ const STABLE_ERRORS: Readonly<Record<string, string>> = {
   'invalid-command': 'invalid-command',
   'text-too-large': 'text-too-large',
   'unowned-substitution': 'unowned-substitution',
+  'unknown-shelf-item': 'unknown-shelf-item',
+  'archived-shelf-item': 'archived-shelf-item',
+  'unknown-product-version': 'unknown-product-version',
   'not-ready-decision': 'not-ready-decision',
   'untrusted-decision': 'untrusted-decision',
   'malformed-protocol': 'malformed-protocol',

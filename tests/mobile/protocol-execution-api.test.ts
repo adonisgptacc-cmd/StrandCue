@@ -19,6 +19,7 @@ vi.mock('../../apps/mobile/src/client', () => ({
 const OPERATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const EXECUTION_ID = '44444444-4444-4444-8444-444444444444';
 const RUN_ID = '55555555-5555-4555-8555-555555555555';
+const SHELF_ITEM_ID = '66666666-6666-4666-8666-666666666666';
 const STARTED_AT = '2026-10-13T09:00:00.000Z';
 const AT = '2026-10-13T09:05:00.000Z';
 
@@ -191,7 +192,7 @@ describe('protocol execution persistence boundary', () => {
         kind: 'substitute-step',
         stepId: 'step-1',
         reason: 'owner swapped',
-        replacement: { productId: 'p', productVersionId: 'v', owned: true },
+        replacement: { shelfItemId: SHELF_ITEM_ID },
       },
       { kind: 'modify-step', stepId: 'step-1', reason: 'owner changed', detail: 'less water' },
       { kind: 'pause' },
@@ -221,6 +222,45 @@ describe('protocol execution persistence boundary', () => {
     await expect(
       transitionProtocolExecution(
         validTransition({ command: { kind: 'pause', result: executionFixture() } }),
+      ),
+    ).rejects.toThrow();
+    // SC-004: the client submits an owned shelf-item id, never free-form
+    // product ids plus self-asserted `owned: true`. The old shape is
+    // rejected client-side before any database call.
+    await expect(
+      transitionProtocolExecution(
+        validTransition({
+          command: {
+            kind: 'substitute-step',
+            stepId: 'step-1',
+            reason: 'owner swapped',
+            replacement: { productId: 'p', productVersionId: 'v', owned: true },
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      transitionProtocolExecution(
+        validTransition({
+          command: {
+            kind: 'substitute-step',
+            stepId: 'step-1',
+            reason: 'owner swapped',
+            replacement: { shelfItemId: SHELF_ITEM_ID, owned: true },
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      transitionProtocolExecution(
+        validTransition({
+          command: {
+            kind: 'substitute-step',
+            stepId: 'step-1',
+            reason: 'owner swapped',
+            replacement: { shelfItemId: 'not-a-uuid' },
+          },
+        }),
       ),
     ).rejects.toThrow();
     // Deviation text past the 2 KiB server cap fails fast client-side.
@@ -303,6 +343,9 @@ describe('protocol execution persistence boundary', () => {
       'invalid-command',
       'text-too-large',
       'unowned-substitution',
+      'unknown-shelf-item',
+      'archived-shelf-item',
+      'unknown-product-version',
       'not-ready-decision',
       'untrusted-decision',
       'malformed-protocol',
@@ -331,6 +374,12 @@ describe('protocol execution persistence boundary', () => {
     await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^text-too-large$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'unowned-substitution', code: '22023' } });
     await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^unowned-substitution$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'unknown-shelf-item', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^unknown-shelf-item$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'archived-shelf-item', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^archived-shelf-item$/);
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'unknown-product-version', code: '22023' } });
+    await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/^unknown-product-version$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'account-not-active', code: '42501' } });
     await expect(getActiveProtocolExecution()).rejects.toThrow(/^account-not-active$/);
     rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'invalid-limit', code: '22023' } });

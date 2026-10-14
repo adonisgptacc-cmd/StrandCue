@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
@@ -163,6 +163,52 @@ async function transition(
 
 function startedExecution(result: any) {
   return result.execution;
+}
+
+// SC-004: deterministic catalogue identities from the reviewed seed
+// (20261012184009_basic_wash_catalogue_seed.sql). Both versions are
+// lifecycle='active'; neither id is inferred — they are read from the seed.
+const SHAMPOO_PRODUCT_ID = '2bc26c97-9e88-552c-9bf0-173dc44e4636';
+const SHAMPOO_VERSION_ID = '96759932-6d87-56c2-8165-8f95260447f4';
+const SHELF_DAY = { precision: 'day', value: '2026-10-13' };
+
+async function shelfAdd(
+  db: PGlite,
+  options: {
+    userProductId?: string;
+    versionId?: string | null;
+    manualName?: string | null;
+    availability?: string;
+  } = {},
+) {
+  const userProductId = options.userProductId ?? crypto.randomUUID();
+  const receipt = (
+    await db.query<{ result: any }>(
+      `select public.shelf_add($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) result`,
+      [
+        crypto.randomUUID(),
+        userProductId,
+        options.versionId === undefined ? SHAMPOO_VERSION_ID : options.versionId,
+        'House Brand',
+        options.manualName === undefined ? 'Gentle Shampoo' : options.manualName,
+        'shampoo',
+        options.availability ?? 'available',
+        null,
+        JSON.stringify(SHELF_DAY),
+      ],
+    )
+  ).rows[0].result;
+  return { userProductId, receipt };
+}
+
+async function shelfArchive(db: PGlite, userProductId: string, expectedRevision: number) {
+  return (
+    await db.query<{ result: any }>(`select public.shelf_archive($1,$2,$3) result`, [
+      crypto.randomUUID(),
+      userProductId,
+      expectedRevision,
+    ])
+  ).rows[0].result;
 }
 
 /**
@@ -761,11 +807,15 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('matches the domain preview for every legal state x command pair', async () => {
     await complete(db);
     await recordRun(db);
-    const replacement = { productId: 'prod-owned', productVersionId: 'v9', owned: true };
+    // SC-004: substitute-step is intentionally absent from byte-parity. The
+    // server verifies the named shelf item against the owner shelf and
+    // constructs a verified replacement (shelf + product + version ids plus
+    // recorded availability) that the offline domain preview cannot know, so
+    // preview and receipt necessarily differ there. Substitution is covered
+    // by the dedicated verification tests below instead.
     const legal: { command: unknown }[] = [
       { command: { kind: 'complete-step', stepId: 'step-1' } },
       { command: { kind: 'skip-step', stepId: 'step-1', reason: 'owner skipped' } },
-      { command: { kind: 'substitute-step', stepId: 'step-1', reason: 'owner swapped', replacement } },
       { command: { kind: 'modify-step', stepId: 'step-1', reason: 'owner changed', detail: 'less water' } },
       { command: { kind: 'pause' } },
       { command: { kind: 'abandon', reason: 'owner stopped' } },
@@ -903,17 +953,22 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await complete(db);
     await recordRun(db);
     const started = await start(db);
+    const { userProductId } = await shelfAdd(db);
     const base = { kind: 'substitute-step', stepId: 'step-1', reason: 'owner swapped' };
-    await expect(
-      transition(db, {
-        command: { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: false } },
-      }),
-    ).rejects.toThrow(/unowned-substitution/i);
+    // The old free-form shape (self-asserted `owned: true` over arbitrary
+    // product ids) is a shape migration, not a silent reinterpret: every
+    // variant fails with invalid-command, including `owned: false` (which
+    // used to raise unowned-substitution under the old contract).
     const malformed: unknown[] = [
+      { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: true } },
+      { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: false } },
       { ...base, replacement: { productId: 'p', productVersionId: 'v' } },
       { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: true, extra: 1 } },
-      { ...base, replacement: { productId: '', productVersionId: 'v', owned: true } },
-      { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: 'yes' } },
+      { ...base, replacement: { shelfItemId: userProductId, owned: true } },
+      { ...base, replacement: {} },
+      { ...base, replacement: { shelfItemId: 'not-a-uuid' } },
+      { ...base, replacement: { shelfItemId: '' } },
+      { ...base, replacement: { shelfItemId: null } },
       { ...base, replacement: 'prod-owned' },
       { ...base, reason: '   ' },
       { ...base, reason: 'owner swapped', detail: 'not allowed here' },
@@ -931,12 +986,13 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     await complete(db);
     await recordRun(db);
     const started = await start(db);
+    const { userProductId } = await shelfAdd(db);
     const receipt = await transition(db, {
       command: {
         kind: 'substitute-step',
         stepId: 'step-1',
         reason: 'owner swapped',
-        replacement: { productId: 'prod-owned', productVersionId: 'v9', owned: true },
+        replacement: { shelfItemId: userProductId },
       },
     });
     expect(receipt.execution).toMatchObject({
@@ -951,7 +1007,13 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
       deviation: {
         kind: 'substitute',
         reason: 'owner swapped',
-        replacement: { productId: 'prod-owned', productVersionId: 'v9', owned: true },
+        replacement: {
+          shelfItemId: userProductId,
+          productId: SHAMPOO_PRODUCT_ID,
+          productVersionId: SHAMPOO_VERSION_ID,
+          availability: 'available',
+          owned: true,
+        },
       },
     });
     expect(receipt.execution.steps[1]).toEqual(started.execution.steps[1]);
@@ -1091,19 +1153,233 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     expect(sql).not.toMatch(/row is touched/);
   });
 
-  it('never gates persistence on substitution availability', async () => {
-    const legacy = await readFile(
-      'supabase/migrations/20261013175703_protocol_executions.sql',
-      'utf8',
-    ).catch(() => '');
-    const constructed = await readFile(
-      'supabase/migrations/20261014194531_protocol_transition_server_constructed.sql',
-      'utf8',
-    ).catch(() => '');
-    expect(legacy).not.toBe('');
-    expect(constructed).not.toBe('');
-    for (const sql of [legacy, constructed]) {
-      expect(sql).not.toMatch(/stock|availability|inventory|owned_product|user_products/i);
+  it('verifies substitutions against the owner shelf inside the definer core', async () => {
+    // SC-004: the Task-4 core carried the replacement through unverified and
+    // its migration header defers supply verification to this task. The new
+    // migration resolves that deferral: the ownership lookup (with an owner
+    // predicate, re-checked inside the definer) plus the three stable
+    // rejection codes must all be present, and the migration must add no new
+    // grants — the core reuses the existing mutator SELECT grants.
+    const names = (await readdir('supabase/migrations'))
+      .filter(name => name.endsWith('.sql'))
+      .sort();
+    const latest = names[names.length - 1] as string;
+    expect(latest).toMatch(/^20261014\d{6}_/);
+    const sql = await readFile(`supabase/migrations/${latest}`, 'utf8');
+    expect(sql).toMatch(/from public\.user_products\s+where id = \S+ and owner = /i);
+    expect(sql).toMatch(/from public\.product_versions\s+where id = /i);
+    expect(sql).toMatch(/unknown-shelf-item/);
+    expect(sql).toMatch(/archived-shelf-item/);
+    expect(sql).toMatch(/unknown-product-version/);
+    const code = sql
+      .split('\n')
+      .filter(line => !line.trimStart().startsWith('--'))
+      .join('\n');
+    expect(code).not.toMatch(/grant\s+(select|insert|update|delete|execute|all)\b/i);
+    expect(code).not.toMatch(/revoke\s+all\s+on/i);
+  });
+
+  it('grants the definer core no new table access for shelf verification', async () => {
+    await db.exec('set session authorization postgres');
+    try {
+      const privileges = async (table: string) =>
+        (
+          await db.query<{ privilege_type: string }>(
+            `select privilege_type from information_schema.role_table_grants
+             where grantee = 'strandcue_mutator' and table_schema = 'public' and table_name = $1
+             order by 1`,
+            [table],
+          )
+        ).rows.map(row => row.privilege_type);
+      // Pre-existing grants only: SELECT (+INSERT for the shelf RPC path) on
+      // the shelf table, SELECT-only on the catalogue versions table.
+      expect(await privileges('user_products')).toEqual(['INSERT', 'SELECT']);
+      expect(await privileges('product_versions')).toEqual(['SELECT']);
+    } finally {
+      await asUser(db, USER_A);
     }
+  });
+
+  it('persists verified shelf and version ids for an owned available item', async () => {
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    const { userProductId } = await shelfAdd(db);
+    const receipt = await transition(db, {
+      command: {
+        kind: 'substitute-step',
+        stepId: 'step-1',
+        reason: 'owner swapped',
+        replacement: { shelfItemId: userProductId },
+      },
+    });
+    expect(receipt).toMatchObject({ revision: 1 });
+    expect(receipt.execution.steps[0]).toMatchObject({
+      state: 'substituted',
+      deviation: {
+        kind: 'substitute',
+        reason: 'owner swapped',
+        replacement: {
+          shelfItemId: userProductId,
+          productId: SHAMPOO_PRODUCT_ID,
+          productVersionId: SHAMPOO_VERSION_ID,
+          availability: 'available',
+          // `owned: true` in a stored deviation is now verified proof from
+          // the owner-shelf lookup, not a carried-through caller claim.
+          owned: true,
+        },
+      },
+    });
+    const events = await listEventRows(db);
+    expect(events).toHaveLength(2);
+    expect(events[1].command).toMatchObject({ replacement: { shelfItemId: userProductId } });
+  });
+
+  it('allows an out_of_stock item while recording its availability', async () => {
+    // Ruling: out_of_stock is still owned, so it substitutes with the
+    // availability recorded in the deviation. Archived (gone) fails below.
+    await complete(db);
+    await recordRun(db);
+    await start(db);
+    const { userProductId } = await shelfAdd(db, { availability: 'out_of_stock' });
+    const receipt = await transition(db, {
+      command: {
+        kind: 'substitute-step',
+        stepId: 'step-1',
+        reason: 'owner swapped',
+        replacement: { shelfItemId: userProductId },
+      },
+    });
+    expect(receipt).toMatchObject({ revision: 1 });
+    expect(receipt.execution.steps[0].deviation).toMatchObject({
+      replacement: { shelfItemId: userProductId, availability: 'out_of_stock', owned: true },
+    });
+  });
+
+  it('fails closed on an unknown shelf item without touching rows', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    await expect(
+      transition(db, {
+        command: {
+          kind: 'substitute-step',
+          stepId: 'step-1',
+          reason: 'owner swapped',
+          replacement: { shelfItemId: crypto.randomUUID() },
+        },
+      }),
+    ).rejects.toThrow(/unknown-shelf-item/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution).toEqual(started.execution);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('fails closed on another owner shelf item with the unknown code (no enumeration)', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    await asUser(db, USER_B);
+    await complete(db, 'user_b');
+    const { userProductId: foreignItem } = await shelfAdd(db);
+    await asUser(db, USER_A);
+    // Same stable code as a nonexistent id: the failure reveals nothing
+    // about whether the item exists under another owner.
+    await expect(
+      transition(db, {
+        command: {
+          kind: 'substitute-step',
+          stepId: 'step-1',
+          reason: 'owner swapped',
+          replacement: { shelfItemId: foreignItem },
+        },
+      }),
+    ).rejects.toThrow(/unknown-shelf-item/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution).toEqual(started.execution);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('fails closed on an archived shelf item without touching rows', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const added = await shelfAdd(db);
+    await shelfArchive(db, added.userProductId, added.receipt.revision);
+    await expect(
+      transition(db, {
+        command: {
+          kind: 'substitute-step',
+          stepId: 'step-1',
+          reason: 'owner swapped',
+          replacement: { shelfItemId: added.userProductId },
+        },
+      }),
+    ).rejects.toThrow(/archived-shelf-item/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution).toEqual(started.execution);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('fails closed on a shelf item with no catalogue version', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    const { userProductId } = await shelfAdd(db, { versionId: null, manualName: 'Handwritten balm' });
+    await expect(
+      transition(db, {
+        command: {
+          kind: 'substitute-step',
+          stepId: 'step-1',
+          reason: 'owner swapped',
+          replacement: { shelfItemId: userProductId },
+        },
+      }),
+    ).rejects.toThrow(/unknown-product-version/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution).toEqual(started.execution);
+    expect(await listEventRows(db)).toHaveLength(1);
+  });
+
+  it('fails closed when the referenced version row is gone', async () => {
+    await complete(db);
+    await recordRun(db);
+    const started = await start(db);
+    // RESTRICT normally makes this unreachable (a referenced version cannot
+    // be removed), so the row is planted with FK triggers disabled as
+    // postgres, then triggers are re-enabled in a finally: the core must
+    // still fail closed on the missing version.
+    const userProductId = crypto.randomUUID();
+    const ghostVersion = crypto.randomUUID();
+    await db.exec('set session authorization postgres');
+    try {
+      await db.exec('alter table public.user_products disable trigger all');
+      await db.query(
+        `insert into public.user_products(id, owner, version_id, manual_name, availability, revision)
+         values ($1, $2, $3, 'Ghost linked', 'available', 0)`,
+        [userProductId, USER_A, ghostVersion],
+      );
+    } finally {
+      await db.exec('alter table public.user_products enable trigger all');
+      await asUser(db, USER_A);
+    }
+    await expect(
+      transition(db, {
+        command: {
+          kind: 'substitute-step',
+          stepId: 'step-1',
+          reason: 'owner swapped',
+          replacement: { shelfItemId: userProductId },
+        },
+      }),
+    ).rejects.toThrow(/unknown-product-version/i);
+    const rows = await listExecutionRows(db);
+    expect(rows[0].revision).toBe(0);
+    expect(rows[0].execution).toEqual(started.execution);
+    expect(await listEventRows(db)).toHaveLength(1);
   });
 });

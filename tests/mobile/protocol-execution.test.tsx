@@ -44,9 +44,43 @@ vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
   transitionProtocolExecution: mocks.transition,
 }));
 
+const shelfMocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  detail: vi.fn(),
+}));
+
+vi.mock('../../apps/mobile/src/shelf-api', () => ({
+  listUserProducts: shelfMocks.list,
+  getUserProduct: shelfMocks.detail,
+}));
+
 const OWNER = 'owner-1';
 const T0 = '2026-10-13T12:00:00+02:00';
 const T1 = '2026-10-13T12:05:00+02:00';
+const SHELF_ITEM_ID = '66666666-6666-4666-8666-666666666666';
+const SHELF_VERSION_ID = '96759932-6d87-56c2-8165-8f95260447f4';
+
+function shelfListFixture() {
+  return {
+    items: [
+      { id: SHELF_ITEM_ID, revision: 1, availability: 'available', manualName: 'Gentle Shampoo' },
+    ],
+    nextCursor: null,
+  };
+}
+
+function shelfDetailFixture() {
+  return {
+    id: SHELF_ITEM_ID,
+    revision: 1,
+    availability: 'available',
+    matched: true,
+    matchConfirmed: true,
+    manualName: 'Gentle Shampoo',
+    versionId: SHELF_VERSION_ID,
+    revisions: [],
+  };
+}
 
 function readyDecision(): ProtocolDecision {
   return {
@@ -203,6 +237,13 @@ async function start(renderer: ReactTestRenderer): Promise<void> {
   });
 }
 
+async function flushShelf(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 const originalConsoleError = console.error.bind(console);
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -221,6 +262,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.uuidCounter.value = 0;
   mocks.start.mockResolvedValue(receiptFixture());
+  shelfMocks.list.mockResolvedValue(shelfListFixture());
+  shelfMocks.detail.mockResolvedValue(shelfDetailFixture());
   // The fake server constructs the authoritative snapshot from the bounded
   // command (mirroring the database core) and never accepts a client
   // snapshot: the command carries no `result`, so the mock applies the
@@ -358,13 +401,17 @@ describe('protocol execution surface', () => {
     });
   });
 
-  it('records a substitution naming an owned product and no fact keys', async () => {
+  it('records a substitution naming an owned shelf item and no fact keys', async () => {
+    // SC-004: the wire command carries an owned shelf-item id, never
+    // free-form product ids plus self-asserted `owned: true`.
     const renderer = await render();
     await start(renderer);
     await press(renderer, 'Substitute: Step 1');
+    await flushShelf();
+    expect(shelfMocks.list).toHaveBeenCalled();
+    await press(renderer, `Use shelf item ${SHELF_ITEM_ID}`);
+    await flushShelf();
     await type(renderer, 'Reason for substituting', 'used what I own');
-    await type(renderer, 'Owned product id', 'prod-owned');
-    await type(renderer, 'Owned product version id', 'v9');
     await press(renderer, 'Confirm substitution: Step 1');
     expect(mocks.transition).toHaveBeenCalledTimes(1);
     const command = mocks.transition.mock.calls[0][0] as Record<string, unknown>;
@@ -372,8 +419,12 @@ describe('protocol execution surface', () => {
       command: {
         kind: 'substitute-step',
         stepId: 'step-1',
-        replacement: { productId: 'prod-owned', productVersionId: 'v9', owned: true },
+        reason: 'used what I own',
+        replacement: { shelfItemId: SHELF_ITEM_ID },
       },
+    });
+    expect((command.command as { replacement: unknown }).replacement).toEqual({
+      shelfItemId: SHELF_ITEM_ID,
     });
     const serialized = JSON.stringify(command);
     expect(serialized).not.toMatch(/facts|snapshot|profileFacts|historyFacts|environmentFacts/i);
@@ -485,14 +536,30 @@ describe('protocol execution surface', () => {
     });
   });
 
-  it('requires owned product identity before confirming a substitution', async () => {
+  it('requires a shelf choice before confirming a substitution', async () => {
     const renderer = await render();
     await start(renderer);
     await press(renderer, 'Substitute: Step 1');
+    await flushShelf();
     await type(renderer, 'Reason for substituting', 'used what I own');
     await press(renderer, 'Confirm substitution: Step 1');
     expect(mocks.transition).not.toHaveBeenCalled();
-    expect(text(renderer)).toContain('stays honest');
+    expect(text(renderer)).toContain('choose a product from your shelf');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('shows a shelf load failure without recording anything', async () => {
+    shelfMocks.list.mockRejectedValueOnce(new Error('connection reset'));
+    const renderer = await render();
+    await start(renderer);
+    await press(renderer, 'Substitute: Step 1');
+    await flushShelf();
+    expect(text(renderer)).toContain('could not be loaded');
+    await type(renderer, 'Reason for substituting', 'used what I own');
+    await press(renderer, 'Confirm substitution: Step 1');
+    expect(mocks.transition).not.toHaveBeenCalled();
     await act(async () => {
       renderer.unmount();
     });
@@ -709,6 +776,9 @@ describe('protocol execution surface', () => {
   it.each([
     ['text-too-large', 'too long'],
     ['unowned-substitution', 'only a product you own'],
+    ['unknown-shelf-item', 'could not be found'],
+    ['archived-shelf-item', 'no longer on your shelf'],
+    ['unknown-product-version', 'could not be verified'],
     ['revision-conflict', 'latest confirmed record is shown'],
     ['operation-conflict', 'already saving'],
   ] as const)('maps %s to user copy instead of the raw code', async (code, snippet) => {

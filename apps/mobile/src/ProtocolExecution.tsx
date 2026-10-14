@@ -24,9 +24,6 @@ import {
   EXECUTION_NOTHING_CONFIRMED,
   EXECUTION_PAUSE_LABEL,
   EXECUTION_PLANNED_HEADING,
-  EXECUTION_PRODUCT_HELP,
-  EXECUTION_PRODUCT_ID_LABEL,
-  EXECUTION_PRODUCT_VERSION_LABEL,
   EXECUTION_REASON_ABANDON_LABEL,
   EXECUTION_REASON_MODIFY_LABEL,
   EXECUTION_REASON_SKIP_LABEL,
@@ -34,6 +31,12 @@ import {
   EXECUTION_RESUME_LABEL,
   EXECUTION_RETRY_LABEL,
   EXECUTION_SAVE_FAILED,
+  EXECUTION_SHELF_EMPTY,
+  EXECUTION_SHELF_ITEM_HELP,
+  EXECUTION_SHELF_LOAD_FAILED,
+  EXECUTION_SHELF_LOADING,
+  EXECUTION_SHELF_PICKER_LABEL,
+  EXECUTION_SHELF_REQUIRED,
   EXECUTION_START_BODY,
   EXECUTION_START_FAILED,
   EXECUTION_START_LABEL,
@@ -44,6 +47,9 @@ import {
   skipLabel,
   stepLabel,
   substituteLabel,
+  selectedShelfItemLabel,
+  shelfItemOptionLabel,
+  shelfItemVersionLabel,
 } from './guidance/guidance-copy';
 import {
   executionUiReducer,
@@ -56,6 +62,12 @@ import {
   type TransitionWireRequest,
 } from './guidance/protocol-transition-dispatch';
 import { startProtocolExecution } from './guidance/protocol-execution-api';
+import {
+  getUserProduct,
+  listUserProducts,
+  type ShelfDetail,
+  type ShelfItem,
+} from './shelf-api';
 import { Button, Field, styles } from './ui';
 
 export interface ProtocolExecutionProps {
@@ -122,8 +134,13 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   const [armed, setArmed] = useState<ArmedFlow | null>(null);
   const [reason, setReason] = useState('');
   const [detail, setDetail] = useState('');
-  const [productId, setProductId] = useState('');
-  const [productVersionId, setProductVersionId] = useState('');
+  // SC-004: a substitution names one owned shelf item, never free-form
+  // product ids. The picker is fed by the existing shelf readers; the
+  // server re-verifies ownership, membership, and the catalogue version.
+  const [shelfItemId, setShelfItemId] = useState('');
+  const [shelfItems, setShelfItems] = useState<ShelfItem[] | null>(null);
+  const [shelfError, setShelfError] = useState<string | null>(null);
+  const [shelfDetail, setShelfDetail] = useState<ShelfDetail | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [seenOwner, setSeenOwner] = useState(ownerId);
   // Render-time adjustment (never in an effect): a new owner discards the
@@ -131,6 +148,10 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   if (seenOwner !== ownerId) {
     setSeenOwner(ownerId);
     setArmed(null);
+    setShelfItemId('');
+    setShelfItems(null);
+    setShelfError(null);
+    setShelfDetail(null);
     setFormError(null);
   }
   const ownerToken = useRef(0);
@@ -159,6 +180,25 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     dispatcherRef.current?.reset();
     ownerToken.current += 1;
   }, [ownerId]);
+
+  // The substitute picker loads the owner's shelf when armed. Reading is
+  // display-only: the server re-verifies the chosen item at command time.
+  // (Resetting runs in `arm`, so this effect performs no synchronous set.)
+  useEffect(() => {
+    if (armed === null || armed.flow !== 'substitute') return;
+    let cancelled = false;
+    void listUserProducts({ limit: 25 }).then(
+      list => {
+        if (!cancelled) setShelfItems(list.items);
+      },
+      () => {
+        if (!cancelled) setShelfError(EXECUTION_SHELF_LOAD_FAILED);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [armed]);
 
   useEffect(() => () => {
     dispatch({ type: 'discarded' });
@@ -277,8 +317,10 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     setArmed(null);
     setReason('');
     setDetail('');
-    setProductId('');
-    setProductVersionId('');
+    setShelfItemId('');
+    setShelfItems(null);
+    setShelfError(null);
+    setShelfDetail(null);
     setFormError(null);
     dispatch({
       type: 'transition_requested',
@@ -322,17 +364,16 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
         confirmed({ kind: 'skip-step', stepId: armed.stepId, reason: trimmed });
         break;
       case 'substitute': {
-        const ownedId = productId.trim();
-        const ownedVersion = productVersionId.trim();
-        if (ownedId === '' || ownedVersion === '') {
-          setFormError(EXECUTION_EMPTY_REASON);
+        const shelf = shelfItemId.trim();
+        if (shelf === '') {
+          setFormError(EXECUTION_SHELF_REQUIRED);
           return;
         }
         confirmed({
           kind: 'substitute-step',
           stepId: armed.stepId,
           reason: trimmed,
-          replacement: { productId: ownedId, productVersionId: ownedVersion, owned: true },
+          replacement: { shelfItemId: shelf },
         });
         break;
       }
@@ -352,9 +393,30 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     setArmed(flow);
     setReason('');
     setDetail('');
-    setProductId('');
-    setProductVersionId('');
+    setShelfItemId('');
+    setShelfItems(null);
+    setShelfError(null);
+    setShelfDetail(null);
     setFormError(null);
+  }
+
+  function selectShelfItem(item: ShelfItem): void {
+    setShelfItemId(item.id);
+    setShelfDetail(null);
+    setFormError(null);
+    // Display-only detail for the chosen item; a late response after an
+    // owner change or unmount is discarded like every other async result.
+    const token = ownerToken.current;
+    void getUserProduct(item.id).then(
+      detail => {
+        if (!live() || token !== ownerToken.current) return;
+        if (detail !== null && detail.id === item.id) setShelfDetail(detail);
+      },
+      () => {
+        if (!live() || token !== ownerToken.current) return;
+        setShelfDetail(null);
+      },
+    );
   }
 
   // Paint-window guard: the reset to `idle` for a new owner lands in an
@@ -483,19 +545,30 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
           />
         )}
         {armed.flow === 'substitute' && <>
-          <Text style={styles.body}>{EXECUTION_PRODUCT_HELP}</Text>
-          <Field
-            label={EXECUTION_PRODUCT_ID_LABEL}
-            value={productId}
-            onChangeText={setProductId}
-            placeholder="Owned product id"
-          />
-          <Field
-            label={EXECUTION_PRODUCT_VERSION_LABEL}
-            value={productVersionId}
-            onChangeText={setProductVersionId}
-            placeholder="Exact version id"
-          />
+          <Text style={styles.body}>{EXECUTION_SHELF_ITEM_HELP}</Text>
+          <Text style={styles.label}>{EXECUTION_SHELF_PICKER_LABEL}</Text>
+          {shelfError !== null
+            ? <Text accessibilityRole="alert" style={styles.error}>{shelfError}</Text>
+            : shelfItems === null
+              ? <Text style={styles.body}>{EXECUTION_SHELF_LOADING}</Text>
+              : shelfItems.length === 0
+                ? <Text style={styles.body}>{EXECUTION_SHELF_EMPTY}</Text>
+                : shelfItems.map(item => (
+                  <Button
+                    key={item.id}
+                    title={`${item.manualName ?? 'Unnamed shelf item'} (${item.availability})`}
+                    accessibilityLabel={shelfItemOptionLabel(item.id)}
+                    secondary
+                    disabled={busy}
+                    onPress={() => selectShelfItem(item)}
+                  />
+                ))}
+          {shelfItemId !== '' && (
+            <Text style={styles.body}>{selectedShelfItemLabel(shelfItemId)}</Text>
+          )}
+          {shelfDetail !== null && shelfDetail.id === shelfItemId && shelfDetail.versionId !== null && (
+            <Text style={styles.body}>{shelfItemVersionLabel(shelfDetail.versionId)}</Text>
+          )}
         </>}
         {formError !== null && (
           <Text accessibilityRole="alert" style={styles.error}>{formError}</Text>

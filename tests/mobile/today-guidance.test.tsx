@@ -66,6 +66,13 @@ vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
   transitionProtocolExecution: mocks.executionTransition,
 }));
 
+// The substitute picker reads the shelf through shelf-api; mocking it keeps
+// the client (and its native modules) out of these preflight tests.
+vi.mock('../../apps/mobile/src/shelf-api', () => ({
+  listUserProducts: vi.fn(async () => ({ items: [], nextCursor: null })),
+  getUserProduct: vi.fn(async () => null),
+}));
+
 const OWNER = 'owner-1';
 
 function readyDecision(overrides: Partial<ProtocolDecision> = {}): ProtocolDecision {

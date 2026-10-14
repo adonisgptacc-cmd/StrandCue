@@ -206,6 +206,9 @@ describe('protocol transition dispatch', () => {
     const codes = Object.keys(TRANSITION_USER_COPY);
     expect(codes).toContain('text-too-large');
     expect(codes).toContain('unowned-substitution');
+    expect(codes).toContain('unknown-shelf-item');
+    expect(codes).toContain('archived-shelf-item');
+    expect(codes).toContain('unknown-product-version');
     expect(codes).toContain('revision-conflict');
     expect(codes).toContain('operation-conflict');
     for (const code of codes) {

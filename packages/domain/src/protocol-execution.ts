@@ -23,6 +23,7 @@ import { z } from 'zod';
 import type { ProtocolDecision } from './recommendations/index.ts';
 
 const nonEmptyString = z.string().trim().min(1);
+const uuidString = z.string().uuid();
 
 const IsoOffsetTimestampSchema = z.iso.datetime({ offset: true });
 
@@ -81,19 +82,37 @@ export const PlannedStepSchema = z
 export type PlannedStep = z.output<typeof PlannedStepSchema>;
 
 /**
- * What an "owned product reference" carries: the product identity plus an
- * explicit `owned: true` flag. A substitution must name a product the owner
- * actually holds; `owned: false` (or a missing reference) is rejected.
+ * What the client may name for a substitution: one owned shelf-item id
+ * (user_products.id). Free-form product/version ids plus self-asserted
+ * `owned: true` are rejected at parse time — ownership is verified
+ * server-side at command time, never claimed by the caller (SC-004).
  */
-export const OwnedProductReferenceSchema = z
+export const ShelfItemReferenceSchema = z
   .object({
+    shelfItemId: uuidString,
+  })
+  .strict();
+
+export type ShelfItemReference = z.output<typeof ShelfItemReferenceSchema>;
+
+/**
+ * What the server persists for a verified substitution: the shelf item plus
+ * the catalogue identities resolved from it at command time. `owned: true`
+ * here is verified proof from the owner-shelf lookup, never a
+ * carried-through caller claim. `availability` records whether the item was
+ * `available` or `out_of_stock`; archived items never reach this shape.
+ */
+export const VerifiedSubstituteReplacementSchema = z
+  .object({
+    shelfItemId: uuidString,
     productId: nonEmptyString,
     productVersionId: nonEmptyString,
+    availability: z.enum(['available', 'out_of_stock']),
     owned: z.literal(true),
   })
   .strict();
 
-export type OwnedProductReference = z.output<typeof OwnedProductReferenceSchema>;
+export type VerifiedSubstituteReplacement = z.output<typeof VerifiedSubstituteReplacementSchema>;
 
 const SkipDeviationSchema = z
   .object({
@@ -106,7 +125,9 @@ const SubstituteDeviationSchema = z
   .object({
     kind: z.literal('substitute'),
     reason: nonEmptyString,
-    replacement: OwnedProductReferenceSchema,
+    // The optimistic preview carries only the shelf-item reference; the
+    // server persists the verified shape. Both parse so previews validate.
+    replacement: z.union([ShelfItemReferenceSchema, VerifiedSubstituteReplacementSchema]),
   })
   .strict();
 
@@ -246,7 +267,7 @@ const SubstituteStepCommandSchema = z
     kind: z.literal('substitute-step'),
     stepId: nonEmptyString,
     reason: nonEmptyString,
-    replacement: OwnedProductReferenceSchema,
+    replacement: ShelfItemReferenceSchema,
   })
   .strict();
 
@@ -311,7 +332,6 @@ export type ProtocolExecutionErrorCode =
   | 'execution-terminal'
   | 'invalid-status-transition'
   | 'pending-steps-remain'
-  | 'unowned-substitution'
   | 'missing-timestamp';
 
 export class ProtocolExecutionError extends Error {
@@ -523,12 +543,10 @@ export function applyExecutionCommand(
         at,
       );
     case 'substitute-step': {
-      if (parsed.replacement.owned !== true) {
-        throw new ProtocolExecutionError(
-          'unowned-substitution',
-          `Substitution for step '${parsed.stepId}' requires an owned product reference`,
-        );
-      }
+      // No ownership claim here: the preview carries only the shelf-item
+      // reference, and the server verifies ownership, membership, and the
+      // referenced catalogue version at command time before persisting the
+      // verified replacement.
       return resolveStep(
         execution,
         parsed.stepId,
@@ -537,7 +555,7 @@ export function applyExecutionCommand(
         {
           kind: 'substitute',
           reason: parsed.reason,
-          replacement: { ...parsed.replacement },
+          replacement: { shelfItemId: parsed.replacement.shelfItemId },
         },
         at,
       );

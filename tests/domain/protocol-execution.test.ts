@@ -20,6 +20,11 @@ const T2 = '2026-10-13T12:10:00+02:00';
 const T3 = '2026-10-13T12:15:00+02:00';
 const T4 = '2026-10-13T12:20:00+02:00';
 
+// An owned shelf item from the caller's shelf (user_products.id). The
+// offline preview only carries the reference; the server verifies ownership,
+// membership, and the referenced catalogue version before persisting.
+const SHELF_ITEM_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
 function readyDecision() {
   return {
     status: 'ready',
@@ -123,7 +128,7 @@ describe('ProtocolExecution run reference', () => {
     let next = applyExecutionCommand(execution, { kind: 'complete-step', stepId: 'step-1' }, { at: T1 });
     next = applyExecutionCommand(
       next,
-      { kind: 'substitute-step', stepId: 'step-2', reason: 'owned swap', replacement: { productId: 'prod-gentle', productVersionId: 'v1', owned: true } },
+      { kind: 'substitute-step', stepId: 'step-2', reason: 'owned swap', replacement: { shelfItemId: SHELF_ITEM_ID } },
       { at: T2 },
     );
     next = applyExecutionCommand(next, { kind: 'skip-step', stepId: 'step-3', reason: 'no time' }, { at: T3 });
@@ -176,7 +181,7 @@ describe('ProtocolExecution transitions', () => {
         kind: 'substitute-step',
         stepId: 'step-3',
         reason: 'gentler option on hand',
-        replacement: { productId: 'prod-gentle', productVersionId: 'v1', owned: true },
+        replacement: { shelfItemId: SHELF_ITEM_ID },
       },
       T3,
       execution,
@@ -246,18 +251,44 @@ describe('ProtocolExecution transitions', () => {
     );
   });
 
-  it('rejects substitutions without an owned product reference', () => {
-    expect(() =>
-      run(
-        {
-          kind: 'substitute-step',
-          stepId: 'step-1',
-          reason: 'borrowed bottle',
-          replacement: { productId: 'prod-borrowed', productVersionId: 'v1', owned: false as unknown as true },
-        },
-        T1,
-      ),
-    ).toThrow(/owned/i);
+  it('rejects substitute commands that name products instead of an owned shelf item', () => {
+    // SC-004 shape migration: the old free-form shape (self-asserted
+    // ownership over arbitrary product ids) is not silently reinterpreted —
+    // every variant fails command parsing, including `owned: false` (which
+    // used to raise unowned-substitution under the old contract).
+    const base = { kind: 'substitute-step', stepId: 'step-1', reason: 'swap' } as const;
+    const malformed: unknown[] = [
+      { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: true } },
+      { ...base, replacement: { productId: 'p', productVersionId: 'v', owned: false } },
+      { ...base, replacement: { productId: 'p', productVersionId: 'v' } },
+      { ...base, replacement: { shelfItemId: SHELF_ITEM_ID, owned: true } },
+      { ...base, replacement: {} },
+      { ...base, replacement: { shelfItemId: 'not-a-uuid' } },
+      { ...base },
+    ];
+    for (const command of malformed) {
+      expect(() => run(command as ExecutionCommand, T1)).toThrow();
+    }
+  });
+
+  it('carries only the shelf-item reference in the optimistic preview', () => {
+    // The preview makes no ownership claim: verification happens server-side
+    // at command time, and the server constructs the verified replacement.
+    const next = run(
+      {
+        kind: 'substitute-step',
+        stepId: 'step-1',
+        reason: 'swap',
+        replacement: { shelfItemId: SHELF_ITEM_ID },
+      },
+      T1,
+    );
+    expect(next.steps[0]?.state).toBe('substituted');
+    expect(next.steps[0]?.deviation).toEqual({
+      kind: 'substitute',
+      reason: 'swap',
+      replacement: { shelfItemId: SHELF_ITEM_ID },
+    });
   });
 
   it('rejects pausing an already-paused execution and completing a paused one', () => {
