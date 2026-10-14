@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ProtocolDecision, ProtocolExecution } from '../../packages/domain/src/index.ts';
+import type { ProtocolExecution } from '../../packages/domain/src/index.ts';
 import {
   buildExecutionCompletion,
   executionUiReducer,
@@ -10,54 +10,6 @@ import {
 
 const T0 = '2026-10-13T12:00:00+02:00';
 const T1 = '2026-10-13T12:05:00+02:00';
-
-function readyDecision(): ProtocolDecision {
-  return {
-    status: 'ready',
-    requestId: 'run-2026-10-13-001',
-    confidence: 'high',
-    noPurchaseNeeded: true,
-    steps: [
-      {
-        stepId: 'step-1',
-        position: 1,
-        action: 'apply',
-        productId: 'prod-cleanse',
-        productVersionId: 'v3',
-        toolId: null,
-        toolVersionId: null,
-        waitSeconds: null,
-        rinse: null,
-        reasons: ['rule a@1 requires cleansing'],
-      },
-      {
-        stepId: 'step-2',
-        position: 2,
-        action: 'rinse',
-        productId: null,
-        productVersionId: null,
-        toolId: null,
-        toolVersionId: null,
-        waitSeconds: null,
-        rinse: true,
-        reasons: ['rule a@1 requires rinsing'],
-      },
-    ],
-    omissions: [],
-    alternatives: [],
-    missingInputs: [],
-    audit: {
-      requestId: 'run-2026-10-13-001',
-      engineVersion: '1',
-      evaluatedRules: [],
-      conflicts: [],
-      rankedCandidates: [],
-      rejectedCandidates: [],
-      restrictions: [],
-      missingInputs: [],
-    },
-  } as unknown as ProtocolDecision;
-}
 
 function startedExecution(): ProtocolExecution {
   return {
@@ -131,7 +83,7 @@ describe('protocol execution UI state', () => {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       executionId: 'exec-1',
-      decision: readyDecision(),
+      recommendationRunId: 'run-2026-10-13-001',
       startedAt: T0,
     });
     return executionUiReducer(state, {
@@ -155,7 +107,7 @@ describe('protocol execution UI state', () => {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       executionId: 'exec-1',
-      decision: readyDecision(),
+      recommendationRunId: 'run-2026-10-13-001',
       startedAt: T0,
     };
     const state = executionUiReducer(idle, action);
@@ -170,7 +122,7 @@ describe('protocol execution UI state', () => {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       executionId: 'exec-1',
-      decision: readyDecision(),
+      recommendationRunId: 'run-2026-10-13-001',
       startedAt: T0,
     });
     state = executionUiReducer(state, {
@@ -246,13 +198,15 @@ describe('protocol execution UI state', () => {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       executionId: 'exec-1',
-      decision: readyDecision(),
+      recommendationRunId: 'run-2026-10-13-001',
       startedAt: T0,
     });
     state = executionUiReducer(state, { type: 'start_failed', error: 'connection reset' });
     expect(state.phase).toBe('save_failed');
     expect(state.error).toBe('connection reset');
     expect(state.startRequest?.operationId).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    expect(state.startRequest?.recommendationRunId).toBe('run-2026-10-13-001');
+    expect(state.startRequest).not.toHaveProperty('decision');
     state = executionUiReducer(state, { type: 'retry_requested' });
     expect(state.phase).toBe('starting');
     expect(state.startRequest?.operationId).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
@@ -296,7 +250,7 @@ describe('protocol execution UI state', () => {
         type: 'start_requested',
         operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         executionId: 'exec-2',
-        decision: readyDecision(),
+        recommendationRunId: 'run-2026-10-13-001',
         startedAt: T0,
       }),
     ).toBe(active);
@@ -340,7 +294,7 @@ describe('protocol execution UI state', () => {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       executionId: 'exec-1',
-      decision: readyDecision(),
+      recommendationRunId: 'run-2026-10-13-001',
       startedAt: T0,
     });
     state = executionUiReducer(state, { type: 'owner_changed', ownerId: 'owner-2' });

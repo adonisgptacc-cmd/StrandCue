@@ -34,13 +34,18 @@ function decisionFixture(requestId: string, statuses = 'ready', stepCount = 2) {
   };
 }
 
-async function recordRun(db: PGlite, overrides: { requestId?: string; decision?: unknown } = {}) {
+async function recordRun(
+  db: PGlite,
+  overrides: { requestId?: string; decision?: unknown; status?: string } = {},
+) {
   const requestId = overrides.requestId ?? RUN_ID;
   const decision = overrides.decision ?? decisionFixture(requestId);
   // SC-001: ready decisions are executable, so the authenticated public RPC
   // no longer persists them. The harness seeds through the dedicated
   // trusted-writer path as strandcue_mutator; the request identity still
   // comes from request.jwt.claim.sub, so rows stay owned by USER_A.
+  // SC-002: the trusted path marks rows trusted=true; see seedUntrustedReady
+  // for the pre-Task-2 shape (trusted=false).
   await db.exec('set session authorization postgres');
   await db.exec('set session authorization strandcue_mutator');
   try {
@@ -54,12 +59,48 @@ async function recordRun(db: PGlite, overrides: { requestId?: string; decision?:
           '1',
           'bundle-synthetic',
           '1',
-          'ready',
+          overrides.status ?? 'ready',
           JSON.stringify({ requestId, goal: 'basic_wash' }),
           JSON.stringify(decision),
         ],
       )
     ).rows[0].result;
+  } finally {
+    await asUser(db, USER_A);
+  }
+}
+
+/**
+ * Seeds a ready row shaped exactly like a pre-Task-2 public-path write:
+ * status='ready' but trusted=false (the column default; the old public path
+ * never sets it). Inserted as postgres, bypassing RLS the way the old
+ * permissive RPC did for the owning user.
+ */
+async function seedUntrustedReady(
+  db: PGlite,
+  overrides: { requestId?: string; decision?: unknown } = {},
+) {
+  const requestId = overrides.requestId ?? RUN_ID;
+  const decision = overrides.decision ?? decisionFixture(requestId);
+  await db.exec('set session authorization postgres');
+  try {
+    await db.query(
+      `insert into public.recommendation_runs(
+         user_id, request_id, input_fingerprint, as_of, engine_version,
+         bundle_id, bundle_version, status, input, decision)
+       values ($1,$2,$3::text,$4::timestamptz,$5,$6,$7,'ready',$8::jsonb,$9::jsonb)`,
+      [
+        USER_A,
+        requestId,
+        'd'.repeat(64),
+        '2026-10-13T08:00:00.000Z',
+        '1',
+        'bundle-synthetic',
+        '1',
+        JSON.stringify({ requestId, goal: 'basic_wash' }),
+        JSON.stringify(decision),
+      ],
+    );
   } finally {
     await asUser(db, USER_A);
   }
@@ -71,19 +112,19 @@ async function start(
     operationId?: string;
     executionId?: string;
     runId?: string;
-    decision?: unknown;
     startedAt?: string;
   } = {},
 ) {
-  const decision = overrides.decision ?? decisionFixture(overrides.runId ?? RUN_ID);
+  // SC-002: the caller supplies only owned-run identity plus bounded
+  // operation metadata. There is no decision argument: the snapshot derives
+  // solely from the stored trusted decision.
   return (
     await db.query<{ result: any }>(
-      `select public.start_protocol_execution($1,$2,$3,$4::jsonb,$5::timestamptz) result`,
+      `select public.start_protocol_execution($1,$2,$3,$4::timestamptz) result`,
       [
         overrides.operationId ?? crypto.randomUUID(),
         overrides.executionId ?? EXECUTION_ID,
         overrides.runId ?? RUN_ID,
-        JSON.stringify(decision),
         overrides.startedAt ?? STARTED_AT,
       ],
     )
@@ -249,15 +290,108 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     expect(await listEventRows(db)).toEqual([]);
   });
 
-  it('requires a ready decision with at least one step', async () => {
+  it('requires a stored ready decision with at least one step', async () => {
+    await complete(db);
+    // A non-ready stored run refuses even though the caller asks correctly.
+    await recordRun(db, { status: 'needs_input', decision: decisionFixture(RUN_ID, 'needs_input') });
+    await expect(start(db)).rejects.toThrow(/not-ready-decision/i);
+    expect(await listExecutionRows(db)).toEqual([]);
+    await db.exec('set session authorization postgres');
+    await db.exec('delete from public.recommendation_runs');
+    await db.exec('delete from strandcue_private.protocol_execution_operations');
+    await asUser(db, USER_A);
+    // A stored ready decision with no steps refuses with empty-plan.
+    await recordRun(db, { decision: decisionFixture(RUN_ID, 'ready', 0) });
+    await expect(start(db)).rejects.toThrow(/empty-plan/i);
+    expect(await listExecutionRows(db)).toEqual([]);
+  });
+
+  it('exposes no caller-supplied decision on the start RPC', async () => {
+    await db.exec('set session authorization postgres');
+    const rows = (
+      await db.query<{ args: string }>(
+        `select pg_get_function_arguments(oid) args from pg_proc
+          where proname = 'start_protocol_execution'
+            and pronamespace = 'public'::regnamespace`,
+      )
+    ).rows;
+    await asUser(db, USER_A);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].args).not.toMatch(/decision/i);
+    expect(rows[0].args).toMatch(/p_operation_id/);
+    expect(rows[0].args).toMatch(/p_execution_id/);
+    expect(rows[0].args).toMatch(/p_recommendation_run_id/);
+    expect(rows[0].args).toMatch(/p_started_at/);
+  });
+
+  it('derives the initial snapshot solely from the stored trusted decision', async () => {
+    await complete(db);
+    const stored = {
+      status: 'ready',
+      requestId: RUN_ID,
+      steps: [
+        { ...stepFixture('stored-step-1', 1), action: 'Stored action one' },
+        { ...stepFixture('stored-step-2', 2), action: 'Stored action two' },
+      ],
+    };
+    await recordRun(db, { decision: stored });
+    const result = await start(db);
+    expect(result.execution.steps.map((step: any) => step.stepId)).toEqual([
+      'stored-step-1',
+      'stored-step-2',
+    ]);
+    expect(result.execution.steps[0].planned.action).toBe('Stored action one');
+    const rows = await listExecutionRows(db);
+    expect(rows[0].decision).toEqual(stored);
+  });
+
+  it('refuses a ready run minted outside the trusted path', async () => {
+    await complete(db);
+    await seedUntrustedReady(db);
+    await expect(start(db)).rejects.toThrow(/untrusted-decision/i);
+    expect(await listExecutionRows(db)).toEqual([]);
+    expect(await listEventRows(db)).toEqual([]);
+  });
+
+  it('refuses a missing run without writing rows', async () => {
+    await complete(db);
+    await expect(start(db, { runId: crypto.randomUUID() })).rejects.toThrow(/run-not-owned/i);
+    expect(await listExecutionRows(db)).toEqual([]);
+    expect(await listEventRows(db)).toEqual([]);
+  });
+
+  it('refuses a start when the owning account is deleted or blocked', async () => {
     await complete(db);
     await recordRun(db);
-    await expect(
-      start(db, { decision: decisionFixture(RUN_ID, 'needs_input') }),
-    ).rejects.toThrow(/not-ready-decision/i);
-    await expect(start(db, { decision: decisionFixture(RUN_ID, 'ready', 0) })).rejects.toThrow(
-      /empty-plan/i,
-    );
+    await db.exec('set session authorization postgres');
+    await db.exec(`update public.profiles set account_status = 'deleting' where user_id = '${USER_A}'`);
+    await asUser(db, USER_A);
+    await expect(start(db)).rejects.toThrow(/account-not-active/i);
+    expect(await listExecutionRows(db)).toEqual([]);
+  });
+  it('requires a stored decision of object shape', async () => {
+    await complete(db);
+    await recordRun(db, { decision: { status: 'ready', steps: 'not-an-array' } });
+    await expect(start(db)).rejects.toThrow(/malformed-protocol/i);
+    expect(await listExecutionRows(db)).toEqual([]);
+  });
+
+  it('requires well-formed stored steps', async () => {
+    await complete(db);
+    const badSteps = [
+      { status: 'ready', requestId: RUN_ID, steps: [{ position: 1 }] },
+      { status: 'ready', requestId: RUN_ID, steps: [{ stepId: 'step-1', position: 'first' }] },
+      { status: 'ready', requestId: RUN_ID, steps: [{ stepId: 'step-1', position: 0 }] },
+      { status: 'ready', requestId: RUN_ID, steps: ['step-1'] },
+    ];
+    for (const decision of badSteps) {
+      const runId = crypto.randomUUID();
+      await recordRun(db, { requestId: runId, decision: { ...decision, requestId: runId } });
+      await expect(start(db, { runId })).rejects.toThrow(/malformed-protocol/i);
+      expect((await listExecutionRows(db)).filter(row => row.recommendation_run_id === runId)).toEqual(
+        [],
+      );
+    }
     expect(await listExecutionRows(db)).toEqual([]);
   });
 
@@ -505,7 +639,7 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
     const secondExecution = '66666666-6666-4666-8666-666666666666';
     const secondRun = crypto.randomUUID();
     await recordRun(db, { requestId: secondRun, decision: decisionFixture(secondRun) });
-    await start(db, { executionId: secondExecution, runId: secondRun, decision: decisionFixture(secondRun) });
+    await start(db, { executionId: secondExecution, runId: secondRun });
     const history = await listHistory(db);
     expect(history.items.map((item: any) => item.executionId)).toEqual([
       secondExecution,

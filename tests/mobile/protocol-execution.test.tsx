@@ -243,6 +243,7 @@ describe('protocol execution surface', () => {
     expect(mocks.start).toHaveBeenCalledTimes(1);
     const command = mocks.start.mock.calls[0][0] as Record<string, unknown>;
     expect(command.recommendationRunId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(command).not.toHaveProperty('decision');
     expect(text(renderer)).toContain('planned steps');
     expect(text(renderer)).toContain('actually done');
     await act(async () => {

@@ -172,8 +172,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
         const receipt = await startProtocolExecution({
           operationId: request.operationId,
           executionId: request.executionId,
-          recommendationRunId: request.decision.requestId,
-          decision: request.decision as unknown as Record<string, unknown>,
+          recommendationRunId: request.recommendationRunId,
           startedAt: request.startedAt,
         });
         if (!live() || token !== ownerToken.current) return;
@@ -192,7 +191,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     const request = {
       operationId: Crypto.randomUUID(),
       executionId: Crypto.randomUUID(),
-      decision,
+      recommendationRunId: decision.requestId,
       startedAt: nowIso(),
     };
     dispatch({ type: 'start_requested', ...request });
@@ -202,7 +201,6 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
         operationId: request.operationId,
         executionId: request.executionId,
         recommendationRunId: decision.requestId,
-        decision: decision as unknown as Record<string, unknown>,
         startedAt: request.startedAt,
       });
       if (!live() || token !== ownerToken.current) return;

@@ -2,7 +2,6 @@ import {
   executionEvents,
   type ExecutionCommand,
   type ExecutionEvent,
-  type ProtocolDecision,
   type ProtocolExecution,
 } from '../../../../packages/domain/src/index.ts';
 
@@ -29,7 +28,7 @@ export type ExecutionUiPhase = 'idle' | 'starting' | 'ready' | 'saving' | 'save_
 export interface StartRequest {
   readonly operationId: string;
   readonly executionId: string;
-  readonly decision: ProtocolDecision;
+  readonly recommendationRunId: string;
   readonly startedAt: string;
 }
 
@@ -61,7 +60,7 @@ export type ExecutionUiAction =
       readonly type: 'start_requested';
       readonly operationId: string;
       readonly executionId: string;
-      readonly decision: ProtocolDecision;
+      readonly recommendationRunId: string;
       readonly startedAt: string;
     }
   | { readonly type: 'start_succeeded'; readonly execution: ProtocolExecution; readonly revision: number }
@@ -112,7 +111,7 @@ export function executionUiReducer(
         startRequest: {
           operationId: action.operationId,
           executionId: action.executionId,
-          decision: action.decision,
+          recommendationRunId: action.recommendationRunId,
           startedAt: action.startedAt,
         },
       };

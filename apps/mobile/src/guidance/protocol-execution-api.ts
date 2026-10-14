@@ -7,8 +7,10 @@ import { supabase } from '../client';
  *
  * The caller never supplies an owner id: the database takes the owner from
  * `auth.uid()` and verifies run ownership before touching execution rows.
- * This module only validates and forwards, so a bug here can never write
- * another owner's row.
+ * The caller never supplies the decision either: the database locks the
+ * owned recommendation run and derives the initial snapshot solely from its
+ * stored trusted decision. This module only validates and forwards, so a bug
+ * here can never write another owner's row or start untrusted steps.
  *
  * Deviation free text (`reason`/`detail`) flows only into execution history
  * via the transition RPC. This module builds no facts, snapshots, or
@@ -59,7 +61,6 @@ const StartProtocolExecutionCommandSchema = z
     operationId: uuid,
     executionId: uuid,
     recommendationRunId: uuid,
-    decision: z.record(z.string(), z.unknown()),
     startedAt: isoTimestamp,
   })
   .strict();
@@ -125,6 +126,8 @@ const STABLE_ERRORS: Readonly<Record<string, string>> = {
   'unknown-command': 'unknown-command',
   'result-mismatch': 'result-mismatch',
   'not-ready-decision': 'not-ready-decision',
+  'untrusted-decision': 'untrusted-decision',
+  'malformed-protocol': 'malformed-protocol',
   'empty-plan': 'empty-plan',
   'invalid-operation': 'invalid-operation',
   'invalid-limit': 'invalid-limit',
@@ -147,7 +150,6 @@ export async function startProtocolExecution(
     p_operation_id: parsed.operationId,
     p_execution_id: parsed.executionId,
     p_recommendation_run_id: parsed.recommendationRunId,
-    p_decision: parsed.decision,
     p_started_at: parsed.startedAt,
   });
   if (error) throw stableError(error.message);

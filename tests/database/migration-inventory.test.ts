@@ -36,6 +36,7 @@ const trustedMigrationNames = [
   '20261012184009_basic_wash_catalogue_seed.sql',
   '20261013175703_protocol_executions.sql',
   '20261014185102_recommendation_runs_trusted_path.sql',
+  '20261014192008_protocol_start_trusted_decision.sql',
 ] as const;
 
 const candidateMigrationNames = [

@@ -85,7 +85,6 @@ function validStart(overrides: Record<string, unknown> = {}) {
     operationId: OPERATION_ID,
     executionId: EXECUTION_ID,
     recommendationRunId: RUN_ID,
-    decision: decisionFixture(),
     startedAt: STARTED_AT,
     ...overrides,
   };
@@ -116,11 +115,21 @@ describe('protocol execution persistence boundary', () => {
       p_operation_id: OPERATION_ID,
       p_execution_id: EXECUTION_ID,
       p_recommendation_run_id: RUN_ID,
-      p_decision: decisionFixture(),
       p_started_at: STARTED_AT,
     });
     expect(result.executionId).toBe(EXECUTION_ID);
     expect(result.revision).toBe(0);
+  });
+
+  it('rejects a caller-supplied decision before calling the database', async () => {
+    rpcMocks.rpc.mockClear();
+    await expect(
+      startProtocolExecution(validStart({ decision: decisionFixture() })),
+    ).rejects.toThrow();
+    await expect(
+      startProtocolExecution(validStart({ p_decision: decisionFixture() })),
+    ).rejects.toThrow();
+    expect(rpcMocks.rpc).not.toHaveBeenCalled();
   });
 
   it('sends exactly the transition parameters the database expects', async () => {
@@ -263,6 +272,8 @@ describe('protocol execution persistence boundary', () => {
       'unknown-command',
       'result-mismatch',
       'not-ready-decision',
+      'untrusted-decision',
+      'malformed-protocol',
       'account-not-active',
       'authentication-required',
     ]) {
