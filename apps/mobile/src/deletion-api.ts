@@ -60,3 +60,19 @@ export function recentAuthMessage(message: string): string {
     ? 'For your security, sign out and sign in again, then retry deletion.'
     : message;
 }
+
+export function deletionCancelMessage(message: string): string {
+  if (message.includes('recent-auth-required')) {
+    return 'For your security, sign out and sign in again, then retry deletion.';
+  }
+  if (message.includes('deletion-not-in-progress')) {
+    return 'There is no deletion in progress. The account is active.';
+  }
+  if (message.includes('authentication-required')) {
+    return 'Sign in again to manage deletion for this account.';
+  }
+  if (message.includes('profile-not-found')) {
+    return 'Account status could not be loaded. Sign in again and retry.';
+  }
+  return 'Deletion could not be cancelled.';
+}

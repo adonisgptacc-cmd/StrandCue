@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   cancelDeletion,
+  deletionCancelMessage,
   deletionStatusMessage,
   recentAuthMessage,
   requestDeletion,
@@ -57,5 +58,27 @@ describe('deletion mobile boundary', () => {
     expect(recentAuthMessage('recent-auth-required')).toContain('sign in again');
     rpc.mockResolvedValueOnce({ data: null, error: { message: 'deletion-not-in-progress' } });
     await expect(cancelDeletion()).rejects.toThrow(/deletion-not-in-progress/i);
+  });
+
+  it('reports the active state without exposing email and passes unrelated errors through', async () => {
+    rpc.mockResolvedValueOnce({
+      data: { accountStatus: 'active', tombstoneExists: false, deletedAt: null, purgeCompletedAt: null, deletionReason: null },
+      error: null,
+    });
+    const status = await statusDeletion();
+    expect(deletionStatusMessage(status)).toBe('Account active.');
+    expect(recentAuthMessage('connection lost')).toBe('connection lost');
+  });
+
+  it('maps cancellation failures to honest copy and never renders raw database text', async () => {
+    expect(deletionCancelMessage('recent-auth-required')).toContain('sign in again');
+    expect(deletionCancelMessage('deletion-not-in-progress')).toMatch(/no deletion in progress/i);
+    expect(deletionCancelMessage('authentication-required')).toMatch(/sign in/i);
+    expect(deletionCancelMessage('profile-not-found')).toMatch(/could not be loaded/i);
+    const raw = 'permission denied for table deletion_tombstones (SQLSTATE 42501)';
+    const fallback = deletionCancelMessage(raw);
+    expect(fallback).toBe('Deletion could not be cancelled.');
+    expect(fallback).not.toContain(raw);
+    expect(deletionCancelMessage('')).toBe('Deletion could not be cancelled.');
   });
 });

@@ -33,6 +33,7 @@ describe('account deletion lifecycle and tombstones', () => {
     await db.exec('set session authorization postgres');
     await db.exec('truncate public.profiles cascade');
     await db.exec('delete from public.deletion_tombstones');
+    await db.exec('delete from strandcue_private.deletion_lifecycle_events');
   });
   afterAll(async () => { await db?.close(); });
 
@@ -190,5 +191,101 @@ describe('account deletion lifecycle and tombstones', () => {
     await expect(db.query(`select public.deletion_cancel() result`)).rejects.toThrow(/account-not-active|profile-not-found|deletion-not-in-progress/i);
     await asUser(db, USER_B);
     expect((await db.query('select * from public.deletion_tombstones')).rows).toEqual([]);
+  });
+
+  describe('cancellation recent authentication and audit (AU-001, AU-004)', () => {
+    it('requires recent authentication to cancel and changes nothing on stale credentials', async () => {
+      await complete(db);
+      await freshAuth(db, USER_A);
+      await deletionRequest(db, crypto.randomUUID(), 'leaving');
+      await staleAuth(db, USER_A);
+      await expect(db.query(`select public.deletion_cancel() result`)).rejects.toThrow(/recent-auth-required/i);
+      await db.exec('set session authorization postgres');
+      expect((await db.query<{ account_status: string }>('select account_status from public.profiles')).rows)
+        .toEqual([{ account_status: 'deleting' }]);
+      expect((await db.query('select * from public.deletion_tombstones')).rows).toHaveLength(1);
+      expect((await db.query('select * from strandcue_private.deletion_lifecycle_events')).rows).toEqual([]);
+    });
+
+    it('preserves the request as immutable history and appends a cancellation audit event', async () => {
+      await complete(db);
+      await freshAuth(db, USER_A);
+      await deletionRequest(db, crypto.randomUUID(), 'leaving');
+      const cancelled = await db.query<{ result: any }>(`select public.deletion_cancel() result`);
+      expect(cancelled.rows[0].result.accountStatus).toBe('active');
+      await db.exec('set session authorization postgres');
+      expect((await db.query('select * from public.deletion_tombstones')).rows).toEqual([]);
+      const events = await db.query<{
+        user_id: string; event: string; occurred_at: string; details: Record<string, unknown>;
+      }>('select user_id, event, occurred_at, details from strandcue_private.deletion_lifecycle_events');
+      expect(events.rows).toHaveLength(1);
+      expect(events.rows[0].user_id).toBe(USER_A);
+      expect(events.rows[0].event).toBe('cancelled');
+      expect(events.rows[0].occurred_at).not.toBeNull();
+      expect(events.rows[0].details).toMatchObject({ username: 'user_a', reason: 'leaving' });
+      expect(events.rows[0].details['deleted_at']).toBeTruthy();
+      expect((await db.query<{ account_status: string }>('select account_status from public.profiles')).rows)
+        .toEqual([{ account_status: 'active' }]);
+    });
+
+    it('stays paramless and fails a second cancel closed without new history', async () => {
+      await complete(db);
+      await freshAuth(db, USER_A);
+      await deletionRequest(db);
+      await db.query(`select public.deletion_cancel() result`);
+      await expect(db.query(`select public.deletion_cancel() result`)).rejects.toThrow(/deletion-not-in-progress/i);
+      await db.exec('set session authorization postgres');
+      expect((await db.query('select * from strandcue_private.deletion_lifecycle_events')).rows).toHaveLength(1);
+    });
+
+    it('never purges a cancelled account', async () => {
+      await complete(db);
+      await freshAuth(db, USER_A);
+      await deletionRequest(db);
+      await db.query(`select public.deletion_cancel() result`);
+      await db.exec('set session authorization postgres');
+      const purged = await db.query<{ result: any }>(`select public.deletion_purge() result`);
+      expect(purged.rows[0].result.purged).toBe(0);
+      expect((await db.query<{ account_status: string }>('select account_status from public.profiles')).rows)
+        .toEqual([{ account_status: 'active' }]);
+      expect((await db.query('select * from public.deletion_tombstones')).rows).toEqual([]);
+    });
+
+    it('rejects cancel without an active deletion', async () => {
+      await complete(db);
+      await freshAuth(db, USER_A);
+      await expect(db.query(`select public.deletion_cancel() result`)).rejects.toThrow(/deletion-not-in-progress/i);
+      await db.exec('set session authorization postgres');
+      expect((await db.query('select * from strandcue_private.deletion_lifecycle_events')).rows).toEqual([]);
+    });
+
+    it('keeps lifecycle history append-only: mutator append plus owner read, nothing else', async () => {
+      await db.exec('set session authorization postgres');
+      const rel = await db.query<{ missing: boolean }>(`
+        select (not relrowsecurity or not relforcerowsecurity) missing
+        from pg_class where relname = 'deletion_lifecycle_events'`);
+      expect(rel.rows).toEqual([{ missing: false }]);
+      expect((await db.query<{ can_write: boolean }>(`
+        select has_table_privilege('authenticated', 'strandcue_private.deletion_lifecycle_events', 'INSERT,UPDATE,DELETE') can_write`)).rows)
+        .toEqual([{ can_write: false }]);
+      expect((await db.query<{ can_read: boolean }>(`
+        select has_table_privilege('anon', 'strandcue_private.deletion_lifecycle_events', 'SELECT') can_read`)).rows)
+        .toEqual([{ can_read: false }]);
+      expect((await db.query<{ can_append: boolean; can_read: boolean; can_rewrite: boolean }>(`
+        select has_table_privilege('strandcue_mutator', 'strandcue_private.deletion_lifecycle_events', 'SELECT,INSERT') can_append,
+          has_table_privilege('strandcue_mutator', 'strandcue_private.deletion_lifecycle_events', 'SELECT') can_read,
+          has_table_privilege('strandcue_mutator', 'strandcue_private.deletion_lifecycle_events', 'UPDATE,DELETE') can_rewrite`)).rows)
+        .toEqual([{ can_append: true, can_read: true, can_rewrite: false }]);
+    });
+
+    it('reserves the lifecycle vocabulary for request, purge and auth-delete events without schema change', async () => {
+      await db.exec('set session authorization postgres');
+      for (const event of ['requested', 'purged', 'auth-deleted']) {
+        await db.query(`insert into strandcue_private.deletion_lifecycle_events(user_id, event) values ($1, $2)`, [USER_A, event]);
+      }
+      await expect(db.query(`insert into strandcue_private.deletion_lifecycle_events(user_id, event) values ($1, 'bogus')`, [USER_A]))
+        .rejects.toThrow(/check|constraint/i);
+      await db.exec('delete from strandcue_private.deletion_lifecycle_events');
+    });
   });
 });

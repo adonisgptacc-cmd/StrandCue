@@ -3,6 +3,7 @@ import { ScrollView, Text, TextInput, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import {
   cancelDeletion,
+  deletionCancelMessage,
   deletionStatusMessage,
   recentAuthMessage,
   requestDeletion,
@@ -84,7 +85,7 @@ export function DeletionScreen() {
       setConfirmText('');
       await refresh();
     } catch (caught) {
-      if (alive.current) setError(recentAuthMessage((caught as { message?: string })?.message ?? 'Deletion could not be cancelled.'));
+      if (alive.current) setError(deletionCancelMessage((caught as { message?: string })?.message ?? ''));
     } finally { if (alive.current) setBusy(false); }
   };
 

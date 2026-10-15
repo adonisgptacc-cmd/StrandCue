@@ -3,7 +3,10 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeletionScreen } from '../../apps/mobile/src/screens/DeletionScreen';
 
-const mocks=vi.hoisted(()=>({request:vi.fn(),cancel:vi.fn(),status:vi.fn(),uuid:vi.fn()}));
+const mocks=vi.hoisted(()=>({request:vi.fn(),cancel:vi.fn(),status:vi.fn(),uuid:vi.fn(),
+  cancelMessage:vi.fn((message:string)=>message.includes('recent-auth-required')
+    ? 'For your security, sign out and sign in again, then retry deletion.'
+    : 'Deletion could not be cancelled.')}));
 vi.mock('react-native',()=>{
   const host=(tag:string)=>{
     function Host({children,...props}:{children?:unknown}&Record<string,unknown>) {return createElement(tag,props,children as never);}
@@ -14,6 +17,7 @@ vi.mock('react-native',()=>{
 });
 vi.mock('expo-crypto',()=>({randomUUID:mocks.uuid}));
 vi.mock('../../apps/mobile/src/deletion-api',()=>({requestDeletion:mocks.request,cancelDeletion:mocks.cancel,statusDeletion:mocks.status,
+  deletionCancelMessage:mocks.cancelMessage,
   deletionStatusMessage:()=>'',recentAuthMessage:(m:string)=>m}));
 
 const active={accountStatus:'active',tombstoneExists:false,deletedAt:null,purgeCompletedAt:null,deletionReason:null};
@@ -68,6 +72,39 @@ describe('account deletion screen retry behavior',()=>{
     mocks.request.mockResolvedValueOnce({accountStatus:'deleting'});
     await act(async()=>press(renderer,'Delete my account'));
     expect(mocks.request).toHaveBeenLastCalledWith('next-operation',null);
+    await act(async()=>renderer.unmount());
+  });
+  it('routes a stale-credential cancellation failure through the cancel copy mapper, never raw text',async()=>{
+    mocks.status.mockResolvedValue({...active,accountStatus:'deleting',tombstoneExists:true});
+    mocks.cancel.mockRejectedValueOnce(new Error('recent-auth-required'));
+    let renderer!:ReactTestRenderer;
+    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    await act(async()=>{press(renderer,'Refresh status');});
+    await act(async()=>{press(renderer,'Cancel deletion');});
+    expect(mocks.cancelMessage).toHaveBeenCalledWith('recent-auth-required');
+    const alert=renderer.root.find(n=>n.props.accessibilityRole==='alert');
+    expect(String(alert.props.children)).toContain('sign in again');
+    expect(String(alert.props.children)).not.toContain('recent-auth-required');
+    await act(async()=>renderer.unmount());
+  });
+  it('shows a load failure when the initial account status cannot be read',async()=>{
+    mocks.status.mockRejectedValueOnce(new Error('connection lost'));
+    let renderer!:ReactTestRenderer;
+    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    // The module mock passes status-load errors through; the real-module
+    // fallback copy is pinned in deletion.test.ts. This pins the catch path.
+    const alert=renderer.root.find(n=>n.props.accessibilityRole==='alert');
+    expect(String(alert.props.children)).toBe('connection lost');
+    await act(async()=>renderer.unmount());
+  });
+  it('refuses a deletion request until the confirmation text matches',async()=>{
+    let renderer!:ReactTestRenderer;
+    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    await act(async()=>{input(renderer,'Deletion confirmation','DELETE');});
+    await act(async()=>{press(renderer,'Delete my account');});
+    expect(mocks.request).not.toHaveBeenCalled();
+    const alert=renderer.root.find(n=>n.props.accessibilityRole==='alert');
+    expect(String(alert.props.children)).toContain('DELETE MY ACCOUNT');
     await act(async()=>renderer.unmount());
   });
 });

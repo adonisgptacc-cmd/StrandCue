@@ -30,7 +30,7 @@ vi.mock('../../apps/mobile/src/tool-editor.tsx', () => ({ ToolEditor: () => null
 vi.mock('../../apps/mobile/src/export-api.ts', () => ({ statusExport: mocks.statusExport, requestExport: mocks.requestExport, downloadExport: vi.fn(), recentAuthMessage: (message: string) => message, exportStatusMessage: (status: { jobId: string }) => status.jobId }));
 vi.mock('../../apps/mobile/src/export-delivery.ts', () => ({ ExportDeliveryError: class extends Error {}, shareExportDownload: vi.fn() }));
 
-vi.mock('../../apps/mobile/src/deletion-api.ts', () => ({ statusDeletion: mocks.statusDeletion, cancelDeletion: mocks.cancelDeletion, requestDeletion: vi.fn(), recentAuthMessage: (message: string) => message, deletionStatusMessage: (status: { accountStatus: string }) => status.accountStatus }));
+vi.mock('../../apps/mobile/src/deletion-api.ts', () => ({ statusDeletion: mocks.statusDeletion, cancelDeletion: mocks.cancelDeletion, requestDeletion: vi.fn(), recentAuthMessage: (message: string) => message, deletionCancelMessage: (message: string) => message, deletionStatusMessage: (status: { accountStatus: string }) => status.accountStatus }));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
