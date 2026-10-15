@@ -294,7 +294,7 @@ const EXPORTED_OWNER_COLUMNS: Record<string, string[]> = {
   'public.passport_revisions': ['id', 'user_id', 'passport_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason'],
   'public.profiles': ['user_id', 'username', 'eligible', 'country', 'currency', 'temperature_unit', 'account_status', 'revision', 'created_at', 'username_changed_at'],
   'public.protocol_execution_events': ['id', 'user_id', 'execution_id', 'sequence', 'kind', 'command', 'revision', 'recorded_at'],
-  'public.protocol_executions': ['id', 'user_id', 'execution_id', 'recommendation_run_id', 'decision', 'execution', 'revision', 'status', 'created_at', 'updated_at'],
+  'public.protocol_executions': ['id', 'user_id', 'execution_id', 'recommendation_run_id', 'decision', 'execution', 'revision', 'status', 'created_at', 'updated_at', 'legal_hold'],
   'public.recommendation_runs': ['id', 'user_id', 'request_id', 'input_fingerprint', 'as_of', 'engine_version', 'bundle_id', 'bundle_version', 'status', 'input', 'decision', 'created_at', 'trusted'],
   'public.service_observations': ['id', 'service_id', 'user_id', 'effective_date', 'effective_start', 'effective_end', 'effect_status', 'source', 'recorded_at'],
   'public.service_revisions': ['id', 'user_id', 'service_id', 'sequence', 'base_revision', 'kind', 'facts', 'heat_state', 'effective_start', 'effective_end', 'recorded_at', 'corrects_id', 'correction_reason'],
@@ -349,7 +349,7 @@ describe('export completeness (consent and guidance history)', () => {
     expect([...times].sort((a, b) => a - b)).toEqual(times);
     expect(document.schemaVersions).toMatchObject({
       export: 2, consentRecords: 1, recommendationRuns: 1,
-      protocolExecutions: 1, protocolExecutionEvents: 1,
+      protocolExecutions: 2, protocolExecutionEvents: 1,
     });
   });
 
@@ -367,6 +367,15 @@ describe('export completeness (consent and guidance history)', () => {
     expect(execution.events[0]).toMatchObject({ kind: 'started', sequence: 1 });
     const sequences = execution.events.map((event: any) => event.sequence);
     expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
+  });
+
+  it('carries the legal-hold flag in both export shapes', async () => {
+    await complete(db);
+    await seedConsentAndGuidance(db);
+    const { body: json } = await downloadDocument(db, 'json');
+    expect(json.protocolExecutions[0]).toMatchObject({ legal_hold: false });
+    const { body: csv } = await downloadDocument(db, 'csv');
+    expect(csv.files['protocol_executions.csv'].split('\n')[0]).toContain('legal_hold');
   });
 
   it('exposes the same categories in CSV as in JSON', async () => {
@@ -400,7 +409,7 @@ describe('export completeness (consent and guidance history)', () => {
     expect(csv.files['schema_versions.csv'].split('\n')[0]).toBe('family,version');
     const csvVersions = Object.fromEntries(
       csv.files['schema_versions.csv'].split('\n').slice(1).map((line: string) => line.split(',')));
-    expect(csvVersions).toEqual({ export: '2', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '1', protocolExecutionEvents: '1' });
+    expect(csvVersions).toEqual({ export: '2', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '2', protocolExecutionEvents: '1' });
     expect(csvVersions).toEqual(Object.fromEntries(Object.entries(json.schemaVersions).map(([family, version]) => [family, String(version)])));
   });
 

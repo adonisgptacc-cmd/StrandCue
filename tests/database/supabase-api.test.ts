@@ -103,7 +103,7 @@ describeLocal('local Supabase Auth and PostgREST permissions', () => {
     const safeAmr=(JSON.parse(Buffer.from(session.access_token.split('.')[1],'base64url').toString()) as {amr:unknown}).amr;
     expect(safeAmr).toEqual(expect.arrayContaining([expect.objectContaining({method:'password',timestamp:expect.any(Number)})]));
     expect((await owner.rpc('complete_account',{p_username:`api_del_${suffix}`,p_eligible:true})).error).toBeNull();
-    for(const name of ['deletion_worker_claim','deletion_purge','deletion_reapply','export_retention_cleanup']) {
+    for(const name of ['deletion_worker_claim','deletion_purge','deletion_reapply','export_retention_cleanup','protocol_execution_retention_cleanup']) {
       const args=name==='deletion_worker_claim'?{p_lease:crypto.randomUUID()}:{};
       expect((await owner.rpc(name,args)).error?.code).toBe('42501');
     }

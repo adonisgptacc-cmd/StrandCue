@@ -8,10 +8,14 @@ Run `node scripts/account-deletion-cli.ts` using the repository's supported Node
 
 ## Cloudflare scheduled worker
 
-The deployable worker lives in `workers/account-deletion`. It exports only a `scheduled` handler, claims no more than one deletion job per invocation, and runs once per minute from the Cron Trigger in `wrangler.jsonc`. It has no public HTTP handler or route. Cloudflare invocation logs receive one structured metric per run:
+The deployable worker lives in `workers/account-deletion`. It exports only a `scheduled` handler, claims no more than one deletion job per invocation, and runs once per minute from the Cron Trigger in `wrangler.jsonc`. Each invocation then runs one deterministic retention pass (expired export documents, then expired terminal executions; deletion records are retained by the legal rule). See `docs/runbooks/privacy-retention.md` for the per-category rules. It has no public HTTP handler or route. Cloudflare invocation logs receive one structured metric per run per pass:
 
 ```json
 {"event":"account_deletion_worker_run","outcome":"idle|deleted|failed","jobs":0,"durationMs":0}
+```
+
+```json
+{"event":"retention_cleanup_run","outcome":"completed|failed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"durationMs":0}
 ```
 
 The metric contains no user ID, token, provider response, or error message. A failed run rejects its scheduled promise so Cloudflare also records the invocation as failed. Alert when `outcome=failed`, when failures repeat, or when the database queue's oldest pending request exceeds the deletion service objective.

@@ -3,6 +3,11 @@ import {
   processAccountDeletion,
   type DeletionWorkerClient,
 } from './core.ts';
+import {
+  processRetentionCleanup,
+  type RetentionCounts,
+  type RetentionWorkerClient,
+} from './retention.ts';
 
 export type WorkerEnv = {
   STRANDCUE_SUPABASE_URL: string;
@@ -23,15 +28,43 @@ type WorkerMetric = {
   durationMs: number;
 };
 
-const defaultDependencies: Dependencies = {
-  createClient: (url, key) => createSupabaseClient(url, key, {
+type RetentionMetric = {
+  event: 'retention_cleanup_run';
+  outcome: 'completed' | 'failed';
+  exportsPurged: number;
+  executionsPurged: number;
+  eventsPurged: number;
+  operationsPurged: number;
+  durationMs: number;
+};
+
+type RetentionDependencies = {
+  createClient: (url: string, key: string) => RetentionWorkerClient;
+  processRetention: typeof processRetentionCleanup;
+  log: (metric: RetentionMetric) => void;
+  now: () => number;
+};
+
+function defaultCreateClient(url: string, key: string) {
+  return createSupabaseClient(url, key, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
     },
-  }) as DeletionWorkerClient,
+  }) as DeletionWorkerClient;
+}
+
+const defaultDependencies: Dependencies = {
+  createClient: defaultCreateClient,
   processDeletion: processAccountDeletion,
+  log: (metric) => console.log(metric),
+  now: () => Date.now(),
+};
+
+const defaultRetentionDependencies: RetentionDependencies = {
+  createClient: defaultCreateClient,
+  processRetention: processRetentionCleanup,
   log: (metric) => console.log(metric),
   now: () => Date.now(),
 };
@@ -76,8 +109,43 @@ export async function runScheduledAccountDeletion(
   }
 }
 
+/** Runs one deterministic retention pass and emits counts only, no records. */
+export async function runScheduledRetention(
+  env: WorkerEnv,
+  dependencies: RetentionDependencies = defaultRetentionDependencies,
+): Promise<RetentionCounts> {
+  validateEnvironment(env);
+  const startedAt = dependencies.now();
+  const client = dependencies.createClient(
+    env.STRANDCUE_SUPABASE_URL,
+    env.STRANDCUE_SUPABASE_SERVICE_KEY,
+  );
+  const zeroed = { exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0 };
+  try {
+    const counts = await dependencies.processRetention(client);
+    dependencies.log({
+      event: 'retention_cleanup_run',
+      outcome: 'completed',
+      ...counts,
+      durationMs: Math.max(0, dependencies.now() - startedAt),
+    });
+    return counts;
+  } catch {
+    dependencies.log({
+      event: 'retention_cleanup_run',
+      outcome: 'failed',
+      ...zeroed,
+      durationMs: Math.max(0, dependencies.now() - startedAt),
+    });
+    throw new Error('Retention cleanup worker failed.');
+  }
+}
+
 export default {
   scheduled(_controller: unknown, env: WorkerEnv, context: { waitUntil(promise: Promise<unknown>): void }) {
-    context.waitUntil(runScheduledAccountDeletion(env));
+    context.waitUntil((async () => {
+      await runScheduledAccountDeletion(env);
+      await runScheduledRetention(env);
+    })());
   },
 };

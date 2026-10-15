@@ -1,0 +1,107 @@
+# Privacy retention enforcement
+
+Deterministic cleanup for expired export artifacts and expired
+execution/recommendation operational data, plus the retention rules that keep
+deletion records. Enforcement lives in
+`supabase/migrations/20261015200000_privacy_retention_cleanup.sql` (execution
+purge + legal-hold flag) and the existing `export_retention_cleanup()`
+routine; the schedule lives in `workers/account-deletion`, which runs the
+account-deletion claim first and the retention pass second on the same
+once-per-minute Cron Trigger. This runbook is the operator summary; the
+migration header documents every number with rationale.
+
+## Per-category rule, window, and order
+
+| Category | Rule | Window | Purge order |
+|---|---|---|---|
+| Terminal executions | `completed` rows purge-eligible after `finishedAt`; `abandoned` rows likewise | 90 days (completed) / 30 days (abandoned) after `finishedAt`, from the Task-7 runbook | events, then operations ledger rows matched via `request->>'executionId'`, then the execution row (cascades stragglers) |
+| Recommendation runs | never purged (audit root; see below) | n/a | n/a |
+| Export artifacts | download gate stays 24h (`expires_at` in `export_download`); documents nulled, receipts kept | 7 days after completion | document nulling only; job rows survive |
+| Cancelled deletion records | retained as audit trail (lifecycle `cancelled` events) | n/a — never eligible | n/a |
+| Completed deletion records | retained (purge-completed tombstones + `purged`/`auth-deleted` events) | n/a — never eligible | n/a |
+| Consent records | retained; survive profile purge by design (no profile FK) | 7 years | n/a |
+
+Eligibility details for executions: non-terminal rows are never eligible;
+`finishedAt` comes from the execution snapshot and a null or unreachable
+`finishedAt` is never eligible (fail-closed); anything with `legal_hold =
+true` is never eligible. A malformed `finishedAt` fails the run loudly
+instead of silently skipping rows — alert on repeated
+`retention_cleanup_run outcome=failed` metrics.
+
+## Runs are never purged (documented choice)
+
+Executions reference runs through `protocol_executions_run_fk ON DELETE
+CASCADE`, so deleting a run would cascade-delete its executions, while
+deleting an execution leaves its run behind with no constraint violated.
+Runs carry no terminal state and no expiry semantics, are capped at 256 KiB,
+and keep finished routines reproducible. Purging executions but keeping runs
+orphans nothing: the FK direction tolerates run rows with no executions.
+
+## Deletion records are retained (legal rule)
+
+Purge-completed tombstones back the completion guard that denies profile
+recreation with a stale JWT — deleting them would reopen that hole. The
+lifecycle event table is append-only by binding constraint (see below), so
+there is deliberately no deletion-record purge function. Cancellation stays
+move-then-delete: the tombstone row is gone, only the `cancelled` event
+(username/reason/deleted_at, never email) remains.
+
+## Legal hold (operator mechanism)
+
+No consumer RPC sets legal hold. An operator with a privileged connection
+runs:
+
+```sql
+update public.protocol_executions set legal_hold = true
+ where user_id = '<owner>' and execution_id = '<execution>';
+```
+
+Clear it the same way when the hold lifts; the next retention pass then
+applies the normal windows. The flag is visible to owners through the
+existing SELECT policy and carries no PII.
+
+## Task-9 lifecycle constraint compliance
+
+- Only `cancelled` events are appended by any code path here (none — this
+  task writes no lifecycle events); `purged`/`auth-deleted` vocabulary is
+  not widened and no review is triggered.
+- The lifecycle table stores nothing beyond tombstone-held fields; this
+  task stores nothing there at all.
+- No UPDATE/DELETE grant or policy is added to the lifecycle table or any
+  other table in this change.
+- Forced RLS stays owner-scoped on every touched table; no policy is added
+  or changed.
+- `authenticated`/`anon` gain nothing: the new routine is revoked from
+  both, exactly like the other maintenance routines.
+- No FK to profiles is added anywhere (the lifecycle table stays FK-free;
+  the execution tables keep their existing cascade chain).
+
+## Scheduling and hosted secrets (pending manual actions)
+
+Local implementation and tests stop here. A release operator performs these
+external steps; none is done in this change:
+
+1. Deploy the reviewed forward migration before enabling the worker
+   (hosted application stays HOLD until recorded, as with Tasks 9–12).
+2. From `workers/account-deletion`: `npm ci`, then `npm run check`
+   (boundaries + typecheck + wrangler dry-run).
+3. Authenticate Wrangler to the intended Cloudflare account (`npx wrangler
+   whoami`) and confirm the existing `STRANDCUE_SUPABASE_URL` /
+   `STRANDCUE_SUPABASE_SERVICE_KEY` secrets are still the scheduler's
+   server-only bindings. No new secret is introduced by this task.
+4. `npm run deploy`. The existing once-per-minute Cron Trigger now also
+   runs the retention pass after the deletion claim each invocation.
+5. Inspect the first scheduled invocations: expect one redacted
+   `retention_cleanup_run` metric per run alongside the existing
+   `account_deletion_worker_run` metric, no HTTP route, no repeated
+   failures. The metric carries counts only:
+
+```json
+{"event":"retention_cleanup_run","outcome":"completed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"durationMs":0}
+```
+
+Alert on `outcome=failed`, on repeated failures, and on a growing backlog
+of terminal executions older than their windows. To pause retention only,
+there is no separate trigger — pausing the worker pauses both passes;
+resume only after `npm run check` and a manual verification succeed.
+Rotate the service-role key through Supabase and Cloudflare together.

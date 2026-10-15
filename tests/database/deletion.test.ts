@@ -149,7 +149,7 @@ describe('account deletion lifecycle and tombstones', () => {
   });
 
   it('denies maintenance routines to consumers', async () => {
-    for(const routine of ['deletion_purge()','deletion_reapply()','export_retention_cleanup()',`deletion_worker_claim('${crypto.randomUUID()}')`,`deletion_worker_finish('${USER_A}','${crypto.randomUUID()}',null)`]) {
+    for(const routine of ['deletion_purge()','deletion_reapply()','export_retention_cleanup()','protocol_execution_retention_cleanup()',`deletion_worker_claim('${crypto.randomUUID()}')`,`deletion_worker_finish('${USER_A}','${crypto.randomUUID()}',null)`]) {
       await expect(db.query(`select public.${routine}`)).rejects.toThrow(/permission denied/i);
     }
   });
