@@ -218,6 +218,19 @@ export function AuthScreen({notice = ''}: {notice?: string}) {
     </View><Text style={styles.subtitle}>For adults in South Africa. Cosmetic hair-care records, without diagnosis or medical advice.</Text></Page>;
 }
 
+// Stable supabase-js identifier surfaced on AuthError.code when a password update
+// is rejected because the session is not recent enough. Source:
+// node_modules/@supabase/auth-js/src/lib/error-codes.ts ('reauthentication_needed').
+export const reauthenticationRequiredCode = 'reauthentication_needed';
+
+export function isReauthenticationRequired(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as {code?: unknown}).code;
+  if (typeof code === 'string' && code.toLowerCase() === reauthenticationRequiredCode) return true;
+  const message = (error as {message?: unknown}).message;
+  return typeof message === 'string' && /reauthenticat/i.test(message);
+}
+
 export function ResetPassword({onComplete}: {onComplete: () => void}) {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
@@ -226,7 +239,16 @@ export function ResetPassword({onComplete}: {onComplete: () => void}) {
     if (password.length < 12) {setMessage('Use at least 12 characters.'); return;}
     setBusy(true);
     try {const result = await supabase!.auth.updateUser({password}); if (result.error) throw result.error; setPassword(''); onComplete();}
-    catch {setMessage('Your password could not be changed. Request a new recovery link if this one expired.');}
+    // Task 10 (secure password change): with secure_password_change enabled, Supabase rejects
+    // stale-session password updates with AuthError code 'reauthentication_needed'
+    // (see @supabase/auth-js error-codes.ts). Keep the typed password and say so honestly.
+    catch (failure) {
+      if (isReauthenticationRequired(failure)) {
+        setMessage('Your session needs a fresh sign-in before this change. Sign in again or request a new recovery link, then try again — your new password is kept above.');
+        return;
+      }
+      setMessage('Your password could not be changed. Request a new recovery link if this one expired.');
+    }
     finally {setBusy(false);}
   };
   return <Page><Text style={styles.title}>A fresh start.</Text><View style={styles.card}><Field label="New password" secureTextEntry autoComplete="new-password" value={password} onChangeText={setPassword}/><Text accessibilityRole="alert" style={styles.body}>{message}</Text><Button title={busy ? 'Saving…' : 'Save new password'} disabled={busy} onPress={() => void submit()}/></View></Page>;
