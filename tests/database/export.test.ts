@@ -38,6 +38,9 @@ describe('export jobs immutable history and RLS', () => {
   afterEach(async () => {
     await db.exec('set session authorization postgres');
     await db.exec('truncate public.profiles cascade');
+    // Consent records survive profile purge by design (7-year retention, no
+    // profile foreign key), so they need an explicit wipe between tests.
+    await db.exec('delete from public.consent_records');
   });
   afterAll(async () => { await db?.close(); });
 
@@ -176,5 +179,229 @@ describe('export jobs immutable history and RLS', () => {
     const row = await db.query<{ document: unknown; status: string }>(`select document, status from public.export_jobs where id = '${receipt.jobId}'`);
     expect(row.rows[0].document).toBeNull();
     expect(row.rows[0].status).toBe('completed');
+  });
+});
+
+const CONSENT_RUN_ID = '55555555-5555-4555-8555-555555555555';
+const CONSENT_EXECUTION_ID = '44444444-4444-4444-8444-444444444444';
+
+async function setExportConsent(db: PGlite, purpose = 'product_analytics', granted = true, operationId = crypto.randomUUID()) {
+  return (await db.query<{ result: any }>(`select public.consent_set($1, $2, $3) result`, [operationId, purpose, granted])).rows[0].result;
+}
+
+function guidanceDecision(requestId: string) {
+  const step = (stepId: string, position: number) => ({
+    stepId, position, action: `Test action ${position}`, productId: null, productVersionId: null,
+    toolId: null, toolVersionId: null, waitSeconds: null, rinse: null, reasons: ['test reason'],
+  });
+  return { status: 'ready', requestId, steps: [step('step-1', 1), step('step-2', 2)] };
+}
+
+async function seedTrustedGuidanceRun(db: PGlite, requestId = CONSENT_RUN_ID) {
+  await db.exec('set session authorization postgres');
+  await db.exec('set session authorization strandcue_mutator');
+  try {
+    await db.query(
+      `select strandcue_private.record_trusted_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`,
+      [requestId, 'd'.repeat(64), '2026-10-13T08:00:00.000Z', '1', 'bundle-synthetic', '1', 'ready',
+        JSON.stringify({ requestId, goal: 'basic_wash' }), JSON.stringify(guidanceDecision(requestId))],
+    );
+  } finally {
+    await asUser(db, USER_A);
+  }
+}
+
+async function startGuidanceExecution(db: PGlite, runId = CONSENT_RUN_ID, executionId = CONSENT_EXECUTION_ID) {
+  return (await db.query<{ result: any }>(
+    `select public.start_protocol_execution($1,$2,$3,$4::timestamptz) result`,
+    [crypto.randomUUID(), executionId, runId, new Date().toISOString()],
+  )).rows[0].result;
+}
+
+async function seedConsentAndGuidance(db: PGlite) {
+  await setExportConsent(db, 'product_analytics', true);
+  await setExportConsent(db, 'marketing_email', false);
+  await seedTrustedGuidanceRun(db);
+  await startGuidanceExecution(db);
+}
+
+async function downloadDocument(db: PGlite, format = 'json') {
+  await freshAuth(db, USER_A);
+  const receipt = await exportRequest(db, crypto.randomUUID(), format);
+  const download = await db.query<{ result: any }>(`select public.export_download($1) result`, [receipt.jobId]);
+  return { receipt, body: download.rows[0].result.document };
+}
+
+// JSON keys every export must carry after Task 11, mapped to their CSV files
+// for the parity assertion below.
+const EXPORT_CATEGORY_FILES: Record<string, string[]> = {
+  profile: ['profile.csv'],
+  passport: ['passport_revisions.csv'],
+  chemicalServices: ['service_revisions.csv'],
+  activities: ['activity_revisions.csv'],
+  userProducts: ['user_products.csv', 'user_product_revisions.csv'],
+  userTools: ['user_tools.csv', 'user_tool_revisions.csv'],
+  consentRecords: ['consent_records.csv'],
+  recommendationRuns: ['recommendation_runs.csv'],
+  protocolExecutions: ['protocol_executions.csv', 'protocol_execution_events.csv'],
+};
+
+// Curated owner-table registry (verified against information_schema 2026-10-15).
+// EXPORTED tables appear in the document (directly or through a parent join);
+// EXCLUDED tables carry the documented reason. Any new owner-linked table
+// fails this test until it is classified here AND exported or excluded.
+const EXPORTED_OWNER_TABLES = new Set([
+  'public.activities', 'public.activity_heat_events', 'public.activity_products',
+  'public.activity_revisions', 'public.activity_tools', 'public.chemical_services',
+  'public.consent_records', 'public.hair_passports', 'public.heat_events',
+  'public.passport_revisions', 'public.profiles', 'public.protocol_execution_events',
+  'public.protocol_executions', 'public.recommendation_runs', 'public.service_observations',
+  'public.service_revisions', 'public.service_zones', 'public.user_product_revisions',
+  'public.user_products', 'public.user_tool_revisions', 'public.user_tools',
+]);
+const EXCLUDED_OWNER_TABLES = new Map<string, string>([
+  ['public.export_jobs', 'export receipts about prior exports; embedding prior documents would nest exports recursively; receipts remain via the status API'],
+  ['public.deletion_tombstones', 'exists only for deleting accounts while export requires an active account (unreachable); username already in profile; lifecycle mapping, not user content'],
+  ['strandcue_private.activity_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.consent_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.deletion_lifecycle_events', 'Task 9 owner lifecycle history kept in service schema: excluded as service internals and unreachable at export time (active-account gate)'],
+  ['strandcue_private.deletion_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.export_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.passport_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.protocol_execution_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.service_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.shelf_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.tool_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.username_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.username_option_limits', 'service-internal rate-limit state, never owner content'],
+]);
+
+describe('export completeness (consent and guidance history)', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.consent_records');
+    await db.exec('delete from public.recommendation_runs');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  it('includes consent history with schema versions in the JSON document', async () => {
+    await complete(db);
+    await seedConsentAndGuidance(db);
+    const { body: document } = await downloadDocument(db, 'json');
+    expect(document.consentRecords).toHaveLength(2);
+    expect(document.consentRecords[0]).toMatchObject({ purpose: 'product_analytics', granted: true });
+    expect(document.consentRecords[1]).toMatchObject({ purpose: 'marketing_email', granted: false });
+    // Ordered oldest-first so history reads chronologically.
+    const times = document.consentRecords.map((row: any) => new Date(row.recorded_at).getTime());
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(document.schemaVersions).toMatchObject({
+      export: 2, consentRecords: 1, recommendationRuns: 1,
+      protocolExecutions: 1, protocolExecutionEvents: 1,
+    });
+  });
+
+  it('includes guidance history: recommendation runs and executions with events', async () => {
+    await complete(db);
+    await seedConsentAndGuidance(db);
+    const { body: document } = await downloadDocument(db, 'json');
+    expect(document.recommendationRuns).toHaveLength(1);
+    expect(document.recommendationRuns[0]).toMatchObject({ request_id: CONSENT_RUN_ID, status: 'ready' });
+    expect(document.recommendationRuns[0].decision).toMatchObject({ status: 'ready' });
+    expect(document.protocolExecutions).toHaveLength(1);
+    const execution = document.protocolExecutions[0];
+    expect(execution).toMatchObject({ execution_id: CONSENT_EXECUTION_ID, status: 'in_progress' });
+    expect(execution.events.length).toBeGreaterThanOrEqual(1);
+    expect(execution.events[0]).toMatchObject({ kind: 'started', sequence: 1 });
+    const sequences = execution.events.map((event: any) => event.sequence);
+    expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
+  });
+
+  it('exposes the same categories in CSV as in JSON', async () => {
+    await complete(db);
+    await seedConsentAndGuidance(db);
+    const { body: json } = await downloadDocument(db, 'json');
+    const { body: csv } = await downloadDocument(db, 'csv');
+    // Every promised JSON category exists and has its CSV file(s) with headers.
+    for (const [key, files] of Object.entries(EXPORT_CATEGORY_FILES)) {
+      expect(json, `json key ${key}`).toHaveProperty(key);
+      for (const file of files) {
+        expect(Object.keys(csv.files), `csv file ${file}`).toContain(file);
+        expect(csv.files[file].split('\n')[0].length, `header of ${file}`).toBeGreaterThan(0);
+      }
+    }
+    expect(csv.files['consent_records.csv'].split('\n')[0]).toBe('id,purpose,granted,recorded_at');
+    expect(csv.files['consent_records.csv']).toContain('product_analytics');
+    expect(csv.files['recommendation_runs.csv'].split('\n')[0]).toContain('request_id');
+    expect(csv.files['recommendation_runs.csv']).toContain(CONSENT_RUN_ID);
+    expect(csv.files['protocol_executions.csv'].split('\n')[0]).toContain('execution_id');
+    expect(csv.files['protocol_execution_events.csv'].split('\n')[0]).toContain('sequence');
+    // Row parity: same rows in both shapes.
+    expect(json.consentRecords).toHaveLength(csv.files['consent_records.csv'].split('\n').length - 1);
+    expect(json.recommendationRuns).toHaveLength(csv.files['recommendation_runs.csv'].split('\n').length - 1);
+    expect(json.protocolExecutions).toHaveLength(csv.files['protocol_executions.csv'].split('\n').length - 1);
+  });
+
+  it('counts consent and guidance rows in record_count', async () => {
+    await complete(db);
+    await seedConsentAndGuidance(db);
+    const { receipt, body: document } = await downloadDocument(db, 'json');
+    const eventRows = document.protocolExecutions.reduce((sum: number, row: any) => sum + row.events.length, 0);
+    const expected = document.passport.revisions.length
+      + document.chemicalServices.flatMap((service: any) => service.revisions).length
+      + document.activities.flatMap((activity: any) => activity.revisions).length
+      + document.userProducts.flatMap((product: any) => product.revisions).length
+      + document.userTools.flatMap((tool: any) => tool.revisions).length
+      + document.consentRecords.length + document.recommendationRuns.length
+      + document.protocolExecutions.length + eventRows;
+    expect(expected).toBeGreaterThan(document.passport.revisions.length);
+    expect(receipt.recordCount).toBe(expected);
+  });
+
+  it('keeps other owners consent and guidance rows out of the export', async () => {
+    await complete(db);
+    await seedConsentAndGuidance(db);
+    await asUser(db, USER_B);
+    await complete(db, 'user_b');
+    await setExportConsent(db, 'product_analytics', true);
+    await db.query(
+      `select public.record_recommendation_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`,
+      ['66666666-6666-4666-8666-666666666666', 'e'.repeat(64), '2026-10-11T09:00:00.000Z',
+        '1', 'bundle-synthetic', '1', 'content_pending',
+        JSON.stringify({ requestId: 'b-run', goal: 'basic_wash' }), JSON.stringify({ status: 'needs_input', steps: [] })],
+    );
+    await asUser(db, USER_A);
+    const { body: document } = await downloadDocument(db, 'json');
+    const serialized = JSON.stringify(document);
+    expect(serialized).not.toContain(USER_B);
+    expect(serialized).not.toContain('66666666-6666-4666-8666-666666666666');
+    expect(document.consentRecords).toHaveLength(2);
+    expect(document.recommendationRuns).toHaveLength(1);
+  });
+
+  it('fails when a new owner-linked table exists but is unclassified', async () => {
+    await db.exec('set session authorization postgres');
+    const found = await db.query<{ table_schema: string; table_name: string }>(
+      `select c.table_schema, c.table_name from information_schema.columns c
+       join information_schema.tables t using (table_schema, table_name)
+       where c.table_schema in ('public', 'strandcue_private')
+         and c.column_name in ('user_id', 'owner') and t.table_type = 'BASE TABLE'
+       group by 1, 2 order by 1, 2`,
+    );
+    await asUser(db, USER_A);
+    const names = found.rows.map((row) => `${row.table_schema}.${row.table_name}`);
+    const unclassified = names.filter((name) => !EXPORTED_OWNER_TABLES.has(name) && !EXCLUDED_OWNER_TABLES.has(name));
+    expect(unclassified).toEqual([]);
+    // The registry itself stays honest: every entry still exists and every
+    // exclusion carries its reason.
+    for (const name of [...EXPORTED_OWNER_TABLES, ...EXCLUDED_OWNER_TABLES.keys()]) {
+      expect(names, `registry entry ${name} still exists`).toContain(name);
+    }
+    for (const [name, reason] of EXCLUDED_OWNER_TABLES) {
+      expect(reason.length, `exclusion reason for ${name}`).toBeGreaterThan(0);
+    }
   });
 });
