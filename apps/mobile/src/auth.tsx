@@ -3,11 +3,17 @@ import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import type { User } from '@supabase/supabase-js';
 import { RECOVERY_ACTIVE_KEY, RECOVERY_KEY, secureStorage, supabase } from './client';
-import { authNeedsLoading, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
+import { authNeedsLoading, isSessionRevokedError, maxOfflineRefreshAttempts, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
 import { transitionServiceDraftOwner } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
 export const serviceDraftCleanupNotice = 'Device drafts from the previous account could not be cleared. Sign out before sharing this device.';
+// The server rejected this session (revoked, deleted, expired or invalid):
+// retaining the prior user would keep rendering another account's record.
+export const sessionRevokedNotice = 'Your session is no longer valid. This device has been signed out.';
+// Transient failures are retained only up to maxOfflineRefreshAttempts; past
+// that the device signs out rather than presenting a stale account forever.
+export const sessionUnverifiableNotice = 'Your session could not be verified after several attempts. This device has been signed out.';
 const authCallbackUrl = 'strandcue://auth/callback';
 
 type RecoveryAuth = {
@@ -64,20 +70,40 @@ export function useAccount() {
   const [notice, setNotice] = useState('');
   const verifiedUser = useRef<User | null>(null);
   const recoveryRef = useRef(false);
+  const offlineFailures = useRef(0);
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
     let mounted = true;
     let epoch = 0;
     let initialLinkChecked = false;
+    const clearAccountState = (message: string, request: number) => {
+      offlineFailures.current = 0;
+      verifiedUser.current = null;
+      setUser(null);
+      setRecovery(false);
+      setNotice(message);
+      setLoading(false);
+      void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
+        if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
+      });
+    };
     const refresh = (hideExisting = false) => {
       const request = ++epoch;
       setLoading(hideExisting || authNeedsLoading(!!verifiedUser.current));
       const isCurrent = () => mounted && request === epoch;
       void client.auth.getUser()
-        .then(result => resolveAuthRefresh(result, (owner, guard) => transitionServiceDraftOwner(secureStorage, owner, guard), isCurrent))
+        .then(result => {
+          if (!isCurrent()) return null;
+          if (result.error && isSessionRevokedError(result.error)) {
+            clearAccountState(sessionRevokedNotice, request);
+            return null;
+          }
+          return resolveAuthRefresh(result, (owner, guard) => transitionServiceDraftOwner(secureStorage, owner, guard), isCurrent);
+        })
         .then(outcome => {
         if (outcome && isCurrent()) {
+          offlineFailures.current = 0;
           verifiedUser.current = outcome.user;
           setUser(outcome.user);
           setNotice(current => outcome.cleanupFailed ? serviceDraftCleanupNotice : current === serviceDraftCleanupNotice ? '' : current);
@@ -85,6 +111,11 @@ export function useAccount() {
         }
       }).catch(() => {
         if (mounted && request === epoch) {
+          offlineFailures.current += 1;
+          if (offlineFailures.current > maxOfflineRefreshAttempts) {
+            clearAccountState(sessionUnverifiableNotice, request);
+            return;
+          }
           const retained = resolvedRefreshUser(verifiedUser.current, null, true);
           verifiedUser.current = retained;
           setUser(retained);
@@ -96,6 +127,7 @@ export function useAccount() {
     const {data: {subscription}} = client.auth.onAuthStateChange(event => {
       if (event === 'SIGNED_OUT') {
         const request = ++epoch;
+        offlineFailures.current = 0;
         verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false);
         void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
           if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);

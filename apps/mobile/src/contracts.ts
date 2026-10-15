@@ -6,6 +6,40 @@ export function changedFields(before: Record<string, unknown>, after: Record<str
 export const authNeedsLoading = (hasVerifiedUser: boolean) => !hasVerifiedUser;
 export const resolvedRefreshUser = <T>(current: T | null, verified: T | null, requestFailed: boolean): T | null =>
   requestFailed && current ? current : verified;
+
+// Task 12 (clear account-bound state): classification of a getUser refresh
+// failure, grounded in the real supabase-js shapes
+// (node_modules/@supabase/auth-js/src/lib/errors.ts and error-codes.ts).
+// getUser RESOLVES with {data, error} for server answers — including
+// AuthApiError results that carry an HTTP status and a server error code —
+// and REJECTS for transport failures (TypeError from fetch, lock errors).
+// A revoked/deleted/expired/invalid session MUST clear local state: the
+// server no longer honors the session, so retaining the prior user would keep
+// rendering another account's record (AU-003). Anything else is treated as
+// transient-offline and retained under an explicit bound (below).
+const revokedSessionCodes = new Set([
+  'session_not_found',
+  'session_expired',
+  'refresh_token_not_found',
+  'refresh_token_already_used',
+  'user_not_found',
+  'bad_jwt',
+]);
+export function isSessionRevokedError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const failure = error as { code?: unknown; status?: unknown };
+  if (typeof failure.code === 'string' && revokedSessionCodes.has(failure.code)) return true;
+  if (typeof failure.status === 'number') {
+    // Rate limiting and server errors are transient; 401/403/404 from the
+    // user endpoint mean this session or user is no longer valid.
+    if (failure.status === 429 || failure.status >= 500) return false;
+    if (failure.status === 401 || failure.status === 403 || failure.status === 404) return true;
+  }
+  return false;
+}
+// Consecutive transient refresh failures retained before the device signs
+// itself out. A success or a revoked-session clear resets the count.
+export const maxOfflineRefreshAttempts = 3;
 export function authUserFromResult<T>(result: { data: { user: T | null }; error: unknown }): T | null {
   // A device with no saved session has no user to verify; all other failures remain blocked.
   if (result.data.user === null && isAuthSessionMissingError(result.error)) return null;
