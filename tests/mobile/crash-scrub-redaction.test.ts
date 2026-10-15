@@ -19,6 +19,45 @@ describe('crash scrubber redaction classes (Task 12)', () => {
     expect(payload).toContain('[redacted]');
   });
 
+  it('redacts every cookie pair to end of line, in any order', () => {
+    for (const header of [
+      'Cookie: theme=dark; session=PAIR_SECRET_ONE',
+      'Cookie: session=PAIR_SECRET_ONE; theme=dark',
+      'Set-Cookie: session=PAIR_SECRET_ONE; Path=/; HttpOnly',
+      'Set-Cookie: theme=dark; session=PAIR_SECRET_ONE; Secure',
+    ]) {
+      const text = String(scrubValue(`request failed with ${header} done`));
+      expect(text).not.toContain('PAIR_SECRET_ONE');
+    }
+  });
+
+  it('redacts compound secret key forms without substring false positives', () => {
+    const scrubbed = scrubValue({
+      client_secret: 'compound-one',
+      CLIENTSECRET: 'compound-two',
+      private_key: 'compound-three',
+      PrivateKey: 'compound-four',
+      secretariat: 'not-a-secret-keep-me',
+      operation: 'passport-save',
+    }) as Record<string, unknown>;
+    const payload = JSON.stringify(scrubbed);
+    for (const secret of ['compound-one', 'compound-two', 'compound-three', 'compound-four']) {
+      expect(payload).not.toContain(secret);
+    }
+    expect(scrubbed.secretariat).toBe('not-a-secret-keep-me');
+    expect(scrubbed.operation).toBe('passport-save');
+  });
+
+  it('redacts basic authorization credentials in free text', () => {
+    for (const header of [
+      'Authorization: Basic dXNlcjpwYXNzd29yZA==',
+      'authorization: basic dXNlcjpwYXNzd29yZA==',
+    ]) {
+      const text = String(scrubValue(`request failed with ${header} done`));
+      expect(text).not.toContain('dXNlcjpwYXNzd29yZA==');
+    }
+  });
+
   it('redacts cookie headers and bearer tokens in free text', () => {
     expect(String(scrubValue({ cookie: 'session=abc123; theme=dark' }))).not.toContain('abc123');
     const text = String(

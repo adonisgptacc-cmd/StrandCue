@@ -84,6 +84,12 @@ export function useAccount() {
       setRecovery(false);
       setNotice(message);
       setLoading(false);
+      // Purge the dead local session so it does not persist in storage and
+      // auto-refresh does not keep retrying a dead refresh token. The
+      // resulting SIGNED_OUT event re-enters the same clearing path
+      // idempotently: same null state, no notice change, no extra sign-out.
+      client.auth.stopAutoRefresh();
+      void client.auth.signOut({scope: 'local'}).catch(() => undefined);
       void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
         if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
       });

@@ -23,6 +23,7 @@ const revokedSessionCodes = new Set([
   'refresh_token_not_found',
   'refresh_token_already_used',
   'user_not_found',
+  'user_banned',
   'bad_jwt',
 ]);
 export function isSessionRevokedError(error: unknown): boolean {

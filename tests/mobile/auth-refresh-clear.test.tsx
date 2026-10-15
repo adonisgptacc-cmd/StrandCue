@@ -132,6 +132,7 @@ describe('isSessionRevokedError (refresh-failure classification)', () => {
       new AuthApiError('refresh token not found', 401, 'refresh_token_not_found'),
       new AuthApiError('refresh token already used', 401, 'refresh_token_already_used'),
       new AuthApiError('user not found', 404, 'user_not_found'),
+      new AuthApiError('user banned', 403, 'user_banned'),
       new AuthApiError('invalid JWT', 401, 'bad_jwt'),
       new AuthApiError('invalid claim', 403, 'bad_jwt'),
     ]) {
@@ -184,6 +185,7 @@ describe('refresh failure clears a revoked session (AU-003)', () => {
 
   it.each([
     ['deleted user', new AuthApiError('user not found', 404, 'user_not_found')],
+    ['banned user', new AuthApiError('user banned', 403, 'user_banned')],
     ['expired session', new AuthApiError('session expired', 401, 'session_expired')],
     ['missing refresh token', new AuthApiError('refresh token not found', 401, 'refresh_token_not_found')],
     ['invalid token', new AuthApiError('invalid JWT', 401, 'bad_jwt')],
@@ -295,12 +297,81 @@ describe('signed-out and missing-session transitions', () => {
     });
   });
 
-  it('renders signed out on a virgin device without retaining anything', async () => {
+  it('never purges a session that never existed on a virgin device', async () => {
     accountMocks.getUser.mockResolvedValueOnce({ data: { user: null }, error: new AuthSessionMissingError() });
     const { observed, renderer } = await mountAccount();
 
     expect(observed().user).toBeNull();
-    expect(observed().loading).toBe(false);
+    expect(accountMocks.signOut).not.toHaveBeenCalled();
+    expect(accountMocks.stopAutoRefresh).not.toHaveBeenCalled();
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+});
+
+describe('local session purge on account clear', () => {
+  it('purges the local session and stops auto-refresh on revoked clear', async () => {
+    accountMocks.getUser.mockResolvedValueOnce({ data: { user: ownerA }, error: null });
+    const { observed, renderer } = await mountAccount();
+    expect(observed().user).toEqual(ownerA);
+
+    accountMocks.getUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: new AuthApiError('session not found', 401, 'session_not_found'),
+    });
+    await emitAuthEvent('SIGNED_IN');
+
+    expect(observed().user).toBeNull();
+    expect(observed().notice).toMatch(/signed out/i);
+    expect(accountMocks.stopAutoRefresh).toHaveBeenCalled();
+    expect(accountMocks.signOut).toHaveBeenCalledWith({ scope: 'local' });
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('purges the local session when the offline bound is exceeded', async () => {
+    accountMocks.getUser.mockResolvedValueOnce({ data: { user: ownerA }, error: null });
+    const { observed, renderer } = await mountAccount();
+
+    for (let attempt = 1; attempt <= maxOfflineRefreshAttempts; attempt += 1) {
+      accountMocks.getUser.mockRejectedValueOnce(new TypeError('fetch failed'));
+      await emitAuthEvent('SIGNED_IN');
+    }
+    expect(accountMocks.signOut).not.toHaveBeenCalled();
+
+    accountMocks.getUser.mockRejectedValueOnce(new TypeError('fetch failed'));
+    await emitAuthEvent('SIGNED_IN');
+
+    expect(observed().user).toBeNull();
+    expect(accountMocks.stopAutoRefresh).toHaveBeenCalled();
+    expect(accountMocks.signOut).toHaveBeenCalledWith({ scope: 'local' });
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('stays idempotent when SIGNED_OUT arrives after a purge clear', async () => {
+    accountMocks.getUser.mockResolvedValueOnce({ data: { user: ownerA }, error: null });
+    const { observed, renderer } = await mountAccount();
+
+    accountMocks.getUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: new AuthApiError('session not found', 401, 'session_not_found'),
+    });
+    await emitAuthEvent('SIGNED_IN');
+    expect(observed().user).toBeNull();
+    const revokedNotice = observed().notice;
+    const signOutCalls = accountMocks.signOut.mock.calls.length;
+
+    // The purge above emits SIGNED_OUT through the real client; a repeated
+    // event must not loop, re-sign-out, or replace the notice.
+    await emitAuthEvent('SIGNED_OUT');
+
+    expect(observed().user).toBeNull();
+    expect(observed().notice).toBe(revokedNotice);
+    expect(accountMocks.signOut.mock.calls.length).toBe(signOutCalls);
     await act(async () => {
       renderer.unmount();
     });

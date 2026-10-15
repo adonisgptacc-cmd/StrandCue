@@ -13,8 +13,14 @@
 //   fragment are dropped, and path segments that look like tokens (length >=
 //   24 over an unreserved-token alphabet: JWTs, hex/base64 secrets) become
 //   [redacted]. Short human path segments survive for debuggability.
-// - Cookie/set-cookie header values and bearer tokens are redacted in free
-//   text; a cookie value redacts to end of line because pairs chain.
+// - Cookie/set-cookie header values and bearer/basic credentials are redacted
+//   in free text; a cookie value redacts to end of line because pairs chain.
+//   (A cookie line stops at a double quote so JSON envelopes stay parseable.)
+// - Known limitation: bare free-text hex/token strings with no scheme, key,
+//   or URL shape (e.g. a lone `abcd1234…` with no `token=`/`Basic`/URL around
+//   it) cannot be redacted without false positives on ordinary words and
+//   identifiers, so they are left intact. Secrets must travel with a
+//   recognizable shape to be caught.
 // - Database-payload-shaped objects get no special pass: every nested value
 //   is pattern-scrubbed, with a depth cap (5), an array cap (50 items) and a
 //   key cap (100 keys) plus a circular-reference guard so a hostile or
@@ -24,14 +30,15 @@ const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const secretQueryPattern = /([?&#](?:code|token|access_token|refresh_token|secret|key|api_key|apikey|password)=)[^&#\s]*/gi;
 const urlPattern = /[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s"'<>]+/g;
-const cookiePattern = /((?:cookie|set-cookie)\s*:\s*)[^\r\n;"']+/gi;
-const bearerPattern = /(bearer\s+)[A-Za-z0-9\-_.~+/=]+/gi;
+const cookiePattern = /((?:cookie|set-cookie)\s*:\s*)[^\r\n"']+/gi;
+const authSchemePattern = /((?:bearer|basic)\s+)[A-Za-z0-9\-_.~+/=]+/gi;
 const tokenPathSegment = /^[A-Za-z0-9\-_.~%=]{24,}$/;
 
 const sensitiveKeys = new Set([
   'email', 'username', 'notes', 'password', 'token', 'secret',
   'authorization', 'sessionid', 'session_id', 'userid', 'user_id',
   'accesstoken', 'refreshtoken', 'apikey', 'xapikey', 'cookie', 'setcookie',
+  'clientsecret', 'privatekey',
 ]);
 
 const MAX_STRING = 200;
@@ -61,7 +68,7 @@ function scrubText(value: string): string {
   const redacted = value
     .replace(urlPattern, scrubUrl)
     .replace(cookiePattern, '$1[redacted]')
-    .replace(bearerPattern, '$1[redacted]')
+    .replace(authSchemePattern, '$1[redacted]')
     .replace(emailPattern, '[redacted-email]')
     .replace(uuidPattern, '[redacted-id]')
     .replace(secretQueryPattern, '$1[redacted]');
