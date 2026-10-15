@@ -14,7 +14,11 @@ import { Button, styles } from '../ui';
 
 const CONFIRM_TEXT = 'DELETE MY ACCOUNT';
 
-export function DeletionScreen() {
+export function DeletionScreen({ owner }: { owner: string }) {
+  return <OwnerDeletionScreen key={owner} />;
+}
+
+function OwnerDeletionScreen() {
   const [status, setStatus] = useState<DeletionStatus | null>(null);
   const [reason, setReason] = useState('');
   const [confirmText, setConfirmText] = useState('');

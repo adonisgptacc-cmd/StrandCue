@@ -62,7 +62,7 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   </View>;
   if (section === 'delete') return <View style={{ gap: 20 }}>
     <Button title="Back to settings" secondary onPress={() => setSection('main')} />
-    <DeletionScreen />
+    <DeletionScreen owner={owner} />
   </View>;
   if (section === 'privacy') return <View style={{ gap: 20 }}>
     <Button title="Back to settings" secondary onPress={() => setSection('main')} />

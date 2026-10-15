@@ -47,7 +47,7 @@ describe('account deletion screen retry behavior',()=>{
   it('retries a lost response using the same request and offers status refresh',async()=>{
     mocks.request.mockRejectedValueOnce(new Error('Connection interrupted')).mockResolvedValueOnce({accountStatus:'deleting'});
     let renderer!:ReactTestRenderer;
-    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    await act(async()=>{renderer=create(createElement(DeletionScreen, {owner: 'owner-a'}));});
     await act(async()=>{input(renderer,'Reason for deletion','Original reason');input(renderer,'Deletion confirmation','DELETE MY ACCOUNT');});
     await act(async()=>{press(renderer,'Delete my account');});
     expect(mocks.request).toHaveBeenNthCalledWith(1,'first-operation','Original reason');
@@ -60,7 +60,7 @@ describe('account deletion screen retry behavior',()=>{
   it('refreshes status after a lost response so cancellation remains reachable',async()=>{
     mocks.request.mockRejectedValueOnce(new Error('Connection interrupted'));
     let renderer!:ReactTestRenderer;
-    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    await act(async()=>{renderer=create(createElement(DeletionScreen, {owner: 'owner-a'}));});
     await act(async()=>input(renderer,'Deletion confirmation','DELETE MY ACCOUNT'));
     await act(async()=>press(renderer,'Delete my account'));
     mocks.status.mockResolvedValueOnce({...active,accountStatus:'deleting',tombstoneExists:true});
@@ -78,7 +78,7 @@ describe('account deletion screen retry behavior',()=>{
     mocks.status.mockResolvedValue({...active,accountStatus:'deleting',tombstoneExists:true});
     mocks.cancel.mockRejectedValueOnce(new Error('recent-auth-required'));
     let renderer!:ReactTestRenderer;
-    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    await act(async()=>{renderer=create(createElement(DeletionScreen, {owner: 'owner-a'}));});
     await act(async()=>{press(renderer,'Refresh status');});
     await act(async()=>{press(renderer,'Cancel deletion');});
     expect(mocks.cancelMessage).toHaveBeenCalledWith('recent-auth-required');
@@ -90,7 +90,7 @@ describe('account deletion screen retry behavior',()=>{
   it('shows a load failure when the initial account status cannot be read',async()=>{
     mocks.status.mockRejectedValueOnce(new Error('connection lost'));
     let renderer!:ReactTestRenderer;
-    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    await act(async()=>{renderer=create(createElement(DeletionScreen, {owner: 'owner-a'}));});
     // The module mock passes status-load errors through; the real-module
     // fallback copy is pinned in deletion.test.ts. This pins the catch path.
     const alert=renderer.root.find(n=>n.props.accessibilityRole==='alert');
@@ -99,7 +99,7 @@ describe('account deletion screen retry behavior',()=>{
   });
   it('refuses a deletion request until the confirmation text matches',async()=>{
     let renderer!:ReactTestRenderer;
-    await act(async()=>{renderer=create(createElement(DeletionScreen));});
+    await act(async()=>{renderer=create(createElement(DeletionScreen, {owner: 'owner-a'}));});
     await act(async()=>{input(renderer,'Deletion confirmation','DELETE');});
     await act(async()=>{press(renderer,'Delete my account');});
     expect(mocks.request).not.toHaveBeenCalled();

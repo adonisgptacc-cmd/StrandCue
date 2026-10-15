@@ -92,6 +92,13 @@ describe('export screen promise copy', () => {
     await act(async () => renderer.unmount());
   });
 
+  it('claims catalogue facts for the JSON export, not CSV', async () => {
+    const renderer = await renderScreen();
+    const copy = spans(renderer);
+    expect(copy).toMatch(/catalogue facts are included in the JSON export/i);
+    await act(async () => renderer.unmount());
+  });
+
   it('requests an export, shows status and offers download', async () => {
     mocks.request.mockResolvedValue({ jobId: JOB, status: 'completed', recordCount: 7, expiresAt: '2024-03-02T10:00:00Z' });
     mocks.status.mockResolvedValue({ status: 'completed', recordCount: 7 });
