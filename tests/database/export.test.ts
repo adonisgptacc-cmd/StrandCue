@@ -244,6 +244,7 @@ const EXPORT_CATEGORY_FILES: Record<string, string[]> = {
   consentRecords: ['consent_records.csv'],
   recommendationRuns: ['recommendation_runs.csv'],
   protocolExecutions: ['protocol_executions.csv', 'protocol_execution_events.csv'],
+  schemaVersions: ['schema_versions.csv'],
 };
 
 // Curated owner-table registry (verified against information_schema 2026-10-15).
@@ -261,10 +262,10 @@ const EXPORTED_OWNER_TABLES = new Set([
 ]);
 const EXCLUDED_OWNER_TABLES = new Map<string, string>([
   ['public.export_jobs', 'export receipts about prior exports; embedding prior documents would nest exports recursively; receipts remain via the status API'],
-  ['public.deletion_tombstones', 'exists only for deleting accounts while export requires an active account (unreachable); username already in profile; lifecycle mapping, not user content'],
+  ['public.deletion_tombstones', 'deletion lifecycle mapping, not user content: surviving fields repeat tombstone fields already covered by profile (username); excluded by the service-internals rule — a cancel-then-restore account can hold lifecycle rows while active, so unreachability is not claimed'],
   ['strandcue_private.activity_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.consent_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
-  ['strandcue_private.deletion_lifecycle_events', 'Task 9 owner lifecycle history kept in service schema: excluded as service internals and unreachable at export time (active-account gate)'],
+  ['strandcue_private.deletion_lifecycle_events', 'Task 9 owner lifecycle history kept in service schema: excluded by the service-internals rule; surviving fields repeat tombstone fields already covered by profile (username)'],
   ['strandcue_private.deletion_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.export_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.passport_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
@@ -275,6 +276,54 @@ const EXCLUDED_OWNER_TABLES = new Map<string, string>([
   ['strandcue_private.username_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.username_option_limits', 'service-internal rate-limit state, never owner content'],
 ]);
+
+// Exact column registry per exported table (information_schema order,
+// verified 2026-10-15). The JSON builder embeds whole rows via to_jsonb, so
+// any new column would silently enter owner exports: an unregistered column
+// fails the test until it gets a classify-or-exclude decision.
+const EXPORTED_OWNER_COLUMNS: Record<string, string[]> = {
+  'public.activities': ['id', 'owner', 'kind', 'occurred_at', 'precision', 'zones', 'notes', 'status', 'revision', 'created_at', 'updated_at'],
+  'public.activity_heat_events': ['id', 'owner', 'activity_id', 'method', 'tool_version', 'temperature', 'passes', 'duration_minutes', 'wet_dry_state', 'created_at'],
+  'public.activity_products': ['id', 'owner', 'activity_id', 'product_version', 'applied_at', 'quantity', 'created_at'],
+  'public.activity_revisions': ['id', 'owner', 'activity_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason', 'void_reason'],
+  'public.activity_tools': ['id', 'owner', 'activity_id', 'tool_version', 'applied_at', 'created_at'],
+  'public.chemical_services': ['id', 'user_id', 'revision', 'created_at'],
+  'public.consent_records': ['id', 'user_id', 'purpose', 'granted', 'recorded_at'],
+  'public.hair_passports': ['id', 'user_id', 'revision', 'current_projection', 'created_at'],
+  'public.heat_events': ['service_revision_id', 'service_id', 'user_id', 'method', 'temperature_c', 'passes', 'duration_minutes', 'source', 'provided_fields'],
+  'public.passport_revisions': ['id', 'user_id', 'passport_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason'],
+  'public.profiles': ['user_id', 'username', 'eligible', 'country', 'currency', 'temperature_unit', 'account_status', 'revision', 'created_at', 'username_changed_at'],
+  'public.protocol_execution_events': ['id', 'user_id', 'execution_id', 'sequence', 'kind', 'command', 'revision', 'recorded_at'],
+  'public.protocol_executions': ['id', 'user_id', 'execution_id', 'recommendation_run_id', 'decision', 'execution', 'revision', 'status', 'created_at', 'updated_at'],
+  'public.recommendation_runs': ['id', 'user_id', 'request_id', 'input_fingerprint', 'as_of', 'engine_version', 'bundle_id', 'bundle_version', 'status', 'input', 'decision', 'created_at', 'trusted'],
+  'public.service_observations': ['id', 'service_id', 'user_id', 'effective_date', 'effective_start', 'effective_end', 'effect_status', 'source', 'recorded_at'],
+  'public.service_revisions': ['id', 'user_id', 'service_id', 'sequence', 'base_revision', 'kind', 'facts', 'heat_state', 'effective_start', 'effective_end', 'recorded_at', 'corrects_id', 'correction_reason'],
+  'public.service_zones': ['service_revision_id', 'service_id', 'user_id', 'region', 'segment'],
+  'public.user_product_revisions': ['id', 'owner', 'user_product_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason', 'match_version_id'],
+  'public.user_products': ['id', 'owner', 'version_id', 'manual_brand', 'manual_name', 'manual_category', 'availability', 'matched', 'matched_at', 'match_confirmed', 'revision', 'notes', 'created_at', 'updated_at'],
+  'public.user_tool_revisions': ['id', 'owner', 'user_tool_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason', 'match_version_id'],
+  'public.user_tools': ['id', 'owner', 'version_id', 'manual_brand', 'manual_model', 'tool_type', 'availability', 'matched', 'matched_at', 'match_confirmed', 'revision', 'notes', 'created_at', 'updated_at'],
+};
+
+async function listOwnerTables(db: PGlite): Promise<string[]> {
+  await db.exec('set session authorization postgres');
+  try {
+    const found = await db.query<{ table_schema: string; table_name: string }>(
+      `select c.table_schema, c.table_name from information_schema.columns c
+       join information_schema.tables t using (table_schema, table_name)
+       where c.table_schema in ('public', 'strandcue_private')
+         and c.column_name in ('user_id', 'owner') and t.table_type = 'BASE TABLE'
+       group by 1, 2 order by 1, 2`,
+    );
+    return found.rows.map((row) => `${row.table_schema}.${row.table_name}`);
+  } finally {
+    await asUser(db, USER_A);
+  }
+}
+
+function unclassifiedOwnerTables(names: string[]): string[] {
+  return names.filter((name) => !EXPORTED_OWNER_TABLES.has(name) && !EXCLUDED_OWNER_TABLES.has(name));
+}
 
 describe('export completeness (consent and guidance history)', () => {
   let db: PGlite;
@@ -343,6 +392,16 @@ describe('export completeness (consent and guidance history)', () => {
     expect(json.consentRecords).toHaveLength(csv.files['consent_records.csv'].split('\n').length - 1);
     expect(json.recommendationRuns).toHaveLength(csv.files['recommendation_runs.csv'].split('\n').length - 1);
     expect(json.protocolExecutions).toHaveLength(csv.files['protocol_executions.csv'].split('\n').length - 1);
+    // Nested events parity: every nested JSON event has its CSV row and back.
+    const nestedEvents = json.protocolExecutions.reduce((sum: number, row: any) => sum + row.events.length, 0);
+    expect(nestedEvents).toBeGreaterThan(0);
+    expect(nestedEvents).toBe(csv.files['protocol_execution_events.csv'].split('\n').length - 1);
+    // Schema-version parity: the CSV version file matches the JSON block exactly.
+    expect(csv.files['schema_versions.csv'].split('\n')[0]).toBe('family,version');
+    const csvVersions = Object.fromEntries(
+      csv.files['schema_versions.csv'].split('\n').slice(1).map((line: string) => line.split(',')));
+    expect(csvVersions).toEqual({ export: '2', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '1', protocolExecutionEvents: '1' });
+    expect(csvVersions).toEqual(Object.fromEntries(Object.entries(json.schemaVersions).map(([family, version]) => [family, String(version)])));
   });
 
   it('counts consent and guidance rows in record_count', async () => {
@@ -383,25 +442,59 @@ describe('export completeness (consent and guidance history)', () => {
   });
 
   it('fails when a new owner-linked table exists but is unclassified', async () => {
-    await db.exec('set session authorization postgres');
-    const found = await db.query<{ table_schema: string; table_name: string }>(
-      `select c.table_schema, c.table_name from information_schema.columns c
-       join information_schema.tables t using (table_schema, table_name)
-       where c.table_schema in ('public', 'strandcue_private')
-         and c.column_name in ('user_id', 'owner') and t.table_type = 'BASE TABLE'
-       group by 1, 2 order by 1, 2`,
-    );
-    await asUser(db, USER_A);
-    const names = found.rows.map((row) => `${row.table_schema}.${row.table_name}`);
-    const unclassified = names.filter((name) => !EXPORTED_OWNER_TABLES.has(name) && !EXCLUDED_OWNER_TABLES.has(name));
-    expect(unclassified).toEqual([]);
+    const names = await listOwnerTables(db);
+    expect(unclassifiedOwnerTables(names)).toEqual([]);
     // The registry itself stays honest: every entry still exists and every
-    // exclusion carries its reason.
+    // exclusion carries its reason. 21 exported + 14 excluded = 35 owner
+    // tables = 23 public + 12 strandcue_private.
+    expect(names).toHaveLength(35);
+    expect(EXPORTED_OWNER_TABLES.size).toBe(21);
+    expect(EXCLUDED_OWNER_TABLES.size).toBe(14);
     for (const name of [...EXPORTED_OWNER_TABLES, ...EXCLUDED_OWNER_TABLES.keys()]) {
       expect(names, `registry entry ${name} still exists`).toContain(name);
     }
     for (const [name, reason] of EXCLUDED_OWNER_TABLES) {
       expect(reason.length, `exclusion reason for ${name}`).toBeGreaterThan(0);
     }
+  });
+
+  it('fails when an exported table gains an unregistered column', async () => {
+    expect(Object.keys(EXPORTED_OWNER_COLUMNS).sort()).toEqual([...EXPORTED_OWNER_TABLES].sort());
+    await db.exec('set session authorization postgres');
+    try {
+      for (const table of Object.keys(EXPORTED_OWNER_COLUMNS)) {
+        const [schema, name] = table.split('.');
+        const cols = await db.query<{ column_name: string }>(
+          `select column_name from information_schema.columns where table_schema = $1 and table_name = $2 order by ordinal_position`,
+          [schema, name],
+        );
+        expect(cols.rows.map((row) => row.column_name), `columns of ${table}`).toEqual(EXPORTED_OWNER_COLUMNS[table]);
+      }
+    } finally {
+      await asUser(db, USER_A);
+    }
+  });
+
+  it('flags a planted unclassified owner table and leaves no trace', async () => {
+    await db.exec('set session authorization postgres');
+    await db.query('begin');
+    try {
+      await db.query('create table public.zz_tripwire_probe (id uuid primary key default gen_random_uuid(), user_id uuid not null)');
+      const found = await db.query<{ table_schema: string; table_name: string }>(
+        `select c.table_schema, c.table_name from information_schema.columns c
+         join information_schema.tables t using (table_schema, table_name)
+         where c.table_schema in ('public', 'strandcue_private')
+           and c.column_name in ('user_id', 'owner') and t.table_type = 'BASE TABLE'
+         group by 1, 2 order by 1, 2`,
+      );
+      const names = found.rows.map((row) => `${row.table_schema}.${row.table_name}`);
+      // The tripwire fires on the planted table: this is the failure a real
+      // unclassified table would produce.
+      expect(unclassifiedOwnerTables(names)).toEqual(['public.zz_tripwire_probe']);
+    } finally {
+      await db.query('rollback');
+    }
+    // Rolled back: the probe is gone and the registry is clean again.
+    expect(unclassifiedOwnerTables(await listOwnerTables(db))).toEqual([]);
   });
 });

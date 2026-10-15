@@ -88,6 +88,7 @@ describe('export screen promise copy', () => {
     const copy = spans(renderer);
     expect(copy).toMatch(/consent/i);
     expect(copy).toMatch(/guidance|recommendation|protocol/i);
+    expect(copy).toMatch(/export receipts|service-internal|not included/i);
     await act(async () => renderer.unmount());
   });
 
@@ -146,6 +147,15 @@ describe('export screen promise copy', () => {
     const renderer = await renderScreen();
     await act(async () => press(renderer, 'Create export'));
     expect(spans(renderer)).toMatch(/Export could not be requested/i);
+    await act(async () => renderer.unmount());
+  });
+
+  it('offers no download without a job', async () => {
+    // Pins the `if (!jobId) return` contract at the UI layer: the Download
+    // button only renders once a job exists, so the early return is
+    // unreachable by construction.
+    const renderer = await renderScreen();
+    expect(renderer.root.findAll((n) => n.type === 'button' && n.props.accessibilityLabel === 'Download export')).toEqual([]);
     await act(async () => renderer.unmount());
   });
 

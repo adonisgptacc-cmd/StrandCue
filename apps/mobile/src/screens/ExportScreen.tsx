@@ -95,7 +95,7 @@ function OwnerExportScreen({ owner }: { owner: string }) {
   return <ScrollView style={styles.page} contentContainerStyle={styles.content}>
     <View style={styles.card}>
       <Text style={styles.heading}>Export your data</Text>
-      <Text style={styles.body}>Download a complete copy of your record: Hair Passport and history, chemical services, activities, shelf, tools, catalogue facts, consent history and guidance history (recommendations and protocol runs). Exports are private to you.</Text>
+      <Text style={styles.body}>Download a complete copy of your record: Hair Passport and history, chemical services, activities, shelf, tools, catalogue facts, consent history and guidance history (recommendations and protocol runs). Export receipts and service-internal operation state are not included. Exports are private to you.</Text>
       <Text style={styles.body}>Download access expires after 24 hours. Export files are removed within 7 days.</Text>
     </View>
     <Choice label="Export format" value={format} options={['json', 'csv']} disabled={busy}
