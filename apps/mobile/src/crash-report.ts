@@ -51,7 +51,14 @@
 //   (prose preserved, secrets substituted): the error message is the primary
 //   first-party diagnostic signal the reporter exists to carry. Callers must
 //   pass user data via context (fully gated), never interpolated into the
-//   message. KNOWN RESIDUAL RISK, accepted deliberately.
+//   message — enforced by tests/mobile/crash-fix-b-round2.test.ts, which fails
+//   any report() call site in apps/mobile/src whose first argument is not a
+//   caught-error identifier, a literal string, or new Error('literal').
+//   KNOWN RESIDUALS (Fix B round 2, accepted-latent, tied to the no-op
+//   default below): (Escape B) message/stack free-text prose is retained;
+//   (Escape A) <=64-char identifier-shaped tokens under non-keyed positions,
+//   and plural-key synonyms beyond the sensitive set, pass the shape gate.
+//   Both are acceptable only while no transport leaves the device.
 // - Known limitation: bare free-text hex/token strings with no scheme, key,
 //   or URL shape (e.g. a lone `abcd1234…` with no `token=`/`Basic`/URL around
 //   it) cannot be redacted without false positives on ordinary words and
@@ -72,7 +79,7 @@ const cookiePattern = /((?:cookie|set-cookie)\s*:\s*)[^\r\n"']+/gi;
 const authSchemePattern = /((?:bearer|basic)\s+)[A-Za-z0-9\-_.~+/=]+/gi;
 
 const sensitiveKeys = new Set([
-  'email', 'username', 'notes', 'password', 'token', 'secret',
+  'email', 'username', 'notes', 'password', 'token', 'tokens', 'secret',
   'authorization', 'sessionid', 'session_id', 'userid', 'user_id',
   'accesstoken', 'refreshtoken', 'apikey', 'xapikey', 'cookie', 'setcookie',
   'clientsecret', 'privatekey',
@@ -187,6 +194,10 @@ export interface CrashEnvelope {
 
 export type CrashTransport = (envelope: CrashEnvelope) => void;
 
+// TRANSPORT DEFAULT (Fix B round 2): no transport, nothing leaves the device.
+// Enabling any non-no-op transport requires message/stack gating plus an
+// entropy-token rule plus re-review — the round-2 residuals above stop being
+// acceptable the moment a transport exists.
 export function createCrashReporter(options: { transport?: CrashTransport } = {}) {
   const transport = options.transport;
   return {
