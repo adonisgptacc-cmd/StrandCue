@@ -2,37 +2,74 @@
 // provider decision; until then the default transport is a no-op and nothing
 // leaves the device. Every field is scrubbed before transport.
 //
-// Scrubbing rules (Task 12):
+// Scrubbing rules (Task 12, hardened by Fix B):
 // - Scrub the FULL string first, then truncate: a token past char 200 must
 //   still be caught, so truncation never runs before redaction.
 // - Object keys are normalized (lowercased, non-letters stripped) and matched
 //   against sensitiveKeys; the set carries the normalized forms explicitly
 //   (accessToken -> accesstoken, refresh_token -> refreshtoken,
 //   X-API-Key -> xapikey) plus cookie/set-cookie.
-// - URLs (any scheme) are scrubbed structurally: credentials, query and
-//   fragment are dropped, and path segments that look like tokens (length >=
-//   24 over an unreserved-token alphabet: JWTs, hex/base64 secrets) become
-//   [redacted]. Short human path segments survive for debuggability.
-// - Cookie/set-cookie header values and bearer/basic credentials are redacted
-//   in free text; a cookie value redacts to end of line because pairs chain.
-//   (A cookie line stops at a double quote so JSON envelopes stay parseable.)
+// - URLs are replaced WHOLE with a fixed `[redacted-url]` marker, preserving
+//   NOTHING (no scheme, host, path, query, or fragment). URL match rule:
+//     (a) any `scheme://…` (`[a-zA-Z][a-zA-Z0-9+.-]*://` + non-space run),
+//         which covers https?:// and custom schemes such as strandcue://;
+//     (b) explicit `strandcue:…` without slashes (recovery callbacks);
+//     (c) schemeless dotted-host WITH a path (`api.example.test/reset?…`).
+//   Over/under-match analysis: (c) requires a dotted host whose final label
+//   is alphabetic (so `v2.3.1` never matches) plus a `/path` (so `a/b testing`,
+//   `report.pdf`, and bare `example.com` never match). Residual under-match:
+//   bare domains without a path are left alone (no path/query tokens to leak,
+//   and prose mentions like "see example.com docs" are common); secrets in
+//   them must travel with a recognizable email/uuid/token shape to be caught.
+//   Trailing `.,;:!?)` punctuation is left outside the marker.
+// - ALLOWLIST RULE (private by default): a string nested inside a plain
+//   object or array is PRESERVED only when every check below passes;
+//   anything else becomes `[redacted]`:
+//     1. its key is in neither sensitiveKeys nor payloadKeys (both force
+//        `[redacted]` regardless of shape);
+//     2. its scrubbed text is exactly `[redacted-url]`, `[redacted-email]`
+//        or `[redacted-id]` (a bare secret-shaped value, kept as a marker),
+//        OR it matches the identifier shape for its key:
+//          - under safeKeys (code, kind, component, operation, revision,
+//            status): `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (additionally
+//            allows a leading digit and dots, for versions/build codes);
+//          - under any other key: `^[A-Za-z][A-Za-z0-9_-]{0,63}$` (starts
+//            with a letter; no dots, slashes, or spaces).
+//   Consequences, by construction: free-text-shaped values (spaces,
+//   sentences, >64 chars, email/uuid/token shapes, which scrub to marker
+//   text containing `[`/`]`) ALWAYS redact, even under safe keys; value
+//   SHAPE alone never allowlists a token travelling without shape context.
+// - payloadKeys (facts, decision, execution, deviation, replacement, concern,
+//   notes, reason, detail, query, results, rows, input, output, payload)
+//   redact WHOLE (`[redacted]`) regardless of shape: these carry
+//   database-payload or user-entered free text. `notes` was already in
+//   sensitiveKeys; the outcome is identical.
+// - Numbers/booleans: booleans, null and undefined pass through; numbers pass
+//   only when finite with |n| <= 1e9 (timestamps, snowflake IDs, phone
+//   numbers redact). Numeric strings are gated by the identifier shape above.
+// - Top-level strings and Error name/message/stack are pattern-scrubbed only
+//   (prose preserved, secrets substituted): the error message is the primary
+//   first-party diagnostic signal the reporter exists to carry. Callers must
+//   pass user data via context (fully gated), never interpolated into the
+//   message. KNOWN RESIDUAL RISK, accepted deliberately.
 // - Known limitation: bare free-text hex/token strings with no scheme, key,
 //   or URL shape (e.g. a lone `abcd1234…` with no `token=`/`Basic`/URL around
 //   it) cannot be redacted without false positives on ordinary words and
 //   identifiers, so they are left intact. Secrets must travel with a
 //   recognizable shape to be caught.
-// - Database-payload-shaped objects get no special pass: every nested value
-//   is pattern-scrubbed, with a depth cap (5), an array cap (50 items) and a
+// - Database-payload-shaped objects get no structural pass: unlisted keys
+//   still recurse, with a depth cap (5), an array cap (50 items) and a
 //   key cap (100 keys) plus a circular-reference guard so a hostile or
 //   cyclic payload can neither leak nor crash the reporter.
 
 const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const secretQueryPattern = /([?&#](?:code|token|access_token|refresh_token|secret|key|api_key|apikey|password)=)[^&#\s]*/gi;
+const strandcuePattern = /\bstrandcue:[^\s"'<>]+/gi;
 const urlPattern = /[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s"'<>]+/g;
+const bareHostPathPattern = /\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}(?::\d{1,5})?\/[^\s"'<>]*/g;
 const cookiePattern = /((?:cookie|set-cookie)\s*:\s*)[^\r\n"']+/gi;
 const authSchemePattern = /((?:bearer|basic)\s+)[A-Za-z0-9\-_.~+/=]+/gi;
-const tokenPathSegment = /^[A-Za-z0-9\-_.~%=]{24,}$/;
 
 const sensitiveKeys = new Set([
   'email', 'username', 'notes', 'password', 'token', 'secret',
@@ -41,32 +78,41 @@ const sensitiveKeys = new Set([
   'clientsecret', 'privatekey',
 ]);
 
+const payloadKeys = new Set([
+  'facts', 'decision', 'execution', 'deviation', 'replacement', 'concern',
+  'notes', 'reason', 'detail', 'query', 'results', 'rows', 'input', 'output',
+  'payload',
+]);
+
+const safeKeys = new Set([
+  'code', 'kind', 'component', 'operation', 'revision', 'status',
+]);
+
+const strictValuePattern = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const safeValuePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+const wholeValueMarkers = new Set(['[redacted-url]', '[redacted-email]', '[redacted-id]']);
+
+const MAX_NUMBER = 1e9;
+
 const MAX_STRING = 200;
 const MAX_DEPTH = 5;
 const MAX_ITEMS = 50;
 const MAX_KEYS = 100;
 
-function scrubUrl(match: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(match);
-  } catch {
-    return '[redacted-url]';
-  }
-  parsed.username = '';
-  parsed.password = '';
-  parsed.hash = '';
-  if (parsed.search) parsed.search = '?[redacted]';
-  parsed.pathname = parsed.pathname
-    .split('/')
-    .map(segment => (tokenPathSegment.test(segment) ? '[redacted]' : segment))
-    .join('/');
-  return parsed.toString();
+function redactUrlMatch(match: string): string {
+  const trailing = match.match(/[.,;:!?)]+$/);
+  const tail = trailing ? trailing[0] : '';
+  const url = tail ? match.slice(0, -tail.length) : match;
+  if (!url) return match;
+  return `[redacted-url]${tail}`;
 }
 
 function scrubText(value: string): string {
   const redacted = value
-    .replace(urlPattern, scrubUrl)
+    .replace(strandcuePattern, redactUrlMatch)
+    .replace(urlPattern, redactUrlMatch)
+    .replace(bareHostPathPattern, redactUrlMatch)
     .replace(cookiePattern, '$1[redacted]')
     .replace(authSchemePattern, '$1[redacted]')
     .replace(emailPattern, '[redacted-email]')
@@ -77,21 +123,33 @@ function scrubText(value: string): string {
 
 const normalizeKey = (key: string): string => key.toLowerCase().replace(/[^a-z]/g, '');
 
+function gateNestedString(scrubbed: string, key: string | undefined): string {
+  if (wholeValueMarkers.has(scrubbed)) return scrubbed;
+  const normalized = key === undefined ? '' : normalizeKey(key);
+  const pattern = normalized !== '' && safeKeys.has(normalized) ? safeValuePattern : strictValuePattern;
+  return pattern.test(scrubbed) ? scrubbed : '[redacted]';
+}
+
 function scrubInner(value: unknown, depth: number, seen: Set<object>): unknown {
   if (typeof value === 'string') {
     return scrubText(value);
   }
-  if (typeof value === 'number' || typeof value === 'boolean' || value === null || value === undefined) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && Math.abs(value) <= MAX_NUMBER ? value : '[redacted]';
+  }
+  if (typeof value === 'boolean' || value === null || value === undefined) {
     return value;
   }
   if (value instanceof Error) {
-    return { name: value.name, message: scrubInner(value.message, depth + 1, seen), stack: scrubInner(value.stack ?? null, depth + 1, seen) };
+    return { name: scrubText(value.name), message: scrubText(value.message), stack: value.stack == null ? null : scrubText(value.stack) };
   }
   if (Array.isArray(value)) {
     if (depth >= MAX_DEPTH) return '[redacted-depth]';
     if (seen.has(value)) return '[redacted-circular]';
     seen.add(value);
-    const items = value.slice(0, MAX_ITEMS).map(item => scrubInner(item, depth + 1, seen));
+    const items = value.slice(0, MAX_ITEMS).map(item =>
+      typeof item === 'string' ? gateNestedString(scrubText(item), undefined) : scrubInner(item, depth + 1, seen),
+    );
     seen.delete(value);
     if (value.length > MAX_ITEMS) items.push('[redacted-truncated]');
     return items;
@@ -102,10 +160,12 @@ function scrubInner(value: unknown, depth: number, seen: Set<object>): unknown {
     seen.add(value);
     const entries = Object.entries(value as Record<string, unknown>);
     const scrubbed: Record<string, unknown> = Object.fromEntries(
-      entries.slice(0, MAX_KEYS).map(([key, item]) => [
-        key,
-        sensitiveKeys.has(normalizeKey(key)) ? '[redacted]' : scrubInner(item, depth + 1, seen),
-      ]),
+      entries.slice(0, MAX_KEYS).map(([key, item]) => {
+        const normalized = normalizeKey(key);
+        if (sensitiveKeys.has(normalized) || payloadKeys.has(normalized)) return [key, '[redacted]'];
+        if (typeof item === 'string') return [key, gateNestedString(scrubText(item), key)];
+        return [key, scrubInner(item, depth + 1, seen)];
+      }),
     );
     if (entries.length > MAX_KEYS) scrubbed['[redacted-keys]'] = '[truncated]';
     seen.delete(value);
