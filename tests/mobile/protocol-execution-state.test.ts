@@ -77,8 +77,12 @@ function confirmedExecution(): ProtocolExecution {
 }
 
 describe('protocol execution UI state', () => {
+  function idle() {
+    return executionUiReducer(initialExecutionUi('owner-1'), { type: 'resume_absent' });
+  }
+
   function started() {
-    let state = initialExecutionUi('owner-1');
+    let state = idle();
     state = executionUiReducer(state, {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -93,16 +97,22 @@ describe('protocol execution UI state', () => {
     });
   }
 
-  it('starts idle with no execution and no pending work', () => {
+  it('starts loading with no execution and no pending work', () => {
     const state = initialExecutionUi('owner-1');
-    expect(state.phase).toBe('idle');
+    expect(state.phase).toBe('loading');
     expect(state.execution).toBeNull();
     expect(state.pending).toBeNull();
     expect(state.error).toBeNull();
   });
 
+  it('reaches idle only after the active-execution load finds nothing', () => {
+    const state = idle();
+    expect(state.phase).toBe('idle');
+    expect(state.execution).toBeNull();
+  });
+
   it('tracks an explicit start request without recording history', () => {
-    const idle = initialExecutionUi('owner-1');
+    const idleState = idle();
     const action: ExecutionUiAction = {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -110,14 +120,14 @@ describe('protocol execution UI state', () => {
       recommendationRunId: 'run-2026-10-13-001',
       startedAt: T0,
     };
-    const state = executionUiReducer(idle, action);
+    const state = executionUiReducer(idleState, action);
     expect(state.phase).toBe('starting');
     expect(state.execution).toBeNull();
     expect(state.pending).toBeNull();
   });
 
   it('holds the server execution only after a confirmed start', () => {
-    let state = initialExecutionUi('owner-1');
+    let state = idle();
     state = executionUiReducer(state, {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -193,7 +203,7 @@ describe('protocol execution UI state', () => {
   });
 
   it('keeps the start request after a start failure so a retry reuses its ids', () => {
-    let state = initialExecutionUi('owner-1');
+    let state = idle();
     state = executionUiReducer(state, {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -232,10 +242,10 @@ describe('protocol execution UI state', () => {
   });
 
   it('ignores requests that do not match the current phase', () => {
-    const idle = initialExecutionUi('owner-1');
-    expect(executionUiReducer(idle, { type: 'retry_requested' })).toBe(idle);
+    const loading = initialExecutionUi('owner-1');
+    expect(executionUiReducer(loading, { type: 'retry_requested' })).toBe(loading);
     expect(
-      executionUiReducer(idle, {
+      executionUiReducer(loading, {
         type: 'transition_requested',
         operationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
         command: { kind: 'pause' },
@@ -243,7 +253,7 @@ describe('protocol execution UI state', () => {
         result: startedExecution(),
         expectedRevision: 0,
       }),
-    ).toBe(idle);
+    ).toBe(loading);
     const active = started();
     expect(
       executionUiReducer(active, {
@@ -264,7 +274,7 @@ describe('protocol execution UI state', () => {
   it('discards in-flight work when the owner changes', () => {
     let state = started();
     state = executionUiReducer(state, { type: 'owner_changed', ownerId: 'owner-2' });
-    expect(state.phase).toBe('idle');
+    expect(state.phase).toBe('loading');
     expect(state.execution).toBeNull();
     expect(state.pending).toBeNull();
     expect(state.ownerId).toBe('owner-2');
@@ -283,13 +293,13 @@ describe('protocol execution UI state', () => {
     });
     expect(state.phase).toBe('saving');
     state = executionUiReducer(state, { type: 'discarded' });
-    expect(state.phase).toBe('idle');
+    expect(state.phase).toBe('loading');
     expect(state.execution).toBeNull();
     expect(state.pending).toBeNull();
   });
 
   it('ignores a late success after the owner changed', () => {
-    let state = initialExecutionUi('owner-1');
+    let state = idle();
     state = executionUiReducer(state, {
       type: 'start_requested',
       operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -303,8 +313,62 @@ describe('protocol execution UI state', () => {
       execution: startedExecution(),
       revision: 0,
     });
+    expect(state.phase).toBe('loading');
+    expect(state.execution).toBeNull();
+  });
+
+  it('resumes a validated load at the authoritative revision', () => {
+    let state = initialExecutionUi('owner-1');
+    state = executionUiReducer(state, {
+      type: 'resume_succeeded',
+      execution: startedExecution(),
+      revision: 2,
+    });
+    expect(state.phase).toBe('ready');
+    expect(state.execution?.executionId).toBe('exec-1');
+    expect(state.revision).toBe(2);
+    expect(state.error).toBeNull();
+  });
+
+  it('reaches idle only when the load finds no active execution', () => {
+    let state = initialExecutionUi('owner-1');
+    state = executionUiReducer(state, { type: 'resume_absent' });
     expect(state.phase).toBe('idle');
     expect(state.execution).toBeNull();
+  });
+
+  it('holds a failed load as an explicit error with an idempotent retry', () => {
+    let state = initialExecutionUi('owner-1');
+    state = executionUiReducer(state, { type: 'resume_failed', error: 'offline copy' });
+    expect(state.phase).toBe('load_failed');
+    expect(state.error).toBe('offline copy');
+    expect(state.execution).toBeNull();
+    state = executionUiReducer(state, { type: 'reload_requested' });
+    expect(state.phase).toBe('loading');
+    expect(state.error).toBeNull();
+  });
+
+  it('ignores resume actions that land outside the loading window', () => {
+    const loading = initialExecutionUi('owner-1');
+    const ready = executionUiReducer(loading, {
+      type: 'resume_succeeded',
+      execution: startedExecution(),
+      revision: 0,
+    });
+    expect(executionUiReducer(ready, { type: 'resume_absent' })).toBe(ready);
+    expect(
+      executionUiReducer(ready, { type: 'resume_failed', error: 'late' }),
+    ).toBe(ready);
+    expect(
+      executionUiReducer(ready, {
+        type: 'resume_succeeded',
+        execution: startedExecution(),
+        revision: 9,
+      }),
+    ).toBe(ready);
+    expect(executionUiReducer(loading, { type: 'reload_requested' })).toBe(loading);
+    const failed = executionUiReducer(loading, { type: 'resume_failed', error: 'x' });
+    expect(executionUiReducer(failed, { type: 'retry_requested' })).toBe(failed);
   });
 
   it('builds a completion result from confirmed steps only', () => {

@@ -205,6 +205,14 @@ export const EXECUTION_SAVE_FAILED =
 export const EXECUTION_START_FAILED =
   'Your plan could not be started. Nothing was recorded yet.';
 export const EXECUTION_RETRY_LABEL = 'Retry save';
+export const EXECUTION_LOADING_LABEL = 'Checking for a saved plan…';
+export const EXECUTION_LOAD_FAILED =
+  'Your saved plan could not be loaded. Nothing is shown yet.';
+export const EXECUTION_LOAD_OFFLINE =
+  'You appear to be offline. Your saved plan could not be loaded. Nothing is shown yet.';
+export const EXECUTION_RESUME_UNVERIFIED =
+  'This saved plan could not be verified. Nothing is shown yet.';
+export const EXECUTION_RELOAD_LABEL = 'Try again';
 export const EXECUTION_PAUSE_LABEL = 'Pause this plan';
 export const EXECUTION_RESUME_LABEL = 'Resume this plan';
 export const EXECUTION_FINISH_LABEL = 'Finish plan';

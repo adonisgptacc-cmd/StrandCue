@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 
@@ -21,6 +21,8 @@ import {
   EXECUTION_EMPTY_REASON,
   EXECUTION_FINISH_HINT,
   EXECUTION_FINISH_LABEL,
+  EXECUTION_LOADING_LABEL,
+  EXECUTION_LOAD_FAILED,
   EXECUTION_NOTHING_CONFIRMED,
   EXECUTION_PAUSE_LABEL,
   EXECUTION_PLANNED_HEADING,
@@ -28,7 +30,9 @@ import {
   EXECUTION_REASON_MODIFY_LABEL,
   EXECUTION_REASON_SKIP_LABEL,
   EXECUTION_REASON_SUBSTITUTE_LABEL,
+  EXECUTION_RELOAD_LABEL,
   EXECUTION_RESUME_LABEL,
+  EXECUTION_RESUME_UNVERIFIED,
   EXECUTION_RETRY_LABEL,
   EXECUTION_SAVE_FAILED,
   EXECUTION_SHELF_EMPTY,
@@ -61,7 +65,11 @@ import {
   type ProtocolTransitionDispatcher,
   type TransitionWireRequest,
 } from './guidance/protocol-transition-dispatch';
-import { startProtocolExecution } from './guidance/protocol-execution-api';
+import { startProtocolExecution, getActiveProtocolExecution } from './guidance/protocol-execution-api';
+import {
+  resumeErrorCopy,
+  validateResumedReceipt,
+} from './guidance/protocol-execution-resume';
 import {
   getUserProduct,
   listUserProducts,
@@ -156,6 +164,7 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   }
   const ownerToken = useRef(0);
   const mounted = useRef(true);
+  const decisionRef = useRef(decision);
   const stepsRef = useRef<Text | null>(null);
   const dispatcherRef = useRef<ProtocolTransitionDispatcher | null>(null);
   if (dispatcherRef.current === null) {
@@ -175,11 +184,53 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     };
   }, []);
 
+  // Keeps the fingerprint source fresh without widening the load effect's
+  // dependencies: the owner-scoped load runs on mount and owner change only.
+  useEffect(() => {
+    decisionRef.current = decision;
+  });
+
+  // Idempotent owner-scoped read: `getActiveProtocolExecution` takes no
+  // arguments (the database derives the owner from `auth.uid()`), so a retry
+  // resends nothing and can never duplicate history. Validation against the
+  // current decision's fingerprint happens before anything paints.
+  const loadActiveExecution = useCallback(async (token: number): Promise<void> => {
+    const live = () => mounted.current;
+    let receipt: unknown;
+    try {
+      receipt = await getActiveProtocolExecution();
+    } catch (error) {
+      if (!live() || token !== ownerToken.current) return;
+      dispatch({ type: 'resume_failed', error: resumeErrorCopy(error).copy });
+      return;
+    }
+    if (!live() || token !== ownerToken.current) return;
+    const validated = validateResumedReceipt(receipt, decisionRef.current);
+    if (!live() || token !== ownerToken.current) return;
+    if (validated.status === 'resumable') {
+      dispatch({
+        type: 'resume_succeeded',
+        execution: validated.execution,
+        revision: validated.revision,
+      });
+    } else if (validated.status === 'absent') {
+      dispatch({ type: 'resume_absent' });
+    } else {
+      dispatch({ type: 'resume_failed', error: EXECUTION_RESUME_UNVERIFIED });
+    }
+  }, []);
+
   useEffect(() => {
     dispatch({ type: 'owner_changed', ownerId });
     dispatcherRef.current?.reset();
     ownerToken.current += 1;
-  }, [ownerId]);
+    // Owner-scoped active-execution load (MB-001): mount and every owner
+    // change reload through the same idempotent read. The token guard plus
+    // the reducer's loading-only resume actions mean a late response can
+    // never paint another owner's execution onto the screen.
+    const token = ownerToken.current;
+    void loadActiveExecution(token);
+  }, [ownerId, loadActiveExecution]);
 
   // The substitute picker loads the owner's shelf when armed. Reading is
   // display-only: the server re-verifies the chosen item at command time.
@@ -209,6 +260,12 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   }, [ui.phase]);
 
   const live = () => mounted.current;
+
+  async function handleReload(): Promise<void> {
+    if (ui.phase !== 'load_failed') return;
+    dispatch({ type: 'reload_requested' });
+    await loadActiveExecution(ownerToken.current);
+  }
 
   async function handleStart(): Promise<void> {
     if (ui.phase === 'save_failed' && ui.startRequest !== null) {
@@ -436,6 +493,34 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
         accessibilityLabel={EXECUTION_START_LABEL}
         disabled
         onPress={() => undefined}
+      />
+      <Text style={styles.subtitle}>{EXECUTION_BOUNDARY}</Text>
+    </View>;
+  }
+
+  // Loading first: while the owner-scoped load is in flight the surface
+  // renders neutral loading only — no idle start card, no prior-owner
+  // execution, no optimistic preview. The reducer only holds `null` while
+  // loading, so stale content cannot reach this render path by construction.
+  if (ui.phase === 'loading') {
+    return <View style={styles.card}>
+      <Text style={styles.heading}>Follow this plan</Text>
+      <Text style={styles.body}>{EXECUTION_LOADING_LABEL}</Text>
+      <Text style={styles.subtitle}>{EXECUTION_BOUNDARY}</Text>
+    </View>;
+  }
+
+  // A failed load is an explicit error with an idempotent retry — never a
+  // silent fall back to the idle start card (which would offer a fresh start
+  // over a server-held execution) and never a partial render.
+  if (ui.phase === 'load_failed') {
+    return <View style={styles.card}>
+      <Text style={styles.heading}>Follow this plan</Text>
+      <Text accessibilityRole="alert" style={styles.error}>{ui.error ?? EXECUTION_LOAD_FAILED}</Text>
+      <Button
+        title={EXECUTION_RELOAD_LABEL}
+        accessibilityLabel={EXECUTION_RELOAD_LABEL}
+        onPress={() => void handleReload()}
       />
       <Text style={styles.subtitle}>{EXECUTION_BOUNDARY}</Text>
     </View>;

@@ -9,6 +9,7 @@ import { ProtocolExecution } from '../../apps/mobile/src/ProtocolExecution.tsx';
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   transition: vi.fn(),
+  getActive: vi.fn(),
   uuidCounter: { value: 0 },
   server: { execution: null as unknown, revision: 0 },
 }));
@@ -42,6 +43,7 @@ vi.mock('expo-crypto', () => ({
 vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
   startProtocolExecution: mocks.start,
   transitionProtocolExecution: mocks.transition,
+  getActiveProtocolExecution: mocks.getActive,
 }));
 
 const shelfMocks = vi.hoisted(() => ({
@@ -211,6 +213,10 @@ async function render(
   await act(async () => {
     renderer = create(createElement(ProtocolExecution, { ownerId, decision }));
     await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    await Promise.resolve();
   });
   return renderer;
 }
@@ -261,6 +267,7 @@ afterAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.uuidCounter.value = 0;
+  mocks.getActive.mockResolvedValue(null);
   mocks.start.mockResolvedValue(receiptFixture());
   shelfMocks.list.mockResolvedValue(shelfListFixture());
   shelfMocks.detail.mockResolvedValue(shelfDetailFixture());
@@ -292,8 +299,9 @@ beforeEach(() => {
 });
 
 describe('protocol execution surface', () => {
-  it('mounts and renders without calling any execution API', async () => {
+  it('mounts, checks for a saved plan, then renders the idle start card', async () => {
     const renderer = await render();
+    expect(mocks.getActive).toHaveBeenCalledTimes(1);
     expect(text(renderer)).toContain('start this plan');
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.transition).not.toHaveBeenCalled();

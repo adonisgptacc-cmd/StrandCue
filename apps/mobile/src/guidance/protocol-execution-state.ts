@@ -26,7 +26,7 @@ import {
  * execution onto the screen.
  */
 
-export type ExecutionUiPhase = 'idle' | 'starting' | 'ready' | 'saving' | 'save_failed';
+export type ExecutionUiPhase = 'loading' | 'idle' | 'starting' | 'ready' | 'saving' | 'save_failed' | 'load_failed';
 
 export interface StartRequest {
   readonly operationId: string;
@@ -70,6 +70,10 @@ export type ExecutionUiAction =
     }
   | { readonly type: 'start_succeeded'; readonly execution: ProtocolExecution; readonly revision: number }
   | { readonly type: 'start_failed'; readonly error: string }
+  | { readonly type: 'resume_succeeded'; readonly execution: ProtocolExecution; readonly revision: number }
+  | { readonly type: 'resume_absent' }
+  | { readonly type: 'resume_failed'; readonly error: string }
+  | { readonly type: 'reload_requested' }
   | {
       readonly type: 'transition_requested';
       readonly operationId: string;
@@ -90,7 +94,10 @@ export type ExecutionUiAction =
 
 export function initialExecutionUi(ownerId: string): ExecutionUiState {
   return {
-    phase: 'idle',
+    // Loading first: the surface must never paint an idle start card, a
+    // prior-owner execution, or an optimistic preview before the owner-scoped
+    // active-execution load resolves. Only neutral loading renders here.
+    phase: 'loading',
     ownerId,
     ownerEpoch: 0,
     execution: null,
@@ -138,6 +145,32 @@ export function executionUiReducer(
     case 'start_failed': {
       if (state.phase !== 'starting') return state;
       return { ...state, phase: 'save_failed', error: action.error };
+    }
+    case 'resume_succeeded': {
+      // The validated server snapshot is authoritative: resume at its
+      // revision with its execution as state. A late receipt (after an owner
+      // change or unmount reload) lands outside loading and never paints.
+      if (state.phase !== 'loading') return state;
+      return {
+        ...state,
+        phase: 'ready',
+        execution: action.execution,
+        lastConfirmed: action.execution,
+        revision: action.revision,
+        error: null,
+      };
+    }
+    case 'resume_absent': {
+      if (state.phase !== 'loading') return state;
+      return { ...state, phase: 'idle', error: null };
+    }
+    case 'resume_failed': {
+      if (state.phase !== 'loading') return state;
+      return { ...state, phase: 'load_failed', error: action.error };
+    }
+    case 'reload_requested': {
+      if (state.phase !== 'load_failed') return state;
+      return { ...state, phase: 'loading', error: null };
     }
     case 'transition_requested': {
       if (state.phase !== 'ready') return state;
