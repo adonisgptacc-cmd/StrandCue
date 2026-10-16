@@ -432,19 +432,17 @@ describe('fix E: active-execution recovery after process death', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('leaves the restored plan for a fresh check-in without generating', async () => {
+  it('offers no local dismiss over the restored plan (Fix G: audited abandon only)', async () => {
     mocks.restoreAggregate.mockResolvedValue(bundle());
     mocks.executionGetActive.mockResolvedValue(receipt());
     const renderer = await mountFresh();
     await settle(renderer);
     expect(text(renderer)).toContain('step 1');
-    await act(async () => {
-      button(renderer, START_OVER_LABEL).props.onPress();
-      await flush(10);
-    });
-    await settle(renderer);
-    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
-    expect(text(renderer)).not.toContain('step 1');
+    // The unaudited local-only dismiss is gone: a live restored execution
+    // can only continue, pause, or abandon through the audited transition.
+    // The only start-over path back is the server-confirmed terminal receipt.
+    expect(hasButton(renderer, START_OVER_LABEL)).toBe(false);
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(false);
     expect(mocks.generate).not.toHaveBeenCalled();
     expect(mocks.recordRun).not.toHaveBeenCalled();
     expect(mocks.executionStart).not.toHaveBeenCalled();

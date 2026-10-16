@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Text, View } from 'react-native';
 
 import type { ProtocolDecision } from '../../../packages/domain/src/index';
@@ -22,6 +23,26 @@ export interface ProtocolExecutionProps {
   readonly ownerId: string;
   /** A ready recommendation run. Mounting or viewing it records nothing. */
   readonly decision: ProtocolDecision;
+  /**
+   * Fix G: fires exactly once per abandoned execution, and ONLY after the
+   * authoritative server receipt reconciled (never from the optimistic
+   * preview, which also carries status `abandoned` while saving, and never
+   * from a failed or retried transition). TodayGuidance uses it to return
+   * the restored view to idle through audited server state.
+   */
+  readonly onTerminalAbandoned?: (receipt: TerminalAbandonReceipt) => void;
+}
+
+/**
+ * The smallest coordination payload for the post-abandon return: the
+ * server-confirmed identity of the abandoned execution. Constructed only
+ * from a reconciled receipt — the status is narrowed to `abandoned` so a
+ * non-terminal receipt cannot typecheck as a return signal.
+ */
+export interface TerminalAbandonReceipt {
+  readonly executionId: string;
+  readonly status: 'abandoned';
+  readonly revision: number;
 }
 
 /**
@@ -32,9 +53,30 @@ export interface ProtocolExecutionProps {
  * props-in/render-out view. See the controller for the rules this surface
  * enforces.
  */
-export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps) {
+export function ProtocolExecution({ ownerId, decision, onTerminalAbandoned }: ProtocolExecutionProps) {
   const controller = useProtocolExecutionController(ownerId, decision);
   const { ui, armed, execution } = controller;
+  // Fix G terminal-abandon gate: notify the parent at most once per
+  // abandoned execution, and only from authoritative server state. While a
+  // transition is in flight (`saving` with a pending operation) `ui.execution`
+  // is the LOCAL optimistic preview — which for abandonment already reads
+  // `abandoned` — so phase + pending must confirm the receipt reconciled
+  // before anyone returns to idle. Failures land in `save_failed` (preview
+  // rolled back, pending kept for retry) and never notify.
+  const notifiedAbandoned = useRef<string | null>(null);
+  useEffect(() => {
+    if (onTerminalAbandoned === undefined) return;
+    if (ui.phase !== 'ready' || ui.pending !== null) return;
+    const confirmed = ui.execution;
+    if (confirmed === null || confirmed.status !== 'abandoned') return;
+    if (notifiedAbandoned.current === confirmed.executionId) return;
+    notifiedAbandoned.current = confirmed.executionId;
+    onTerminalAbandoned({
+      executionId: confirmed.executionId,
+      status: 'abandoned',
+      revision: ui.revision,
+    });
+  }, [onTerminalAbandoned, ui.execution, ui.pending, ui.phase, ui.revision]);
 
   // Paint-window guard: the reset to `idle` for a new owner lands in an
   // effect, i.e. AFTER the first commit with the new `ownerId`. Rendering

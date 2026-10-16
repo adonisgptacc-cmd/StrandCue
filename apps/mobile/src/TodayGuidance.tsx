@@ -45,7 +45,7 @@ import { recordRecommendationRun } from './guidance/recommendation-run-api';
 import { generateTodayGuidance } from './guidance/today-guidance-service';
 import { useTodayRestore } from './guidance/today-restore';
 import { TodayCheckIn } from './TodayCheckIn';
-import { ProtocolExecution } from './ProtocolExecution';
+import { ProtocolExecution, type TerminalAbandonReceipt } from './ProtocolExecution';
 import type { DestinationId } from './navigation';
 import { Button, styles } from './ui';
 
@@ -297,6 +297,18 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     }
   }, [ownerId, preflight.checkIn, preflight.phase]);
 
+  // Fix G: post-abandon return to idle, gated on the authoritative terminal
+  // receipt. The execution surface notifies only after the server confirms
+  // abandoned status (never from the optimistic preview or a failed
+  // transition), so returning here can never hide a live execution behind a
+  // fresh check-in. Offline, failed, or conflicting abandonment keeps the
+  // active execution visible with retry/error copy instead.
+  const releaseAbandoned = restore.releaseAbandoned;
+  const handleTerminalAbandoned = useCallback((receipt: TerminalAbandonReceipt) => {
+    if (receipt.status !== 'abandoned') return;
+    releaseAbandoned();
+  }, [releaseAbandoned]);
+
   // Today never generates on mount: guidance is produced only when the owner
   // completes a check-in and asks for it, so simply opening the screen cannot
   // create a stored decision run.
@@ -333,7 +345,11 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     {/* A validated restore mounts the recovered execution with the STORED
         decision as context: no new check-in, no new run, no auto-generation.
         The execution surface reloads the same receipt itself and resumes at
-        the authoritative revision. Leaving starts a fresh check-in journey. */}
+        the authoritative revision. There is deliberately no local dismiss
+        here: hiding a live execution would invite a second execution over
+        it. The only way back to idle is the audited abandon transition —
+        Today returns through the server-confirmed terminal receipt via
+        onTerminalAbandoned, reusing the dispatcher + transition RPC. */}
     {restore.phase === 'restored' && restore.decision !== null && (
       <>
         <Text
@@ -344,12 +360,11 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           {READY_TITLE}
         </Text>
         <DecisionView decision={restore.decision} />
-        <ProtocolExecution key={ownerId} ownerId={ownerId} decision={restore.decision} />
-        <Button
-          title={START_OVER_LABEL}
-          accessibilityLabel={START_OVER_LABEL}
-          secondary
-          onPress={() => restore.dismiss()}
+        <ProtocolExecution
+          key={ownerId}
+          ownerId={ownerId}
+          decision={restore.decision}
+          onTerminalAbandoned={handleTerminalAbandoned}
         />
       </>
     )}

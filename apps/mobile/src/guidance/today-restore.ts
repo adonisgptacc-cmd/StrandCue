@@ -32,8 +32,15 @@ const IDLE_ABSENT: TodayRestoreState = {
 
 export interface TodayRestoreController extends TodayRestoreState {
   readonly retry: () => void;
-  /** Leave the restored plan and return to the normal idle journey. */
-  readonly dismiss: () => void;
+  /**
+   * Fix G: return to the idle journey ONLY after the server confirms the
+   * active execution reached terminal abandoned status. Called exclusively
+   * from the terminal-abandon receipt gate in TodayGuidance — never from a
+   * local dismiss affordance. The removed `dismiss()` only changed local
+   * state, hiding a live server execution behind a fresh check-in and
+   * inviting a second execution over it.
+   */
+  readonly releaseAbandoned: () => void;
 }
 
 /**
@@ -126,10 +133,10 @@ export function useTodayRestore(ownerId: string): TodayRestoreController {
     setRetryNonce(nonce => nonce + 1);
   }, []);
 
-  const dismiss = useCallback(() => {
+  const releaseAbandoned = useCallback(() => {
     setState({ ...IDLE_ABSENT });
     ownerToken.current += 1;
   }, []);
 
-  return { ...state, retry, dismiss };
+  return { ...state, retry, releaseAbandoned };
 }
