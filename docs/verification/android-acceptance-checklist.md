@@ -16,8 +16,10 @@
 - Conventions: "server state" = Supabase project state for the signed-in owner
   (`getActiveProtocolExecution` receipt or none); UI copy in quotes is from
   `apps/mobile/src/guidance/guidance-copy.ts`; phases (`loading`, `idle`,
-  `ready`, `load_failed`, terminal) are from
-  `apps/mobile/src/guidance/protocol-execution-state.ts`.
+  `ready`, `load_failed`) are from
+  `apps/mobile/src/guidance/protocol-execution-state.ts`; `terminal` is the
+  derived `controller.terminal` display condition (completed/abandoned suppress
+  controls), not a phase member.
 
 ## Scenarios
 
