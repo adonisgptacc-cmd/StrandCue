@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  getActiveExecutionWithDecision,
   getActiveProtocolExecution,
   listProtocolExecutions,
   startProtocolExecution,
@@ -310,6 +311,53 @@ describe('protocol execution persistence boundary', () => {
     await expect(getActiveProtocolExecution()).resolves.toBeNull();
   });
 
+  it('reads the restore aggregate without parameters or a decision', async () => {
+    const bundle = {
+      execution: receiptFixture(),
+      run: {
+        requestId: RUN_ID,
+        inputFingerprint: 'd'.repeat(64),
+        asOf: STARTED_AT,
+        engineVersion: '1',
+        bundleId: 'bundle-synthetic',
+        bundleVersion: '1',
+        status: 'ready',
+        input: { requestId: RUN_ID },
+        decision: decisionFixture(),
+        trusted: true,
+        createdAt: STARTED_AT,
+      },
+      storedDecision: decisionFixture(),
+    };
+    rpcMocks.rpc.mockResolvedValue({ data: bundle, error: null });
+    const result = await getActiveExecutionWithDecision();
+    expect(rpcMocks.rpc).toHaveBeenCalledWith('get_active_execution_with_decision', {});
+    const parameters = rpcMocks.rpc.mock.calls[0][1] as Record<string, unknown>;
+    expect(Object.keys(parameters)).toHaveLength(0);
+    expect(result?.execution.executionId).toBe(EXECUTION_ID);
+    expect(result?.run?.requestId).toBe(RUN_ID);
+    expect(result?.run?.trusted).toBe(true);
+  });
+
+  it('returns null from the restore aggregate when nothing is active', async () => {
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: null });
+    await expect(getActiveExecutionWithDecision()).resolves.toBeNull();
+  });
+
+  it('rejects a malformed restore bundle before it can paint', async () => {
+    rpcMocks.rpc.mockResolvedValue({
+      data: { execution: receiptFixture(), run: { requestId: RUN_ID }, storedDecision: null },
+      error: null,
+    });
+    await expect(getActiveExecutionWithDecision()).rejects.toThrow();
+    expect(rpcMocks.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps stable errors on the restore aggregate without raw text', async () => {
+    rpcMocks.rpc.mockResolvedValue({ data: null, error: { message: 'account-not-active', code: '42501' } });
+    await expect(getActiveExecutionWithDecision()).rejects.toThrow(/^account-not-active$/);
+  });
+
   it('lists history with a bounded limit and optional cursor', async () => {
     const page = { items: [receiptFixture()], nextCursor: null };
     rpcMocks.rpc.mockResolvedValue({ data: page, error: null });
@@ -399,6 +447,7 @@ describe('protocol execution persistence boundary', () => {
     await expect(startProtocolExecution(validStart())).rejects.toThrow(/unavailable until the client is configured/i);
     await expect(transitionProtocolExecution(validTransition())).rejects.toThrow(/unavailable until the client is configured/i);
     await expect(getActiveProtocolExecution()).rejects.toThrow(/unavailable until the client is configured/i);
+    await expect(getActiveExecutionWithDecision()).rejects.toThrow(/unavailable until the client is configured/i);
     await expect(listProtocolExecutions({ limit: 25, cursor: null })).rejects.toThrow(/unavailable until the client is configured/i);
     expect(rpcMocks.rpc).not.toHaveBeenCalled();
   });

@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   recordRun: vi.fn(),
   executionStart: vi.fn(),
   executionTransition: vi.fn(),
+  executionGetActive: vi.fn(),
+  restoreAggregate: vi.fn(),
   nowIso: '2026-10-11T09:00:00.000Z',
   uuidCounter: { value: 0 },
 }));
@@ -61,9 +63,13 @@ vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
 // The execution surface mounts beside a ready plan but records nothing until
 // an explicit start tap. Mocking the boundary keeps these preflight tests
 // hermetic; execution behavior is proven in protocol-execution.test.tsx.
+// The restore aggregate resolves null here so every test starts from the
+// normal idle journey; recovery itself is proven in today-restore.test.tsx.
 vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
   startProtocolExecution: mocks.executionStart,
   transitionProtocolExecution: mocks.executionTransition,
+  getActiveProtocolExecution: mocks.executionGetActive,
+  getActiveExecutionWithDecision: mocks.restoreAggregate,
 }));
 
 // The substitute picker reads the shelf through shelf-api; mocking it keeps
@@ -250,6 +256,8 @@ beforeEach(() => {
   mocks.uuidCounter.value = 0;
   mocks.generate.mockResolvedValue({ status: 'content_pending' });
   mocks.recordRun.mockResolvedValue({ requestId: 'request-1' });
+  mocks.restoreAggregate.mockResolvedValue(null);
+  mocks.executionGetActive.mockResolvedValue(null);
 });
 
 describe('today guidance states', () => {

@@ -61,6 +61,8 @@ vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
 vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
   startProtocolExecution: vi.fn(),
   transitionProtocolExecution: vi.fn(),
+  getActiveProtocolExecution: vi.fn(async () => null),
+  getActiveExecutionWithDecision: vi.fn(async () => null),
 }));
 
 vi.mock('../../apps/mobile/src/shelf-api', () => ({

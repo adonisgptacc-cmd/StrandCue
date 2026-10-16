@@ -77,6 +77,16 @@ vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
   recordRecommendationRun: vi.fn(),
 }));
 
+// Fix E: the Today journey restores an active execution on mount through this
+// aggregate. Resolving null keeps navigation tests on the normal idle
+// journey; recovery itself is proven in today-restore.test.tsx.
+vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
+  startProtocolExecution: vi.fn(),
+  transitionProtocolExecution: vi.fn(),
+  getActiveProtocolExecution: vi.fn(async () => null),
+  getActiveExecutionWithDecision: vi.fn(async () => null),
+}));
+
 vi.mock('../../apps/mobile/src/activities.tsx', () => ({
   Activities: () => createElement('span', null, 'ACTIVITIES SCREEN'),
 }));

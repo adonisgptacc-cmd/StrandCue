@@ -100,6 +100,45 @@ const HistoryCursorSchema = z
   .object({ createdAt: z.string(), id: uuid })
   .strict();
 
+/**
+ * Fix E restore aggregate: the owner's active execution receipt together
+ * with the exact stored recommendation-run row it was built from. There is
+ * no decision parameter: the stored decision travels inside `run` (plus the
+ * execution row's own copy as `storedDecision`), so the client validates the
+ * server's bytes instead of supplying its own.
+ */
+const RestoredRunSchema = z
+  .object({
+    requestId: uuid,
+    inputFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    asOf: isoTimestamp,
+    engineVersion: z.string().trim().min(1).max(40),
+    bundleId: z.string().trim().min(1).max(120),
+    bundleVersion: z.string().trim().min(1).max(40),
+    status: z.enum([
+      'needs_setup',
+      'content_pending',
+      'ready',
+      'needs_input',
+      'rule_conflict',
+      'unsupported',
+      'source_error',
+    ]),
+    input: z.record(z.string(), z.unknown()),
+    decision: z.record(z.string(), z.unknown()),
+    trusted: z.boolean(),
+    createdAt: z.string(),
+  })
+  .strict();
+
+const ActiveExecutionWithDecisionSchema = z
+  .object({
+    execution: ProtocolExecutionReceiptSchema,
+    run: RestoredRunSchema.nullable(),
+    storedDecision: z.unknown(),
+  })
+  .strict();
+
 const ProtocolExecutionHistorySchema = z
   .object({
     items: z.array(ProtocolExecutionReceiptSchema),
@@ -114,6 +153,8 @@ export type TransitionProtocolExecutionCommand = z.output<
 export type ExecutionCommand = z.output<typeof ExecutionCommandSchema>;
 export type ProtocolExecutionReceipt = z.output<typeof ProtocolExecutionReceiptSchema>;
 export type ProtocolExecutionHistory = z.output<typeof ProtocolExecutionHistorySchema>;
+export type RestoredRecommendationRun = z.output<typeof RestoredRunSchema>;
+export type ActiveExecutionWithDecision = z.output<typeof ActiveExecutionWithDecisionSchema>;
 
 /**
  * Stable messages for the database errors this boundary can raise. Any other
@@ -195,6 +236,22 @@ export async function getActiveProtocolExecution(): Promise<ProtocolExecutionRec
   if (error) throw stableError(error.message);
   if (data === null) return null;
   return ProtocolExecutionReceiptSchema.parse(data);
+}
+
+/**
+ * Fix E restore read: the active execution plus the stored recommendation
+ * decision it cites, in one owner-scoped aggregate. Takes no arguments (the
+ * database derives the owner from `auth.uid()`), so a retry resends nothing
+ * and there is no client-supplied decision to forge. A `null` run inside a
+ * non-null bundle means the cited run row is gone: the caller must fail
+ * closed, never paint.
+ */
+export async function getActiveExecutionWithDecision(): Promise<ActiveExecutionWithDecision | null> {
+  if (!supabase) throw new Error('Protocol executions are unavailable until the client is configured');
+  const { data, error } = await supabase.rpc('get_active_execution_with_decision', {});
+  if (error) throw stableError(error.message);
+  if (data === null) return null;
+  return ActiveExecutionWithDecisionSchema.parse(data);
 }
 
 export async function listProtocolExecutions(

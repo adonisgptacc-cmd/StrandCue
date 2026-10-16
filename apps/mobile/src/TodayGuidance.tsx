@@ -18,12 +18,17 @@ import {
   CONTENT_PENDING_BODY,
   confidenceLabel,
   DESTINATION_LABELS,
+  EXECUTION_BOUNDARY,
+  EXECUTION_LOADING_LABEL,
+  EXECUTION_LOAD_FAILED,
+  EXECUTION_RELOAD_LABEL,
   GENERATE_LABEL,
   GENERATING_LABEL,
   gapDestination,
   LOADING_LABEL,
   MISSING_HEADING,
   NO_PURCHASE_NEEDED,
+  READY_TITLE,
   RETRY_LABEL,
   REVIEW_CHECK_IN_LABEL,
   SAVE_FAILED,
@@ -38,6 +43,7 @@ import {
 } from './guidance/current-condition-state';
 import { recordRecommendationRun } from './guidance/recommendation-run-api';
 import { generateTodayGuidance } from './guidance/today-guidance-service';
+import { useTodayRestore } from './guidance/today-restore';
 import { TodayCheckIn } from './TodayCheckIn';
 import { ProtocolExecution } from './ProtocolExecution';
 import type { DestinationId } from './navigation';
@@ -172,6 +178,11 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   const [preflight, dispatch] = useReducer(preflightReducer, ownerId, initialPreflight);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  // Fix E: process-death recovery. This read-only restore runs on mount and
+  // on every owner change, independently of generating new guidance. It never
+  // generates, records, or starts anything: a validated restore only exposes
+  // the STORED decision as context for the execution surface below.
+  const restore = useTodayRestore(ownerId);
   const requestEpoch = useRef(0);
   const ownerToken = useRef(0);
   const inflight = useRef(false);
@@ -296,6 +307,54 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   return <View style={{ gap: 16 }}>
     <Text style={styles.kicker}>TODAY · {GOAL_LABEL.toUpperCase()}</Text>
 
+    {restore.phase === 'restoring' && (
+      <View style={styles.card}>
+        <Text style={styles.body}>{EXECUTION_LOADING_LABEL}</Text>
+        <Text style={styles.subtitle}>{EXECUTION_BOUNDARY}</Text>
+      </View>
+    )}
+
+    {/* A failed restore is an explicit error with an idempotent retry — never
+        a silent fall back to the idle check-in, which would hide a
+        server-held execution behind a fresh start. */}
+    {restore.phase === 'failed' && (
+      <View style={styles.card}>
+        <Text accessibilityRole="alert" style={styles.error}>{restore.error ?? EXECUTION_LOAD_FAILED}</Text>
+        <Button
+          title={EXECUTION_RELOAD_LABEL}
+          accessibilityLabel={EXECUTION_RELOAD_LABEL}
+          secondary
+          onPress={() => restore.retry()}
+        />
+        <Text style={styles.subtitle}>{EXECUTION_BOUNDARY}</Text>
+      </View>
+    )}
+
+    {/* A validated restore mounts the recovered execution with the STORED
+        decision as context: no new check-in, no new run, no auto-generation.
+        The execution surface reloads the same receipt itself and resumes at
+        the authoritative revision. Leaving starts a fresh check-in journey. */}
+    {restore.phase === 'restored' && restore.decision !== null && (
+      <>
+        <Text
+          style={styles.title}
+          accessibilityRole="header"
+          accessibilityLabel={READY_TITLE}
+        >
+          {READY_TITLE}
+        </Text>
+        <DecisionView decision={restore.decision} />
+        <ProtocolExecution key={ownerId} ownerId={ownerId} decision={restore.decision} />
+        <Button
+          title={START_OVER_LABEL}
+          accessibilityLabel={START_OVER_LABEL}
+          secondary
+          onPress={() => restore.dismiss()}
+        />
+      </>
+    )}
+
+    {restore.phase === 'absent' && <>
     {preflight.phase === 'idle' && <>
       <Text style={styles.body}>{CHECK_IN_IDLE_BODY}</Text>
       <Button
@@ -421,6 +480,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         />
       </>
     )}
+    </>}
 
     <Text style={styles.subtitle}>
       Cosmetic hair-care guidance from your own records, not a diagnosis. Nothing here promises a result.

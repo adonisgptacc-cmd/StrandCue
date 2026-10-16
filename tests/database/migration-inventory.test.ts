@@ -45,6 +45,7 @@ const trustedMigrationNames = [
   '20261015190651_export_csv_schema_versions.sql',
   '20261015200000_privacy_retention_cleanup.sql',
   '20261016155100_consent_retention_cleanup.sql',
+  '20261016211350_get_active_execution_with_decision.sql',
 ] as const;
 
 const candidateMigrationNames = [
