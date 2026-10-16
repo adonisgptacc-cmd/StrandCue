@@ -35,6 +35,7 @@ type RetentionMetric = {
   executionsPurged: number;
   eventsPurged: number;
   operationsPurged: number;
+  consentsPurged: number;
   durationMs: number;
 };
 
@@ -120,9 +121,12 @@ export async function runScheduledRetention(
     env.STRANDCUE_SUPABASE_URL,
     env.STRANDCUE_SUPABASE_SERVICE_KEY,
   );
-  const zeroed = { exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0 };
+  const zeroed = { exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0, consentsPurged: 0 };
   try {
-    const counts = await dependencies.processRetention(client);
+    const counts = await dependencies.processRetention(
+      client,
+      new Date(dependencies.now()).toISOString(),
+    );
     dependencies.log({
       event: 'retention_cleanup_run',
       outcome: 'completed',

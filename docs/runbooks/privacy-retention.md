@@ -1,14 +1,16 @@
 # Privacy retention enforcement
 
-Deterministic cleanup for expired export artifacts and expired
-execution/recommendation operational data, plus the retention rules that keep
-deletion records. Enforcement lives in
+Deterministic cleanup for expired export artifacts, expired
+execution/recommendation operational data, and expired consent history,
+plus the retention rules that keep deletion records. Enforcement lives in
 `supabase/migrations/20261015200000_privacy_retention_cleanup.sql` (execution
-purge + legal-hold flag) and the existing `export_retention_cleanup()`
+purge + legal-hold flag), `supabase/migrations/20261016155100_consent_retention_cleanup.sql`
+(consent purge) and the existing `export_retention_cleanup()`
 routine; the schedule lives in `workers/account-deletion`, which runs the
 account-deletion claim first and the retention pass second on the same
-once-per-minute Cron Trigger. This runbook is the operator summary; the
-migration header documents every number with rationale.
+once-per-minute Cron Trigger. Inside the retention pass the order is
+exports, then executions, then consent. This runbook is the operator summary; the
+migration headers document every number with rationale.
 
 ## Per-category rule, window, and order
 
@@ -19,7 +21,7 @@ migration header documents every number with rationale.
 | Export artifacts | download gate stays 24h (`expires_at` in `export_download`); documents nulled, receipts kept | 7 days after completion | document nulling only; job rows survive |
 | Cancelled deletion records | retained as audit trail (lifecycle `cancelled` events) | n/a — never eligible | n/a |
 | Completed deletion records | retained (purge-completed tombstones + `purged`/`auth-deleted` events) | n/a — never eligible | n/a |
-| Consent records | retained; survive profile purge by design (no profile FK) | 7 years | n/a |
+| Consent records | survive profile purge by design (no profile FK); retention pass purges rows with `recorded_at` strictly older than 7 years before the pass as-of, except the latest record per purpose while the profile exists (current state, kept at any age) | 7 years, enforced by `consent_retention_cleanup(as-of)` | expired superseded history and expired deleted-owner rows purge first within the consent step; active latest per purpose never purges |
 
 Eligibility details for executions: non-terminal rows are never eligible;
 `finishedAt` comes from the execution snapshot and a null or unreachable
@@ -27,6 +29,17 @@ Eligibility details for executions: non-terminal rows are never eligible;
 true` is never eligible. A malformed `finishedAt` fails the run loudly
 instead of silently skipping rows — alert on repeated
 `retention_cleanup_run outcome=failed` metrics.
+
+Eligibility details for consent: the pass as-of is the worker's current
+time (frozen per test via the explicit `p_as_of` argument). While the
+profile exists, the latest row per `(user_id, purpose)` is current state
+and never purges; superseded rows purge once strictly older than 7 years
+before as-of. After the profile is gone, rows purge once strictly older
+than 7 years; recent rows survive. Exactly-7-years-old rows survive
+(strictly-older-than purges). The routine returns a count only, runs
+scheduler-only (revoked from `anon`/`authenticated`), and adds no
+UPDATE/DELETE grant or policy — the append-only consumer surface is
+unchanged.
 
 ## Runs are never purged (documented choice)
 
@@ -97,7 +110,7 @@ external steps; none is done in this change:
    failures. The metric carries counts only:
 
 ```json
-{"event":"retention_cleanup_run","outcome":"completed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"durationMs":0}
+{"event":"retention_cleanup_run","outcome":"completed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"consentsPurged":0,"durationMs":0}
 ```
 
 Alert on `outcome=failed`, on repeated failures, and on a growing backlog
