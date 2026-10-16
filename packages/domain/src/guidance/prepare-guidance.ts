@@ -187,12 +187,12 @@ function serviceFacts(snapshot: GuidanceSnapshot): Record<string, FactValue> {
 
 /**
  * Explicit allowlist mapping a normalized check-in onto namespaced facts.
- * Only these names may enter the engine context: `saveToPassport` is a
- * control flag rather than a fact (HP-06: nothing here writes to the
- * Passport), structured `zones` are not flattened into invented scalars
- * (mirroring the snapshot loader's scalar-only rule), and free text or
- * unrecognized keys never survive normalization, so they cannot appear here.
- * Commercial variables (EN-09) have no entry by construction.
+ * Only these names may enter the engine context: the check-in carries no
+ * persistence flag (HP-06: answers are session-only and nothing here writes
+ * to the Passport), structured `zones` are not flattened into invented
+ * scalars (mirroring the snapshot loader's scalar-only rule), and free text
+ * or unrecognized keys never survive normalization, so they cannot appear
+ * here. Commercial variables (EN-09) have no entry by construction.
  */
 function currentConditionFacts(checkIn: CurrentConditionInput): Record<string, FactValue> {
   const facts: Record<string, FactValue> = {

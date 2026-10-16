@@ -9,14 +9,13 @@ import {
   CHECK_IN_ERRORS_HEADING,
   CHECK_IN_GOAL_LABEL,
   CHECK_IN_GOAL_LABELS,
+  CHECK_IN_SUMMARY_SESSION_ONLY,
   CHECK_IN_TITLE,
   CONCERN_LABELS,
   CONCERNS_HINT,
   CONCERNS_LABEL,
   OBSERVED_AT_LABEL,
   REFRESH_TIME_LABEL,
-  SAVE_HELP,
-  SAVE_LABEL,
   TIME_HELP,
   TIME_LABEL,
 } from './guidance/guidance-copy';
@@ -128,18 +127,7 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch }: TodayCheckInPr
       </Pressable>
     </View>
 
-    <View>
-      <Pressable
-        accessibilityRole="switch"
-        accessibilityLabel={SAVE_LABEL}
-        accessibilityState={{ checked: draft.saveToPassport }}
-        onPress={() => dispatch({ type: 'set_save_to_passport', value: !draft.saveToPassport })}
-        style={[styles.pill, draft.saveToPassport && styles.selected]}
-      >
-        <Text style={[styles.body, draft.saveToPassport && { color: colors.white }]}>{SAVE_LABEL}</Text>
-      </Pressable>
-      <Text style={styles.subtitle}>{SAVE_HELP}</Text>
-    </View>
+    <Text style={styles.subtitle}>{CHECK_IN_SUMMARY_SESSION_ONLY}</Text>
 
     {errors.length > 0 && (
       <View style={styles.notice}>

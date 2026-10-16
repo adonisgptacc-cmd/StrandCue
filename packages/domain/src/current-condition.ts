@@ -1,8 +1,8 @@
 /**
  * Temporary current-condition check-in contracts (HP-06, SF-01).
  *
- * A check-in records cosmetic self-reports for one routine only. It must not
- * permanently change the Passport unless the user later chooses to save it,
+ * A check-in records cosmetic self-reports for one routine only. It is
+ * session-only: it never changes the Passport, carries no persistence flag,
  * and it carries no free-text symptom, severity or diagnosis fields: concerns
  * are cosmetic labels, nothing more. There is deliberately no free-text
  * interpretation here — anything outside the vocabularies below is rejected.
@@ -112,8 +112,6 @@ export const CurrentConditionSchema = frozen(
       // Zero means no time available. The upper bound is one calendar day
       // (1440 minutes): a single routine session cannot span more than a day.
       availableMinutes: z.number().int().min(0).max(1440),
-      // Explicit opt-in only: nothing here writes to the Passport by itself.
-      saveToPassport: z.boolean(),
       zones: ZonesSchema.optional(),
     })
     .strict(),

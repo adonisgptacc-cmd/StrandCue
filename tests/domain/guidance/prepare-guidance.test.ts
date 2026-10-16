@@ -712,7 +712,6 @@ describe('task 4: temporary current-condition check-ins', () => {
       concerns: ['dryness'],
       goal: 'basic_wash',
       availableMinutes: 20,
-      saveToPassport: false,
       ...overrides,
     };
   }
@@ -948,13 +947,12 @@ describe('task 4: temporary current-condition check-ins', () => {
     expect(output).not.toContain('987654');
   });
 
-  it('never turns the saveToPassport flag into a fact', () => {
+  it('rejects a saveToPassport persistence flag at the preparation boundary', () => {
     const result = prepareWithCheckIn(checkIn({ saveToPassport: true }));
-    expect(result.status).toBe('ready');
-    if (result.status !== 'ready') return;
-    // The check-in was admitted (positive control): namespaced facts exist.
-    expect(result.context.environmentFacts['current.goal']).toBe('basic_wash');
-    expect(JSON.stringify(result.context)).not.toContain('saveToPassport');
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing.every(gap => gap.kind === 'current_condition')).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('saveToPassport');
   });
 
   it('rejects nested unknown zone keys through the preparation boundary', () => {

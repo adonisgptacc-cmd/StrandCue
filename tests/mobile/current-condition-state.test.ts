@@ -17,7 +17,6 @@ function draft(overrides: Partial<CheckInDraft> = {}): CheckInDraft {
     concerns: ['dryness'],
     goal: 'basic_wash',
     availableMinutes: 20,
-    saveToPassport: false,
     observedAt: OBSERVED,
     ...overrides,
   };
@@ -32,7 +31,7 @@ function checkingIn(overrides: Partial<CheckInDraft> = {}): PreflightState {
 }
 
 describe('today preflight initial state', () => {
-  it('starts idle with an empty draft that never writes to the Passport', () => {
+  it('starts idle with an empty session-only draft', () => {
     const state = initialPreflight(OWNER);
     expect(state.phase).toBe('idle');
     expect(state.ownerId).toBe(OWNER);
@@ -41,7 +40,7 @@ describe('today preflight initial state', () => {
     expect(state.checkIn.concerns).toEqual([]);
     expect(state.checkIn.goal).toBe('basic_wash');
     expect(state.checkIn.availableMinutes).toBeNull();
-    expect(state.checkIn.saveToPassport).toBe(false);
+    expect(state.checkIn).not.toHaveProperty('saveToPassport');
     expect(state.checkIn.observedAt).toBeNull();
     expect(state.errors).toEqual([]);
     expect(state.result).toBeNull();
@@ -131,12 +130,9 @@ describe('today preflight draft edits', () => {
     expect(state.checkIn.concerns).toEqual(['dryness']);
   });
 
-  it('records available minutes and the Passport opt-in explicitly', () => {
-    let state = checkingIn();
-    state = preflightReducer(state, { type: 'set_available_minutes', minutes: 45 });
+  it('records available minutes explicitly', () => {
+    const state = preflightReducer(checkingIn(), { type: 'set_available_minutes', minutes: 45 });
     expect(state.checkIn.availableMinutes).toBe(45);
-    state = preflightReducer(state, { type: 'set_save_to_passport', value: true });
-    expect(state.checkIn.saveToPassport).toBe(true);
   });
 
   it('refreshes the observation time without touching answers', () => {
@@ -232,7 +228,6 @@ describe('today preflight reset and owner change', () => {
     expect(reset.phase).toBe('idle');
     expect(reset.checkIn.concerns).toEqual([]);
     expect(reset.checkIn.availableMinutes).toBeNull();
-    expect(reset.checkIn.saveToPassport).toBe(false);
     expect(reset.errors).toEqual([]);
     expect(reset.result).toBeNull();
   });

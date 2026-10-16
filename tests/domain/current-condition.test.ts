@@ -15,7 +15,6 @@ function validCheckIn() {
     concerns: ['dryness', 'frizz'],
     goal: 'basic_wash',
     availableMinutes: 30,
-    saveToPassport: false,
   };
 }
 
@@ -26,7 +25,7 @@ describe('CurrentCondition contracts', () => {
     expect(parsed.concerns).toEqual(['dryness', 'frizz']);
     expect(parsed.goal).toBe('basic_wash');
     expect(parsed.availableMinutes).toBe(30);
-    expect(parsed.saveToPassport).toBe(false);
+    expect(parsed).not.toHaveProperty('saveToPassport');
   });
 
   it('accepts a lone none concern as "no concerns right now"', () => {
@@ -162,16 +161,12 @@ describe('CurrentCondition contracts', () => {
     expect(() => normalizeCurrentCondition(input, NOW)).toThrow();
   });
 
-  it('requires saveToPassport as an explicit boolean flag', () => {
-    expect(
-      normalizeCurrentCondition({ ...validCheckIn(), saveToPassport: true }, NOW)
-        .saveToPassport,
-    ).toBe(true);
-
-    const { saveToPassport: _omitted, ...withoutFlag } = validCheckIn();
-    expect(() => normalizeCurrentCondition(withoutFlag, NOW)).toThrow();
+  it('rejects a saveToPassport persistence flag: check-ins are session-only', () => {
     expect(() =>
-      normalizeCurrentCondition({ ...validCheckIn(), saveToPassport: 'yes' }, NOW),
+      normalizeCurrentCondition({ ...validCheckIn(), saveToPassport: true }, NOW),
+    ).toThrow();
+    expect(() =>
+      normalizeCurrentCondition({ ...validCheckIn(), saveToPassport: false }, NOW),
     ).toThrow();
   });
 

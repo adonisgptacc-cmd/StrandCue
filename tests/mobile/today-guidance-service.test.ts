@@ -669,7 +669,6 @@ describe('task 5 integration: temporary check-in through the service', () => {
     concerns: ['dryness'],
     goal: 'basic_wash',
     availableMinutes: 20,
-    saveToPassport: false,
   };
 
   it('returns content_pending for a draft bundle even with a completed check-in', async () => {

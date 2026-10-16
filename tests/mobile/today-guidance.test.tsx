@@ -669,13 +669,12 @@ describe('task 5 preflight: condition-aware generation', () => {
         concerns: ['frizz', 'dryness'],
         goal: 'basic_wash',
         availableMinutes: 20,
-        saveToPassport: false,
       },
       new Date(request.asOf),
     );
     expect(request.currentCondition).toEqual(expected);
     expect(request.currentCondition.concerns).toEqual(['dryness', 'frizz']);
-    expect(request.currentCondition.saveToPassport).toBe(false);
+    expect(request.currentCondition).not.toHaveProperty('saveToPassport');
     expect(Object.isFrozen(request.currentCondition)).toBe(true);
     await act(async () => { renderer.unmount(); });
   });

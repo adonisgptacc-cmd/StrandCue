@@ -125,7 +125,7 @@ export const REVIEW_CHECK_IN_LABEL = 'Review check-in answers';
 export const START_OVER_LABEL = 'Start a new check-in';
 
 export const CHECK_IN_BOUNDARY =
-  'Your answers are self-reported observations about how your hair looks and feels today. They are not a diagnosis, they change nothing in My Hair unless you choose to save them, and they promise no result.';
+  'Your answers are self-reported observations about how your hair looks and feels today. They are not a diagnosis. They stay in this session only, are used only for this plan, change nothing in My Hair, and promise no result.';
 
 export const CONCERNS_LABEL = 'What do you notice today?';
 export const CONCERNS_HINT = 'Choose all that apply. “I am not sure” and “None of these” each stand alone.';
@@ -159,10 +159,6 @@ export const TIME_HELP =
 export const OBSERVED_AT_LABEL = 'Observation time';
 export const REFRESH_TIME_LABEL = 'Use current time';
 
-export const SAVE_LABEL = 'Save these answers to My Hair';
-export const SAVE_HELP =
-  'Off unless you turn it on. Nothing here changes My Hair by itself.';
-
 export const CHECK_IN_ERRORS_HEADING = 'Check your check-in answers';
 
 export const CHECK_IN_ERROR_TEXT: Readonly<Record<CheckInErrorCode, string>> = {
@@ -179,8 +175,7 @@ export const CHECK_IN_ERROR_TEXT: Readonly<Record<CheckInErrorCode, string>> = {
 export const CHECK_IN_SUMMARY_HEADING = 'Your check-in';
 export const CHECK_IN_SUMMARY_TIME = (minutes: number): string =>
   minutes === 1 ? '1 minute available' : `${minutes} minutes available`;
-export const CHECK_IN_SUMMARY_SAVE_ON = 'You chose to save these answers to My Hair.';
-export const CHECK_IN_SUMMARY_SAVE_OFF = 'These answers stay with this plan request only';
+export const CHECK_IN_SUMMARY_SESSION_ONLY = 'These answers stay with this plan request only. Nothing is saved to My Hair.';
 
 /**
  * Protocol execution copy (TD-07–TD-08).

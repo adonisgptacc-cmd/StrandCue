@@ -6,8 +6,7 @@ import type { TodayGuidanceResult } from './today-guidance-service.ts';
  *
  * States: `idle → checking_in → ready_to_generate → generating → result`.
  * The check-in is a temporary cosmetic self-report for one routine only: it
- * never writes to the Passport by itself (`saveToPassport` is an explicit
- * opt-in flag carried with the request, not a write), and concerns arrive
+ * is session-only and never writes to the Passport, and concerns arrive
  * sorted by `normalizeCurrentCondition` downstream, so this reducer never
  * depends on tap order.
  *
@@ -46,7 +45,6 @@ export interface CheckInDraft {
   readonly concerns: readonly CurrentConditionConcern[];
   readonly goal: CheckInGoal;
   readonly availableMinutes: number | null;
-  readonly saveToPassport: boolean;
   readonly observedAt: string | null;
 }
 
@@ -74,7 +72,6 @@ export type PreflightAction =
   | { readonly type: 'toggle_concern'; readonly concern: CurrentConditionConcern }
   | { readonly type: 'set_goal'; readonly goal: CheckInGoal }
   | { readonly type: 'set_available_minutes'; readonly minutes: number | null }
-  | { readonly type: 'set_save_to_passport'; readonly value: boolean }
   | { readonly type: 'refresh_observed_at'; readonly observedAt: string }
   | { readonly type: 'complete_check_in'; readonly now: string }
   | { readonly type: 'back_to_check_in' }
@@ -91,7 +88,6 @@ const EMPTY_DRAFT: CheckInDraft = {
   concerns: [],
   goal: 'basic_wash',
   availableMinutes: null,
-  saveToPassport: false,
   observedAt: null,
 };
 
@@ -196,8 +192,6 @@ export function preflightReducer(
       return edit(state, { ...state.checkIn, goal: action.goal });
     case 'set_available_minutes':
       return edit(state, { ...state.checkIn, availableMinutes: action.minutes });
-    case 'set_save_to_passport':
-      return edit(state, { ...state.checkIn, saveToPassport: action.value });
     case 'refresh_observed_at':
       return edit(state, { ...state.checkIn, observedAt: action.observedAt });
     case 'complete_check_in': {

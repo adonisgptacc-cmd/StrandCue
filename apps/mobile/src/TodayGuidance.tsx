@@ -12,8 +12,7 @@ import {
   CHECK_IN_IDLE_BODY,
   CHECK_IN_START_LABEL,
   CHECK_IN_SUMMARY_HEADING,
-  CHECK_IN_SUMMARY_SAVE_OFF,
-  CHECK_IN_SUMMARY_SAVE_ON,
+  CHECK_IN_SUMMARY_SESSION_ONLY,
   CHECK_IN_SUMMARY_TIME,
   CONCERN_LABELS,
   CONTENT_PENDING_BODY,
@@ -130,9 +129,7 @@ function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
       {draft.concerns.map(concern => CONCERN_LABELS[concern]).join(', ')}
     </Text>
     <Text style={styles.body}>{CHECK_IN_SUMMARY_TIME(draft.availableMinutes ?? 0)}</Text>
-    <Text style={styles.body}>
-      {draft.saveToPassport ? CHECK_IN_SUMMARY_SAVE_ON : CHECK_IN_SUMMARY_SAVE_OFF}
-    </Text>
+    <Text style={styles.body}>{CHECK_IN_SUMMARY_SESSION_ONLY}</Text>
   </View>;
 }
 
@@ -221,7 +218,6 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           concerns: [...preflight.checkIn.concerns],
           goal: preflight.checkIn.goal,
           availableMinutes: preflight.checkIn.availableMinutes,
-          saveToPassport: preflight.checkIn.saveToPassport,
         },
         new Date(asOf),
       );

@@ -62,7 +62,7 @@ so draft content may not execute and Today yields `content_pending`.
 | HP-03 | R0 | — | — | Not started |
 | HP-04 | R0 | — | — | Not started |
 | HP-05 | R1 | Temporary check-in only; goal-scoped completeness explanation not started | tests/mobile/current-condition-state.test.ts | Not started |
-| HP-06 | R1 | apps/mobile/src/TodayCheckIn.tsx, apps/mobile/src/guidance/current-condition-state.ts, apps/mobile/src/TodayGuidance.tsx (temporary per-request check-in; `saveToPassport` defaults off and nothing here writes to the Passport) | tests/mobile/current-condition-state.test.ts, tests/mobile/today-check-in.test.tsx, tests/mobile/today-guidance.test.tsx | Partial |
+| HP-06 | R1 | apps/mobile/src/TodayCheckIn.tsx, apps/mobile/src/guidance/current-condition-state.ts, apps/mobile/src/TodayGuidance.tsx (temporary session-only per-request check-in; no save flag and nothing here writes to the Passport) | tests/mobile/current-condition-state.test.ts, tests/mobile/today-check-in.test.tsx, tests/mobile/today-guidance.test.tsx | Partial |
 | HP-07 | R1 | — | — | Not started |
 | SH-01 | R0 | — | — | Not started |
 | SH-02 | R0 | — | — | Not started |

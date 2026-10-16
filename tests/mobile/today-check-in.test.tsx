@@ -8,11 +8,11 @@ import {
   CHECK_IN_CONTINUE_LABEL,
   CHECK_IN_ERROR_TEXT,
   CHECK_IN_ERRORS_HEADING,
+  CHECK_IN_SUMMARY_SESSION_ONLY,
   CHECK_IN_TITLE,
   CONCERN_LABELS,
   CONCERNS_LABEL,
   REFRESH_TIME_LABEL,
-  SAVE_LABEL,
   TIME_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 import type { CheckInDraft, CheckInErrorCode } from '../../apps/mobile/src/guidance/current-condition-state';
@@ -43,7 +43,6 @@ function emptyDraft(overrides: Partial<CheckInDraft> = {}): CheckInDraft {
     concerns: [],
     goal: 'basic_wash',
     availableMinutes: null,
-    saveToPassport: false,
     observedAt: null,
     ...overrides,
   };
@@ -109,7 +108,7 @@ beforeAll(() => {
 afterAll(() => { consoleErrorSpy.mockRestore(); });
 
 describe('today check-in labels and screen-reader behavior', () => {
-  it('labels the form, every concern, the goal, time, observation and save controls', async () => {
+  it('labels the form, every concern, the goal, time and observation controls', async () => {
     const { renderer } = await renderCheckIn();
     const labels = renderer.root
       .findAll(node => typeof node.props.accessibilityLabel === 'string')
@@ -119,9 +118,10 @@ describe('today check-in labels and screen-reader behavior', () => {
       expect(labels).toContain(`${CONCERNS_LABEL}: ${concern}`);
     }
     expect(labels).toContain(TIME_LABEL);
-    expect(labels).toContain(SAVE_LABEL);
     expect(labels).toContain(REFRESH_TIME_LABEL);
     expect(labels).toContain(CHECK_IN_CONTINUE_LABEL);
+    // No save control exists: the session-only notice is plain text instead.
+    expect(text(renderer)).toContain(CHECK_IN_SUMMARY_SESSION_ONLY.toLowerCase().slice(0, 40));
     await act(async () => { renderer.unmount(); });
   });
 
@@ -143,17 +143,14 @@ describe('today check-in labels and screen-reader behavior', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('exposes the Passport opt-in as a switch that defaults to off', async () => {
+  it('offers no save control: the check-in is session-only', async () => {
     const { renderer } = await renderCheckIn();
-    const save = renderer.root.find(
-      node => node.type === 'button' && node.props.accessibilityLabel === SAVE_LABEL,
+    const switches = renderer.root.findAll(
+      node => node.type === 'button' && node.props.accessibilityRole === 'switch',
     );
-    expect(save.props.accessibilityRole).toBe('switch');
-    expect(save.props.accessibilityState).toMatchObject({ checked: false });
-    await act(async () => {
-      save.props.onPress();
-      await Promise.resolve();
-    });
+    expect(switches).toEqual([]);
+    expect(text(renderer)).not.toContain('save these answers to my hair');
+    expect(text(renderer)).toContain('nothing is saved to my hair');
     await act(async () => { renderer.unmount(); });
   });
 
@@ -182,7 +179,7 @@ describe('today check-in labels and screen-reader behavior', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('dispatches toggle, time, observation and save actions without inventing values', async () => {
+  it('dispatches toggle, time and observation actions without inventing values', async () => {
     const { renderer, dispatch } = await renderCheckIn();
     const dryness = renderer.root.find(
       node => node.type === 'button' && node.props.accessibilityLabel === `${CONCERNS_LABEL}: Dryness`,
@@ -221,15 +218,6 @@ describe('today check-in labels and screen-reader behavior', () => {
       observedAt: mocks.nowIso,
     });
 
-    const save = renderer.root.find(
-      node => node.type === 'button' && node.props.accessibilityLabel === SAVE_LABEL,
-    );
-    await act(async () => {
-      save.props.onPress();
-      await Promise.resolve();
-    });
-    expect(dispatch).toHaveBeenCalledWith({ type: 'set_save_to_passport', value: true });
-
     const go = renderer.root.find(
       node => node.type === 'button' && node.props.accessibilityLabel === CHECK_IN_CONTINUE_LABEL,
     );
@@ -248,7 +236,7 @@ describe('today check-in touch targets, focus and large-text structure', () => {
       draft: emptyDraft({ concerns: ['dryness'], observedAt: mocks.nowIso }),
     });
     const targets = pressables(renderer);
-    expect(targets.length).toBeGreaterThanOrEqual(15);
+    expect(targets.length).toBeGreaterThanOrEqual(14);
     for (const target of targets) {
       expect(minHeight(target)).toBeGreaterThanOrEqual(44);
     }
@@ -301,7 +289,8 @@ describe('today check-in cosmetic boundary and honest wording', () => {
     const { renderer } = await renderCheckIn();
     expect(text(renderer)).toContain(CHECK_IN_BOUNDARY.toLowerCase().slice(0, 40));
     expect(text(renderer)).toContain('not a diagnosis');
-    expect(text(renderer)).toContain('nothing here changes my hair');
+    expect(text(renderer)).toContain('stay in this session only');
+    expect(text(renderer)).toContain('change nothing in my hair');
     await act(async () => { renderer.unmount(); });
   });
 
