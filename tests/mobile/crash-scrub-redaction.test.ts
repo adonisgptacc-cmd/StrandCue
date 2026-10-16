@@ -31,20 +31,23 @@ describe('crash scrubber redaction classes (Task 12)', () => {
     }
   });
 
-  it('redacts compound secret key forms without substring false positives', () => {
+  it('redacts compound secret key forms; nearby non-secret keys gate on value shape', () => {
     const scrubbed = scrubValue({
       client_secret: 'compound-one',
       CLIENTSECRET: 'compound-two',
       private_key: 'compound-three',
       PrivateKey: 'compound-four',
+      // `secretariat` is not a secret key (exact-set key match), but under
+      // Fix D key-strict gating its identifier-shaped value still redacts:
+      // only safeKeys preserve nested strings.
       secretariat: 'not-a-secret-keep-me',
       operation: 'passport-save',
     }) as Record<string, unknown>;
     const payload = JSON.stringify(scrubbed);
-    for (const secret of ['compound-one', 'compound-two', 'compound-three', 'compound-four']) {
+    for (const secret of ['compound-one', 'compound-two', 'compound-three', 'compound-four', 'not-a-secret-keep-me']) {
       expect(payload).not.toContain(secret);
     }
-    expect(scrubbed.secretariat).toBe('not-a-secret-keep-me');
+    expect(scrubbed.secretariat).toBe('[redacted]');
     expect(scrubbed.operation).toBe('passport-save');
   });
 

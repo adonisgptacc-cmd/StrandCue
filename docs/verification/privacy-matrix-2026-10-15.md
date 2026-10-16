@@ -1,4 +1,4 @@
-# Privacy matrix — personal-data categories vs migrated behavior (2026-10-15, HEAD `57042f9`)
+# Privacy matrix — personal-data categories vs migrated behavior (2026-10-15)
 
 Scope: every row is grounded in the migration chain at HEAD, the two runbooks
 (`docs/runbooks/privacy-retention.md`, `docs/runbooks/account-deletion.md`),

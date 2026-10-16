@@ -1,8 +1,11 @@
-// Scrubbed crash-report envelope. The Sentry DSN stays unset until the Beta
-// provider decision; until then the default transport is a no-op and nothing
-// leaves the device. Every field is scrubbed before transport.
+// Device-local crash reporter. There is no transport: the reporter scrubs
+// and discards everything on-device, and nothing leaves the device. A
+// production transport can only arrive via the separately reviewed
+// observability-enablement task; no public API accepts a transport function,
+// so the no-op property holds structurally (nothing can leave by
+// construction), not by configuration.
 //
-// Scrubbing rules (Task 12, hardened by Fix B):
+// Scrubbing rules (Task 12, hardened by Fix B, key-strict by Fix D):
 // - Scrub the FULL string first, then truncate: a token past char 200 must
 //   still be caught, so truncation never runs before redaction.
 // - Object keys are normalized (lowercased, non-letters stripped) and matched
@@ -17,7 +20,7 @@
 //     (c) schemeless dotted-host WITH a path (`api.example.test/reset?…`).
 //   Over/under-match analysis: (c) requires a dotted host whose final label
 //   is alphabetic (so `v2.3.1` never matches) plus a `/path` (so `a/b testing`,
-//   `report.pdf`, and bare `example.com` never match). Residual under-match:
+//   `report.pdf`, and bare `example.com` never match). Remaining under-match:
 //   bare domains without a path are left alone (no path/query tokens to leak,
 //   and prose mentions like "see example.com docs" are common); secrets in
 //   them must travel with a recognizable email/uuid/token shape to be caught.
@@ -29,16 +32,17 @@
 //        `[redacted]` regardless of shape);
 //     2. its scrubbed text is exactly `[redacted-url]`, `[redacted-email]`
 //        or `[redacted-id]` (a bare secret-shaped value, kept as a marker),
-//        OR it matches the identifier shape for its key:
-//          - under safeKeys (code, kind, component, operation, revision,
-//            status): `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (additionally
-//            allows a leading digit and dots, for versions/build codes);
-//          - under any other key: `^[A-Za-z][A-Za-z0-9_-]{0,63}$` (starts
-//            with a letter; no dots, slashes, or spaces).
+//        OR its normalized key is in safeKeys (code, kind, component,
+//        operation, revision, status) AND it matches the safe identifier
+//        shape `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (additionally allows a
+//        leading digit and dots, for versions/build codes).
+//   Array items carry no key, so only whole-value markers survive in arrays.
 //   Consequences, by construction: free-text-shaped values (spaces,
 //   sentences, >64 chars, email/uuid/token shapes, which scrub to marker
-//   text containing `[`/`]`) ALWAYS redact, even under safe keys; value
-//   SHAPE alone never allowlists a token travelling without shape context.
+//   text containing `[`/`]`) ALWAYS redact, even under safe keys; and EVERY
+//   string under an unknown key redacts, even when identifier-shaped
+//   (condition names, short tokens, personal names) — key membership, never
+//   value shape, decides. Value SHAPE alone never allowlists anything.
 // - payloadKeys (facts, decision, execution, deviation, replacement, concern,
 //   notes, reason, detail, query, results, rows, input, output, payload)
 //   redact WHOLE (`[redacted]`) regardless of shape: these carry
@@ -46,24 +50,20 @@
 //   sensitiveKeys; the outcome is identical.
 // - Numbers/booleans: booleans, null and undefined pass through; numbers pass
 //   only when finite with |n| <= 1e9 (timestamps, snowflake IDs, phone
-//   numbers redact). Numeric strings are gated by the identifier shape above.
-// - Top-level strings and Error name/message/stack are pattern-scrubbed only
-//   (prose preserved, secrets substituted): the error message is the primary
-//   first-party diagnostic signal the reporter exists to carry. Callers must
-//   pass user data via context (fully gated), never interpolated into the
-//   message — enforced by tests/mobile/crash-fix-b-round2.test.ts, which fails
-//   any report() call site in apps/mobile/src whose first argument is not a
-//   caught-error identifier, a literal string, or new Error('literal').
-//   KNOWN RESIDUALS (Fix B round 2, accepted-latent, tied to the no-op
-//   default below): (Escape B) message/stack free-text prose is retained;
-//   (Escape A) <=64-char identifier-shaped tokens under non-keyed positions,
-//   and plural-key synonyms beyond the sensitive set, pass the shape gate.
-//   Both are acceptable only while no transport leaves the device.
+//   numbers redact). Numeric strings are gated by the key-strict rule above.
+// - Error name/message/stack and all other top-level strings are
+//   pattern-scrubbed only (prose preserved, secrets substituted): the error
+//   message is the primary first-party diagnostic signal the reporter exists
+//   to carry, and top-level strings carry no key context to gate on. Callers
+//   must pass user data via context (fully gated), never interpolated into
+//   the message. Nothing leaves the device, so this prose stays on-device.
 // - Known limitation: bare free-text hex/token strings with no scheme, key,
-//   or URL shape (e.g. a lone `abcd1234…` with no `token=`/`Basic`/URL around
-//   it) cannot be redacted without false positives on ordinary words and
-//   identifiers, so they are left intact. Secrets must travel with a
-//   recognizable shape to be caught.
+//   or URL shape (e.g. a lone top-level `abcd1234…` with no `token=`/`Basic`/
+//   URL around it) cannot be redacted without false positives on ordinary
+//   words and identifiers, so they are left intact. This applies only to
+//   top-level (keyless) strings: the same token nested under any unknown key
+//   redacts by the allowlist rule above. Secrets must travel with a
+//   recognizable shape to be caught at the top level.
 // - Database-payload-shaped objects get no structural pass: unlisted keys
 //   still recurse, with a depth cap (5), an array cap (50 items) and a
 //   key cap (100 keys) plus a circular-reference guard so a hostile or
@@ -95,7 +95,6 @@ const safeKeys = new Set([
   'code', 'kind', 'component', 'operation', 'revision', 'status',
 ]);
 
-const strictValuePattern = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const safeValuePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const wholeValueMarkers = new Set(['[redacted-url]', '[redacted-email]', '[redacted-id]']);
@@ -132,9 +131,9 @@ const normalizeKey = (key: string): string => key.toLowerCase().replace(/[^a-z]/
 
 function gateNestedString(scrubbed: string, key: string | undefined): string {
   if (wholeValueMarkers.has(scrubbed)) return scrubbed;
-  const normalized = key === undefined ? '' : normalizeKey(key);
-  const pattern = normalized !== '' && safeKeys.has(normalized) ? safeValuePattern : strictValuePattern;
-  return pattern.test(scrubbed) ? scrubbed : '[redacted]';
+  if (key === undefined) return '[redacted]';
+  if (!safeKeys.has(normalizeKey(key))) return '[redacted]';
+  return safeValuePattern.test(scrubbed) ? scrubbed : '[redacted]';
 }
 
 function scrubInner(value: unknown, depth: number, seen: Set<object>): unknown {
@@ -192,27 +191,18 @@ export interface CrashEnvelope {
   readonly timestamp: string;
 }
 
-export type CrashTransport = (envelope: CrashEnvelope) => void;
-
-// TRANSPORT DEFAULT (Fix B round 2): no transport, nothing leaves the device.
-// Enabling any non-no-op transport requires message/stack gating plus an
-// entropy-token rule plus re-review — the round-2 residuals above stop being
-// acceptable the moment a transport exists.
-export function createCrashReporter(options: { transport?: CrashTransport } = {}) {
-  const transport = options.transport;
+// No transport exists: report() scrubs and discards on-device. A future
+// approved transport arrives only via the separately reviewed
+// observability-enablement task; until then there is no public API that
+// accepts a transport function, so exfiltration is impossible by
+// construction. CrashEnvelope above documents the shape such a transport
+// would carry; nothing in this module sends one.
+export function createCrashReporter() {
   return {
     report(error: unknown, context: unknown = {}) {
       try {
-        if (!transport) return;
-        const scrubbed = scrubValue(error);
-        transport({
-          message: scrubbed && typeof scrubbed === 'object' && 'message' in (scrubbed as Record<string, unknown>)
-            ? (scrubbed as Record<string, unknown>).message
-            : scrubbed,
-          stack: scrubbed && typeof scrubbed === 'object' ? (scrubbed as Record<string, unknown>).stack ?? null : null,
-          context: scrubValue(context),
-          timestamp: new Date().toISOString(),
-        });
+        scrubValue(error);
+        scrubValue(context);
       } catch {
         // Crash reporting must never break the app.
       }

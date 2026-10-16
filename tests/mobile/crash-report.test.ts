@@ -28,24 +28,42 @@ describe('scrubbed crash-report envelope', () => {
     }
   });
 
+  it('accepts no transport: nothing can leave the device (Fix D)', () => {
+    const sent: unknown[] = [];
+    const reporter = (
+      createCrashReporter as unknown as (opts: { transport: (envelope: unknown) => void }) => {
+        report: (error: unknown, context?: unknown) => void;
+      }
+    )({
+      transport: event => {
+        sent.push(event);
+      },
+    });
+    reporter.report(new Error('boom'), { operation: 'save' });
+    expect(sent).toHaveLength(0);
+  });
+
   it('sends nothing without a configured transport', () => {
     const reporter = createCrashReporter();
     expect(() => reporter.report(new Error('boom'), { operation: 'save' })).not.toThrow();
   });
 
-  it('scrubs the envelope before transport and never throws on transport failure', () => {
-    const sent: unknown[] = [];
-    const failing = createCrashReporter({
-      transport: () => { throw new Error('network down'); },
-    });
-    expect(() => failing.report(new Error('boom for user@example.test'), { userId: '550e8400-e29b-41d4-a716-446655440000' })).not.toThrow();
-
-    const reporter = createCrashReporter({ transport: event => { sent.push(event); } });
-    reporter.report(new Error('boom for user@example.test'), { operation: 'save', notes: 'private' });
-    expect(sent).toHaveLength(1);
-    const payload = JSON.stringify(sent[0]);
+  it('scrubs the error and context a report would carry, and never throws', () => {
+    // No-transport observation seam (Fix D): the reporter exposes no envelope
+    // and no transport hook, so tests assert on scrubValue — the exact
+    // scrubbing report() applies — instead of intercepting a sent envelope.
+    const error = new Error('boom for user@example.test');
+    const context = { operation: 'save', notes: 'private' };
+    const scrubbedError = scrubValue(error) as Record<string, unknown>;
+    const scrubbedContext = scrubValue(context) as Record<string, unknown>;
+    const payload = JSON.stringify({ error: scrubbedError, context: scrubbedContext });
     expect(payload).not.toContain('user@example.test');
     expect(payload).not.toContain('private');
     expect(payload).toContain('[redacted-email]');
+    expect(scrubbedContext.operation).toBe('save');
+
+    const reporter = createCrashReporter();
+    expect(() => reporter.report(error, context)).not.toThrow();
+    expect(reporter.report(error, context)).toBeUndefined();
   });
 });

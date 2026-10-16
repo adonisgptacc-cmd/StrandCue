@@ -1,11 +1,14 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { createCrashReporter, scrubValue } from '../../apps/mobile/src/crash-report';
 
-// Fix B round 2: tokens-plural gap, enforced caller contract, transport-flip gate.
+// Fix B round 2: tokens-plural gap, caller-contract classifier, no-transport gate.
+// Fix D: the line-based repo scan of report() call sites is REMOVED (it was a
+// hygiene check, never a security boundary — it cannot see multiline calls or
+// dynamic construction, and message prose is retained on-device by design).
+// The classifier below stays as unit-tested hygiene documentation for the
+// caller contract (user data via gated `context`, never interpolated into the
+// message). It enforces no security property; the scrubber does.
 
 // --- Item 2 supporting classifier (test tooling, pinned by unit tests below).
 // A report() call site conforms iff its first argument is:
@@ -84,18 +87,6 @@ export function isConformingReportArg(arg: string): boolean {
   return false;
 }
 
-const here = dirname(fileURLToPath(import.meta.url));
-const mobileSrc = resolve(here, '..', '..', 'apps', 'mobile', 'src');
-
-function collectTsFiles(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) collectTsFiles(full, out);
-    else if (/\.tsx?$/.test(entry)) out.push(full);
-  }
-  return out;
-}
-
 describe('crash-report Fix B round 2', () => {
   it('item 1: redacts the plural `tokens` key in every form', () => {
     const scrubbed = scrubValue({
@@ -114,13 +105,29 @@ describe('crash-report Fix B round 2', () => {
     expect((scrubbed.nested as Record<string, unknown>).tokens).toBe('[redacted]');
   });
 
-  it('item 1: exact-set semantics — nearby innocent keys are unaffected by the key rule', () => {
-    const scrubbed = scrubValue({ mytokens: 'keep-me', tokenCount: 5 }) as Record<string, unknown>;
-    expect(scrubbed.mytokens).toBe('keep-me');
+  it('item 1: unknown keys redact even identifier-shaped values (Fix D key-strict gating)', () => {
+    const scrubbed = scrubValue({
+      mytokens: 'keep-me',
+      symptom: 'alopecia',
+      condition: 'psoriasis',
+      nickname: 'Mara Ellison',
+      refcode: 'aB3dEf7GhJ9kLmN2pQ4Rs',
+    }) as Record<string, unknown>;
+    for (const key of ['mytokens', 'symptom', 'condition', 'nickname', 'refcode']) {
+      expect(scrubbed[key]).toBe('[redacted]');
+    }
+    const payload = JSON.stringify(scrubbed);
+    for (const secret of ['keep-me', 'alopecia', 'psoriasis', 'Mara Ellison', 'aB3dEf7GhJ9kLmN2pQ4Rs']) {
+      expect(payload).not.toContain(secret);
+    }
+  });
+
+  it('item 1: exact-set key semantics still hold for numbers (Fix D)', () => {
+    const scrubbed = scrubValue({ tokenCount: 5 }) as Record<string, unknown>;
     expect(scrubbed.tokenCount).toBe(5);
   });
 
-  it('item 2: classifier accepts conforming first arguments', () => {
+  it('item 2 (hygiene, not a boundary): classifier accepts conforming first arguments', () => {
     for (const snippet of [
       'report(err)',
       'report(error)',
@@ -137,7 +144,7 @@ describe('crash-report Fix B round 2', () => {
     }
   });
 
-  it('item 2: classifier rejects interpolated or non-literal first arguments', () => {
+  it('item 2 (hygiene, not a boundary): classifier rejects interpolated or non-literal first arguments', () => {
     for (const snippet of [
       'report(new Error(`failed for ${user}`))',
       'report(new Error("failed: " + detail))',
@@ -154,27 +161,7 @@ describe('crash-report Fix B round 2', () => {
     }
   });
 
-  it('item 2: every report() call site in apps/mobile/src passes a caught error or a literal', () => {
-    const files = collectTsFiles(mobileSrc).filter(path => !path.endsWith('crash-report.ts'));
-    expect(files.length).toBeGreaterThan(10);
-    const violations: string[] = [];
-    for (const file of files) {
-      const lines = readFileSync(file, 'utf8').split('\n');
-      lines.forEach((line, index) => {
-        const stripped = line.includes('//') ? line.slice(0, line.indexOf('//')) : line;
-        const match = /\.report\s*\(/.exec(stripped);
-        if (!match || match.index === undefined) return;
-        const absoluteOpen = match.index + match[0].length - 1;
-        const arg = firstArgOfCall(stripped, absoluteOpen);
-        if (arg === null || !isConformingReportArg(arg)) {
-          violations.push(`${file}:${index + 1}: ${line.trim()}`);
-        }
-      });
-    }
-    expect(violations).toEqual([]);
-  });
-
-  it('item 3: the no-option default never invokes any transport, even for escape-class payloads', () => {
+  it('item 3: the reporter scrubs and discards on-device, even for escape-class payloads (Fix D)', () => {
     const escapeError = new Error(
       'fetch failed for https://secret-host.example.test/s/ab?code=abc123 by user@example.test row 550e8400-e29b-41d4-a716-446655440000',
     );
@@ -191,9 +178,8 @@ describe('crash-report Fix B round 2', () => {
         return self;
       })(),
     };
-    for (const reporter of [createCrashReporter(), createCrashReporter({})]) {
-      expect(() => reporter.report(escapeError, escapeContext)).not.toThrow();
-      expect(reporter.report(escapeError, escapeContext)).toBeUndefined();
-    }
+    const reporter = createCrashReporter();
+    expect(() => reporter.report(escapeError, escapeContext)).not.toThrow();
+    expect(reporter.report(escapeError, escapeContext)).toBeUndefined();
   });
 });
