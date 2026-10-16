@@ -55,14 +55,14 @@ function defaultCreateClient(url: string, key: string) {
   }) as DeletionWorkerClient;
 }
 
-const defaultDependencies: Dependencies = {
+export const defaultDependencies: Dependencies = {
   createClient: defaultCreateClient,
   processDeletion: processAccountDeletion,
   log: (metric) => console.log(metric),
   now: () => Date.now(),
 };
 
-const defaultRetentionDependencies: RetentionDependencies = {
+export const defaultRetentionDependencies: RetentionDependencies = {
   createClient: defaultCreateClient,
   processRetention: processRetentionCleanup,
   log: (metric) => console.log(metric),
@@ -143,9 +143,36 @@ export async function runScheduledRetention(
 
 export default {
   scheduled(_controller: unknown, env: WorkerEnv, context: { waitUntil(promise: Promise<unknown>): void }) {
-    context.waitUntil((async () => {
-      await runScheduledAccountDeletion(env);
-      await runScheduledRetention(env);
-    })());
+    context.waitUntil(runScheduledPasses(env));
   },
 };
+
+/**
+ * Runs the deletion pass and the retention pass independently.
+ * The environment is validated once up front; per-runner validation is
+ * retained as idempotent defense-in-depth. Each pass emits its own
+ * completed/failed metric via its runner, and a failure in either pass
+ * never prevents the other from running. Rejects with a fixed string
+ * (no provider, account, URL, or secret content) iff either pass failed.
+ */
+export async function runScheduledPasses(
+  env: WorkerEnv,
+  deletionDependencies: Dependencies = defaultDependencies,
+  retentionDependencies: RetentionDependencies = defaultRetentionDependencies,
+): Promise<void> {
+  validateEnvironment(env);
+  let failed = false;
+  try {
+    await runScheduledAccountDeletion(env, deletionDependencies);
+  } catch {
+    failed = true;
+  }
+  try {
+    await runScheduledRetention(env, retentionDependencies);
+  } catch {
+    failed = true;
+  }
+  if (failed) {
+    throw new Error('Scheduled workers failed.');
+  }
+}
