@@ -129,9 +129,11 @@ function deviationSummary(step: ProtocolExecutionRecord['steps'][number]): strin
  * 2. Retries reuse the same operation id, so a lost response can never
  *    duplicate history (the server treats a repeated operation id as the
  *    same write).
- * 3. An owner change or unmount discards in-flight work: the epoch/token
- *    pattern from the Today preflight means a late response can never paint
- *    another owner's execution onto the screen.
+ * 3. An owner change, a decision change, or unmount discards in-flight work:
+ *    the epoch/token pattern from the Today preflight means a late response
+ *    can never paint another owner's — or another run's — execution onto the
+ *    screen. A render-time run-agreement guard holds the same line for the
+ *    post-commit window before the reload effect fires.
  *
  * Deviation free text is rendered as record text only. It travels inside the
  * confirmed command and its result — never into facts, snapshots, or
@@ -162,6 +164,22 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     setShelfDetail(null);
     setFormError(null);
   }
+  // Same treatment for a re-run decision under the same owner: an armed flow
+  // names steps of the previous run and must not survive into the new context.
+  const [seenRequestId, setSeenRequestId] = useState(decision.requestId);
+  if (seenRequestId !== decision.requestId) {
+    setSeenRequestId(decision.requestId);
+    setArmed(null);
+    setReason('');
+    setDetail('');
+    setShelfItemId('');
+    setShelfItems(null);
+    setShelfError(null);
+    setShelfDetail(null);
+    setFormError(null);
+  }
+  const decisionRequestId = decision.requestId;
+  const prevOwnerRef = useRef<string | null>(null);
   const ownerToken = useRef(0);
   const mounted = useRef(true);
   const decisionRef = useRef(decision);
@@ -185,7 +203,8 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   }, []);
 
   // Keeps the fingerprint source fresh without widening the load effect's
-  // dependencies: the owner-scoped load runs on mount and owner change only.
+  // dependencies: the owner-scoped load runs on mount, owner change, and
+  // decision change (compared by stable requestId below).
   useEffect(() => {
     decisionRef.current = decision;
   });
@@ -221,16 +240,27 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
   }, []);
 
   useEffect(() => {
-    dispatch({ type: 'owner_changed', ownerId });
+    if (prevOwnerRef.current === null || prevOwnerRef.current !== ownerId) {
+      prevOwnerRef.current = ownerId;
+      dispatch({ type: 'owner_changed', ownerId });
+    } else {
+      // Same owner, new decision context (guidance re-run): the on-screen
+      // execution was validated against the previous run and must not survive
+      // under the new one. Reset to neutral loading and re-validate; the
+      // token bump plus dispatcher reset reuse the existing epoch guards, so
+      // in-flight work is discarded, never orphaned onto the new context.
+      dispatch({ type: 'discarded' });
+    }
     dispatcherRef.current?.reset();
     ownerToken.current += 1;
-    // Owner-scoped active-execution load (MB-001): mount and every owner
-    // change reload through the same idempotent read. The token guard plus
-    // the reducer's loading-only resume actions mean a late response can
-    // never paint another owner's execution onto the screen.
+    // Owner-scoped active-execution load (MB-001): mount, every owner change,
+    // and every decision change reload through the same idempotent read. The
+    // token guard plus the reducer's loading-only resume actions mean a late
+    // response can never paint another owner's — or another run's — execution
+    // onto the screen.
     const token = ownerToken.current;
     void loadActiveExecution(token);
-  }, [ownerId, loadActiveExecution]);
+  }, [ownerId, decisionRequestId, loadActiveExecution]);
 
   // The substitute picker loads the owner's shelf when armed. Reading is
   // display-only: the server re-verifies the chosen item at command time.
@@ -498,11 +528,17 @@ export function ProtocolExecution({ ownerId, decision }: ProtocolExecutionProps)
     </View>;
   }
 
-  // Loading first: while the owner-scoped load is in flight the surface
-  // renders neutral loading only — no idle start card, no prior-owner
-  // execution, no optimistic preview. The reducer only holds `null` while
-  // loading, so stale content cannot reach this render path by construction.
-  if (ui.phase === 'loading') {
+  // Loading first — and on any run disagreement: while the owner-scoped load
+  // is in flight the surface renders neutral loading only — no idle start
+  // card, no prior-owner execution, no optimistic preview. The reducer only
+  // holds `null` while loading, so stale content cannot reach this render
+  // path by construction. The run-agreement conjunct closes the post-commit
+  // window on a decision swap: effects reset to loading only AFTER the first
+  // commit with the new decision, so without it that commit would paint the
+  // previous run's execution under the new run's context.
+  const runAgrees =
+    ui.execution === null || ui.execution.recommendationRunId === decision.requestId;
+  if (ui.phase === 'loading' || !runAgrees) {
     return <View style={styles.card}>
       <Text style={styles.heading}>Follow this plan</Text>
       <Text style={styles.body}>{EXECUTION_LOADING_LABEL}</Text>

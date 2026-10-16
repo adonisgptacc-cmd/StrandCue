@@ -390,3 +390,150 @@ describe('protocol execution resume (MB-001)', () => {
     });
   });
 });
+
+const RUN_B = '33333333-3333-4333-8333-333333333333';
+const EXECUTION_B = '44444444-4444-4444-8444-444444444444';
+
+function alternateDecision(): ProtocolDecision {
+  const base = readyDecision();
+  return {
+    ...base,
+    requestId: RUN_B,
+    steps: [
+      { ...(base.steps[0] as object), stepId: 'step-1', position: 1, action: 'cleanse' },
+      { ...(base.steps[1] as object), stepId: 'step-2', position: 2, action: 'condition' },
+    ],
+    audit: { ...(base.audit as object), requestId: RUN_B },
+  } as unknown as ProtocolDecision;
+}
+
+function executionBFixture(overrides: Record<string, unknown> = {}) {
+  return executionFixture({
+    executionId: EXECUTION_B,
+    recommendationRunId: RUN_B,
+    steps: [pendingStep('step-1', 1, 'cleanse'), pendingStep('step-2', 2, 'condition')],
+    ...overrides,
+  });
+}
+
+function receiptBFixture(overrides: Record<string, unknown> = {}) {
+  return receiptFixture({
+    executionId: EXECUTION_B,
+    recommendationRunId: RUN_B,
+    execution: executionBFixture(),
+    ...overrides,
+  });
+}
+
+async function updateDecision(renderer: ReactTestRenderer, decision: ProtocolDecision): Promise<void> {
+  await act(async () => {
+    renderer.update(createElement(ProtocolExecution, { ownerId: OWNER, decision }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+describe('protocol execution decision swap (Task 15 fix round 1)', () => {
+  it('reloads and re-validates when the decision changes to a new run', async () => {
+    mocks.getActive.mockResolvedValue(receiptFixture());
+    const renderer = await render(readyDecision(), OWNER);
+    expect(text(renderer)).toContain('apply');
+    mocks.getActive.mockResolvedValue(receiptBFixture());
+    await updateDecision(renderer, alternateDecision());
+    expect(mocks.getActive).toHaveBeenCalledTimes(2);
+    const rendered = text(renderer);
+    expect(rendered).toContain('planned steps');
+    expect(rendered).toContain('cleanse');
+    expect(rendered).not.toContain('apply');
+    expect(mocks.start).not.toHaveBeenCalled();
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('never paints the stale run while a decision-swap reload is in flight', async () => {
+    const resolvers: ((value: unknown) => void)[] = [];
+    mocks.getActive.mockImplementation(
+      () => new Promise(resolve => {
+        resolvers.push(resolve);
+      }),
+    );
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ProtocolExecution, { ownerId: OWNER, decision: readyDecision() }));
+      await Promise.resolve();
+    });
+    expect(resolvers).toHaveLength(1);
+    const resolveMount = resolvers[0] as (value: unknown) => void;
+    await act(async () => {
+      resolveMount(receiptFixture());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(text(renderer)).toContain('apply');
+    await act(async () => {
+      renderer.update(createElement(ProtocolExecution, { ownerId: OWNER, decision: alternateDecision() }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const midFlight = text(renderer);
+    expect(midFlight).toContain('checking for a saved plan');
+    expect(midFlight).not.toContain('planned steps');
+    expect(midFlight).not.toContain('apply');
+    expect(resolvers).toHaveLength(2);
+    const resolveSwap = resolvers[1] as (value: unknown) => void;
+    await act(async () => {
+      resolveSwap(receiptBFixture());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(text(renderer)).toContain('cleanse');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('does not reload when the same decision re-renders', async () => {
+    mocks.getActive.mockResolvedValue(receiptFixture());
+    const renderer = await render(readyDecision(), OWNER);
+    expect(mocks.getActive).toHaveBeenCalledTimes(1);
+    await updateDecision(renderer, readyDecision());
+    expect(mocks.getActive).toHaveBeenCalledTimes(1);
+    expect(text(renderer)).toContain('apply');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('targets post-swap transitions at the validated run and revision', async () => {
+    mocks.getActive.mockResolvedValue(receiptFixture());
+    const renderer = await render(readyDecision(), OWNER);
+    mocks.getActive.mockResolvedValue(receiptBFixture({ revision: 2, execution: executionBFixture() }));
+    await updateDecision(renderer, alternateDecision());
+    expect(text(renderer)).toContain('cleanse');
+    mocks.transition.mockResolvedValue(receiptBFixture({ revision: 3 }));
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    expect(mocks.transition).toHaveBeenCalledTimes(1);
+    expect(mocks.transition.mock.calls[0][0]).toMatchObject({
+      executionId: EXECUTION_B,
+      expectedRevision: 2,
+      command: { kind: 'complete-step', stepId: 'step-1' },
+    });
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+});
