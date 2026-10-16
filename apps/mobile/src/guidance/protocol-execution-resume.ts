@@ -178,6 +178,13 @@ function isRenderableDecision(value: unknown): value is ProtocolDecision {
  * `validateResumedReceipt`. No parallel validator: execution ID, run ID and
  * protocol-fingerprint agreement all flow through `validateResumedReceipt`,
  * and this function only adds the run-row agreements no receipt carries.
+ *
+ * Fix F: active restore handles `in_progress`/`paused` only, mirroring the
+ * server aggregate filter (`status in ('in_progress', 'paused')`, null
+ * otherwise). A non-null bundle claiming a terminal status contradicts that
+ * contract, so it fails closed here: on relaunch Today returns to the normal
+ * idle/check-in state (via the server's null), never to a terminal display.
+ * Execution history belongs to a separately designed history screen.
  */
 export function validateRestoredBundle(bundle: unknown): RestoredBundleValidation {
   if (bundle === null || bundle === undefined) return { status: 'absent' };
@@ -217,6 +224,13 @@ export function validateRestoredBundle(bundle: unknown): RestoredBundleValidatio
   }
   const validated = validateResumedReceipt(receipt, decision);
   if (validated.status !== 'resumable') return { status: 'unverified' };
+  // Fix F: a terminal bundle contradicts the aggregate contract (the server
+  // returns null once the execution is terminal). Fail closed so a terminal
+  // display can never paint on relaunch; in-session terminal display still
+  // flows through the transition dispatcher, never through this restore path.
+  if (validated.execution.status === 'completed' || validated.execution.status === 'abandoned') {
+    return { status: 'unverified' };
+  }
   return {
     status: 'resumable',
     execution: validated.execution,

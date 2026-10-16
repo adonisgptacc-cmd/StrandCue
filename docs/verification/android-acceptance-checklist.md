@@ -125,7 +125,11 @@
   done; online.
 - **Steps:** (1) Complete/finish the final step (or abandon with reason).
   (2) Observe the surface. (3) Attempt to find step controls or Start.
-- **Expected:** terminal display renders (finished/abandoned with close
-  reason); no step controls, no start button, no further transitions offered;
-  relaunch shows the same terminal display (completed/abandoned receipt path).
+- **Expected:** terminal display renders in the mounted session
+  (finished/abandoned with close reason); no step controls, no start button,
+  no further transitions offered. On relaunch Today returns to the normal
+  idle/check-in state: active restore handles `in_progress`/`paused` only and
+  the server returns `null` once the execution is terminal, so no terminal
+  display is restored. Execution history may be exposed later through a
+  separately designed history screen.
 - **Result:** _requires signed physical-device or emulator run — NOT RUN._

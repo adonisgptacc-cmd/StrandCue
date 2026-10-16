@@ -312,4 +312,24 @@ describe('restored bundle validation', () => {
       }),
     ).toEqual({ status: 'unverified' });
   });
+
+  it('never restores a terminal execution on relaunch (Fix F)', () => {
+    // Active restore handles in_progress/paused only. The server aggregate
+    // returns null once the execution is terminal, so Today relaunches to
+    // idle/check-in; a non-null bundle claiming a terminal status
+    // contradicts the aggregate contract and must fail closed, never paint.
+    for (const status of ['completed', 'abandoned'] as const) {
+      const terminal = executionFixture({
+        status,
+        finishedAt: T0,
+        closeReason: status === 'abandoned' ? 'done for now' : null,
+      });
+      expect(
+        validateRestoredBundle({
+          ...bundleFixture(),
+          execution: receiptFixture({ status, execution: terminal }),
+        }),
+      ).toEqual({ status: 'unverified' });
+    }
+  });
 });

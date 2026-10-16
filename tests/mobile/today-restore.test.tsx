@@ -367,6 +367,23 @@ describe('fix E: active-execution recovery after process death', () => {
     await act(async () => { renderer.unmount(); });
   });
 
+  it('relaunches to idle check-in when only terminal history exists (Fix F)', async () => {
+    // The server aggregate returns null once the execution is terminal
+    // (in_progress/paused only), so a relaunch after completion/abandonment
+    // returns to the normal idle journey — never a terminal display, never a
+    // start over the finished run. History belongs to a separately designed
+    // history screen.
+    mocks.restoreAggregate.mockResolvedValue(null);
+    const renderer = await mountFresh();
+    await settle(renderer);
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(text(renderer)).not.toContain('step 1');
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('shows a retry card without idle fallback while offline', async () => {
     mocks.restoreAggregate.mockRejectedValue(new Error('Network request failed'));
     const renderer = await mountFresh();
