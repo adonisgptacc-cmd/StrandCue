@@ -1,11 +1,16 @@
 import { execFile } from 'node:child_process';
 import { lstat, readdir, readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import {
   auditDependencyPolicy,
   countDependencyVulnerabilities,
+  scopeExceptionRegistryToReport,
   summarizeDependencyAudit,
+  type DependencyAuditSummary,
+  type DependencyFinding,
 } from './dependency-policy.ts';
 import {
+  standaloneManifestPathSchema,
   validateWorkspaceManifestPaths,
   workspaceManifestCandidates,
   workspaceManifestGlobs,
@@ -13,12 +18,35 @@ import {
 
 const MAX_AUDIT_OUTPUT_BYTES = 20 * 1024 * 1024;
 
+/**
+ * Committed npm trees outside the npm workspaces that the gate audits. Each one
+ * is declared here explicitly and read from its own real manifest, because the
+ * worker is not (and must not become) an npm workspace: `workers/*` is outside
+ * the root `workspaces` patterns, so it cannot be derived from the workspace
+ * inventory the way a `apps/*` or `packages/*` tree is.
+ */
+const standaloneTreeManifestPaths = ['workers/account-deletion/package.json'];
+
 type NpmAuditExecution = {
   exitCode: 0 | 1;
   output: string;
 };
 
-function runNpmAudit(): Promise<NpmAuditExecution> {
+type AuditedTree = {
+  id: string;
+  manifestPath: string;
+  directory: string;
+  context: unknown;
+};
+
+type TreeResult = {
+  id: string;
+  manifestPath: string;
+  summary: DependencyAuditSummary | undefined;
+  findings: DependencyFinding[];
+};
+
+function runNpmAudit(directory?: string): Promise<NpmAuditExecution> {
   const npmExecPath = process.env.npm_execpath;
   if (!npmExecPath?.trim()) {
     return Promise.reject(new Error('npm CLI path is unavailable'));
@@ -32,6 +60,7 @@ function runNpmAudit(): Promise<NpmAuditExecution> {
         encoding: 'utf8',
         maxBuffer: MAX_AUDIT_OUTPUT_BYTES,
         windowsHide: true,
+        ...(directory === undefined ? {} : { cwd: directory }),
       },
       (error, stdout) => {
         const output = typeof stdout === 'string' ? stdout : '';
@@ -155,37 +184,94 @@ async function readDependencySurfaceContext(): Promise<unknown> {
   };
 }
 
+async function readStandaloneTree(manifestPath: string): Promise<AuditedTree> {
+  if (!standaloneManifestPathSchema.safeParse(manifestPath).success) {
+    throw new Error('Declared dependency tree is not a supported standalone manifest root');
+  }
+
+  const repositoryUrl = new URL('../', import.meta.url);
+  const manifest = await readRegularJson(new URL(manifestPath, repositoryUrl));
+  if (manifest === undefined) throw new Error('Declared dependency tree manifest is unavailable');
+  const directoryPath = manifestPath.slice(0, manifestPath.lastIndexOf('/'));
+
+  return {
+    id: manifestPath,
+    manifestPath,
+    directory: fileURLToPath(new URL(`${directoryPath}/`, repositoryUrl)),
+    context: { manifestPath, manifest },
+  };
+}
+
+function parseAuditReport(execution: NpmAuditExecution): unknown {
+  const report = JSON.parse(execution.output) as unknown;
+  const vulnerabilityCount = countDependencyVulnerabilities(report);
+  if (vulnerabilityCount === undefined
+    || (execution.exitCode === 1 && vulnerabilityCount === 0)) {
+    throw new Error('npm audit exit status does not match a supported report');
+  }
+  return report;
+}
+
 async function main(): Promise<void> {
   try {
-    const auditExecution = await runNpmAudit();
-    const report = JSON.parse(auditExecution.output) as unknown;
-    const vulnerabilityCount = countDependencyVulnerabilities(report);
-    if (vulnerabilityCount === undefined
-      || (auditExecution.exitCode === 1 && vulnerabilityCount === 0)) {
-      throw new Error('npm audit exit status does not match a supported report');
-    }
-    const [exceptions, surfaceContext] = await Promise.all([
+    const rootExecution = await runNpmAudit();
+    const rootReport = parseAuditReport(rootExecution);
+    const [exceptions, surfaceContext, standaloneTrees] = await Promise.all([
       readExceptionRegistry(),
       readDependencySurfaceContext(),
+      Promise.all(standaloneTreeManifestPaths.map(readStandaloneTree)),
     ]);
     const today = new Date().toISOString().slice(0, 10);
-    const findings = auditDependencyPolicy(report, exceptions, today, surfaceContext);
-    const summary = summarizeDependencyAudit(report, exceptions);
 
-    if (findings.length > 0 || !summary) {
+    // The workspace root keeps the whole registry and the real root surface
+    // context, so its evaluation and summary are unchanged by the added tree.
+    const trees: TreeResult[] = [{
+      id: 'root',
+      manifestPath: 'package.json',
+      summary: summarizeDependencyAudit(rootReport, exceptions),
+      findings: auditDependencyPolicy(rootReport, exceptions, today, surfaceContext),
+    }];
+
+    for (const tree of standaloneTrees) {
+      const report = parseAuditReport(await runNpmAudit(tree.directory));
+      trees.push({
+        id: tree.id,
+        manifestPath: tree.manifestPath,
+        summary: summarizeDependencyAudit(report, exceptions),
+        findings: auditDependencyPolicy(
+          report,
+          scopeExceptionRegistryToReport(exceptions, report),
+          today,
+          tree.context,
+        ),
+      });
+    }
+
+    const findings = trees.flatMap(tree => tree.findings);
+    const rootSummary = trees[0].summary;
+
+    if (findings.length > 0 || !rootSummary) {
       process.stdout.write(`${JSON.stringify({
         status: 'DEPENDENCY-POLICY-HOLD',
         findingCount: findings.length || 1,
         findingCodes: findings.length > 0
           ? [...new Set(findings.map(({ code }) => code))]
           : ['AUDIT-SCHEMA'],
-        summary,
+        summary: rootSummary,
+        trees: trees.map(tree => ({
+          id: tree.id,
+          manifestPath: tree.manifestPath,
+          status: tree.findings.length > 0 ? 'HOLD' : 'PASS',
+          findingCount: tree.findings.length,
+          findingCodes: [...new Set(tree.findings.map(({ code }) => code))],
+          summary: tree.summary,
+        })),
       })}\n`);
       process.exitCode = 1;
       return;
     }
 
-    process.stdout.write(`DEPENDENCY-POLICY-SUMMARY ${JSON.stringify(summary)}\n`);
+    process.stdout.write(`DEPENDENCY-POLICY-SUMMARY ${JSON.stringify(rootSummary)}\n`);
     process.stdout.write('DEPENDENCY-POLICY-PASS\n');
     process.exitCode = 0;
   } catch {

@@ -13,3 +13,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  - package-ecosystem: npm
+    directory: /workers/account-deletion
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      worker-minor-and-patch:
+        update-types: [minor, patch]

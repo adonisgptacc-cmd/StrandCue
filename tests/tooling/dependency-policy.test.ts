@@ -1,12 +1,13 @@
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   auditDependencyPolicy as auditDependencyPolicyImplementation,
+  scopeExceptionRegistryToReport,
 } from '../../scripts/dependency-policy';
 
 const TODAY = '2026-10-06';
@@ -889,6 +890,7 @@ describe('dependency advisory policy', () => {
 });
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const CLEAN_AUDIT_REPORT = JSON.stringify({ auditReportVersion: 2, vulnerabilities: {} });
 let fakeNpmDirectory = '';
 let fakeNpmPath = '';
 let fixedClockPath = '';
@@ -946,8 +948,11 @@ function cliAuditReport() {
 function runAuditCli(options: {
   stdout?: string;
   auditExitCode?: number;
+  workerStdout?: string;
+  workerAuditExitCode?: number;
   npmExecPath?: string;
   credentialCanary?: string;
+  auditLog?: string;
 }) {
   const inheritedEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => name.toLowerCase() !== 'npm_execpath'),
@@ -966,6 +971,9 @@ function runAuditCli(options: {
           npm_execpath: options.npmExecPath ?? fakeNpmPath,
           FAKE_AUDIT_STDOUT: options.stdout ?? '',
           FAKE_AUDIT_EXIT_CODE: String(options.auditExitCode ?? 0),
+          FAKE_AUDIT_WORKER_STDOUT: options.workerStdout ?? CLEAN_AUDIT_REPORT,
+          FAKE_AUDIT_WORKER_EXIT_CODE: String(options.workerAuditExitCode ?? 0),
+          FAKE_AUDIT_LOG: options.auditLog,
           NPM_TOKEN: options.credentialCanary,
         },
       },
@@ -976,6 +984,13 @@ function runAuditCli(options: {
       }),
     );
   });
+}
+
+function auditedDirectories(auditLog: string): string[] {
+  return readFileSync(auditLog, 'utf8')
+    .split('\n')
+    .map(line => line.trim().replace(/\\/g, '/'))
+    .filter(line => line.length > 0);
 }
 
 describe('dependency audit CLI', () => {
@@ -998,7 +1013,18 @@ describe('dependency audit CLI', () => {
     );
     await writeFile(
       fakeNpmPath,
-      "if (!process.argv.includes('--include=dev') || process.argv.includes('--omit=dev')) { process.stderr.write('Development dependencies must be audited'); process.exit(2); }\nprocess.stdout.write(process.env.FAKE_AUDIT_STDOUT ?? '');\nprocess.exitCode = Number(process.env.FAKE_AUDIT_EXIT_CODE ?? '0');\n",
+      [
+        "import { appendFileSync } from 'node:fs';",
+        "if (!process.argv.includes('--include=dev') || process.argv.includes('--omit=dev')) { process.stderr.write('Development dependencies must be audited'); process.exit(2); }",
+        'const cwd = process.cwd();',
+        'if (process.env.FAKE_AUDIT_LOG) appendFileSync(process.env.FAKE_AUDIT_LOG, `${cwd}\\n`);',
+        "const isWorkerTree = /[\\\\/]workers[\\\\/][^\\\\/]+$/.test(cwd);",
+        'const stdoutName = isWorkerTree ? "FAKE_AUDIT_WORKER_STDOUT" : "FAKE_AUDIT_STDOUT";',
+        'const exitName = isWorkerTree ? "FAKE_AUDIT_WORKER_EXIT_CODE" : "FAKE_AUDIT_EXIT_CODE";',
+        'process.stdout.write(process.env[stdoutName] ?? "");',
+        'process.exitCode = Number(process.env[exitName] ?? "0");',
+        '',
+      ].join('\n'),
       'utf8',
     );
   });
@@ -1143,4 +1169,354 @@ describe('dependency audit CLI', () => {
     expect(result.stdout).toContain('ADVISORY-PATH-UNREVIEWED');
     expect(result.stdout).not.toContain(untrustedPackageName);
   }, 10_000);
+
+  it('audits the deletion worker tree as a second npm audit invocation', async () => {
+    const auditLog = join(fakeNpmDirectory, 'audit-log-worker-tree.txt');
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cliAuditReport()),
+      auditLog,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
+
+    const audited = auditedDirectories(auditLog);
+    expect(audited).toHaveLength(2);
+    const workerDirectories = audited.filter(dir => dir.endsWith('/workers/account-deletion'));
+    expect(workerDirectories).toHaveLength(1);
+    expect(existsSync(join(workerDirectories[0], 'package-lock.json'))).toBe(true);
+    const workspaceDirectories = audited.filter(dir => !dir.endsWith('/workers/account-deletion'));
+    expect(existsSync(join(workspaceDirectories[0], 'package-lock.json'))).toBe(true);
+  }, 10_000);
+
+  it('holds on a worker-only advisory and names the worker tree that produced it', async () => {
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerStdout: JSON.stringify(workerAdvisoryReport()),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('workers/account-deletion/package.json');
+    expect(result.stdout).toContain('ADVISORY-UNEXCEPTED');
+
+    const hold = JSON.parse(result.stdout.trim()) as {
+      status: string;
+      summary: Record<string, number>;
+      trees: { id: string; status: string; findingCount: number; findingCodes: string[] }[];
+    };
+    const rootTree = hold.trees.find(tree => tree.id === 'root');
+    const workerTree = hold.trees.find(tree => tree.id === 'workers/account-deletion/package.json');
+    expect(rootTree).toMatchObject({ status: 'PASS', findingCount: 0 });
+    expect(workerTree?.status).toBe('HOLD');
+    expect(workerTree?.findingCodes).toContain('ADVISORY-UNEXCEPTED');
+    expect(workerTree?.findingCount).toBeGreaterThanOrEqual(2);
+  }, 10_000);
+
+  it('fails closed when the worker tree cannot be audited', async () => {
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerAuditExitCode: 2,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
+    expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
+  }, 10_000);
+
+  async function runGateInProcess(options: {
+    stdout: string;
+    workerStdout?: string;
+    workerAuditExitCode?: number;
+  }): Promise<{ exitCode: number; stdout: string; stderr: string; audited: string[] }> {
+    const auditLog = join(
+      fakeNpmDirectory,
+      `audit-log-in-process-${Math.random().toString(36).slice(2)}.txt`,
+    );
+    const previousEnvironment = {
+      npmExecPath: process.env.npm_execpath,
+      auditStdout: process.env.FAKE_AUDIT_STDOUT,
+      workerStdout: process.env.FAKE_AUDIT_WORKER_STDOUT,
+      workerExitCode: process.env.FAKE_AUDIT_WORKER_EXIT_CODE,
+      auditLog: process.env.FAKE_AUDIT_LOG,
+    };
+    const previousExitCode = process.exitCode ?? undefined;
+    const stdoutWrites: string[] = [];
+    const stderrWrites: string[] = [];
+    const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    const setEnvironment = (name: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    };
+
+    setEnvironment('npm_execpath', fakeNpmPath);
+    setEnvironment('FAKE_AUDIT_STDOUT', options.stdout);
+    setEnvironment('FAKE_AUDIT_WORKER_STDOUT', options.workerStdout ?? CLEAN_AUDIT_REPORT);
+    setEnvironment('FAKE_AUDIT_WORKER_EXIT_CODE', String(options.workerAuditExitCode ?? 0));
+    setEnvironment('FAKE_AUDIT_LOG', auditLog);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdoutWrites.push(String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrWrites.push(String(chunk));
+      return true;
+    }) as unknown as typeof process.stderr.write;
+
+    let exitCodeDuringRun: number | string | undefined;
+    try {
+      vi.resetModules();
+      await import('../../scripts/audit-dependencies-cli.ts');
+      exitCodeDuringRun = process.exitCode ?? undefined;
+    } finally {
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
+      process.exitCode = previousExitCode;
+      setEnvironment('npm_execpath', previousEnvironment.npmExecPath);
+      setEnvironment('FAKE_AUDIT_STDOUT', previousEnvironment.auditStdout);
+      setEnvironment('FAKE_AUDIT_WORKER_STDOUT', previousEnvironment.workerStdout);
+      setEnvironment('FAKE_AUDIT_WORKER_EXIT_CODE', previousEnvironment.workerExitCode);
+      setEnvironment('FAKE_AUDIT_LOG', previousEnvironment.auditLog);
+    }
+
+    return {
+      exitCode: Number(exitCodeDuringRun ?? 0),
+      stdout: stdoutWrites.join(''),
+      stderr: stderrWrites.join(''),
+      audited: auditedDirectories(auditLog),
+    };
+  }
+
+  it('runs the gate in-process and audits both trees', async () => {
+    const result = await runGateInProcess({ stdout: JSON.stringify(cliAuditReport()) });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
+    expect(result.audited).toHaveLength(2);
+    expect(result.audited.some(dir => dir.endsWith('/workers/account-deletion'))).toBe(true);
+  }, 10_000);
+
+  it('runs the in-process gate to HOLD and name the worker tree that failed', async () => {
+    const result = await runGateInProcess({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerStdout: JSON.stringify(workerAdvisoryReport()),
+      workerAuditExitCode: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('workers/account-deletion/package.json');
+  }, 10_000);
+
+  it('runs the in-process gate to ERROR when a tree cannot be audited', async () => {
+    const result = await runGateInProcess({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerAuditExitCode: 2,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
+    expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
+  }, 10_000);
+});
+
+const workerManifestPath = 'workers/account-deletion/package.json';
+
+function workerSurfaceContext() {
+  return {
+    manifestPath: workerManifestPath,
+    manifest: JSON.parse(readFileSync(resolve(repositoryRoot, workerManifestPath), 'utf8')) as unknown,
+  };
+}
+
+function workerDependencyReport(
+  packageName: string,
+  severity: 'moderate' | 'high',
+  advisoryId: string,
+) {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      [packageName]: {
+        name: packageName,
+        severity,
+        via: [{ name: packageName, severity, url: `https://github.com/advisories/${advisoryId}` }],
+        effects: [],
+      },
+    },
+  };
+}
+
+function workerAdvisoryReport() {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      '@supabase/supabase-js': {
+        name: '@supabase/supabase-js',
+        severity: 'high' as const,
+        via: [{
+          name: '@supabase/supabase-js',
+          severity: 'high' as const,
+          url: 'https://github.com/advisories/GHSA-2345-2345-2345',
+        }],
+        effects: [],
+      },
+      'worker-moderate-transitive': {
+        name: 'worker-moderate-transitive',
+        severity: 'moderate' as const,
+        via: [{
+          name: 'worker-moderate-transitive',
+          severity: 'moderate' as const,
+          url: 'https://github.com/advisories/GHSA-3456-3456-3456',
+        }],
+        effects: [],
+      },
+    },
+  };
+}
+
+describe('standalone worker dependency tree', () => {
+  it('classifies the worker runtime dependency as production, never as development', () => {
+    const report = workerDependencyReport('@supabase/supabase-js', 'moderate', 'GHSA-2345-2345-2345');
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-2345-2345-2345',
+        packages: [approvedBranch(['@supabase/supabase-js'], ['production'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toEqual([]);
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-2345-2345-2345',
+        packages: [approvedBranch(['@supabase/supabase-js'], ['development'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('classifies a worker devDependency as development, never as production', () => {
+    const report = workerDependencyReport('wrangler', 'moderate', 'GHSA-3456-3456-3456');
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-3456-3456-3456',
+        packages: [approvedBranch(['wrangler'], ['development'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toEqual([]);
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-3456-3456-3456',
+        packages: [approvedBranch(['wrangler'], ['production'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('refuses to classify a package that the worker manifest does not declare', () => {
+    const undeclaredFindings = auditDependencyPolicyImplementation(
+      {
+        auditReportVersion: 2,
+        vulnerabilities: {
+          'undeclared-worker-package': {
+            name: 'undeclared-worker-package',
+            severity: 'high',
+            via: ['missing-transitive-source'],
+            effects: [],
+          },
+        },
+      },
+      [],
+      TODAY,
+      workerSurfaceContext(),
+    );
+
+    expect(undeclaredFindings).toContainEqual({
+      code: 'ADVISORY-SEVERITY',
+      message: 'High vulnerability has no classified dependency surface: undeclared-worker-package.',
+    });
+
+    const declaredFindings = auditDependencyPolicyImplementation(
+      {
+        auditReportVersion: 2,
+        vulnerabilities: {
+          '@supabase/supabase-js': {
+            name: '@supabase/supabase-js',
+            severity: 'high',
+            via: ['missing-transitive-source'],
+            effects: [],
+          },
+        },
+      },
+      [],
+      TODAY,
+      workerSurfaceContext(),
+    );
+
+    expect(declaredFindings.map(({ message }) => message)).not.toContain(
+      'High vulnerability has no classified dependency surface: @supabase/supabase-js.',
+    );
+  });
+
+  it.each([
+    ['a workspace app manifest', 'apps/mobile/package.json'],
+    ['a workspace package manifest', 'packages/domain/package.json'],
+    ['a repository root manifest', 'package.json'],
+    ['a traversing path', 'workers/account-deletion/../../package.json'],
+    ['a manifest outside the declared roots', 'tools/eas-runner/package.json'],
+  ])('rejects %s as a standalone dependency tree', (_case, manifestPath) => {
+    expect(auditDependencyPolicyImplementation(
+      { auditReportVersion: 2, vulnerabilities: {} },
+      [],
+      TODAY,
+      { manifestPath, manifest: { name: 'fixture', dependencies: {}, devDependencies: {} } },
+    )).toContainEqual({
+      code: 'SURFACE-CONTEXT-SCHEMA',
+      message: 'Dependency manifest surface context is malformed or incomplete.',
+    });
+  });
+
+  it('scopes a shared exception registry to the advisories one tree observes', () => {
+    const cleanReport = { auditReportVersion: 2, vulnerabilities: {} };
+
+    expect(scopeExceptionRegistryToReport([currentException()], cleanReport)).toEqual([]);
+    expect(auditDependencyPolicyImplementation(
+      cleanReport,
+      scopeExceptionRegistryToReport([currentException()], cleanReport),
+      TODAY,
+      workerSurfaceContext(),
+    )).toEqual([]);
+
+    const report = workerDependencyReport('@supabase/supabase-js', 'moderate', 'GHSA-2345-2345-2345');
+    const observed = currentException({ advisoryId: 'GHSA-2345-2345-2345' });
+    expect(scopeExceptionRegistryToReport(
+      [observed, currentException({ advisoryId: 'GHSA-6789-6789-6789' })],
+      report,
+    )).toEqual([observed]);
+  });
+
+  it('fails closed when the registry or the report cannot be scoped', () => {
+    const report = workerDependencyReport('@supabase/supabase-js', 'moderate', 'GHSA-2345-2345-2345');
+
+    expect(scopeExceptionRegistryToReport('not-a-registry', report)).toEqual([]);
+    expect(scopeExceptionRegistryToReport([currentException()], { auditReportVersion: 1 })).toEqual([]);
+  });
 });

@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { validateWorkspaceManifestPaths } from './workspace-manifests.ts';
+import {
+  standaloneManifestPathSchema,
+  validateWorkspaceManifestPaths,
+} from './workspace-manifests.ts';
 
 export type DependencyFinding = {
   code: string;
@@ -70,7 +73,7 @@ const workspaceSurfaceContextSchema = z.object({
     .optional(),
 }).strict();
 
-const dependencySurfaceContextSchema = z.object({
+const workspaceDependencySurfaceContextSchema = z.object({
   root: rootSurfaceManifestSchema,
   workspaceManifestPaths: z.array(z.string().trim().min(1)),
   workspaces: z.array(workspaceSurfaceContextSchema).min(1),
@@ -100,6 +103,20 @@ const dependencySurfaceContextSchema = z.object({
     refinement.addIssue({ code: 'custom', message: 'Workspace manifest evidence is incomplete.' });
   }
 });
+
+// A dependency tree outside the npm workspaces (a `workers/*` package) carries
+// its own real manifest at its own real path. It has no workspace inventory, so
+// its runtime dependencies classify as `production` and its devDependencies as
+// `development`, exactly as a workspace package's do.
+const standaloneSurfaceContextSchema = z.object({
+  manifestPath: standaloneManifestPathSchema,
+  manifest: workspacePackageManifestSchema,
+}).strict();
+
+const dependencySurfaceContextSchema = z.union([
+  workspaceDependencySurfaceContextSchema,
+  standaloneSurfaceContextSchema,
+]);
 
 const approvedPackageBranchSchema = z.object({
   path: z.array(z.string().trim().min(1)).min(1),
@@ -161,6 +178,31 @@ export function summarizeDependencyAudit(
       parsedExceptions.data.map(({ advisoryId }) => advisoryId),
     ).size,
   };
+}
+
+/**
+ * Restrict a shared exception registry to the advisories one tree's own report
+ * observes. An exception is only meaningful in a tree that observes its
+ * advisory: registry staleness is a repository-wide property judged once
+ * against the root tree, so a second audited tree must never re-derive "not
+ * observed here" as "stale". Input that cannot be parsed fails closed to an
+ * empty registry, which withholds exceptions instead of granting them.
+ */
+export function scopeExceptionRegistryToReport(
+  exceptions: unknown,
+  report: unknown,
+): unknown[] {
+  const parsedExceptions = exceptionRegistrySchema.safeParse(exceptions);
+  const parsedReport = auditReportSchema.safeParse(report);
+  if (!parsedExceptions.success || !parsedReport.success) return [];
+
+  const observedAdvisoryIds = new Set(
+    Object.values(parsedReport.data.vulnerabilities)
+      .flatMap(vulnerability => vulnerability.via)
+      .filter((via): via is z.infer<typeof advisorySchema> => typeof via !== 'string')
+      .map(advisory => advisoryIdFromUrl(advisory.url)),
+  );
+  return parsedExceptions.data.filter(({ advisoryId }) => observedAdvisoryIds.has(advisoryId));
 }
 
 function isIsoDate(value: string): boolean {
@@ -293,6 +335,11 @@ function buildSurfaceClassifications(
       addSurfaceClassification(classifications, packageName, ['development']);
     });
   };
+
+  if (!('root' in context)) {
+    addManifest(context.manifest, ['production']);
+    return classifications;
+  }
 
   addManifest(context.root, ['production']);
   context.workspaces.forEach(({ manifest, runtimePlatforms }) => {

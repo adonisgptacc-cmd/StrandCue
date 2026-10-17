@@ -115,6 +115,71 @@ describe('CI workflow contracts', () => {
   });
 });
 
+type DependabotEntry = { ecosystem: string; body: string };
+
+async function dependabotSource(): Promise<string> {
+  return normalizeLineEndings(await readFile('.github/dependabot.yml', 'utf8'));
+}
+
+function dependabotEntries(source: string): DependabotEntry[] {
+  const lines = source.split('\n');
+  const starts: number[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    if (/^ {2}- package-ecosystem: \S+$/.test(lines[index])) starts.push(index);
+  }
+  return starts.map((start, index) => ({
+    ecosystem: lines[start].trim().replace('- package-ecosystem: ', ''),
+    body: lines.slice(start, starts[index + 1] ?? lines.length).join('\n'),
+  }));
+}
+
+function dependabotEntry(source: string, ecosystem: string, directory: string): string {
+  const directoryLine = new RegExp(`^ {4}directory: ${directory.replace(/[/\\]/g, '\\$&')}$`, 'm');
+  const matches = dependabotEntries(source)
+    .filter(entry => entry.ecosystem === ecosystem)
+    .filter(entry => directoryLine.test(entry.body));
+  expect(matches.length, `${ecosystem} at ${directory}`).toBe(1);
+  return matches[0].body;
+}
+
+function dependabotGroup(entryBody: string, group: string): string {
+  const lines = entryBody.split('\n');
+  const start = lines.findIndex(line => line === `      ${group}:`);
+  expect(start, `group ${group}`).toBeGreaterThanOrEqual(0);
+  const end = lines.findIndex((line, index) => index > start && /^ {6}\S/.test(line));
+  return lines.slice(start, end === -1 ? lines.length : end).join('\n');
+}
+
+describe('Dependabot dependency automation', () => {
+  it('keeps the reviewed root npm and github-actions entries unchanged', async () => {
+    const source = await dependabotSource();
+    expect(source).toMatch(/^version: 2$/m);
+
+    const rootNpm = dependabotEntry(source, 'npm', '/');
+    expect(rootNpm).toMatch(/^ {4}schedule:\n {6}interval: weekly$/m);
+    expect(rootNpm).toMatch(/^ {4}open-pull-requests-limit: 5$/m);
+    const expoGroup = dependabotGroup(rootNpm, 'expo-compatible');
+    expect(expoGroup).toMatch(/^ {8}patterns: \['expo', 'expo-\*', '@expo\/\*'\]$/m);
+    expect(expoGroup).toMatch(/^ {8}update-types: \[minor, patch\]$/m);
+
+    const actions = dependabotEntry(source, 'github-actions', '/');
+    expect(actions).toMatch(/^ {4}schedule:\n {6}interval: weekly$/m);
+    expect(actions).not.toMatch(/open-pull-requests-limit/);
+  });
+
+  it('monitors the deletion worker with a bounded weekly grouped cadence', async () => {
+    const source = await dependabotSource();
+    const worker = dependabotEntry(source, 'npm', '/workers/account-deletion');
+
+    expect(worker).toMatch(/^ {4}schedule:\n {6}interval: weekly$/m);
+    expect(worker).toMatch(/^ {4}open-pull-requests-limit: \d+$/m);
+
+    const group = dependabotGroup(worker, 'worker-minor-and-patch');
+    expect(group).toMatch(/^ {8}update-types: \[minor, patch\]$/m);
+    expect(group).not.toMatch(/\bmajor\b/);
+  });
+});
+
 async function workflowNames(): Promise<string[]> {
   return (await readdir('.github/workflows'))
     .filter(name => name.endsWith('.yml') || name.endsWith('.yaml'))
