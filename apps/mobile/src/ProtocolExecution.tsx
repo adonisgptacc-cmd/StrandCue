@@ -25,14 +25,21 @@ export interface ProtocolExecutionProps {
   readonly decision: ProtocolDecision;
   /**
    * Fix H: the server-constructed execution snapshot from the validated
-   * restore aggregate. When provided, ProtocolExecution resumes directly
-   * from this snapshot without re-reading the execution from the server,
-   * preventing a TOCTOU race where another session completes or abandons
-   * between the trusted restore read and the client's own load.
+   * restore aggregate. When provided — together with `initialRevision`, for
+   * this owner, and naming the run `decision` names — ProtocolExecution
+   * resumes directly from this snapshot without re-reading the execution from
+   * the server, preventing a TOCTOU race where another session completes or
+   * abandons between the trusted restore read and the client's own load.
+   *
+   * The receipt is trusted only for the context it was validated in. A receipt
+   * retained across an owner change or a run swap is dropped and the
+   * owner-scoped load re-validates instead. Pass a referentially stable
+   * snapshot: an inline literal re-runs the seed effect on every render, which
+   * resets any in-flight transition.
    */
   readonly initialExecution?: ProtocolExecutionRecord;
   /** The server revision belonging to `initialExecution`. Required alongside
-   * `initialExecution`; when absent the controller performs its own
+   * `initialExecution`; when either is absent the controller performs its own
    * owner-scoped load. */
   readonly initialRevision?: number;
   /**

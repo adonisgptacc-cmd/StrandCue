@@ -220,7 +220,8 @@ export function useProtocolExecutionController(
   }, []);
 
   useEffect(() => {
-    if (prevOwnerRef.current === null || prevOwnerRef.current !== ownerId) {
+    const previousOwner = prevOwnerRef.current;
+    if (previousOwner === null || previousOwner !== ownerId) {
       prevOwnerRef.current = ownerId;
       dispatch({ type: 'owner_changed', ownerId });
     } else {
@@ -244,12 +245,27 @@ export function useProtocolExecutionController(
     // second read entirely. This closes the TOCTOU race where another session
     // could complete or abandon the execution between the aggregate read and
     // this component's own load.
-    if (initialExecution) {
-      dispatch({
-        type: 'resume_succeeded',
-        execution: initialExecution,
-        revision: initialRevision ?? 0,
-      });
+    //
+    // The receipt is trusted only for the context it was validated in — this
+    // mount, with the owner unchanged, naming the run the decision also names,
+    // and carrying its authoritative revision. Anything else belongs to a
+    // previous context: seeding a receipt retained across an owner change
+    // would paint that owner's steps under the new owner, seeding one retained
+    // across a run swap would leave the surface wedged on the loading card
+    // because the run-agreement guard refuses to paint it and nothing reloads,
+    // and seeding without a revision would pin a wrong `expectedRevision` on
+    // the first transition. In all three cases the owner-scoped load runs
+    // instead and re-validates against the current owner and decision.
+    const seedExecution = initialExecution ?? null;
+    const seedRevision = initialRevision ?? null;
+    const ownerUnchanged = previousOwner === null || previousOwner === ownerId;
+    if (
+      ownerUnchanged
+      && seedExecution !== null
+      && seedRevision !== null
+      && seedExecution.recommendationRunId === decisionRequestId
+    ) {
+      dispatch({ type: 'resume_succeeded', execution: seedExecution, revision: seedRevision });
     } else {
       const token = ownerToken.current;
       void loadActiveExecution(token);

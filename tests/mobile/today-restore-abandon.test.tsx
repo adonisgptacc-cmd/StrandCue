@@ -13,6 +13,7 @@ import {
   EXECUTION_RESUME_LABEL,
   EXECUTION_RETRY_LABEL,
   EXECUTION_SAVE_FAILED,
+  EXECUTION_START_LABEL,
   START_OVER_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 
@@ -594,6 +595,110 @@ describe('fix H carried hardening: the terminal-abandon signal is execution- and
     });
     await settle(renderer);
     expect(onTerminalAbandoned).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+});
+
+describe('fix H carried hardening: the seeded receipt is scoped to its context', () => {
+  const OTHER_RUN_ID = '44444444-4444-4444-8444-444444444444';
+
+  function otherRunDecision() {
+    return { ...storedDecision(), requestId: OTHER_RUN_ID, audit: { ...storedDecision().audit, requestId: OTHER_RUN_ID } };
+  }
+
+  async function mountSurface(
+    props: Partial<Parameters<typeof ProtocolExecution>[0]>,
+  ): Promise<ReactTestRenderer> {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ProtocolExecution, props as Parameters<typeof ProtocolExecution>[0]));
+      await flush();
+    });
+    await settle(renderer);
+    return renderer;
+  }
+
+  it('does not seed a retained receipt under a new owner', async () => {
+    // The caller retains the previous owner's receipt across the owner change
+    // (a caller that clears its receipt in an effect rather than in render).
+    // The receipt belongs to the previous owner's context: seeding it would
+    // paint that owner's steps under the new owner's session, and the honest
+    // owner-scoped load that would have replaced them never runs.
+    const seed = executionSnapshot();
+    mocks.executionGetActive.mockResolvedValue(null);
+    const renderer = await mountSurface({
+      ownerId: OWNER,
+      decision: storedDecision() as never,
+      initialExecution: seed as never,
+      initialRevision: 2,
+    });
+    expect(text(renderer)).toContain('step 1');
+    // Owner-2 gets the SAME retained receipt prop, and its own read is empty.
+    await act(async () => {
+      renderer.update(
+        createElement(ProtocolExecution, {
+          ownerId: 'owner-2',
+          decision: storedDecision() as never,
+          initialExecution: seed as never,
+          initialRevision: 2,
+        }),
+      );
+      await flush(10);
+    });
+    await settle(renderer);
+    expect(text(renderer)).not.toContain('step 1');
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(true);
+    // The owner-scoped load ran for the new owner instead of trusting the seed.
+    expect(mocks.executionGetActive).toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not seed a retained receipt under a different run', async () => {
+    // Same owner, new decision: the retained receipt names the previous run.
+    // Seeding it leaves the surface stuck on the loading card forever, because
+    // the run-agreement render guard refuses to paint it and nothing reloads.
+    const seed = executionSnapshot();
+    mocks.executionGetActive.mockResolvedValue(null);
+    const renderer = await mountSurface({
+      ownerId: OWNER,
+      decision: storedDecision() as never,
+      initialExecution: seed as never,
+      initialRevision: 2,
+    });
+    expect(text(renderer)).toContain('step 1');
+    await act(async () => {
+      renderer.update(
+        createElement(ProtocolExecution, {
+          ownerId: OWNER,
+          decision: otherRunDecision() as never,
+          initialExecution: seed as never,
+          initialRevision: 2,
+        }),
+      );
+      await flush(10);
+    });
+    await settle(renderer);
+    // Not wedged on the previous run, and not painting it either.
+    expect(hasButton(renderer, EXECUTION_ABANDON_LABEL)).toBe(false);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(true);
+    expect(mocks.executionGetActive).toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('loads instead of seeding when no revision accompanies the receipt', async () => {
+    // The documented contract: the receipt is required alongside its revision,
+    // and without one the controller performs its own owner-scoped load.
+    // Seeding anyway would pin the wrong expectedRevision on the first
+    // transition, which the server rejects as a revision conflict forever.
+    mocks.executionGetActive.mockResolvedValue(receipt({ revision: 5 }));
+    const renderer = await mountSurface({
+      ownerId: OWNER,
+      decision: storedDecision() as never,
+      initialExecution: executionSnapshot() as never,
+    });
+    expect(mocks.executionGetActive).toHaveBeenCalledTimes(1);
+    expect(text(renderer)).toContain('step 1');
+    expect(hasButton(renderer, EXECUTION_ABANDON_LABEL)).toBe(true);
     await act(async () => { renderer.unmount(); });
   });
 });
