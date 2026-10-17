@@ -3,7 +3,7 @@ import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import type { User } from '@supabase/supabase-js';
 import { RECOVERY_ACTIVE_KEY, RECOVERY_KEY, secureStorage, supabase } from './client';
-import { authNeedsLoading, isSessionRevokedError, maxOfflineRefreshAttempts, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
+import { authNeedsLoading, isApprovedAuthCallback, isSessionRevokedError, maxOfflineRefreshAttempts, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
 import { transitionServiceDraftOwner } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
@@ -14,7 +14,7 @@ export const sessionRevokedNotice = 'Your session is no longer valid. This devic
 // Transient failures are retained only up to maxOfflineRefreshAttempts; past
 // that the device signs out rather than presenting a stale account forever.
 export const sessionUnverifiableNotice = 'Your session could not be verified after several attempts. This device has been signed out.';
-const authCallbackUrl = 'strandcue://auth/callback';
+const authCallbackUrl = 'https://strandcue.adonisgptacc.workers.dev/auth/callback';
 
 type RecoveryAuth = {
   exchangeCodeForSession: (code: string, options: {flowId: string}) => Promise<{data: {session?: unknown; redirectType?: string}; error: unknown}>;
@@ -190,13 +190,13 @@ export function useAccount() {
       }
       const url = await Linking.getInitialURL();
       if (!mounted) return;
-      if (url?.startsWith('strandcue://auth/')) await callback(url);
+      if (url && isApprovedAuthCallback(url)) await callback(url);
       else refresh();
       initialLinkChecked = true;
     }).catch(() => {
       if (mounted) { initialLinkChecked = true; refresh(); }
     });
-    const links = Linking.addEventListener('url', ({url}) => { void callback(url); });
+    const links = Linking.addEventListener('url', ({url}) => { if (isApprovedAuthCallback(url)) void callback(url); });
     return () => {mounted = false; ++epoch; subscription.unsubscribe(); state.remove(); links.remove();};
   }, []);
   return {user, loading, recovery, notice, finishRecovery: () => {

@@ -14,7 +14,7 @@
             {
               "scheme": "https",
               "host": "strandcue.adonisgptacc.workers.dev",
-              "pathPrefix": "/auth"
+              "pathPrefix": "/auth/callback"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]

@@ -5,9 +5,10 @@ import { completeRecoveryCallback, createRecoveryCallbackGate, useAccount } from
 const recoveryMocks = vi.hoisted(() => ({
   getInitialURL: vi.fn(), getUser: vi.fn(), exchange: vi.fn(), signOut: vi.fn(), authChange: vi.fn(),
   storageGet: vi.fn(), storageSet: vi.fn(), storageRemove: vi.fn(),
+  linkListener: null as ((event: {url: string}) => void) | null,
 }));
 vi.mock('react-native', () => ({ AppState: { addEventListener: () => ({ remove() {} }) }, Text: (props: unknown) => createElement('span', props as never), View: (props: unknown) => createElement('div', props as never) }));
-vi.mock('expo-linking', () => ({ getInitialURL: recoveryMocks.getInitialURL, addEventListener: () => ({ remove() {} }) }));
+vi.mock('expo-linking', () => ({ getInitialURL: recoveryMocks.getInitialURL, addEventListener: (_event: string, listener: (event: {url: string}) => void) => { recoveryMocks.linkListener = listener; return { remove() {} }; } }));
 vi.mock('../../apps/mobile/src/client.ts', () => ({
   RECOVERY_KEY: 'recovery', RECOVERY_ACTIVE_KEY: 'recovery-active',
   secureStorage: { getItem: recoveryMocks.storageGet, setItem: recoveryMocks.storageSet, removeItem: recoveryMocks.storageRemove },
@@ -27,6 +28,8 @@ function deferred<T>() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  recoveryMocks.linkListener = null;
+  recoveryMocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
   recoveryMocks.authChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
   recoveryMocks.storageGet.mockResolvedValue(String(Date.now()));
   recoveryMocks.storageSet.mockResolvedValue(undefined);
@@ -112,6 +115,94 @@ describe('recovery callback transition', () => {
     await act(async () => { renderer = create(createElement(Harness)); await Promise.resolve(); });
     expect(observed?.recovery).toBe(true);
     expect(recoveryMocks.getUser).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('enters password reset from the verified HTTPS callback', async () => {
+    const removeItem = vi.fn().mockResolvedValue(undefined);
+    const signOut = vi.fn().mockResolvedValue({ error: null });
+    const exchangeCodeForSession = vi.fn().mockResolvedValue({
+      data: { session: { access_token: 'not-exposed' }, redirectType: 'recovery' }, error: null,
+    });
+    const result = await completeRecoveryCallback({
+      url: 'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=abc&sb_flow_id=12345678', pending: true,
+      auth: { exchangeCodeForSession, signOut }, removeRecoveryMarker: removeItem,
+    });
+    expect(result).toEqual({ status: 'ready' });
+    expect(exchangeCodeForSession).toHaveBeenCalledWith('abc', {flowId: '12345678'});
+    expect(signOut).not.toHaveBeenCalled();
+    expect(removeItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an HTTPS callback whose exchange is not a recovery session', async () => {
+    const removeItem = vi.fn().mockResolvedValue(undefined);
+    const signOut = vi.fn().mockResolvedValue({ error: null });
+    const result = await completeRecoveryCallback({
+      url: 'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=signup&sb_flow_id=12345678', pending: true,
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ data: { session: {}, redirectType: 'signup' }, error: null }),
+        signOut,
+      },
+      removeRecoveryMarker: removeItem,
+    });
+    expect(result).toEqual({ status: 'failed', reason: 'expired' });
+    expect(removeItem).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+  });
+
+  it('fails and signs out when the HTTPS exchange returns an error', async () => {
+    const removeItem = vi.fn().mockResolvedValue(undefined);
+    const signOut = vi.fn().mockResolvedValue({ error: null });
+    const result = await completeRecoveryCallback({
+      url: 'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=expired&sb_flow_id=12345678', pending: true,
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ data: { session: null }, error: new Error('provider secret') }),
+        signOut,
+      },
+      removeRecoveryMarker: removeItem,
+    });
+    expect(result).toEqual({ status: 'failed', reason: 'expired' });
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+  });
+
+  it('rejects a foreign host, an http callback and duplicate parameters as invalid', async () => {
+    for (const url of [
+      'https://img.evil.test/auth/callback?code=abc&sb_flow_id=12345678',
+      'https://evilstrandcue.adonisgptacc.workers.dev/auth/callback?code=abc&sb_flow_id=12345678',
+      'http://strandcue.adonisgptacc.workers.dev/auth/callback?code=abc&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=a&code=b&sb_flow_id=12345678',
+    ]) {
+      const removeItem = vi.fn().mockResolvedValue(undefined);
+      const signOut = vi.fn().mockResolvedValue({ error: null });
+      const exchangeCodeForSession = vi.fn();
+      const result = await completeRecoveryCallback({
+        url, pending: true,
+        auth: { exchangeCodeForSession, signOut }, removeRecoveryMarker: removeItem,
+      });
+      expect(result).toEqual({ status: 'failed', reason: 'invalid' });
+      expect(exchangeCodeForSession).not.toHaveBeenCalled();
+      expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+    }
+  });
+
+  it('ignores a delivered URL that is not an approved recovery callback', async () => {
+    recoveryMocks.getInitialURL.mockResolvedValue(null);
+    recoveryMocks.storageGet.mockResolvedValue(String(Date.now()));
+    let observed: ReturnType<typeof useAccount> | undefined;
+    function Harness() { observed = useAccount(); return null; }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Harness)); await Promise.resolve(); });
+    // The module-level recovery gate caches a prior success across tests; reset it
+    // so this case exercises the listener gate itself, not a cached outcome.
+    await act(async () => { observed?.finishRecovery(); await Promise.resolve(); });
+    await act(async () => {
+      recoveryMocks.linkListener?.({ url: 'https://img.evil.test/auth/callback?code=abc&sb_flow_id=12345678' });
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise(resolve => setTimeout(resolve, 10));
+    });
+    expect(recoveryMocks.exchange).not.toHaveBeenCalled();
+    expect(recoveryMocks.signOut).not.toHaveBeenCalled();
+    expect(observed?.notice).toBe('');
     await act(async () => { renderer.unmount(); });
   });
 });

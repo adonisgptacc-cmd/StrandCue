@@ -33,10 +33,14 @@ describe('D2 decided values are wired into device surfaces', () => {
     expect(https.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('keeps the working custom-scheme recovery callback until assetlinks is live', async () => {
+  it('redirects recovery to the verified HTTPS callback and keeps the legacy scheme branch', async () => {
+    // docs/superpowers/plans/2026-09-24-assetlinks-cutover.md:144,152:
+    // the cutover replaces this scheme-only guard with a dual-link guard.
     const auth = await readFile('apps/mobile/src/auth.tsx', 'utf8');
-    expect(auth).toContain(`const authCallbackUrl = 'strandcue://auth/callback'`);
+    const contracts = await readFile('apps/mobile/src/contracts.ts', 'utf8');
+    expect(auth).toContain(`const authCallbackUrl = 'https://${DEEP_LINK_HOST}/auth/callback'`);
     expect(auth).toContain('redirectTo: authCallbackUrl');
-    expect(auth).toContain(`url?.startsWith('strandcue://auth/')`);
+    expect(auth).toContain('isApprovedAuthCallback');
+    expect(contracts).toContain('strandcue://auth/callback');
   });
 });

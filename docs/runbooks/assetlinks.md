@@ -67,3 +67,40 @@ Production version `6a8cda08` was deployed with user approval on 4 October.
 The live release-link gate passed against the local signing certificate;
 HEAD returned HTTP 200, JSON content type, and an empty body. A matching
 signed binary and device verification remain separate requirements.
+
+## Compatibility window
+
+The legacy custom-scheme callback `strandcue://auth/callback` stays accepted on
+the inbound side during a bounded compatibility window. Expiry: the first release
+cut after the HTTPS recovery path passes the device proof in the operator
+checklist below. Owner: the release owner recorded in
+`docs/verification/android-acceptance-checklist.md`. The same expiry and owner
+appear as a code comment at the compatibility branch in
+`apps/mobile/src/contracts.ts`.
+
+## Fingerprint separation (Play App Signing)
+
+The Play App Signing certificate fingerprint is the association source for a
+Play-distributed build. The locally signed release certificate is for internal
+builds only. The two are never interchangeable, and a made-up or debug
+fingerprint must never be used for a Play release. Keep the
+`<RELEASE-KEYSTORE-SHA256>` placeholder above; it is a template, not deployment
+evidence, until the reviewed fingerprint is supplied.
+
+## Operator checklist for the HTTPS cutover — NOT DONE
+
+No step below has been performed from this repository. This repository changes
+neither the Supabase dashboard nor Cloudflare; each step requires its own
+authorization.
+
+1. Supabase dashboard, project `bomudijjqmoommndhxib`: Authentication → URL
+   Configuration → Redirect URLs, add exactly
+   `https://strandcue.adonisgptacc.workers.dev/auth/callback`.
+2. Confirm the association is live with `npm run check:release-links` and a
+   reviewed `STRANDCUE_ANDROID_CERT_SHA256`.
+3. Rebuild the signed Android build and check that
+   `adb shell pm get-app-links za.co.strandcue.app` reports `verified`.
+4. Tap a real recovery link on the device and record the result in
+   `docs/verification/device-evidence.md`.
+5. Only then remove the compatibility branch.
+

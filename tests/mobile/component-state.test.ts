@@ -194,7 +194,7 @@ describe('mobile component state contracts', () => {
     expect(componentMocks.signUp).toHaveBeenCalledWith({
       email: 'new.user@example.com',
       password: 'a-secure-password',
-      options: { emailRedirectTo: 'strandcue://auth/callback' },
+      options: { emailRedirectTo: 'https://strandcue.adonisgptacc.workers.dev/auth/callback' },
     });
     await act(async () => { renderer.unmount(); });
   });
@@ -216,7 +216,7 @@ describe('mobile component state contracts', () => {
 
     expect(componentMocks.resetPasswordForEmail).toHaveBeenCalledWith(
       'recover.user@example.com',
-      { redirectTo: 'strandcue://auth/callback' },
+      { redirectTo: 'https://strandcue.adonisgptacc.workers.dev/auth/callback' },
     );
     expect(componentMocks.storage.setItem).toHaveBeenCalledWith('strandcue-recovery', expect.any(String));
     await act(async () => { renderer.unmount(); });

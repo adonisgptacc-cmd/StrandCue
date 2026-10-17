@@ -56,6 +56,30 @@ describe('mobile boundary contracts', () => {
     }
     expect(parseRecoveryCallback('strandcue://auth/callback?code=a&sb_flow_id=12345678', false)).toBeNull();
   });
+  it('accepts the verified HTTPS callback and keeps the legacy scheme under the same rules', () => {
+    expect(parseRecoveryCallback('https://strandcue.adonisgptacc.workers.dev/auth/callback?code=abc&sb_flow_id=12345678', true)).toEqual({code: 'abc', flowId: '12345678'});
+    expect(parseRecoveryCallback('strandcue://auth/callback?code=abc&sb_flow_id=12345678', true)).toEqual({code: 'abc', flowId: '12345678'});
+    for (const url of [
+      'http://strandcue.adonisgptacc.workers.dev/auth/callback?code=a&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev.evil.test/auth/callback?code=a&sb_flow_id=12345678',
+      'https://evilstrandcue.adonisgptacc.workers.dev/auth/callback?code=a&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/auth?code=a&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/other?code=a&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback/extra?code=a&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev:8443/auth/callback?code=a&sb_flow_id=12345678',
+      'https://u:p@strandcue.adonisgptacc.workers.dev/auth/callback?code=a&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=a&sb_flow_id=12345678#access_token=a',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=a&code=b&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=a&sb_flow_id=12345678&sb_flow_id=abcdefgh',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback?sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=&sb_flow_id=12345678',
+      'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=a&sb_flow_id=short',
+    ]) {
+      expect(parseRecoveryCallback(url, true)).toBeNull();
+    }
+    expect(parseRecoveryCallback('https://strandcue.adonisgptacc.workers.dev/auth/callback?code=a&sb_flow_id=12345678', false)).toBeNull();
+    expect(parseRecoveryCallback('strandcue://auth/callback?code=a&sb_flow_id=12345678', false)).toBeNull();
+  });
   it('requires a public client key and a secure or local development URL', () => {
     expect(publicConfig('', '')).toBeNull();
     expect(publicConfig('https://project.supabase.co', 'sb_secret_never')).toBeNull();

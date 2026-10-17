@@ -137,7 +137,7 @@ describe('AuthScreen', () => {
     expect(screenMocks.signUp).toHaveBeenCalledWith({
       email: 'user@example.test',
       password: 'a-long-enough-password-1',
-      options: { emailRedirectTo: 'strandcue://auth/callback' },
+      options: { emailRedirectTo: 'https://strandcue.adonisgptacc.workers.dev/auth/callback' },
     });
     expect(renderedText(renderer)).toContain('Welcome back');
     await act(async () => {
@@ -200,7 +200,7 @@ describe('AuthScreen', () => {
     await pressButton(renderer, 'Send recovery link');
     expect(screenMocks.storageSet).toHaveBeenCalled();
     expect(screenMocks.resetPassword).toHaveBeenCalledWith('user@example.test', {
-      redirectTo: 'strandcue://auth/callback',
+      redirectTo: 'https://strandcue.adonisgptacc.workers.dev/auth/callback',
     });
     expect(renderedText(renderer)).toContain('recovery email is on its way');
     await act(async () => {

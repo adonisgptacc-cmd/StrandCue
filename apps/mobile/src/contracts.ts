@@ -66,12 +66,29 @@ export function toggleSelection(selected: readonly string[], value: string): str
   return next.length ? next : ['unknown'];
 }
 
-export function parseRecoveryCallback(raw: string, pending: boolean): {code: string; flowId: string} | null {
-  if (!pending) return null;
+// Single source of truth for what counts as an approved recovery callback:
+// exact scheme, exact host and exact path, with no credentials and no fragment.
+// Legacy custom-scheme compatibility branch (`strandcue://auth/callback`): keep
+// it inbound-only until the first release cut after the HTTPS recovery path
+// passes its recorded device proof (operator checklist step 4 in
+// `docs/runbooks/assetlinks.md`); owner is the release owner recorded in
+// `docs/verification/android-acceptance-checklist.md`.
+export const approvedAuthCallbackHost = 'strandcue.adonisgptacc.workers.dev';
+export const approvedAuthCallbackPath = '/auth/callback';
+export function isApprovedAuthCallback(raw: string): boolean {
   try {
     const url = new URL(raw);
-    if (url.protocol !== 'strandcue:' || url.host !== 'auth' || url.pathname !== '/callback'
-      || url.username || url.password || url.hash || url.searchParams.getAll('code').length !== 1
+    if (url.username || url.password || url.hash) return false;
+    if (url.protocol === 'strandcue:') return url.host === 'auth' && url.pathname === '/callback';
+    return url.protocol === 'https:' && url.host === approvedAuthCallbackHost && url.pathname === approvedAuthCallbackPath;
+  } catch { return false; }
+}
+
+export function parseRecoveryCallback(raw: string, pending: boolean): {code: string; flowId: string} | null {
+  if (!pending || !isApprovedAuthCallback(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (url.searchParams.getAll('code').length !== 1
       || url.searchParams.getAll('sb_flow_id').length !== 1) return null;
     const code = url.searchParams.get('code');
     const flowId = url.searchParams.get('sb_flow_id');
