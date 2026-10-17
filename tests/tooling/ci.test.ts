@@ -116,7 +116,9 @@ describe('CI workflow contracts', () => {
 });
 
 async function workflowNames(): Promise<string[]> {
-  return (await readdir('.github/workflows')).filter(name => name.endsWith('.yml')).sort();
+  return (await readdir('.github/workflows'))
+    .filter(name => name.endsWith('.yml') || name.endsWith('.yaml'))
+    .sort();
 }
 
 function permissionScopes(jobBlock: string): string[] {
@@ -124,6 +126,21 @@ function permissionScopes(jobBlock: string): string[] {
     .split('\n')
     .filter(line => /^ {6}[a-z-]+:/.test(line))
     .map(line => line.trim().split(':')[0]);
+}
+
+type PermissionEntry = { scope: string; value: string };
+
+function permissionEntries(block: readonly string[], pattern: RegExp): PermissionEntry[] {
+  return block
+    .filter(line => pattern.test(line))
+    .map(line => {
+      const [scope, ...rest] = line.trim().split(':');
+      return { scope, value: rest.join(':').trim() };
+    });
+}
+
+function jobPermissionEntries(jobBlock: string): PermissionEntry[] {
+  return permissionEntries(jobBlock.split('\n'), /^ {6}[a-z-]+:\s*\S/);
 }
 
 function workflowPermissionScopes(source: string): string[] {
@@ -139,6 +156,19 @@ function workflowPermissionScopes(source: string): string[] {
   return scopes;
 }
 
+function workflowPermissionEntries(source: string): PermissionEntry[] {
+  const lines = source.split('\n');
+  const start = lines.findIndex(line => /^permissions:/.test(line));
+  if (start === -1) return [{ scope: '<missing>', value: '' }];
+  if (/^permissions:\s*\{\}\s*$/.test(lines[start])) return [];
+
+  const block: string[] = [];
+  for (let index = start + 1; index < lines.length && /^ {2}[a-z-]+:/.test(lines[index]); index++) {
+    block.push(lines[index]);
+  }
+  return permissionEntries(block, /^ {2}[a-z-]+:\s*\S/);
+}
+
 describe('CI tooling supply chain', () => {
   it('never fetches a package at run time inside a workflow', async () => {
     for (const name of await workflowNames()) {
@@ -150,6 +180,11 @@ describe('CI tooling supply chain', () => {
         .not.toMatch(/npm\s+install\b[^\n]*--package-lock=false/);
       expect(source, `${name}: npm install <package>@<version>`)
         .not.toMatch(/npm\s+install\b[^\n]*@\d/);
+      // An outright ban: these helpers can fetch and execute a package at run time.
+      expect(source, `${name}: npx`).not.toMatch(/\bnpx\b/);
+      expect(source, `${name}: npm exec`).not.toMatch(/\bnpm\s+exec\b/);
+      expect(source, `${name}: yarn`).not.toMatch(/\byarn\b/);
+      expect(source, `${name}: pnpm`).not.toMatch(/\bpnpm\b/);
     }
   });
 
@@ -205,6 +240,22 @@ describe('CI tooling supply chain', () => {
     expect(runnerStep).not.toContain('EXPO_TOKEN');
   });
 
+  it('refuses to retain a build result that could contain the release credential', async () => {
+    const android = await workflow('android-build.yml');
+    const easSteps = android
+      .split('\n      - ')
+      .filter(step => step.includes('secrets.EXPO_TOKEN'));
+    expect(easSteps).toHaveLength(1);
+    const [easStep] = easSteps;
+    // Scan the artifact before it can be uploaded; fail closed if the token appears.
+    expect(easStep).toContain('grep -qF -- "$EXPO_TOKEN" eas-build-result.json');
+    expect(easStep).toMatch(/refusing to upload it/i);
+    expect(easStep).toContain('exit 1');
+    expect(easStep).toContain('set -euo pipefail');
+    // The guard must not echo the token value.
+    expect(easStep).not.toMatch(/echo[^\n]*\$\{?EXPO_TOKEN/);
+  });
+
   it('pins the release EAS CLI in a committed isolated lockfile outside the workspace', async () => {
     const manifest = JSON.parse(await readFile('tools/eas-runner/package.json', 'utf8'));
     expect(manifest.private).toBe(true);
@@ -229,6 +280,11 @@ describe('CI tooling supply chain', () => {
         workflowScopes.filter(scope => scope !== 'contents'),
         `${name} workflow-level permissions`,
       ).toEqual([]);
+      // Assert the value, not just the scope name: `contents: write` must fail.
+      for (const entry of workflowPermissionEntries(source)) {
+        expect(entry, `${name} workflow-level ${entry.scope}`)
+          .toEqual({ scope: 'contents', value: 'read' });
+      }
 
       const jobs = jobBlocks(source);
       expect(jobs.length, name).toBeGreaterThan(0);
@@ -238,6 +294,10 @@ describe('CI tooling supply chain', () => {
           permissionScopes(job).filter(scope => scope !== 'contents'),
           `${name}/${jobName} job permissions`,
         ).toEqual([]);
+        for (const entry of jobPermissionEntries(job)) {
+          expect(entry, `${name}/${jobName} job ${entry.scope}`)
+            .toEqual({ scope: 'contents', value: 'read' });
+        }
       }
     }
   });

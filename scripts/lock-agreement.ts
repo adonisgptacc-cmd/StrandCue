@@ -378,6 +378,19 @@ function expandTilde(partial: PartialVersion): Comparator[] {
   return [lowerBound(partial), upperBound(bound)];
 }
 
+/**
+ * npm expands a strict `>` against a partial version to the next release
+ * boundary: `>1.2` means `>=1.3.0` and `>1` means `>=2.0.0`. Widening those to
+ * `>1.2.0` / `>1.0.0` would accept versions npm itself rejects, so the gate
+ * maps the partial to the boundary instead.
+ */
+function greaterThanBoundary(partial: PartialVersion): Comparator {
+  const { major, minor } = partial;
+  return minor === undefined
+    ? { operator: '>=', version: { major: major + 1, minor: 0, patch: 0, prerelease: [] } }
+    : { operator: '>=', version: { major, minor: minor + 1, patch: 0, prerelease: [] } };
+}
+
 function expandToken(token: string): Comparator[] | undefined {
   if (wildcardPattern.test(token)) return [];
 
@@ -401,6 +414,12 @@ function expandToken(token: string): Comparator[] | undefined {
     if (partial.minor === undefined) return expandCaret({ major: partial.major });
     if (partial.patch === undefined) return expandTilde(partial);
     return [{ operator: '=', version: versionOf(partial) }];
+  }
+  if (operator === '>') {
+    // A partial version widens to the next boundary; a full version stays strict.
+    return [partial.minor === undefined || partial.patch === undefined
+      ? greaterThanBoundary(partial)
+      : { operator: '>', version: versionOf(partial) }];
   }
   return [{ operator, version: versionOf(partial) }];
 }
