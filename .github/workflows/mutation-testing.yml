@@ -19,6 +19,7 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci --ignore-scripts
+      - run: npm run audit:dependencies
       # Optional diagnostic: the isolated runner is lockfile-pinned and runs only when explicitly requested.
       - run: npm ci --ignore-scripts --prefix tools/mutation-runner
       - run: node tools/mutation-runner/node_modules/@stryker-mutator/core/bin/stryker.js run

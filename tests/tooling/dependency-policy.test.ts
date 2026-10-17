@@ -10,7 +10,7 @@ import {
   scopeExceptionRegistryToReport,
 } from '../../scripts/dependency-policy';
 
-const TODAY = '2026-10-06';
+const TODAY = '2026-10-17';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
 const ADVISORY_URL = `https://github.com/advisories/${ADVISORY_ID}`;
 const UUID_ADVISORY_ID = 'GHSA-w5hq-g745-h8pq';
@@ -364,7 +364,7 @@ describe('dependency advisory policy', () => {
 
   it.each([
     ['malformed', { advisoryId: 'not-a-ghsa' }, 'EXCEPTION-SCHEMA'],
-    ['future-approved', { approvedOn: '2026-10-07' }, 'EXCEPTION-DATE'],
+    ['future-approved', { approvedOn: '2026-10-18' }, 'EXCEPTION-DATE'],
     ['expired', { expiresOn: '2026-10-05' }, 'EXCEPTION-DATE'],
     ['review-before-approval', { reviewOn: '2026-10-05' }, 'EXCEPTION-DATE'],
     ['review-after-expiry', { reviewOn: '2026-12-06' }, 'EXCEPTION-DATE'],
@@ -1015,6 +1015,9 @@ describe('dependency audit CLI', () => {
       fakeNpmPath,
       [
         "import { appendFileSync } from 'node:fs';",
+        `const runnerReviews = ${JSON.stringify(['eas', 'mutation'].map(name => JSON.parse(readFileSync(resolve(repositoryRoot, `docs/verification/${name}-runner-advisory-review.json`), 'utf8'))))};`,
+        'const runner = runnerReviews.find(review => process.cwd().replaceAll(String.fromCharCode(92), "/").endsWith(review.tree.replace("/package.json", "")));',
+        'if (runner) { if (process.env.FAKE_AUDIT_LOG) appendFileSync(process.env.FAKE_AUDIT_LOG, `${process.cwd()}\\n`); process.stdout.write(JSON.stringify(runner.audit)); process.exit(0); }',
         "if (!process.argv.includes('--include=dev') || process.argv.includes('--omit=dev')) { process.stderr.write('Development dependencies must be audited'); process.exit(2); }",
         'const cwd = process.cwd();',
         'if (process.env.FAKE_AUDIT_LOG) appendFileSync(process.env.FAKE_AUDIT_LOG, `${cwd}\\n`);',
@@ -1181,7 +1184,7 @@ describe('dependency audit CLI', () => {
     expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
 
     const audited = auditedDirectories(auditLog);
-    expect(audited).toHaveLength(2);
+    expect(audited).toHaveLength(4);
     const workerDirectories = audited.filter(dir => dir.endsWith('/workers/account-deletion'));
     expect(workerDirectories).toHaveLength(1);
     expect(existsSync(join(workerDirectories[0], 'package-lock.json'))).toBe(true);
@@ -1293,7 +1296,7 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
-    expect(result.audited).toHaveLength(2);
+    expect(result.audited).toHaveLength(4);
     expect(result.audited.some(dir => dir.endsWith('/workers/account-deletion'))).toBe(true);
   }, 10_000);
 

@@ -1,0 +1,31 @@
+{
+  "tree": "tools/mutation-runner/package.json",
+  "lockSha256": "811eb5bf2241a9a224d1d4122b38964b4911b390a77c22d655c739f67c93ac7f",
+  "reviewedOn": "2026-10-17",
+  "recheckOn": "2026-10-24",
+  "expiresOn": "2026-10-31",
+  "owner": "<UNASSIGNED - dependency risk owner must be named before CI-001 closes>",
+  "audit": {
+    "auditReportVersion": 2,
+    "vulnerabilities": {},
+    "metadata": {
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "dependencies": {
+        "prod": 191,
+        "dev": 0,
+        "optional": 27,
+        "peer": 36,
+        "peerOptional": 0,
+        "total": 226
+      }
+    }
+  },
+  "advisories": []
+}

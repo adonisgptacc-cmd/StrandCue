@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { auditRunnerDependencyPolicy, summarizeRunnerDependencyAudit } from './runner-dependency-policy.ts';
 import {
   auditDependencyPolicy,
   countDependencyVulnerabilities,
@@ -26,6 +27,7 @@ const MAX_AUDIT_OUTPUT_BYTES = 20 * 1024 * 1024;
  * inventory the way a `apps/*` or `packages/*` tree is.
  */
 const standaloneTreeManifestPaths = ['workers/account-deletion/package.json'];
+const runnerNames = ['eas', 'mutation'] as const;
 
 type NpmAuditExecution = {
   exitCode: 0 | 1;
@@ -248,6 +250,26 @@ async function main(): Promise<void> {
       });
     }
 
+    // Isolated executable CI tooling has a separate exact-lock review policy;
+    // it must never inherit the application policy's build-only exceptions.
+    for (const name of runnerNames) {
+      const manifestPath = `tools/${name}-runner/package.json`;
+      const directory = fileURLToPath(new URL(`../tools/${name}-runner/`, import.meta.url));
+      await readRegularJson(new URL(`../${manifestPath}`, import.meta.url));
+      const lockUrl = new URL(`../tools/${name}-runner/package-lock.json`, import.meta.url);
+      await readRegularJson(lockUrl);
+      const lockSource = await readFile(lockUrl, 'utf8');
+      const review = await readRegularJson(new URL(
+        `../docs/verification/${name}-runner-advisory-review.json`, import.meta.url,
+      ));
+      const report = parseAuditReport(await runNpmAudit(directory));
+      trees.push({
+        id: manifestPath, manifestPath,
+        summary: summarizeRunnerDependencyAudit(report, review),
+        findings: auditRunnerDependencyPolicy(report, review, manifestPath, lockSource, today),
+      });
+    }
+
     const findings = trees.flatMap(tree => tree.findings);
     const rootSummary = trees[0].summary;
 
@@ -273,6 +295,7 @@ async function main(): Promise<void> {
     }
 
     process.stdout.write(`DEPENDENCY-POLICY-SUMMARY ${JSON.stringify(rootSummary)}\n`);
+    process.stdout.write(`DEPENDENCY-POLICY-TREES ${JSON.stringify(trees)}\n`);
     process.stdout.write('DEPENDENCY-POLICY-PASS\n');
     process.exitCode = 0;
   } catch {

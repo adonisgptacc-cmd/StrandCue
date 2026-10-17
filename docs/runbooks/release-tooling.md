@@ -41,51 +41,66 @@ if the release credential appears in the file.
     - run: npm ci --ignore-scripts --prefix tools/mutation-runner
     - run: node tools/mutation-runner/node_modules/@stryker-mutator/core/bin/stryker.js run
 
-## The coverage gap: both runners are outside the dependency-policy audit surface
+## Reviewed advisory gate (Task 24)
 
-**Both `tools/eas-runner` and `tools/mutation-runner` are outside the dependency-policy
-audit surface.** `scripts/audit-dependencies-cli.ts` builds its
-surface context from `workspaceManifestGlobs(root)` in
-`scripts/workspace-manifests.ts`, which admits only the `apps/*` and `packages/*`
-workspace roots. A directory outside those roots is invisible to it, so
-`npm run audit:dependencies` never sees either runner's dependency tree and neither
-tree appears in the reviewed advisory gate.
+**Both isolated runners are now audited** by `npm run audit:dependencies`.
+`scripts/audit-dependencies-cli.ts` explicitly audits root, account-deletion,
+EAS and mutation lockfiles. The existing workspaceManifestGlobs inventory remains
+for application workspaces. The runners use a separate pinned audit policy in
+`scripts/runner-dependency-policy.ts`; the application high-exception scope is
+unchanged. The Android verify job already requires the combined gate; the mutation
+workflow now invokes it before executing Stryker.
 
-Measured exposure (each runner's own `npm install` then `npm audit`, captured for
-this task; the columns are high / moderate / low / total):
+The review binds the exact lockfile SHA-256 (with CRLF normalized to LF) and the security-bearing audit
+graph (affected nodes, via dependency edges, affected ranges, full advisory
+metadata, IDs and severities). npm's nondeterministic derived effects and
+fixAvailable recommendations are excluded: they do not change installed paths
+and can alternate between equivalent parents across invocations.
+New/removed advisories, severity changes, new paths, any lock change, malformed or
+missing review, overdue recheck, and every Critical advisory fail closed. Removing
+an advisory requires refreshing the review, rather than silently retaining stale
+exceptions. A PASS means reviewed residual risk, not fixed vulnerabilities.
+Review evidence is in `docs/verification/eas-runner-advisory-review.json` and
+`docs/verification/mutation-runner-advisory-review.json`, with exact installed
+versions and complete lock-derived caller paths for each remaining advisory.
+
+The evidence was refreshed 2026-10-17; recheck **2026-10-24**, expiry **2026-10-31**.
+The runner policy caps every review at 14 days. Compatible targeted patch/minor
+overrides preserve all direct tool pins; no force fix or major override was used.
+The EAS process has EXPO_TOKEN and credential access, so build-only classification
+does not remove the actual CI exposure. Trusted configs, manual jobs, disabled
+install scripts and constrained commands mitigate it. No hosted build was run.
 
 | Runner | high | moderate | low | total |
 | --- | --- | --- | --- | --- |
-| `tools/eas-runner` | 15 | 16 | 1 | 32 |
-| `tools/mutation-runner` | 0 | 2 | 0 | 2 |
+| tools/eas-runner, Task 21 baseline | 15 | 16 | 1 | 32 |
+| tools/mutation-runner, Task 21 baseline | 0 | 2 | 0 | 2 |
+| tools/eas-runner, Task 24 after compatible refresh | 11 | 13 | 1 | 25 |
+| tools/mutation-runner, Task 24 after compatible refresh | 0 | 0 | 0 | 0 |
 
-## Why the EAS CLI cannot live in the audited workspace
+The eleven EAS high package entries derive from just two remaining high advisory
+IDs: braces GHSA-vfj7-8cjw-p6xm and node-forge GHSA-86w9-cpqp-85rv. Both latest
+published releases remain affected. Their complete CI paths and exposure are
+explicitly reviewed; this is not silent acceptance of the earlier 15 highs.
 
-Placing `eas-cli` in `apps/mobile` `devDependencies` and regenerating the root
-lockfile adds the whole `eas-cli` subtree to the audited dependency surface
-(measured: 23 new vulnerable packages, 11 high / 11 moderate / 1 low) and produces
-an unexceptable `ADVISORY-SEVERITY` finding. `isExpoOrMetroBuildToolPath`
-(`scripts/dependency-policy.ts:252-262`) admits only `@expo/cli`,
-`@expo/code-signing-certificates`, `@react-native/community-cli-plugin`,
-`@react-native/metro-config`, `metro`, `metro-*` and `@expo/metro*`, and
-`EXCEPTION-HIGH-SCOPE` (`scripts/dependency-policy.ts:537-553`) requires every path
-in a high-severity exception to be one of those. No entry in
-`docs/verification/dependency-advisory-exceptions.json` can satisfy that
-constraint, so the workspace placement cannot be made green without weakening a
-control.
+## Application policy boundary and accountable ownership
 
-## Open decision
+The original workspace-placement investigation remains relevant: the application
+policy's `scripts/dependency-policy.ts:252-262` build-path allowlist and
+`scripts/dependency-policy.ts:537-553` EXCEPTION-HIGH-SCOPE requirement exclude
+EAS. Putting EAS in the mobile workspace creates ADVISORY-SEVERITY findings that
+cannot be excepted honestly. The separate runner policy avoids weakening that
+application boundary and also admits actual CI exposure instead of asserting it
+is unreachable.
 
-Whether the isolated runner lockfiles should be brought into a reviewed advisory
-gate is an open decision, not one this placement settles. Either:
-
-1. bring `tools/*/package-lock.json` into a reviewed advisory gate — extend the
-   audit surface to the `tools/*` roots, or add a separate pinned audit per tree
-   with its own exception policy; or
-2. explicitly accept the risk that both runners' advisories stay out of
-   `npm run audit:dependencies`.
+Coverage decision: bring both tools lockfiles into the separate pinned audit gate
+above. The Task-21 coverage gap is resolved in source and tests. Human dependency
+risk acceptance and release authorization remain outstanding; no identity was
+invented and the exceptions are not fixes.
 
 Coverage decision owner: <UNASSIGNED - must be named before CI-001 can be closed>
 
-CI-001 stays open until that field names an accountable person and the decision
-above is recorded.
+CI-001 stays open until that field names an accountable person and the residual
+risk is reviewed by that owner. The dependency risk owner is likewise explicitly
+unassigned in the runner review evidence. This technical review does not imply
+human approval to release or execute a credential-bearing build.

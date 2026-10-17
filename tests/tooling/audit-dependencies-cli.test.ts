@@ -87,6 +87,15 @@ async function runGate(scenario: Scenario = {}) {
 }
 
 describe('dependency audit CLI boundary handling', () => {
+  it('includes both isolated runner lockfiles in the reviewed gate', async () => {
+    const result = await runGate();
+    const hold = JSON.parse(result.stdout);
+    expect(hold.trees.map((tree: { id: string }) => tree.id)).toEqual([
+      'root', 'workers/account-deletion/package.json',
+      'tools/eas-runner/package.json', 'tools/mutation-runner/package.json',
+    ]);
+  });
+
   it('reports zero reviewed worker advisories when only the root has stale exceptions', async () => {
     const result = await runGate({ missingCandidate: true });
     expect(result.exitCode).toBe(1);
@@ -118,6 +127,12 @@ describe('dependency audit CLI boundary handling', () => {
     { metadata: 'directory' }, { metadata: 'symlink' }, { metadata: 'missing' },
     { metadata: 'denied', target: '/packages/domain/package.json' },
     { metadata: 'missing', target: '/workers/account-deletion/package.json' },
+    { metadata: 'missing', target: '/tools/eas-runner/package.json' },
+    { metadata: 'symlink', target: '/tools/eas-runner/package-lock.json' },
+    { metadata: 'denied', target: '/docs/verification/eas-runner-advisory-review.json' },
+    { metadata: 'missing', target: '/tools/mutation-runner/package.json' },
+    { metadata: 'directory', target: '/tools/mutation-runner/package-lock.json' },
+    { metadata: 'symlink', target: '/docs/verification/mutation-runner-advisory-review.json' },
     { symlinkEntry: true }, { npmPath: '   ' },
     { auditOutput: '' }, { auditOutput: undefined }, { auditOutput: 'invalid json' },
     { auditOutput: '{}' }, { auditError: 1 }, { auditError: 2 },

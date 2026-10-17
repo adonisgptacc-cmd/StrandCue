@@ -38,13 +38,15 @@ describe('release tooling runbook contract', () => {
     expect(doc).toContain('$GITHUB_WORKSPACE/tools/eas-runner/node_modules/.bin/eas');
   });
 
-  it('states that both runners are outside the dependency-policy audit surface', async () => {
+  it('states that both runners now have an explicit reviewed advisory gate', async () => {
     const doc = await readFile(RUNBOOK, 'utf8');
-    expect(doc).toMatch(/outside the dependency-policy\s+audit surface/i);
+    expect(doc).toMatch(/both isolated runners are now audited/i);
     expect(doc).toContain('audit-dependencies-cli.ts');
-    expect(doc).toContain('workspaceManifestGlobs');
+    expect(doc).toContain('runner-dependency-policy.ts');
     expect(doc).toContain('npm run audit:dependencies');
-    expect(doc).toMatch(/never sees/i);
+    expect(doc).toContain('exact lockfile');
+    expect(doc).toContain('2026-10-24');
+    expect(doc).toContain('2026-10-31');
   });
 
   it('records the measured exposure for both runners', async () => {
@@ -69,7 +71,14 @@ describe('release tooling runbook contract', () => {
       'Coverage decision owner: <UNASSIGNED - must be named before CI-001 can be closed>',
     );
     expect(doc).toMatch(/CI-001 stays open until that field names an accountable person/i);
-    expect(doc).toMatch(/extend the audit surface|separate pinned audit/i);
-    expect(doc).toMatch(/accept the risk/i);
+    expect(doc).toMatch(/separate pinned audit/i);
+    expect(doc).toMatch(/reviewed residual risk/i);
+  });
+
+  it('runs the advisory gate before the isolated mutation runner executes', async () => {
+    const workflow = await readFile('.github/workflows/mutation-testing.yml', 'utf8');
+    const audit = workflow.indexOf('run: npm run audit:dependencies');
+    expect(audit).toBeGreaterThan(-1);
+    expect(audit).toBeLessThan(workflow.indexOf('run: node tools/mutation-runner'));
   });
 });
