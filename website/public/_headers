@@ -7,3 +7,6 @@
 
 https://:version.:subdomain.workers.dev/*
   X-Robots-Tag: noindex
+
+https://strandcue.co.za/*
+  Strict-Transport-Security: max-age=86400

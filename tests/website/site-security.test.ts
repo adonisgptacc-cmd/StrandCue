@@ -243,3 +243,225 @@ describe('website HTTP checker', () => {
     expect(failure.stderr).not.toMatch(/secret|token|private/);
   });
 });
+
+describe('website transport security headers', () => {
+  it('scopes the staged HSTS header to the production host block', () => {
+    expect(existsSync('website/public/_headers')).toBe(true);
+    const headers = normalizeLineEndings(readFileSync('website/public/_headers', 'utf8'));
+    expect(headers).toContain('https://strandcue.co.za/*\n  Strict-Transport-Security: max-age=86400');
+    expect(headers.toLowerCase()).not.toContain('includesubdomains');
+    expect(headers.toLowerCase()).not.toContain('preload');
+  });
+
+  it('keeps the general block unchanged and free of HSTS', () => {
+    const headers = normalizeLineEndings(readFileSync('website/public/_headers', 'utf8'));
+    const general = headers.split('\n\n')[0];
+    expect(general.startsWith('/*\n')).toBe(true);
+    expect(general).not.toMatch(/Strict-Transport-Security/i);
+    for (const [name, value] of Object.entries(secureHeaders).filter(([name]) => name !== 'content-type')) {
+      expect(general.toLowerCase()).toContain(`${name}: ${value.toLowerCase()}`);
+    }
+  });
+
+  it('leaves the workers.dev preview block unchanged', () => {
+    const headers = normalizeLineEndings(readFileSync('website/public/_headers', 'utf8'));
+    expect(headers).toContain('https://:version.:subdomain.workers.dev/*\n  X-Robots-Tag: noindex');
+  });
+});
+
+interface TransportResult {
+  readonly check: string;
+  readonly ok: boolean;
+  readonly detail: string;
+}
+
+const transportHttpRedirect = new Response(null, { status: 301, headers: { location: 'https://strandcue.co.za/' } });
+const transportHttpsOk = new Response('<html></html>', {
+  status: 200,
+  headers: { 'content-type': 'text/html; charset=utf-8', 'strict-transport-security': 'max-age=86400' },
+});
+
+async function loadTransportChecker() {
+  expect(existsSync('scripts/check-website-transport.ts'), 'missing website transport checker').toBe(true);
+  return import('../../scripts/check-website-transport.ts');
+}
+
+async function transportResults(http: Response | Error = transportHttpRedirect, https: Response | Error = transportHttpsOk): Promise<readonly TransportResult[]> {
+  const { checkWebsiteTransport } = await loadTransportChecker();
+  vi.stubGlobal('fetch', async (input: URL, options: RequestInit) => {
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    if (input.protocol === 'http:') {
+      expect(options.redirect).toBe('manual');
+      if (http instanceof Error) throw http;
+      return http;
+    }
+    expect(options.redirect).toBe('error');
+    if (https instanceof Error) throw https;
+    return https;
+  });
+  return checkWebsiteTransport('http://strandcue.co.za', 'https://strandcue.co.za');
+}
+
+describe('website transport checker', () => {
+  it('passes a redirect to the approved HTTPS host carrying the staged HSTS floor', async () => {
+    const results = await transportResults();
+    expect(results.map(result => result.check)).toEqual(['http-redirect', 'http-redirect-host', 'https-strict-transport-security']);
+    expect(results.every(result => result.ok)).toBe(true);
+    expect(Object.isFrozen(results)).toBe(true);
+    expect(results.every(result => Object.isFrozen(result))).toBe(true);
+  });
+
+  it.each(['https://strandcue.co.za.evil.test/', 'https://evilstrandcue.co.za/', 'https://other.test/'])(
+    'rejects a redirect that leaves the approved host: %s',
+    async location => {
+      const results = await transportResults(new Response(null, { status: 301, headers: { location } }));
+      expect(results[1].ok).toBe(false);
+      expect(JSON.stringify(results)).not.toMatch(/evil|other\.test/);
+    },
+  );
+
+  it('rejects a redirect that drops the canonical path', async () => {
+    const results = await transportResults(new Response(null, { status: 301, headers: { location: 'https://strandcue.co.za/privacy?token=secret' } }));
+    expect(results[1].ok).toBe(false);
+    expect(JSON.stringify(results)).not.toMatch(/secret|token|privacy/);
+  });
+
+  it('rejects a redirect destination that carries credentials', async () => {
+    const results = await transportResults(new Response(null, { status: 301, headers: { location: 'https://user:secret@strandcue.co.za/' } }));
+    expect(results[1].ok).toBe(false);
+    expect(JSON.stringify(results)).not.toMatch(/secret/);
+  });
+
+  it('fails when the HTTP origin does not redirect or omits the location', async () => {
+    const notRedirected = await transportResults(new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    expect(notRedirected[0].ok).toBe(false);
+    expect(notRedirected[1].ok).toBe(false);
+    const noLocation = await transportResults(new Response(null, { status: 301 }));
+    expect(noLocation[0].ok).toBe(false);
+    expect(noLocation[1].ok).toBe(false);
+    const badLocation = await transportResults(new Response(null, { status: 301, headers: { location: 'http://' } }));
+    expect(badLocation[0].ok).toBe(false);
+  });
+
+  it('fails when the secure response is missing, weak, or malformed', async () => {
+    const missingHsts = await transportResults(transportHttpRedirect, new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    expect(missingHsts[2].ok).toBe(false);
+    expect(missingHsts[2].detail).toContain('Strict-Transport-Security');
+    const weakHsts = await transportResults(transportHttpRedirect, new Response('<html></html>', {
+      status: 200, headers: { 'content-type': 'text/html', 'strict-transport-security': 'max-age=3600' },
+    }));
+    expect(weakHsts[2].ok).toBe(false);
+    const badStatus = await transportResults(transportHttpRedirect, new Response('nope', {
+      status: 500, headers: { 'content-type': 'text/html', 'strict-transport-security': 'max-age=86400' },
+    }));
+    expect(badStatus[2].ok).toBe(false);
+    const badType = await transportResults(transportHttpRedirect, new Response('{}', {
+      status: 200, headers: { 'content-type': 'application/json', 'strict-transport-security': 'max-age=86400' },
+    }));
+    expect(badType[2].ok).toBe(false);
+  });
+
+  it('redacts remote failures and never echoes destinations or credentials', async () => {
+    const results = await transportResults(
+      new Error('https://other.test/?token=private'),
+      new Error('failed https://evil.test/?token=private'),
+    );
+    expect(results.every(result => !result.ok)).toBe(true);
+    expect(JSON.stringify(results)).not.toMatch(/private|token|evil|other\.test/);
+  });
+
+  it('rejects unsafe transport origins but accepts localhost HTTP origins', async () => {
+    const { checkWebsiteTransport } = await loadTransportChecker();
+    const secure = 'https://strandcue.co.za';
+    for (const origin of ['garbage', 'http://strandcue.co.za', 'ftp://localhost',
+      'https://user:secret@strandcue.co.za', 'https://strandcue.co.za/privacy',
+      'https://strandcue.co.za/?token=secret', 'https://strandcue.co.za/#secret']) {
+      await expect(checkWebsiteTransport(secure, origin)).rejects.toThrow('Use an HTTPS origin');
+    }
+    for (const origin of ['garbage', 'https://strandcue.co.za', 'ftp://localhost',
+      'http://user:secret@strandcue.co.za', 'http://strandcue.co.za/privacy',
+      'http://strandcue.co.za/?token=secret', 'http://strandcue.co.za/#secret', 'http://other.test']) {
+      await expect(checkWebsiteTransport(origin, secure)).rejects.toThrow();
+    }
+    vi.stubGlobal('fetch', async (_input: URL, options: RequestInit) => options.redirect === 'manual'
+      ? new Response(null, { status: 308, headers: { location: 'http://127.0.0.1/' } })
+      : new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html', 'strict-transport-security': 'max-age=86400' } }));
+    expect((await checkWebsiteTransport('http://127.0.0.1', 'http://127.0.0.1')).every(result => result.ok)).toBe(true);
+  });
+
+  it('runs main in-process and reports pass, hold, and invalid input without leaking', async () => {
+    const { main } = await loadTransportChecker();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const previousExitCode = process.exitCode;
+    try {
+      vi.stubGlobal('fetch', async (_input: URL, options: RequestInit) => options.redirect === 'manual'
+        ? new Response(null, { status: 301, headers: { location: 'https://strandcue.co.za/' } })
+        : new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html', 'strict-transport-security': 'max-age=86400' } }));
+      process.exitCode = undefined;
+      await main();
+      expect(log.mock.calls.flat().join('\n').match(/WEBSITE-TRANSPORT-PASS/g)).toHaveLength(3);
+      expect(error).not.toHaveBeenCalled();
+      expect(process.exitCode).toBeUndefined();
+
+      vi.stubGlobal('fetch', async () => new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+      process.exitCode = undefined;
+      await main();
+      expect(log.mock.calls.flat().join('\n')).toMatch(/WEBSITE-TRANSPORT-HOLD/);
+      expect(process.exitCode).toBe(1);
+
+      process.env.STRANDCUE_WEBSITE_TRANSPORT_HTTPS = 'https://user:secret@strandcue.co.za/?token=private';
+      process.exitCode = undefined;
+      await main();
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('WEBSITE-TRANSPORT-HOLD: Invalid origin.'));
+      expect(process.exitCode).toBe(1);
+      expect(error.mock.calls.flat().join('\n')).not.toMatch(/secret|token|private/);
+    } finally {
+      delete process.env.STRANDCUE_WEBSITE_TRANSPORT_HTTPS;
+      process.exitCode = previousExitCode;
+      log.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it('runs the transport CLI against local servers and safely rejects unsafe input', async () => {
+    await loadTransportChecker();
+    const run = promisify(execFile);
+    await withServer((_, response) => {
+      response.writeHead(200, { 'content-type': 'text/html', 'strict-transport-security': 'max-age=86400' });
+      response.end('<html></html>');
+    }, async secureOrigin => {
+      await withServer((_, response) => {
+        response.writeHead(301, { location: `${secureOrigin}/` });
+        response.end();
+      }, async probeOrigin => {
+        const { stdout, stderr } = await run(process.execPath, ['scripts/check-website-transport.ts'], {
+          env: { ...process.env, STRANDCUE_WEBSITE_TRANSPORT_HTTP: probeOrigin, STRANDCUE_WEBSITE_TRANSPORT_HTTPS: secureOrigin },
+        });
+        expect(stdout.match(/WEBSITE-TRANSPORT-PASS/g)).toHaveLength(3);
+        expect(stderr).toBe('');
+      });
+    });
+    await withServer((_, response) => {
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.end('<html></html>');
+    }, async secureOrigin => {
+      await withServer((_, response) => {
+        response.writeHead(301, { location: `${secureOrigin}/` });
+        response.end();
+      }, async probeOrigin => {
+        const failure = await run(process.execPath, ['scripts/check-website-transport.ts'], {
+          env: { ...process.env, STRANDCUE_WEBSITE_TRANSPORT_HTTP: probeOrigin, STRANDCUE_WEBSITE_TRANSPORT_HTTPS: secureOrigin },
+        }).catch(error => error as { code: number; stdout: string });
+        expect(failure).toMatchObject({ code: 1 });
+        expect(failure.stdout).toMatch(/WEBSITE-TRANSPORT-HOLD/);
+      });
+    });
+    const bad = await run(process.execPath, ['scripts/check-website-transport.ts'], {
+      env: { ...process.env, STRANDCUE_WEBSITE_TRANSPORT_HTTPS: 'https://user:secret@strandcue.co.za/?token=private' },
+    }).catch(error => error as { code: number; stdout: string; stderr: string });
+    expect(bad).toMatchObject({ code: 1, stdout: '' });
+    expect(bad.stderr).toContain('WEBSITE-TRANSPORT-HOLD: Invalid origin.');
+    expect(bad.stderr).not.toMatch(/secret|token|private/);
+  });
+});

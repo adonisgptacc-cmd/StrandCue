@@ -19,6 +19,7 @@
     "website:dev": "npx --yes wrangler@4.148.0 dev --config website/wrangler.jsonc",
     "website:deploy": "npx --yes wrangler@4.148.0 deploy --config website/wrangler.jsonc",
     "check:website": "node scripts/check-website.ts",
+    "check:website-transport": "node scripts/check-website-transport.ts",
     "test:coverage": "vitest run --coverage",
     "typecheck:domain": "tsc --noEmit",
     "typecheck": "npm run typecheck:domain && npm run typecheck --workspace @strandcue/mobile",
