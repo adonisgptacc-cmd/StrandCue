@@ -25,16 +25,41 @@ describe('mutation testing config is loadable and wired to CI', () => {
     expect(cfg.coverageAnalysis).toBe('perTest');
   });
 
-  it('CI workflow has a mutation-testing job that uploads artifacts', () => {
+  it('CI workflow runs the isolated mutation runner from a committed lockfile', () => {
     const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/mutation-testing.yml'), 'utf8');
     expect(workflow).toContain('name: Mutation Testing');
     expect(workflow).toContain('uses: actions/checkout');
-    expect(workflow).toContain('@stryker-mutator/core@10.0.0');
-    expect(workflow).toContain('@stryker-mutator/vitest-runner@10.0.0');
-    expect(workflow).toContain('--prefix .superpowers/mutation-tools');
-    expect(workflow).toContain('typescript@6.0.3');
-    expect(workflow).toContain('vitest@5.0.0');
+    expect(workflow).toContain('npm ci --ignore-scripts');
+    expect(workflow).toContain('npm ci --ignore-scripts --prefix tools/mutation-runner');
+    expect(workflow).toContain(
+      'node tools/mutation-runner/node_modules/@stryker-mutator/core/bin/stryker.js run',
+    );
     expect(workflow).not.toContain('npx --yes');
+    expect(workflow).not.toContain('npm install');
+    expect(workflow).not.toContain('--no-save');
+    expect(workflow).not.toContain('--package-lock=false');
+    expect(workflow).not.toContain('.superpowers/mutation-tools');
     expect(workflow).toContain('upload-artifact');
+  });
+
+  it('pins the isolated mutation runner to exact versions in a committed lockfile', () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(__dirname, '../../tools/mutation-runner/package.json'), 'utf8'),
+    ) as { private?: boolean; dependencies?: Record<string, string> };
+    expect(manifest.private).toBe(true);
+    expect(manifest.dependencies).toEqual({
+      '@stryker-mutator/core': '10.0.0',
+      '@stryker-mutator/vitest-runner': '10.0.0',
+      'typescript': '6.0.3',
+      'vitest': '5.0.0',
+    });
+
+    const lock = JSON.parse(
+      readFileSync(resolve(__dirname, '../../tools/mutation-runner/package-lock.json'), 'utf8'),
+    ) as { lockfileVersion?: number; packages?: Record<string, { version?: string }> };
+    expect(lock.lockfileVersion).toBe(3);
+    for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
+      expect(lock.packages?.[`node_modules/${name}`]?.version, name).toBe(version);
+    }
   });
 });

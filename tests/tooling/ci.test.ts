@@ -114,3 +114,158 @@ describe('CI workflow contracts', () => {
     expect(manifest.scripts['verify:offline']).not.toContain('audit:dependencies');
   });
 });
+
+async function workflowNames(): Promise<string[]> {
+  return (await readdir('.github/workflows')).filter(name => name.endsWith('.yml')).sort();
+}
+
+function permissionScopes(jobBlock: string): string[] {
+  return jobBlock
+    .split('\n')
+    .filter(line => /^ {6}[a-z-]+:/.test(line))
+    .map(line => line.trim().split(':')[0]);
+}
+
+function workflowPermissionScopes(source: string): string[] {
+  const lines = source.split('\n');
+  const start = lines.findIndex(line => /^permissions:/.test(line));
+  if (start === -1) return ['<missing>'];
+  if (/^permissions:\s*\{\}\s*$/.test(lines[start])) return [];
+
+  const scopes: string[] = [];
+  for (let index = start + 1; index < lines.length && /^ {2}[a-z-]+:/.test(lines[index]); index++) {
+    scopes.push(lines[index].trim().split(':')[0]);
+  }
+  return scopes;
+}
+
+describe('CI tooling supply chain', () => {
+  it('never fetches a package at run time inside a workflow', async () => {
+    for (const name of await workflowNames()) {
+      const source = await workflow(name);
+      expect(source, `${name}: npx --yes`).not.toMatch(/npx\s+(--yes|-y)\b/);
+      expect(source, `${name}: npm install --no-save`)
+        .not.toMatch(/npm\s+install\b[^\n]*--no-save/);
+      expect(source, `${name}: npm install --package-lock=false`)
+        .not.toMatch(/npm\s+install\b[^\n]*--package-lock=false/);
+      expect(source, `${name}: npm install <package>@<version>`)
+        .not.toMatch(/npm\s+install\b[^\n]*@\d/);
+    }
+  });
+
+  it('installs every dependency graph from a committed lockfile without lifecycle scripts', async () => {
+    for (const name of await workflowNames()) {
+      const source = await workflow(name);
+      const installLines = source
+        .split('\n')
+        .filter(line => /\bnpm\s+(ci|install)\b/.test(line));
+      expect(installLines.length, `${name}: no install step found`).toBeGreaterThan(0);
+      for (const line of installLines) {
+        expect(line.trim(), `${name}: ${line.trim()}`).toMatch(/npm ci --ignore-scripts\b/);
+      }
+    }
+  });
+
+  it('keeps the release credential confined to the single locked EAS step', async () => {
+    const android = await workflow('android-build.yml');
+    const secretReferences = [...android.matchAll(/secrets\.[A-Za-z0-9_]+/g)]
+      .map(match => match[0]);
+    expect(secretReferences).toEqual(['secrets.EXPO_TOKEN']);
+
+    const easSteps = android
+      .split('\n      - ')
+      .filter(step => step.includes('secrets.EXPO_TOKEN'));
+    expect(easSteps).toHaveLength(1);
+    const [easStep] = easSteps;
+    expect(easStep).toContain('EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}');
+    expect(easStep).toContain('test -n "$EXPO_TOKEN"');
+    expect(easStep).toContain(
+      '"$EAS_CLI" build --platform android --profile "$BUILD_PROFILE"'
+      + ' --non-interactive --wait --json > eas-build-result.json',
+    );
+    expect(easStep).toContain(
+      'EAS_CLI="$GITHUB_WORKSPACE/tools/eas-runner/node_modules/.bin/eas"',
+    );
+    expect(easStep).toContain('test -x "$EAS_CLI"');
+    expect(easStep, 'the credential step must not fetch or install anything')
+      .not.toContain('npx');
+    expect(easStep).not.toContain('npm ci');
+    expect(easStep).not.toContain('npm install');
+  });
+
+  it('installs the locked EAS runner without ever holding the release credential', async () => {
+    const android = await workflow('android-build.yml');
+    const runnerSteps = android
+      .split('\n      - ')
+      .filter(step => step.includes('--prefix tools/eas-runner'));
+    expect(runnerSteps).toHaveLength(1);
+    const [runnerStep] = runnerSteps;
+    expect(runnerStep).toContain('npm ci --ignore-scripts --prefix tools/eas-runner');
+    expect(runnerStep).not.toContain('secrets.');
+    expect(runnerStep).not.toContain('EXPO_TOKEN');
+  });
+
+  it('pins the release EAS CLI in a committed isolated lockfile outside the workspace', async () => {
+    const manifest = JSON.parse(await readFile('tools/eas-runner/package.json', 'utf8'));
+    expect(manifest.private).toBe(true);
+    expect(manifest.dependencies['eas-cli']).toBe('24.10.0');
+
+    const lock = JSON.parse(await readFile('tools/eas-runner/package-lock.json', 'utf8'));
+    expect(lock.packages['node_modules/eas-cli'].version).toBe('24.10.0');
+
+    // The release CLI stays out of the audited workspace dependency tree.
+    const mobile = JSON.parse(await readFile('apps/mobile/package.json', 'utf8'));
+    expect(mobile.devDependencies?.['eas-cli']).toBeUndefined();
+    expect(mobile.dependencies?.['eas-cli']).toBeUndefined();
+    const rootLock = JSON.parse(await readFile('package-lock.json', 'utf8'));
+    expect(rootLock.packages['node_modules/eas-cli']).toBeUndefined();
+  });
+
+  it('never grants more than contents: read anywhere in a workflow', async () => {
+    for (const name of await workflowNames()) {
+      const source = await workflow(name);
+      const workflowScopes = workflowPermissionScopes(source);
+      expect(
+        workflowScopes.filter(scope => scope !== 'contents'),
+        `${name} workflow-level permissions`,
+      ).toEqual([]);
+
+      const jobs = jobBlocks(source);
+      expect(jobs.length, name).toBeGreaterThan(0);
+      for (const job of jobs) {
+        const jobName = job.split('\n')[0].trim();
+        expect(
+          permissionScopes(job).filter(scope => scope !== 'contents'),
+          `${name}/${jobName} job permissions`,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it('disables the default workflow token and grants each owned job only contents: read', async () => {
+    for (const name of ['android-build.yml', 'mutation-testing.yml']) {
+      const source = await workflow(name);
+      expect(source, name).toMatch(/^permissions: \{\}$/m);
+      expect(workflowPermissionScopes(source), name).toEqual([]);
+
+      const jobs = jobBlocks(source);
+      expect(jobs.length, name).toBeGreaterThan(0);
+      for (const job of jobs) {
+        const jobName = job.split('\n')[0].trim();
+        expect(job, `${name}/${jobName}`).toMatch(/\n    permissions:\n      contents: read\n/);
+        expect(permissionScopes(job), `${name}/${jobName}`).toEqual(['contents']);
+      }
+    }
+  });
+
+  it('keeps the manual Android release path reproducible and unpublishable', async () => {
+    const android = await workflow('android-build.yml');
+    expect(android).toContain('case "$BUILD_PROFILE" in preview|release|playInternal) ;; *) exit 1 ;; esac');
+    expect(android).toContain('--non-interactive --wait --json > eas-build-result.json');
+    expect(android).toContain('path: apps/mobile/eas-build-result.json');
+    expect(android).toContain('if-no-files-found: error');
+    expect(android).toContain('environment: android-release');
+    expect(android).not.toContain('eas submit');
+    expect(android).not.toContain('@latest');
+  });
+});

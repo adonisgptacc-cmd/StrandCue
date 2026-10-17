@@ -3,13 +3,14 @@ name: Mutation Testing
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   mutation-testing:
     name: Mutation Testing
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -17,10 +18,10 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-      - run: npm ci
-      # Optional diagnostic: tooling is pinned and runs only when explicitly requested.
-      - run: npm install --prefix .superpowers/mutation-tools --no-save --package-lock=false --ignore-scripts --no-audit @stryker-mutator/core@10.0.0 @stryker-mutator/vitest-runner@10.0.0 typescript@6.0.3 vitest@5.0.0
-      - run: node .superpowers/mutation-tools/node_modules/@stryker-mutator/core/bin/stryker.js run
+      - run: npm ci --ignore-scripts
+      # Optional diagnostic: the isolated runner is lockfile-pinned and runs only when explicitly requested.
+      - run: npm ci --ignore-scripts --prefix tools/mutation-runner
+      - run: node tools/mutation-runner/node_modules/@stryker-mutator/core/bin/stryker.js run
         env:
           CI: 'true'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

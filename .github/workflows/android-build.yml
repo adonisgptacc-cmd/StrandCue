@@ -10,8 +10,7 @@ on:
         type: choice
         options: [preview, release, playInternal]
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: android-build-${{ github.ref }}
@@ -21,6 +20,8 @@ jobs:
   verify:
     name: release-readiness
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -40,6 +41,8 @@ jobs:
     name: signed-android-build
     needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 60
     environment: android-release
     steps:
@@ -49,6 +52,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Install the locked EAS CLI runner
+        run: npm ci --ignore-scripts --prefix tools/eas-runner
       - name: Build selected Android profile using configured remote credentials
         working-directory: apps/mobile
         env:
@@ -58,7 +63,9 @@ jobs:
           set -euo pipefail
           case "$BUILD_PROFILE" in preview|release|playInternal) ;; *) exit 1 ;; esac
           test -n "$EXPO_TOKEN"
-          npx --yes eas-cli@24.10.0 build --platform android --profile "$BUILD_PROFILE" --non-interactive --wait --json > eas-build-result.json
+          EAS_CLI="$GITHUB_WORKSPACE/tools/eas-runner/node_modules/.bin/eas"
+          test -x "$EAS_CLI"
+          "$EAS_CLI" build --platform android --profile "$BUILD_PROFILE" --non-interactive --wait --json > eas-build-result.json
       - name: Retain build metadata (EAS hosts the signed binary)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
