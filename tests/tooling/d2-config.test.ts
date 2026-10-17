@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
+import { isApprovedAuthCallback, parseRecoveryCallback } from '../../apps/mobile/src/contracts';
 
 const APP_ID = 'za.co.strandcue.app';
 const DEEP_LINK_HOST = 'strandcue.adonisgptacc.workers.dev';
@@ -37,10 +38,31 @@ describe('D2 decided values are wired into device surfaces', () => {
     // docs/superpowers/plans/2026-09-24-assetlinks-cutover.md:144,152:
     // the cutover replaces this scheme-only guard with a dual-link guard.
     const auth = await readFile('apps/mobile/src/auth.tsx', 'utf8');
-    const contracts = await readFile('apps/mobile/src/contracts.ts', 'utf8');
     expect(auth).toContain(`const authCallbackUrl = 'https://${DEEP_LINK_HOST}/auth/callback'`);
     expect(auth).toContain('redirectTo: authCallbackUrl');
     expect(auth).toContain('isApprovedAuthCallback');
-    expect(contracts).toContain('strandcue://auth/callback');
+    // Behaviour, not a comment string: `strandcue://auth/callback` also lives in
+    // a comment, so assert the real inbound predicate still accepts the legacy
+    // branch under the same parameter rules. Deleting the branch with the
+    // comment left behind would fail here.
+    expect(isApprovedAuthCallback('strandcue://auth/callback')).toBe(true);
+    expect(parseRecoveryCallback('strandcue://auth/callback?code=abc&sb_flow_id=12345678', true))
+      .toEqual({ code: 'abc', flowId: '12345678' });
+  });
+
+  it('pins the outbound callback target to the inbound approval contract', async () => {
+    // The outbound literal is mandated verbatim in auth.tsx and repeats the host
+    // that also lives in contracts.ts. Nothing else forces the two to agree, so
+    // read the real value out of auth.tsx and run it through the real predicate:
+    // changing only one side must fail here rather than silently leaving the app
+    // requesting a callback its own contract rejects.
+    const auth = await readFile('apps/mobile/src/auth.tsx', 'utf8');
+    const match = /const authCallbackUrl = '([^']+)'/.exec(auth);
+    if (!match) throw new Error('authCallbackUrl not found in apps/mobile/src/auth.tsx');
+    const authCallbackUrl = match[1];
+    expect(authCallbackUrl).toBe(`https://${DEEP_LINK_HOST}/auth/callback`);
+    expect(isApprovedAuthCallback(authCallbackUrl)).toBe(true);
+    // ... and that pinned value is still the one the app hands to Supabase.
+    expect(auth).toContain('redirectTo: authCallbackUrl');
   });
 });

@@ -73,10 +73,23 @@ signed binary and device verification remain separate requirements.
 The legacy custom-scheme callback `strandcue://auth/callback` stays accepted on
 the inbound side during a bounded compatibility window. Expiry: the first release
 cut after the HTTPS recovery path passes the device proof in the operator
-checklist below. Owner: the release owner recorded in
-`docs/verification/android-acceptance-checklist.md`. The same expiry and owner
-appear as a code comment at the compatibility branch in
-`apps/mobile/src/contracts.ts`.
+checklist below.
+
+Cutover owner: <UNASSIGNED - must be named before the first release cut>
+
+The owner is a role that must be **assigned to a named accountable person**; this
+repository currently records no release owner, so the field above is deliberately
+blank rather than pointing at a record that names nobody. Removing the
+compatibility branch (operator checklist step 5) is **blocked until that field
+names an accountable person**: an unowned window must not be closed by default,
+and an unowned window must not run indefinitely either.
+
+Do not cut a release from the HTTPS-only tree before checklist steps 1-4 are recorded.
+Until then a recovery link does not open the app, because the hosted allowlist
+still rejects the HTTPS redirect.
+
+The same expiry and the same required owner field appear as a code comment at the
+compatibility branch in `apps/mobile/src/contracts.ts`.
 
 ## Fingerprint separation (Play App Signing)
 
@@ -95,7 +108,16 @@ authorization.
 
 1. Supabase dashboard, project `bomudijjqmoommndhxib`: Authentication → URL
    Configuration → Redirect URLs, add exactly
-   `https://strandcue.adonisgptacc.workers.dev/auth/callback`.
+   `https://strandcue.adonisgptacc.workers.dev/auth/callback`. The installed
+   client appends `sb_flow_id` to the redirect
+   (`experimental.appendPkceFlowIdToRedirects` in `apps/mobile/src/client.ts`), so
+   Supabase receives
+   `https://strandcue.adonisgptacc.workers.dev/auth/callback?sb_flow_id=...` and
+   matches the allow list **including the query string**. Confirm the entry
+   matches by tapping a real link (step 4); if it does not, add the documented
+   wildcard form `https://strandcue.adonisgptacc.workers.dev/auth/callback**`
+   instead. The wildcard stays on the app's own origin and the app-side
+   predicate is unchanged either way.
 2. Confirm the association is live with `npm run check:release-links` and a
    reviewed `STRANDCUE_ANDROID_CERT_SHA256`.
 3. Rebuild the signed Android build and check that

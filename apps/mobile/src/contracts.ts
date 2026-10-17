@@ -71,8 +71,9 @@ export function toggleSelection(selected: readonly string[], value: string): str
 // Legacy custom-scheme compatibility branch (`strandcue://auth/callback`): keep
 // it inbound-only until the first release cut after the HTTPS recovery path
 // passes its recorded device proof (operator checklist step 4 in
-// `docs/runbooks/assetlinks.md`); owner is the release owner recorded in
-// `docs/verification/android-acceptance-checklist.md`.
+// `docs/runbooks/assetlinks.md`). Owner: the `Cutover owner` field in that
+// runbook's Compatibility window section - a role that must name an accountable
+// person before the branch is removed.
 export const approvedAuthCallbackHost = 'strandcue.adonisgptacc.workers.dev';
 export const approvedAuthCallbackPath = '/auth/callback';
 export function isApprovedAuthCallback(raw: string): boolean {
