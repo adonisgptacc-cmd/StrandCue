@@ -234,13 +234,14 @@ async function main(): Promise<void> {
 
     for (const tree of standaloneTrees) {
       const report = parseAuditReport(await runNpmAudit(tree.directory));
+      const treeExceptions = scopeExceptionRegistryToReport(exceptions, report);
       trees.push({
         id: tree.id,
         manifestPath: tree.manifestPath,
-        summary: summarizeDependencyAudit(report, exceptions),
+        summary: summarizeDependencyAudit(report, treeExceptions),
         findings: auditDependencyPolicy(
           report,
-          scopeExceptionRegistryToReport(exceptions, report),
+          treeExceptions,
           today,
           tree.context,
         ),
