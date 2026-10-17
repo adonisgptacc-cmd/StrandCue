@@ -27,6 +27,46 @@ Remove-Item Env:STRANDCUE_SUPABASE_API_TEST, Env:STRANDCUE_SUPABASE_URL, Env:STR
 
 The secret is exclusively for this Node test process; never place it in the mobile `.env`, commit it, or paste it into evidence. Inspect test output and skipped counts; a successful default suite does not establish live API isolation.
 
+The API suite refuses hosted targets, including hosted staging. It accepts only
+`http://127.0.0.1:<explicit-port>` or `http://[::1]:<explicit-port>` without
+credentials, paths, query strings or fragments. Every request is confined to
+that origin and refuses redirects. Use only a disposable local database with
+the complete migration chain and local email confirmation enabled; the suite
+creates and deletes synthetic Auth users and runs deletion workers. Never
+forward this endpoint to production. A staging rehearsal requires a separately
+approved disposable instance and a loopback tunnel; setting an environment
+variable alone does not authorize that rehearsal.
+
+The suite covers real email confirmation/password sign-in, owner-scoped table
+reads, grants and direct-write denial, recommendation replay/conflicts and
+executable-status rejection, foreign/missing run equivalence, untrusted decision
+rejection, removed PostgREST RPC signatures, and Auth deletion/refresh revocation.
+It does not mint trusted executable decisions or prove successful trusted
+execution transitions, native PKCE recovery, hosted settings, or two-session
+Postgres locking. Those require separate evidence. Never remove the opt-in or
+the target guard to make a skipped test appear green.
+
+## Installed Expo evidence and critical coverage
+
+`audit:control-plane` checks the installed mobile dependency versions against
+the mobile manifest, root lockfile and installed Expo SDK mapping. The
+`expo-compatible-sdk` claim records SHA-256 hashes of those inputs and the
+installed version inventory. Missing, incompatible, stale or mismatched evidence
+holds the gate; changing dates alone does not clear it. After a deliberate
+dependency change, rerun `EXPO_OFFLINE=1 expo install --check` from `apps/mobile`
+with the locked local CLI, inspect the offline warning and compatibility result,
+then review the evidence from `collectExpoSdkEvidence` in
+`scripts/expo-sdk-evidence.ts` and update the claim with a bounded review date.
+This records agreement with the installed SDK, not latest upstream compatibility
+or Android/device acceptance.
+
+`npm run test:coverage` enforces 80% statements, branches, functions and lines
+for each critical mobile auth/contracts, guidance, execution controller and
+Today/execution surface module. The guidance glob also includes future modules.
+The same per-file floors cover the lock-agreement and control-plane gates and
+the local integration transport guard. Domain-wide coverage cannot compensate
+for a critical module falling below its own floor.
+
 ## Native and release gates
 
 After installing a test build, follow [the Maestro device runbook](maestro-device.md) and [the device acceptance matrix](../milestone7-device-matrix.md). The first two Maestro flows cover launch/validation and recovery navigation without submitting network requests. Signed-in flows need a configured backend and synthetic test account. Record device, build, backend, and outcomes for each run.

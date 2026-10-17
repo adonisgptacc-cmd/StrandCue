@@ -1,10 +1,18 @@
 [
   {
     "id": "expo-compatible-sdk",
-    "source": "https://docs.expo.dev/versions/latest/",
-    "checked_at": "2026-09-11",
-    "review_after": "2026-10-11",
-    "claim": "Verify Expo dependencies from installed bundledNativeModules and Expo install check."
+    "source": "node_modules/expo/bundledNativeModules.json",
+    "checked_at": "2026-10-17",
+    "review_after": "2026-10-31",
+    "claim": "Installed mobile dependencies agree with the locked versions and installed Expo 57 SDK mapping. Offline install --check passed; no latest registry, device, or native compatibility claim.",
+    "evidence": {
+      "kind": "installed-expo-sdk",
+      "expoVersion": "57.0.22",
+      "manifestSha256": "645127601cce829a922db1c3a1549962d2f184c4cef7ef4d81425d6c3fb321b3",
+      "lockSha256": "5cb74204ca75e4ee652639444282a0660737eaec30844b69b61ea104ad047806",
+      "bundledSha256": "d978ac25342e8b26a3fab22e9cdc42c7942d9a31ebc1ffc9d5436fb29d3e3e5e",
+      "installedSha256": "4be049e25985ff7e4af9b2464d8d76fa2ae54c06fbfe202461b61a1e05415113"
+    }
   },
   {
     "id": "supabase-functions",

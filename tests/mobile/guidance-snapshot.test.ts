@@ -661,6 +661,11 @@ it('preserves service presence and effective dates without inference', async () 
 });
 
 describe('guidance snapshot cancellation', () => {
+  it.each(['loadPassport', 'loadServices', 'listGuidanceActivityHistories', 'getUserTool'] as const)
+    ('propagates a source AbortError from %s instead of generating from partial records', async source => {
+      apiMocks[source].mockRejectedValue(Object.assign(new Error('source cancelled'), { name: 'AbortError' }));
+      await expect(load()).rejects.toMatchObject({ name: 'AbortError' });
+    });
   it('propagates an abort and applies no later result', async () => {
     const controller = new AbortController();
     apiMocks.listUserProducts.mockImplementation(
@@ -689,5 +694,52 @@ describe('guidance snapshot cancellation', () => {
       loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT, controller.signal),
     ).rejects.toThrow();
     expect(apiMocks.listUserProducts).not.toHaveBeenCalled();
+  });
+});
+
+describe('guidance snapshot incomplete-source boundaries', () => {
+  it.each([null, 'network unavailable'])('marks primitive passport failures incomplete: %s', async error => {
+    apiMocks.loadPassport.mockRejectedValue(error);
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.completeness.passport).toBe('failed');
+    expect(snapshot.passportFacts).toEqual({});
+  });
+  it('keeps scalar facts and drops structured passport values', async () => {
+    apiMocks.loadPassport.mockResolvedValue({ projection: { values: { text: 'known', count: 2, confirmed: false, missing: null, nested: { x: 1 } } } });
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.passportFacts).toEqual({ text: 'known', count: 2, confirmed: false, missing: null });
+  });
+  it('keeps missing service facts unknown rather than inventing an effective date', async () => {
+    apiMocks.loadServices.mockResolvedValue(page([serviceSummary({ facts: null })]));
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.services[0]).toMatchObject({ facts: {}, effectiveStart: null });
+    expect(snapshot.completeness.services).toBe('complete');
+  });
+  it('marks a failed service read incomplete without losing other sources', async () => {
+    apiMocks.loadServices.mockRejectedValue(new Error('service unavailable'));
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.completeness.services).toBe('failed');
+    expect(snapshot.services).toEqual([]);
+    expect(snapshot.completeness.products).toBe('complete');
+  });
+  it('marks disappearing details incomplete instead of treating them as an empty shelf', async () => {
+    apiMocks.getUserProduct.mockResolvedValue(null);
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.completeness.products).toBe('failed');
+    expect(snapshot.products).toEqual([]);
+  });
+  it('uses record identity for missing and empty item labels', async () => {
+    apiMocks.getUserProduct.mockResolvedValue({ ...productSummary(), versionId: null, manualName: '' });
+    apiMocks.getUserTool.mockResolvedValue({ ...toolSummary(), versionId: null, manualModel: undefined });
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.products[0].name).toBe(`Recorded item ${PRODUCT_ID}`);
+    expect(snapshot.tools[0].name).toBe(`Recorded item ${TOOL_ID}`);
+  });
+  it('marks repeated small pages truncated when the page ceiling is exhausted', async () => {
+    apiMocks.loadServices.mockResolvedValue(page([], { cursor: 'never ends' }));
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.completeness.services).toBe('truncated');
+    expect(snapshot.services).toEqual([]);
+    expect(apiMocks.loadServices).toHaveBeenCalledTimes(5);
   });
 });
