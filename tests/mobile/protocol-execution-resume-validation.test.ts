@@ -128,6 +128,21 @@ describe('resumed execution fingerprint', () => {
     expect(outcome).toEqual({ status: 'unverified' });
   });
 
+  it('rejects a receipt whose step order differs from the decision', () => {
+    // Task-15 carry: the fingerprint is an *ordered* step set, so a server-side
+    // reorder (same ids, different order) must fall to `unverified` rather than
+    // render best-effort. The step-set test above swaps an id, which a
+    // set-insensitive comparison would also reject, so it cannot pin the order
+    // rule on its own - this case is the one that discriminates.
+    const outcome = validateResumedReceipt(
+      receiptFixture({
+        execution: executionFixture({ steps: [pendingStep('step-2', 1), pendingStep('step-1', 2)] }),
+      }),
+      decisionFixture(),
+    );
+    expect(outcome).toEqual({ status: 'unverified' });
+  });
+
   it('rejects a receipt whose envelope disagrees with its own snapshot', () => {
     const envelopeMismatch = validateResumedReceipt(
       receiptFixture({ executionId: '33333333-3333-4333-8333-333333333333' }),

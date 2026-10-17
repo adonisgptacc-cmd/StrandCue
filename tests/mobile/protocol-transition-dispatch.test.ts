@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -21,6 +23,39 @@ const T0 = '2026-10-13T12:00:00+02:00';
 const T1 = '2026-10-13T12:05:00+02:00';
 const T2 = '2026-10-13T12:06:00+02:00';
 const OP = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+// Task-15 carry: `TRANSITION_USER_COPY` must stay in sync with the stable codes
+// the server can actually raise on this boundary, or a new server code reaches
+// the user as the generic "could not be saved" copy instead of specific copy.
+// Read from the migrations (the server's source of truth) rather than from the
+// client's own table, which would only ever agree with itself. Pinned by name,
+// the way `tests/database/protocol-executions.test.ts` pins its SQL assertions:
+// a later migration must be added here deliberately, not swept in by a glob.
+const PROTOCOL_RPC_MIGRATIONS = [
+  'supabase/migrations/20261013175703_protocol_executions.sql',
+  'supabase/migrations/20261014194531_protocol_transition_server_constructed.sql',
+  'supabase/migrations/20261014203908_protocol_substitute_shelf_verified.sql',
+  'supabase/migrations/20261014211011_protocol_execution_bounds_integrity.sql',
+];
+
+// Codes those migrations raise that are deliberately outside the client
+// vocabulary, because no client call can surface them:
+// - `decision-immutable` is raised by the BEFORE UPDATE guard trigger on
+//   `public.protocol_executions`. Every client write goes through an RPC, and the
+//   trigger exists to make a decision rewrite impossible, not to report to a caller.
+// - `result-mismatch` belongs to the pre-Task-4 `apply_execution_command` body
+//   that `20261014194531` drops and replaces with the server-constructed
+//   transition, so no live body raises it.
+const NON_BOUNDARY_STABLE_CODES = ['decision-immutable', 'result-mismatch'];
+
+function raisedStableCodes(): string[] {
+  const codes = new Set<string>();
+  for (const migration of PROTOCOL_RPC_MIGRATIONS) {
+    const sql = readFileSync(migration, 'utf8');
+    for (const match of sql.matchAll(/raise exception '([a-z0-9-]+)'/g)) codes.add(match[1]);
+  }
+  return [...codes].sort();
+}
 
 function startedExecution(): ProtocolExecution {
   return {
@@ -226,6 +261,26 @@ describe('protocol transition dispatch', () => {
     // the server rejected it, instead of echoing `text-too-large`.
     expect(TRANSITION_USER_COPY['text-too-large']).toMatch(/server/i);
     expect(TRANSITION_USER_COPY['text-too-large']).toMatch(/shorten/i);
+  });
+
+  it('keeps user copy for every stable code the protocol RPCs raise', () => {
+    const codes = raisedStableCodes();
+    // Guard the parse itself: a renamed migration or a changed raise syntax must
+    // fail here rather than pass by finding no codes at all.
+    expect(codes.length).toBeGreaterThanOrEqual(30);
+    expect(codes).toContain('revision-conflict');
+    expect(codes).toContain('text-too-large');
+
+    const unmapped = codes.filter(code => TRANSITION_USER_COPY[code] === undefined);
+    expect(unmapped).toEqual(NON_BOUNDARY_STABLE_CODES);
+
+    for (const code of codes) {
+      if (NON_BOUNDARY_STABLE_CODES.includes(code)) continue;
+      expect(transitionErrorCopy(new Error(code))).toEqual({
+        code,
+        copy: TRANSITION_USER_COPY[code],
+      });
+    }
   });
 
   it('falls back to honest generic copy for unmapped failures', () => {
