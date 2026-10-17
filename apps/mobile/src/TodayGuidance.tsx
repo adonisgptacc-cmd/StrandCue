@@ -304,10 +304,17 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   // fresh check-in. Offline, failed, or conflicting abandonment keeps the
   // active execution visible with retry/error copy instead.
   const releaseAbandoned = restore.releaseAbandoned;
+  const restoredExecutionId = restore.execution?.executionId ?? null;
   const handleTerminalAbandoned = useCallback((receipt: TerminalAbandonReceipt) => {
     if (receipt.status !== 'abandoned') return;
+    // Execution-scoped (Fix H carried hardening): only a receipt for the
+    // execution actually restored on this screen may release the restored
+    // context. A mismatched or foreign reply — another execution, another
+    // owner's session — must never drop this screen to a fresh check-in over
+    // an execution that is still live server-side.
+    if (restoredExecutionId === null || receipt.executionId !== restoredExecutionId) return;
     releaseAbandoned();
-  }, [releaseAbandoned]);
+  }, [releaseAbandoned, restoredExecutionId]);
 
   // Today never generates on mount: guidance is produced only when the owner
   // completes a check-in and asks for it, so simply opening the screen cannot
@@ -350,7 +357,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         it. The only way back to idle is the audited abandon transition —
         Today returns through the server-confirmed terminal receipt via
         onTerminalAbandoned, reusing the dispatcher + transition RPC. */}
-    {restore.phase === 'restored' && restore.decision !== null && (
+    {restore.phase === 'restored' && restore.decision !== null && restore.execution !== null && (
       <>
         <Text
           style={styles.title}
@@ -364,6 +371,8 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           key={ownerId}
           ownerId={ownerId}
           decision={restore.decision}
+          initialExecution={restore.execution}
+          initialRevision={restore.revision ?? undefined}
           onTerminalAbandoned={handleTerminalAbandoned}
         />
       </>

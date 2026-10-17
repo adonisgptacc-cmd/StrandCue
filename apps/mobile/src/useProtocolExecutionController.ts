@@ -111,6 +111,14 @@ export interface ProtocolExecutionController {
 export function useProtocolExecutionController(
   ownerId: string,
   decision: ProtocolDecision,
+  /** Fix H: validated receipt from the trusted restore aggregate. When
+   * provided, the controller resumes directly from this snapshot without
+   * performing a second active-execution read, eliminating the TOCTOU race
+   * where another session could complete or abandon between the aggregate
+   * read and this component's own load. */
+  initialExecution?: ProtocolExecutionRecord,
+  /** The authoritative server revision belonging to `initialExecution`. */
+  initialRevision?: number,
 ): ProtocolExecutionController {
   const [ui, dispatch] = useReducer(executionUiReducer, ownerId, initialExecutionUi);
   const [armed, setArmed] = useState<ArmedFlow | null>(null);
@@ -230,9 +238,23 @@ export function useProtocolExecutionController(
     // token guard plus the reducer's loading-only resume actions mean a late
     // response can never paint another owner's — or another run's — execution
     // onto the screen.
-    const token = ownerToken.current;
-    void loadActiveExecution(token);
-  }, [ownerId, decisionRequestId, loadActiveExecution]);
+    //
+    // Fix H: when the caller already holds a validated aggregate receipt
+    // (initialExecution), seed the controller directly from it and skip the
+    // second read entirely. This closes the TOCTOU race where another session
+    // could complete or abandon the execution between the aggregate read and
+    // this component's own load.
+    if (initialExecution) {
+      dispatch({
+        type: 'resume_succeeded',
+        execution: initialExecution,
+        revision: initialRevision ?? 0,
+      });
+    } else {
+      const token = ownerToken.current;
+      void loadActiveExecution(token);
+    }
+  }, [ownerId, decisionRequestId, loadActiveExecution, initialExecution, initialRevision]);
 
   // The substitute picker loads the owner's shelf when armed. Reading is
   // display-only: the server re-verifies the chosen item at command time.

@@ -5,10 +5,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { TodayGuidance } from '../../apps/mobile/src/TodayGuidance';
 import {
   CHECK_IN_START_LABEL,
+  EXECUTION_ABANDON_LABEL,
   EXECUTION_LOADING_LABEL,
   EXECUTION_LOAD_OFFLINE,
   EXECUTION_RELOAD_LABEL,
   EXECUTION_RESUME_UNVERIFIED,
+  EXECUTION_START_LABEL,
   START_OVER_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 
@@ -478,6 +480,93 @@ describe('fix E: active-execution recovery after process death', () => {
     expect(text(renderer)).toContain(EXECUTION_RESUME_UNVERIFIED.toLowerCase().slice(0, 24));
     expect(text(renderer)).not.toContain('step 1');
     expect(mocks.generate).not.toHaveBeenCalled();
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+});
+
+describe('Fix H: restored execution uses aggregate receipt, no second read', () => {
+  it('restored execution uses aggregate receipt without calling getActiveProtocolExecution again', async () => {
+    mocks.restoreAggregate.mockResolvedValue(bundle());
+    const renderer = await mountFresh();
+    await settle(renderer);
+    // The controller must NOT re-read execution from the server — it must use
+    // the validated aggregate receipt as the initial state.
+    expect(mocks.executionGetActive).not.toHaveBeenCalled();
+    expect(text(renderer)).toContain('step 1');
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('concurrent terminal/absent result never produces Start for restored decision', async () => {
+    // The aggregate read (validated at restore time) held an active execution,
+    // but by the time the execution surface would read again the execution has
+    // gone — another session completed or abandoned it, so the server now
+    // reports nothing active. Without carrying the validated receipt the
+    // surface would fall back to that absent read and paint "start this plan"
+    // over the already-used stored decision.
+    mocks.restoreAggregate.mockResolvedValue(bundle());
+    mocks.executionGetActive.mockResolvedValue(null);
+    const renderer = await mountFresh();
+    await settle(renderer);
+    expect(text(renderer)).toContain('step 1');
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(false);
+    expect(hasButton(renderer, START_OVER_LABEL)).toBe(false);
+    // The only way out is the audited abandon, never a fresh start.
+    expect(hasButton(renderer, EXECUTION_ABANDON_LABEL)).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('fresh ready decision uses normal start flow', async () => {
+    mocks.restoreAggregate.mockResolvedValue(null);
+    const renderer = await mountFresh();
+    await settle(renderer);
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    // No restore receipt → ProtocolExecution is not mounted, so no active read occurs.
+    expect(mocks.executionGetActive).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('owner switch cannot paint previous owner receipt', async () => {
+    // Owner-1's read returns the receipt; owner-2's own read is empty. The
+    // switch must discard owner-1's restored execution and paint owner-2's
+    // honest absent result — never owner-1's steps under owner-2.
+    mocks.restoreAggregate.mockResolvedValueOnce(bundle()).mockResolvedValueOnce(null);
+    const renderer = await mountFresh(OWNER);
+    await settle(renderer);
+    expect(text(renderer)).toContain('step 1');
+    await act(async () => {
+      renderer.update(
+        createElement(TodayGuidance, { ownerId: 'owner-2', key: 'owner-2', onNavigate: (() => undefined) as never }),
+      );
+      await flush(10);
+    });
+    await settle(renderer);
+    expect(text(renderer)).not.toContain('step 1');
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('paused receipt resumes at authoritative revision without second read', async () => {
+    const pausedAtRev3 = receipt({ status: 'paused', revision: 3 });
+    mocks.restoreAggregate.mockResolvedValue({ ...bundle(), execution: pausedAtRev3 });
+    const renderer = await mountFresh();
+    await settle(renderer);
+    expect(text(renderer)).toContain('paused');
+    expect(text(renderer)).toContain('step 1');
+    expect(mocks.executionGetActive).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('no mount-time generation, run recording, or execution start', async () => {
+    mocks.restoreAggregate.mockResolvedValue(bundle());
+    const renderer = await mountFresh();
+    await settle(renderer);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(mocks.recordRun).not.toHaveBeenCalled();
     expect(mocks.executionStart).not.toHaveBeenCalled();
     await act(async () => { renderer.unmount(); });
   });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { ProtocolDecision } from '../../../../packages/domain/src/index.ts';
+import type { ProtocolDecision, ProtocolExecution } from '../../../../packages/domain/src/index.ts';
 import { getActiveExecutionWithDecision } from './protocol-execution-api.ts';
 import {
   EXECUTION_RESUME_UNVERIFIED,
@@ -18,6 +18,10 @@ export interface TodayRestoreState {
   /** The exact stored trusted decision, painted only after validation. */
   readonly decision: ProtocolDecision | null;
   readonly run: RestoredRunIdentifiers | null;
+  /** The server-constructed execution snapshot from the aggregate (restored path only). */
+  readonly execution: ProtocolExecution | null;
+  /** The authoritative server revision from the aggregate (restored path only). */
+  readonly revision: number | null;
   readonly error: string | null;
   readonly offline: boolean;
 }
@@ -26,6 +30,8 @@ const IDLE_ABSENT: TodayRestoreState = {
   phase: 'absent',
   decision: null,
   run: null,
+  execution: null,
+  revision: null,
   error: null,
   offline: false,
 };
@@ -109,6 +115,8 @@ export function useTodayRestore(ownerId: string): TodayRestoreController {
           phase: 'restored',
           decision: validated.decision,
           run: validated.run,
+          execution: validated.execution,
+          revision: validated.revision,
           error: null,
           offline: false,
         });

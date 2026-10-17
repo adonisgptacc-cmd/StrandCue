@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Text, View } from 'react-native';
 
-import type { ProtocolDecision } from '../../../packages/domain/src/index';
+import type { ProtocolDecision, ProtocolExecution as ProtocolExecutionRecord } from '../../../packages/domain/src/index';
 import {
   EXECUTION_BOUNDARY,
   EXECUTION_LOADING_LABEL,
@@ -23,6 +23,18 @@ export interface ProtocolExecutionProps {
   readonly ownerId: string;
   /** A ready recommendation run. Mounting or viewing it records nothing. */
   readonly decision: ProtocolDecision;
+  /**
+   * Fix H: the server-constructed execution snapshot from the validated
+   * restore aggregate. When provided, ProtocolExecution resumes directly
+   * from this snapshot without re-reading the execution from the server,
+   * preventing a TOCTOU race where another session completes or abandons
+   * between the trusted restore read and the client's own load.
+   */
+  readonly initialExecution?: ProtocolExecutionRecord;
+  /** The server revision belonging to `initialExecution`. Required alongside
+   * `initialExecution`; when absent the controller performs its own
+   * owner-scoped load. */
+  readonly initialRevision?: number;
   /**
    * Fix G: fires exactly once per abandoned execution, and ONLY after the
    * authoritative server receipt reconciled (never from the optimistic
@@ -53,8 +65,8 @@ export interface TerminalAbandonReceipt {
  * props-in/render-out view. See the controller for the rules this surface
  * enforces.
  */
-export function ProtocolExecution({ ownerId, decision, onTerminalAbandoned }: ProtocolExecutionProps) {
-  const controller = useProtocolExecutionController(ownerId, decision);
+export function ProtocolExecution({ ownerId, decision, initialExecution, initialRevision, onTerminalAbandoned }: ProtocolExecutionProps) {
+  const controller = useProtocolExecutionController(ownerId, decision, initialExecution, initialRevision);
   const { ui, armed, execution } = controller;
   // Fix G terminal-abandon gate: notify the parent at most once per
   // abandoned execution, and only from authoritative server state. While a
@@ -66,6 +78,14 @@ export function ProtocolExecution({ ownerId, decision, onTerminalAbandoned }: Pr
   const notifiedAbandoned = useRef<string | null>(null);
   useEffect(() => {
     if (onTerminalAbandoned === undefined) return;
+    // Owner- and run-scoped (Fix H carried hardening): the reset for a new
+    // owner or a new run lands in an effect, i.e. AFTER the first commit that
+    // carries the new prop. On that commit `ui` still holds the previous
+    // context's execution, so notifying from it would release the new owner's
+    // — or the new run's — restored context on the strength of the old one's
+    // abandonment. The render guards below already refuse to paint that
+    // execution; this effect must hold the same line.
+    if (!controller.ownerMatches || !controller.runAgrees) return;
     if (ui.phase !== 'ready' || ui.pending !== null) return;
     const confirmed = ui.execution;
     if (confirmed === null || confirmed.status !== 'abandoned') return;
@@ -76,7 +96,15 @@ export function ProtocolExecution({ ownerId, decision, onTerminalAbandoned }: Pr
       status: 'abandoned',
       revision: ui.revision,
     });
-  }, [onTerminalAbandoned, ui.execution, ui.pending, ui.phase, ui.revision]);
+  }, [
+    onTerminalAbandoned,
+    controller.ownerMatches,
+    controller.runAgrees,
+    ui.execution,
+    ui.pending,
+    ui.phase,
+    ui.revision,
+  ]);
 
   // Paint-window guard: the reset to `idle` for a new owner lands in an
   // effect, i.e. AFTER the first commit with the new `ownerId`. Rendering

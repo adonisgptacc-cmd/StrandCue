@@ -515,3 +515,85 @@ describe('fix G: no unaudited local-dismiss path over a live restored execution'
     await act(async () => { renderer.unmount(); });
   });
 });
+
+describe('fix H carried hardening: the terminal-abandon signal is execution- and owner-scoped', () => {
+  const OTHER_EXECUTION_ID = '33333333-3333-4333-8333-333333333333';
+
+  it('does not release the restored run for a terminal receipt of another execution', async () => {
+    const renderer = await mountRestored();
+    // The server answers the abandonment with a terminal receipt for a
+    // DIFFERENT execution (a mismatched or foreign reply). The execution the
+    // user restored is still live server-side, so the screen must not fall
+    // back to a fresh check-in on the strength of someone else's abandonment.
+    mocks.executionTransition.mockImplementationOnce(async () => ({
+      executionId: OTHER_EXECUTION_ID,
+      recommendationRunId: RUN_ID,
+      status: 'abandoned',
+      revision: 9,
+      updatedAt: T0,
+      createdAt: T0,
+      execution: executionSnapshot({
+        executionId: OTHER_EXECUTION_ID,
+        status: 'abandoned',
+        finishedAt: T0,
+        closeReason: 'other',
+      }),
+    }));
+    await armAbandon(renderer);
+    await act(async () => {
+      button(renderer, EXECUTION_CONFIRM_STOP_LABEL).props.onPress();
+      await flush(10);
+    });
+    await settle(renderer);
+    // Still bound to the restored execution: no fresh check-in is offered.
+    expect(text(renderer)).toContain('step 1');
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(false);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('never notifies for a previous owner execution once the owner changes', async () => {
+    const onTerminalAbandoned = vi.fn();
+    // Seed the surface with the previous owner's already-abandoned execution
+    // through the validated restore receipt (no second active read).
+    const abandonedSeed = executionSnapshot({
+      status: 'abandoned',
+      finishedAt: T0,
+      closeReason: 'no time left',
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        createElement(ProtocolExecution, {
+          ownerId: OWNER,
+          decision: storedDecision() as never,
+          initialExecution: abandonedSeed as never,
+          initialRevision: 7,
+        }),
+      );
+      await flush();
+    });
+    await settle(renderer);
+    expect(mocks.executionGetActive).not.toHaveBeenCalled();
+    expect(onTerminalAbandoned).not.toHaveBeenCalled();
+    // The owner changes while the previous owner's abandoned execution is
+    // still on screen: the reset lands in an effect, a commit later. A
+    // notification raised on that commit would release the NEW owner's
+    // restored context on the strength of the OLD owner's execution.
+    mocks.executionGetActive.mockResolvedValue(null);
+    await act(async () => {
+      renderer.update(
+        createElement(ProtocolExecution, {
+          ownerId: 'owner-2',
+          decision: storedDecision() as never,
+          onTerminalAbandoned,
+        }),
+      );
+      await flush(10);
+    });
+    await settle(renderer);
+    expect(onTerminalAbandoned).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+});
