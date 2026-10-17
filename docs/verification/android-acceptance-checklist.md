@@ -100,10 +100,14 @@
   (3) Tap "Try again" while still offline. (4) Re-enable network. (5) Tap
   "Try again".
 - **Expected:** offline renders the explicit card ("You appear to be offline.
-  Your saved plan could not be loaded. Nothing is shown yet.") — phase
-  `load_failed`, never the idle start card; retry is the same idempotent
-  `getActiveProtocolExecution()` read (takes no arguments, resends nothing);
-  after reconnect, success resumes at authoritative revision with no duplicate
+  Your saved plan could not be loaded. Nothing is shown yet."), never the idle
+  start card; retry is the same idempotent read and resends nothing. Which read
+  depends on the path: on the **fresh/non-seeded** path the execution surface
+  issues `getActiveProtocolExecution()` (takes no arguments); on the
+  **restored** path the surface no longer reads at all (Fix H) and the failure
+  surfaces from Today's own aggregate `getActiveExecutionWithDecision()`
+  (`restore.phase === 'failed'`, same offline copy, same idempotent retry).
+  After reconnect, success resumes at authoritative revision with no duplicate
   execution.
 - **Result:** _requires signed physical-device or emulator run — NOT RUN._
 
