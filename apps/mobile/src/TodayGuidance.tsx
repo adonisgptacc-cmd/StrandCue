@@ -351,8 +351,9 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
 
     {/* A validated restore mounts the recovered execution with the STORED
         decision as context: no new check-in, no new run, no auto-generation.
-        The execution surface reloads the same receipt itself and resumes at
-        the authoritative revision. There is deliberately no local dismiss
+        The execution surface resumes directly from the receipt carried here —
+        one validated read, no second active-execution read that another
+        session could race. There is deliberately no local dismiss
         here: hiding a live execution would invite a second execution over
         it. The only way back to idle is the audited abandon transition —
         Today returns through the server-confirmed terminal receipt via

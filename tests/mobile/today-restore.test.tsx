@@ -518,12 +518,16 @@ describe('Fix H: restored execution uses aggregate receipt, no second read', () 
     await act(async () => { renderer.unmount(); });
   });
 
-  it('fresh ready decision uses normal start flow', async () => {
+  it('no restore aggregate leaves Today on the idle check-in, mounting no execution surface', async () => {
     mocks.restoreAggregate.mockResolvedValue(null);
     const renderer = await mountFresh();
     await settle(renderer);
     expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
-    // No restore receipt → ProtocolExecution is not mounted, so no active read occurs.
+    // Nothing to restore, so the execution surface is not mounted at all and
+    // no active-execution read is issued. (The fresh ready decision path — a
+    // check-in that generates a run, then starts it — is covered by
+    // today-guidance and protocol-execution-resume; here the seed simply has
+    // nothing to seed from.)
     expect(mocks.executionGetActive).not.toHaveBeenCalled();
     await act(async () => { renderer.unmount(); });
   });
