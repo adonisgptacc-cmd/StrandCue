@@ -58,14 +58,23 @@ export function parseArtifactInspectionOutputs(
   const packageInfo = packageMatches.length === 1 ? packageMatches[0] : null;
   if (!packageInfo) errors.push('BADGING_PARSE');
 
-  const signerMatches = [...output.signer.matchAll(/Signer\s+#(\d+)\s+certificate SHA-256 digest:\s*([a-f\d:]+)/gi)];
+  const declaredSignerMatches = [...output.signer.matchAll(/Number of signers:[ \t]*(\d+)/gi)];
+  const declaredSignerCount = declaredSignerMatches.length === 1 ? Number(declaredSignerMatches[0][1]) : null;
+  const signerMatches = [...output.signer.matchAll(/Signer[ \t]+#(\d+)[ \t]+certificate SHA-256 digest:[ \t]*([^\r\n]*)/gi)];
   const signerNumbers = signerMatches.map((match) => Number(match[1]));
-  const signerCount = signerNumbers.length && signerNumbers.every(Number.isFinite)
-    ? Math.max(...signerNumbers)
+  const signerCount = declaredSignerCount !== null && Number.isSafeInteger(declaredSignerCount)
+    ? declaredSignerCount
     : null;
-  if (signerCount === null || signerMatches.length !== signerCount) errors.push('SIGNER_PARSE');
-  const signerSha256 = signerMatches.length === 1 ? normalizeSha256(signerMatches[0][2]) : null;
-  if (signerMatches.length === 1 && !signerSha256) errors.push('SIGNER_HASH_PARSE');
+  const signerRecordsAreComplete = signerCount !== null
+    && signerCount > 0
+    && signerMatches.length === signerCount
+    && new Set(signerNumbers).size === signerCount
+    && signerNumbers.every((number, index) => number === index + 1);
+  if (!signerRecordsAreComplete) errors.push('SIGNER_PARSE');
+  const signerSha256 = signerRecordsAreComplete && signerCount === 1
+    ? normalizeSha256(signerMatches[0][2])
+    : null;
+  if (signerRecordsAreComplete && signerCount === 1 && !signerSha256) errors.push('SIGNER_HASH_PARSE');
 
   const abi = [...new Set([...output.archiveListing.matchAll(/(?:^|\s)lib\/([^/\s]+)\/[^\s]+/gm)].map((match) => match[1]))];
   if (!abi.length) errors.push('ABI_PARSE');
@@ -181,6 +190,7 @@ export function verifyAndroidArtifactCli(
     const buildTools = env.ANDROID_BUILD_TOOLS || (sdkRoot ? join(sdkRoot, 'build-tools', '36.0.0') : '');
     const aapt = requireTool(env.STRANDCUE_AAPT, buildTools ? join(buildTools, 'aapt.exe') : '', 'AAPT');
     const apksigner = requireTool(env.STRANDCUE_APKSIGNER, buildTools ? join(buildTools, 'lib', 'apksigner.jar') : '', 'APKSIGNER');
+    const zipalign = requireTool(env.STRANDCUE_ZIPALIGN, buildTools ? join(buildTools, 'zipalign.exe') : '', 'ZIPALIGN');
     const java = requireTool(env.STRANDCUE_JAVA, env.JAVA_HOME ? join(env.JAVA_HOME, 'bin', 'java.exe') : 'java.exe', 'JAVA');
     const jar = requireTool(env.STRANDCUE_JAR, env.JAVA_HOME ? join(env.JAVA_HOME, 'bin', 'jar.exe') : 'jar.exe', 'JAR');
     const receiptPath = env.STRANDCUE_ANDROID_SOURCE_RECEIPT || `${absoluteApk}.source-receipt.json`;
@@ -188,6 +198,8 @@ export function verifyAndroidArtifactCli(
     const readText = dependencies.readText ?? ((path: string) => readFileSync(path, 'utf8'));
     const hashFile = dependencies.hashFile ?? ((path: string) => createHash('sha256').update(readFileSync(path)).digest('hex'));
 
+    const zipalignOutput = runCommand(zipalign, ['-c', '-v', '4', absoluteApk]);
+    if (!/\bVerification successful\b/i.test(zipalignOutput)) throw new Error('ZIPALIGN_OUTPUT_MISSING');
     const badging = runCommand(aapt, ['dump', 'badging', absoluteApk]);
     const signerArgs = apksigner.toLowerCase().endsWith('.jar')
       ? ['-jar', apksigner, 'verify', '--verbose', '--print-certs', absoluteApk]
@@ -221,7 +233,8 @@ export function verifyAndroidArtifactCli(
       stderr: '',
     };
   } catch (error) {
-    const code = error instanceof Error && /^TOOL_MISSING:(?:AAPT|APKSIGNER|JAVA|JAR)$/.test(error.message)
+    const code = error instanceof Error && (/^TOOL_MISSING:(?:AAPT|APKSIGNER|ZIPALIGN|JAVA|JAR)$/.test(error.message)
+      || error.message === 'ZIPALIGN_OUTPUT_MISSING')
       ? error.message
       : 'INSPECTION_FAILED';
     return { exitCode: 1, stdout: '', stderr: `ANDROID-ARTIFACT-HOLD:${code}\n` };
