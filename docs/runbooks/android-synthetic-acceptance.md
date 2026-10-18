@@ -8,6 +8,11 @@ remain **BLOCKED**. Task 6 may not consume this plan as provisioned fixtures;
 it requires a separately verified `isolated_test` backend and completed
 containment review first.
 
+The authoritative Task 5 evidence snapshot is
+[`task-5-synthetic-data.md`](../../.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-5-synthetic-data.md).
+It records this classification and confirms that the labels and fixture
+recipes below represent no provisioned data.
+
 The signed universal APK (`za.co.strandcue.app`, version `0.1.0`, SHA-256
 `f68053fa3c9b6b78b7298b59a8574e6cceb3174444d16c8a423ec89eb06fd7d9`) rendered
 the “Connect your development environment” screen on the clean API 34 emulator.
@@ -86,3 +91,8 @@ two-owner model; do not seed conflicting active executions simultaneously for
 one owner. Task 6 records the exact artifact, owner label, fixture variant,
 starting revision, outcome, and cleanup result for each scenario. An unavailable
 or failed precondition is BLOCKED, not PASS.
+
+For scenario 8, Owner B requires its own reviewed decision bound only to
+`SC-B-SHELF-BASE`, a distinct ordered step snapshot, and a revision-1 active
+run. The fixture inventory defines placeholder labels; only a verified
+isolated test backend may issue the actual fingerprint and receipt.

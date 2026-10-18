@@ -29,6 +29,20 @@ fourth final step. Keep the decision fingerprint and ordered step snapshot
 unchanged for an execution's lifetime. No draft/unreviewed content may be
 promoted solely for acceptance testing.
 
+For the account-switch B side, prepare a separate reviewed decision labeled
+`SC-B-DECISION-BASE`. It references only `SC-B-SHELF-BASE` and a distinct,
+reviewed non-draft protocol. Its ordered snapshot is
+`SC-B-STEP-1` (confirmed), `SC-B-STEP-2` (pending), and
+`SC-B-STEP-3` (pending); the B decision fingerprint is
+`SC-B-DECISION-FINGERPRINT-<computed-after-approved-fixture>` and must differ
+from A's `SC-A-DECISION-FINGERPRINT-<computed-after-approved-fixture>`. These
+fingerprint strings are placeholders, not computed or persisted values. For
+scenario 8, B has an active `in_progress` run
+`SC-B-RUN-8` at revision 1, owned by B and bound to that B decision fingerprint
+and exact step snapshot. The seed/creation record must capture the actual
+server-issued fingerprint and receipt privately in redacted evidence before
+device use; never claim the placeholder itself is a valid fingerprint.
+
 Execution reset labels are `SC-A-RUN-<scenario>` and `SC-B-RUN-<scenario>`.
 These are labels for records produced by approved APIs/fixture tooling; they
 are not authorization tokens. Record the authoritative receipt and revision
@@ -45,7 +59,7 @@ returned by the backend after every transition.
 | 5. Deviation: skip and modify | A has an active run at revision 2 with steps 2 and 3 pending and both marked eligible for deviation under the reviewed decision. | Step 2 has a valid bounded skip reason; step 3 has a valid bounded modify reason and detail. Verify validation and owner-scoped persisted summaries. |
 | 6. Owned and foreign substitution | A and B each have their distinct base and substitute shelf items. A has an active run whose current pending step 3 permits substitution; online. | A-owned substitute succeeds carrying only its shelf item ID. A request using B's item ID is denied, never applied or painted. Verify B's item cannot be read through A's session, including a stale-ID attempt. |
 | 7. Offline/reconnect | A has an active run at revision 2; online at setup, then device network is disabled. | Offline surface shows the explicit no-data card and retry sends no mutation. Re-enable network; retry reads the same authoritative run/revision without duplicate execution. |
-| 8. Account switch | A has active run A at revision 2; B has different active run B at revision 1, with distinct decision fingerprint and step snapshot; both Auth accounts usable. | A → sign out → B shows a neutral loading state before only B data. Delay an A response if the harness permits and verify it cannot paint after switch. |
+| 8. Account switch | A has active run A at revision 2 bound to `SC-A-DECISION-BASE`; B has active run `SC-B-RUN-8` at revision 1 bound to `SC-B-DECISION-BASE`, B's distinct fingerprint, and snapshot (`SC-B-STEP-1` confirmed; steps 2–3 pending). Both Auth accounts usable. | A → sign out → B shows a neutral loading state before only B data. Verify B's exact run, revision, decision fingerprint, and step snapshot load. Delay an A response if the harness permits and verify it cannot paint after switch. |
 | 9. Terminal completion | A has an active run at revision 3, with all but the final step confirmed; online. | Complete the final step (or use the separately specified abandon path with reason). The mounted view is terminal with no controls/start. On relaunch, active restore returns none. |
 
 Seed execution states only through a database/security-reviewed mechanism that

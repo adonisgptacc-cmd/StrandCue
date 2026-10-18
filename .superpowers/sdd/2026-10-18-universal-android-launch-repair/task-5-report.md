@@ -46,6 +46,17 @@ recovery, account switching, terminal completion, and cross-owner denial
 checks. The nine precondition recipes are listed individually in
 [`android-synthetic-acceptance-fixtures.md`](../../../docs/runbooks/android-synthetic-acceptance-fixtures.md).
 
+For scenario 8, Owner B has an explicit separate recipe: reviewed decision
+`SC-B-DECISION-BASE` references only B's shelf, has the ordered snapshot
+`SC-B-STEP-1` (confirmed), `SC-B-STEP-2` (pending),
+`SC-B-STEP-3` (pending), and binds active run `SC-B-RUN-8` at revision 1.
+Its actual decision fingerprint must differ from A's and is computed only by
+the approved isolated fixture path; the documented fingerprint labels are
+synthetic placeholders, not persisted values.
+
+The concise authoritative evidence snapshot is
+[`task-5-synthetic-data.md`](task-5-synthetic-data.md).
+
 The runbook is at
 [`android-synthetic-acceptance.md`](../../../docs/runbooks/android-synthetic-acceptance.md).
 It requires authoritative proof of a dedicated disposable backend, database
@@ -70,4 +81,5 @@ exists for this unprovisioned plan.
 - Scenarios 1–9: **BLOCKED**, 0/9 run.
 - Database/security review: **not performed**; required before any future
   provisioning.
-- Files changed: two runbook documents and this task report only.
+- Files changed: two runbook documents, the required authoritative evidence
+  snapshot, and this task report.
