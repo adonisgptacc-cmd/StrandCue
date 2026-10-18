@@ -88,9 +88,11 @@ npm run verify:android-artifact -- C:\scb\artifacts\strandcue-alpha.apk
 
 The verifier runs `zipalign -c -v 4`, `aapt dump badging`,
 `apksigner verify --verbose --print-certs`, and `jar tf`, then checks package
-`za.co.strandcue.app`, source commit, the `arm64-v8a` ABI, version `0.1.0`, a
-single signer with the configured public fingerprint, a valid APK SHA-256, and
-a matching source receipt. It parses apksigner's declared signer count and
+`za.co.strandcue.app`, the pinned source commit and input APK hash, the
+`arm64-v8a` ABI, version `0.1.0` / version code `1`, a single signer with the
+configured public fingerprint, a valid APK SHA-256, and a matching source
+receipt. Source commit and input APK hash expectations are pinned in tracked
+verifier code; caller environment values cannot replace them. It parses apksigner's declared signer count and
 requires one digest record for every contiguous signer number. A missing,
 duplicate, gapped, or inconsistent signer record returns HOLD. The zipalign
 check runs on the exact APK being inspected; a missing tool or nonzero result

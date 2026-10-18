@@ -22,6 +22,7 @@ const expected: AndroidArtifactExpectation = {
   inputApkSha256,
   abi: 'arm64-v8a',
   versionName: '0.1.0',
+  expectedVersionCode: '1',
   signerCount: 1,
   signerSha256: fingerprint,
 };
@@ -69,6 +70,11 @@ describe('verifyAndroidArtifact', () => {
     expect(verifyAndroidArtifact({ ...valid, versionName: '0.2.0' }, expected).status).toBe('HOLD');
   });
 
+  it('holds when versionCode is missing or differs from the pinned build', () => {
+    expect(verifyAndroidArtifact({ ...valid, versionCode: '2' }, expected).status).toBe('HOLD');
+    expect(verifyAndroidArtifact({ ...valid, versionCode: null }, expected).status).toBe('HOLD');
+  });
+
   it('holds for malformed APK or certificate hashes', () => {
     expect(verifyAndroidArtifact({ ...valid, apkSha256: 'not-a-hash' }, expected).status).toBe('HOLD');
     expect(verifyAndroidArtifact({ ...valid, signerSha256: 'not-a-hash' }, expected).status).toBe('HOLD');
@@ -104,6 +110,17 @@ describe('verifyAndroidArtifact', () => {
     });
     expect(parsed.parseErrors).toContain('SIGNER_PARSE');
     expect(verifyAndroidArtifact(parsed, expected).status).toBe('HOLD');
+  });
+
+  it('rejects trailing text on the declared signer count line', () => {
+    const parsed = parseArtifactInspectionOutputs({
+      badging: "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'",
+      signer: `Number of signers: 1 extra\nSigner #1 certificate SHA-256 digest: ${fingerprint}`,
+      archiveListing: 'lib/arm64-v8a/libstrandcue.so',
+      sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
+      apkSha256: 'b'.repeat(64),
+    });
+    expect(parsed.parseErrors).toContain('SIGNER_PARSE');
   });
 
   it('holds on duplicate, gapped, or missing signer digest records', () => {
@@ -190,6 +207,31 @@ describe('verifyAndroidArtifact', () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('ANDROID-ARTIFACT-PASS');
+  });
+
+  it('does not let caller environment overrides replace pinned source and input expectations', () => {
+    const otherSourceCommit = '0'.repeat(40);
+    const otherInputHash = 'c'.repeat(64);
+    const result = verifyAndroidArtifactCli('artifact.apk', {
+      ANDROID_HOME: 'C:/Android/Sdk',
+      STRANDCUE_ANDROID_CERT_SHA256: fingerprint,
+      STRANDCUE_APKSIGNER: 'apksigner.jar',
+      STRANDCUE_ANDROID_EXPECTED_SOURCE_COMMIT: otherSourceCommit,
+      STRANDCUE_ANDROID_EXPECTED_INPUT_APK_SHA256: otherInputHash,
+    }, {
+      runCommand: (command, args) => args[0] === '-c'
+        ? 'Verification successful.'
+        : command.includes('aapt')
+        ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
+        : args.join(' ').includes('apksigner')
+          ? `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`
+          : 'lib/arm64-v8a/libstrandcue.so',
+      readText: () => JSON.stringify({ sourceCommit: otherSourceCommit, inputApkSha256: otherInputHash, signedApkSha256: 'b'.repeat(64) }),
+      hashFile: () => 'b'.repeat(64),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('SOURCE_MISMATCH');
+    expect(result.stderr).toContain('INPUT_APK_HASH_MISMATCH');
   });
 
   it('runs zipalign check with -c -v 4 and holds when alignment fails', () => {

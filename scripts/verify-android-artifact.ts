@@ -24,6 +24,7 @@ export interface AndroidArtifactExpectation {
   inputApkSha256: string;
   abi: string;
   versionName: string;
+  expectedVersionCode: string;
   signerCount: number;
   signerSha256: string;
 }
@@ -58,7 +59,7 @@ export function parseArtifactInspectionOutputs(
   const packageInfo = packageMatches.length === 1 ? packageMatches[0] : null;
   if (!packageInfo) errors.push('BADGING_PARSE');
 
-  const declaredSignerMatches = [...output.signer.matchAll(/Number of signers:[ \t]*(\d+)/gi)];
+  const declaredSignerMatches = [...output.signer.matchAll(/^Number of signers:[ \t]*(\d+)[ \t]*\r?$/gim)];
   const declaredSignerCount = declaredSignerMatches.length === 1 ? Number(declaredSignerMatches[0][1]) : null;
   const signerMatches = [...output.signer.matchAll(/Signer[ \t]+#(\d+)[ \t]+certificate SHA-256 digest:[ \t]*([^\r\n]*)/gi)];
   const signerNumbers = signerMatches.map((match) => Number(match[1]));
@@ -134,6 +135,7 @@ export function verifyAndroidArtifact(
   }
   if (!metadata.abi.includes(expected.abi)) errors.push('ABI_MISMATCH');
   if (metadata.versionName !== expected.versionName) errors.push('VERSION_MISMATCH');
+  if (metadata.versionCode !== expected.expectedVersionCode) errors.push('VERSION_CODE_MISMATCH');
   if (metadata.signerCount !== expected.signerCount) errors.push('SIGNER_COUNT_MISMATCH');
 
   const actualFingerprint = normalizeSha256(metadata.signerSha256);
@@ -212,10 +214,11 @@ export function verifyAndroidArtifactCli(
     const certificate = env.STRANDCUE_ANDROID_CERT_SHA256 || '';
     const expected: AndroidArtifactExpectation = {
       packageName: 'za.co.strandcue.app',
-      sourceCommit: env.STRANDCUE_ANDROID_EXPECTED_SOURCE_COMMIT || 'd8c2818a7fac0e996910a5a33d6784875800993b',
-      inputApkSha256: env.STRANDCUE_ANDROID_EXPECTED_INPUT_APK_SHA256 || '466330d1578e8019cb6e312b2653e750a550338d6c2637d5cda076555236b1ae',
+      sourceCommit: 'd8c2818a7fac0e996910a5a33d6784875800993b',
+      inputApkSha256: '466330d1578e8019cb6e312b2653e750a550338d6c2637d5cda076555236b1ae',
       abi: 'arm64-v8a',
       versionName: '0.1.0',
+      expectedVersionCode: '1',
       signerCount: 1,
       signerSha256: certificate,
     };

@@ -6,16 +6,16 @@ Date: 2026-10-18. Scope: evidence capture only; no build or configuration fix at
 
 - Required source object `d8c2818a7fac0e996910a5a33d6784875800993b` exists and is a commit (`docs: record final increment four approval`).
 - Documentation/evidence HEAD at the clean preflight: `9d25b867d63e303770055cce8654c3d98f267334`. `git status --short` was empty.
-- Initial shell-selected Node was `v25.1.0`, which failed the brief's 24.x preflight expectation. The diagnostic paused there. On resumption, a process-local PATH prefix selected `C:\Users\ABADO\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`, version `v24.19.0`; source and clean-tree checks still passed. No system Node installation was changed.
+- Initial shell-selected Node was `v25.1.0`, which failed the brief's 24.x preflight expectation. The diagnostic paused there. On resumption, a process-local PATH prefix selected `<Node 24 runtime executable>`, version `v24.19.0`; source and clean-tree checks still passed. No system Node installation was changed.
 - Task 25's prior Android attempt used implementation commit `02fd96a`.
 
 ## Local toolchain and host
 
 | Component | Observed value |
 | --- | --- |
-| Java | Microsoft OpenJDK `17.0.20.1` (`17.0.20.1+1-LTS`); `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot\bin\java.exe` |
-| `JAVA_HOME` | `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot\` |
-| Android SDK | `C:\Users\ABADO\AppData\Local\Android\Sdk` (exists; discovered at the standard local path; `ANDROID_HOME` and `ANDROID_SDK_ROOT` were unset) |
+| Java | Microsoft OpenJDK `17.0.20.1` (`17.0.20.1+1-LTS`); `<Java 17 executable>` |
+| `JAVA_HOME` | `<Java 17 installation>` |
+| Android SDK | `<Android SDK root>` (exists; discovered at the standard local path; `ANDROID_HOME` and `ANDROID_SDK_ROOT` were unset) |
 | Android platforms | `android-34`, `android-36`, `android-37.0` |
 | Android build-tools | Installed: `35.0.0`, `36.0.0`. The retained Task 25 Gradle log line 62 reports `[ExpoRootProject]` buildTools `36.0.0`; generated `app/build.gradle` line 87 uses `rootProject.ext.buildToolsVersion`. Thus `36.0.0` is the Gradle/Expo configured-announced selection, not proof of a completed artifact. |
 | Android NDK | `27.1.12297006`; selected path confirmed by the prior generated app's `CMakeCache.txt` |
@@ -36,9 +36,9 @@ Measured absolute path prefixes on this host:
 
 | Path | Characters |
 | --- | ---: |
-| Remediation worktree root `C:\Users\ABADO\Desktop\StrandCue\.worktrees\security-audit-remediation` | 70 |
+| Remediation worktree root `<remediation worktree root>` | 70 |
 | Worktree `node_modules` (prior junction target) | 83 |
-| Prior scratch root `C:\Users\ABADO\AppData\Local\Temp\strandcue-task25-02fd96a` | 58 |
+| Prior scratch root `<local temp scratch root>` | 58 |
 | Prior scratch `apps\mobile\android` | 78 |
 | Prior scratch `apps\mobile\android\app` | 82 |
 
