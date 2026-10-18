@@ -144,3 +144,47 @@ installation by the separate fresh-AVD run below.
   `C:\scb\artifacts\task6-launch-crash-safe.log`.
 - Summary: `.superpowers/sdd/2026-10-18-local-android-apk/task-6-device-run.md`;
   detailed command record: `.superpowers/sdd/2026-10-18-local-signed-android-apk-and-device-acceptance/task-6-report.md`.
+
+## Task 4 — universal APK first launch on a distinct clean x86_64 AVD (2026-10-18)
+
+- Result: **PASS — first launch**. This supersedes the Task 6 crash observation
+  for the earlier ARM64-only APK. The Task 3 universal APK was installed on a
+  newly created `strandcue-universal-api34-x86_64` AVD from
+  `system-images;android-34;google_apis;x86_64`. Existing `native-spike` and
+  `strandcue-alpha-api34` AVDs were not changed or wiped.
+- Observed: `2026-10-18 23:43 +02:00` (Africa/Johannesburg). Device model
+  `sdk_gphone64_x86_64`, Android 14 / API 34; ADB serial redacted as
+  `emulator-****`. Reported ABI list: `x86_64,arm64-v8a`.
+- Clean package state: before install, `pm path za.co.strandcue.app` returned
+  no package path and Package Manager was available after
+  `sys.boot_completed=1`.
+- Candidate: `C:\scb\artifacts\strandcue-universal-alpha-task3-fixed.apk`,
+  package `za.co.strandcue.app`, version `0.1.0` / code 1, SHA-256
+  `f68053fa3c9b6b78b7298b59a8574e6cceb3174444d16c8a423ec89eb06fd7d9`.
+  `apksigner` reports exactly one signer; certificate SHA-256
+  `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`.
+- Install and installed artifact: **PASS**. `adb install` succeeded. Pulled
+  installed `base.apk` SHA-256 exactly matched the candidate; `apksigner`
+  verification of the installed file reported the same signer certificate.
+  Android resolved `za.co.strandcue.app/.MainActivity`.
+- Runtime: Android selected `primaryCpuAbi=x86_64`; native library directory
+  reported as `/data/app/.../lib` (the path includes an ephemeral install ID).
+  The app process PID remained `5768` across a 20-second observation, and
+  `MainActivity` remained focused. Screenshot inspection shows StrandCue UI:
+  the “Your hair, as you know it” development-environment setup surface. No
+  crash, force-stop, or SoLoader error was observed.
+- Bounded logcat: at `23:43 +02:00`, the last 600 brief-format entries were
+  filtered for `SoLoader`, React Native startup/error tags, fatal exception,
+  AndroidRuntime, package process, and displayed-activity lines. The filtered
+  excerpt was empty and no crash-buffer event was observed. The safe external
+  record is `C:\scb\artifacts\strandcue-universal-api34-task4-safe.log`.
+- Safe screenshot retained outside Git at
+  `C:\scb\artifacts\strandcue-universal-api34-first-launch.png`; it contains
+  no account information. No account was created, no sign-in was attempted,
+  and no hosted data was accessed or changed.
+- Acceptance protocol remains **0/9; all scenarios BLOCKED**. First launch is
+  proven, but the rendered app is at the development-environment connection
+  setup state and no synthetic account or protocol fixture was available.
+  This Task 4 run did not proceed into scenario execution.
+- Detailed command and evidence record:
+  `.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-4-first-launch.md`.
