@@ -11,6 +11,7 @@ const criticalModules = [
   'scripts/audit-dependencies-cli.ts', 'scripts/runner-dependency-policy.ts',
   'scripts/android-local-preflight.ts',
   'scripts/verify-android-artifact.ts',
+  'scripts/android-native-manifest.ts',
 ];
 const floor = { lines: 80, statements: 80, functions: 80, branches: 80 };
 
