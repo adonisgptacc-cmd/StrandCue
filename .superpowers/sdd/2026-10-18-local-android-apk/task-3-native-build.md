@@ -33,10 +33,12 @@ Three controlled Gradle attempts used Java 17 and the same clean arm64 command:
    `Filename longer than 260 characters` for a gesture-handler object. Its
    reported relative path measured 266 characters. CMake was 3.22.1, Ninja
    1.10.2 and NDK 27.1.12297006. No offline Gradle mode was forced.
-3. Fresh `C:\scb\a` archive, with the SDK variable retained: reducing the
-   measured relative object path to 257 characters allowed the same build to
-   pass. Gradle reported `:app:assembleRelease` and `BUILD SUCCESSFUL in
-   13m 36s` (521 actionable tasks: 513 executed, 8 up-to-date).
+3. Fresh `C:\scb\a` archive, with the SDK variable retained: substituting the
+   shorter child name into the failed relative path projected 257 characters.
+   The successful `build.ninja` instead used a hashed 169-character relative
+   path for that object. Gradle reported `:app:assembleRelease` and
+   `BUILD SUCCESSFUL in 13m 36s` (521 actionable tasks: 513 executed, 8
+   up-to-date).
 
 The current attempt produced a non-empty APK at
 `C:\scb\a\apps\mobile\android\app\build\outputs\apk\release\app-release.apk`.
