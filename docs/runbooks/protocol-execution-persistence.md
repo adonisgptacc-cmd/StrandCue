@@ -69,7 +69,10 @@ transition) is deadlock-free.
 
 ## Retention / cleanup (policy; enforcement is Increment 2 / Task 13)
 
-No purge worker is built here. A future worker MUST follow this policy:
+Task 13 and its follow-up consent/scheduler repairs implement this policy in
+source. See [privacy retention](privacy-retention.md) for the current routines,
+seven-year consent handling, schedule and required pre-deploy alert routing.
+Hosted application remains pending. The implementation follows this policy:
 
 - Eligibility: `completed` executions 90 days after `finishedAt`;
   `abandoned` executions 30 days after `finishedAt`. Non-terminal rows are

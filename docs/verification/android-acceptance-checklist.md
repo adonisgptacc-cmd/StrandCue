@@ -8,8 +8,11 @@
 > hence this new file alongside it, following the `beta-gate-review-checklist.md`
 > precedent.)
 
-- Source under test: Increment 3 tip (Tasks 15–17), commit `b76fdab`.
-- Required build flavor: signed preview/release build of the `b76fdab` tree
+- Source awaiting acceptance: final remediation implementation, commit `02fd96a`
+  (includes the post-Task-18 restore repairs and Tasks 19–24). The original
+  Increment 3 checklist was authored against `b76fdab`; its historical local
+  tests do not certify this final source.
+- Required build flavor: signed preview/release build of the `02fd96a` tree
   (EAS preview APK equivalent, `za.co.strandcue.app`), installed on a physical
   device or emulator. Record build ID, artifact SHA-256, and device model/API
   in the Result column when run.

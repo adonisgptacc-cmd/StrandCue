@@ -60,8 +60,10 @@ its public `ANDROID_CERT_SHA256` runtime variable with the certificate from the
 local association file. Multiple supported certificates are comma-separated.
 Missing or malformed configuration returns 503; GET/HEAD on the association path
 returns JSON without redirect. Auth callback paths intentionally remain outside
-this handler: preserve custom-scheme recovery until the existing HTTPS cutover
-plan's hosted allowlist and native callback tests pass.
+this handler. Task 20 moved outbound recovery/signup redirects to the approved
+HTTPS callback; retain inbound custom-scheme compatibility until the operator
+checklist's hosted allowlist and native callback tests pass. Do not cut a release
+before that evidence exists.
 
 Production version `6a8cda08` was deployed with user approval on 4 October.
 The live release-link gate passed against the local signing certificate;
@@ -125,4 +127,3 @@ authorization.
 4. Tap a real recovery link on the device and record the result in
    `docs/verification/device-evidence.md`.
 5. Only then remove the compatibility branch.
-

@@ -18,6 +18,13 @@ anywhere — implementations keep reading them from configuration.
 
 ## D2. Owned HTTPS domain and Android application identifier
 
+Current implementation note (2026-10-18, Task 25): Tasks 19–24 supersede the
+historical source-wiring statements below. Outbound signup/recovery now uses
+`https://strandcue.adonisgptacc.workers.dev/auth/callback`; the Android intent
+filter uses `/auth/callback`, and the custom scheme is inbound compatibility.
+The hosted/device cutover checklist is still NOT DONE and its owner remains
+unassigned. This note changes no D2 decision or human sign-off.
+
 - **Context:** Needed for Universal/App Links (recovery + email confirmation), the sender domain and the Play listing. The `.maestro` placeholder appId and deep-link hosts take these values.
 - **Needed:** Domain, Android applicationId.
 - **Status:** DECIDED

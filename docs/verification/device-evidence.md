@@ -1,5 +1,13 @@
 # Device evidence log
 
+Current source rule (Task 25, 2026-10-18, implementation `02fd96a`): Task 20
+changed outbound signup/recovery redirects to the approved HTTPS callback;
+`strandcue://auth/callback` remains inbound compatibility only. Historical
+custom-scheme/build observations below describe their dated binaries. None
+certifies current hosted allowlists, App Links or the Android acceptance
+checklist, which remains **0/9 NOT RUN**. See the
+[final HOLD packet](security-audit-launch-decision-2026-10-18.md).
+
 ## Build 1 — preview APK (2026-09-24)
 
 - EAS build ID: 693da61b-e2e0-4ecf-8e51-7051cf8306ff
