@@ -188,3 +188,45 @@ installation by the separate fresh-AVD run below.
   This Task 4 run did not proceed into scenario execution.
 - Detailed command and evidence record:
   `.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-4-first-launch.md`.
+
+## Task 6 — protocol acceptance disposition (2026-10-18)
+
+- Run disposition recorded at `2026-10-18 23:55:18 +02:00` (Africa/Johannesburg;
+  UTC `2026-10-18 21:55:18`). This is the evidence disposition time; no
+  protocol scenario execution is claimed.
+- Bound artifact: `strandcue-universal-alpha-task3-fixed.apk`, package
+  `za.co.strandcue.app`, version `0.1.0` / code 1, SHA-256
+  `f68053fa3c9b6b78b7298b59a8574e6cceb3174444d16c8a423ec89eb06fd7d9`;
+  signer certificate SHA-256
+  `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`.
+- Source: artifact receipt identifies commit
+  `d8c2818a7fac0e996910a5a33d6784875800993b`.
+- Bound device: `strandcue-universal-api34-x86_64`, model
+  `sdk_gphone64_x86_64`, Android 14 / API 34, reported ABIs
+  `x86_64,arm64-v8a`; ADB serial redacted as `emulator-****`.
+- Task 4 installation and first launch on this device: **PASS**. The installed
+  APK hash and signer matched the candidate and the app rendered the
+  development-environment setup UI. This is launch evidence only.
+- Backend classification: **`blocked_production`**. The artifact receipt has
+  no remote Supabase project reference and backend isolation is unproven.
+  Reserved labels `SC-ANDROID-T5-OWNER-A` and
+  `SC-ANDROID-T5-OWNER-B` do not represent created accounts; no account,
+  credentials, shelf, decision, execution, or receipt exists for them. No
+  hosted data was accessed or changed, and no hosted writes were authorized.
+- Canonical protocol acceptance: **0/9 run; all 9 BLOCKED**. Each exact
+  missing synthetic precondition is recorded in
+  `.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-6-device-acceptance.md`
+  and reflected in `android-acceptance-checklist.md`. No authoritative server
+  revision, idempotent retry result, or no-duplicate-effect evidence was
+  collected.
+- Adjacent journeys, tracked separately from scenarios 1–9: signup, account
+  confirmation, recovery, export/share, deletion/cancellation, offline launch,
+  TalkBack, and touch-target checks are all **NOT RUN**.
+- Triage: no security, privacy, or execution-integrity failure was observed
+  because account-dependent flows were not entered. Distribution acceptance
+  remains HOLD pending proven isolated backend identity, reviewed synthetic
+  fixtures, and a new artifact/device-bound run.
+- Detailed report:
+  `.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-6-report.md`;
+  canonical scenario and adjacent-journey evidence:
+  `.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-6-device-acceptance.md`.

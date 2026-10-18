@@ -1,13 +1,19 @@
 # Android acceptance checklist — Increment 3 protocol execution
 
-> **DEVICE EVIDENCE BLOCKED — 0/9 scenarios run.** Task 4 installed the verified
-> universal Task 3 APK on a distinct, clean API 34 x86_64 AVD and its first
-> launch rendered StrandCue UI with a stable process. The screen is the
-> development-environment setup state; no synthetic test accounts or protocol
-> fixtures were available, so no protocol scenario was run and no scenario PASS
-> is claimed. The earlier ARM64-only artifact's SoLoader crash is historical
-> and superseded by this universal-artifact launch result. See
-> `docs/verification/device-evidence.md` and the Task 4 report for device facts.
+> **DEVICE ACCEPTANCE BLOCKED — 0/9 scenarios run.** Task 4 installed the
+> verified universal APK on a fresh API 34 x86_64 AVD and its first launch
+> rendered StrandCue UI with a stable process. Task 5 classified the backend
+> `blocked_production`: the remote project identity and isolation are unproven.
+> Reserved synthetic owner labels have no accounts or fixtures, so no
+> account-dependent protocol scenario was attempted. No hosted data was
+> accessed or changed, and no hosted writes were authorized. No scenario PASS
+> is claimed. The prior ARM64-only artifact's SoLoader crash is superseded by
+> the universal-artifact launch result. The acceptance run is bound to APK
+> SHA-256 `f68053fa3c9b6b78b7298b59a8574e6cceb3174444d16c8a423ec89eb06fd7d9`,
+> signer `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`,
+> and AVD `strandcue-universal-api34-x86_64` at 2026-10-18 23:55:18 +02:00.
+> See `docs/verification/device-evidence.md` and
+> `.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-6-device-acceptance.md`.
 > (Prior build/install history lives in
 > `docs/verification/device-evidence.md`, which is a log, not a checklist —
 > hence this new file alongside it, following the `beta-gate-review-checklist.md`
@@ -25,7 +31,7 @@
   signer SHA-256:
   `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`.
   Record device model/API in the Result column when run. All scenarios remain
-  BLOCKED pending synthetic accounts and scenario fixtures.
+  BLOCKED pending an isolated backend and synthetic accounts/fixtures.
 - Conventions: "server state" = Supabase project state for the signed-in owner
   (`getActiveProtocolExecution` receipt or none); UI copy in quotes is from
   `apps/mobile/src/guidance/guidance-copy.ts`; phases (`loading`, `idle`,
@@ -45,9 +51,10 @@
 - **Expected:** idle start card renders (no "Checking for a saved plan…", no
   preview); tap transitions idle → starting → ready at revision 0 with ordered
   steps and per-step controls; `start` called exactly once.
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes on a clean
-  API 34 x86_64 AVD, but synthetic account and execution preconditions were
-  unavailable; protocol execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: disposable Owner A on a proven
+  isolated backend, a reviewed decided recommendation, authoritative active
+  execution result `null`, and an online session. No account-dependent action
+  was attempted. See the Task 6 device acceptance record.
 
 ### 2. Pause an in-progress execution
 
@@ -58,9 +65,10 @@
 - **Expected:** pause control acknowledges without data loss; foregrounding
   re-renders the same execution at the authoritative revision (no fresh start
   offered, no duplicate execution created server-side).
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but active
-  synthetic execution/account preconditions were unavailable; protocol
-  execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: Owner A and a server-backed,
+  pauseable active execution above revision 0 with a matching authoritative
+  receipt on a proven isolated backend. No account-dependent action was
+  attempted. See the Task 6 device acceptance record.
 
 ### 3. Resume after process death
 
@@ -74,9 +82,10 @@
   called. Fingerprint mismatch (other run / reshaped steps) must instead show
   "This saved plan could not be verified. Nothing is shown yet." with nothing
   painted.
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but matching
-  synthetic owner execution and receipt preconditions were unavailable;
-  protocol execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: Owner A, an active execution with
+  a confirmed step, and its matching server receipt/fingerprint at an
+  authoritative revision on a proven isolated backend. No account-dependent
+  action was attempted. See the Task 6 device acceptance record.
 
 ### 4. Confirmed steps persist at revision
 
@@ -86,9 +95,11 @@
 - **Expected:** step N renders confirmed after relaunch; the next transition
   uses the confirmed revision (op-idempotent retry, same op id — no duplicate
   server effect); failed transition maps the stable code to copy with retry.
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but
-  synthetic owner execution/account preconditions were unavailable; protocol
-  execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: an owner identity, active run,
+  pending step with valid actuals, and server-backed expected revision/receipt
+  for confirmation and idempotent retry on a proven isolated backend. No
+  account-dependent action was attempted. See the Task 6 device acceptance
+  record.
 
 ### 5. Deviations — skip / modify with reason
 
@@ -98,9 +109,10 @@
 - **Expected:** deviation form validates reason; confirmed deviation records
   against the step at the current revision; deviation summary renders in
   progress view; no unbounded free-text is sent beyond the bounded command.
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but
-  dedicated synthetic owner accounts and shelf data were unavailable; protocol
-  execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: an owner identity, active run with
+  eligible pending steps, and fixture-defined bounded skip/modify reasons and
+  detail on a proven isolated backend. No account-dependent action was
+  attempted. See the Task 6 device acceptance record.
 
 ### 6. Owned substitution (owned shelf item accepted, foreign item rejected)
 
@@ -113,9 +125,10 @@
 - **Expected:** owned choice sends a bounded replacement carrying only
   `{shelfItemId}`; foreign item is rejected (never applied, never painted —
   owner-mismatch guard renders nothing of the prior owner).
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but two
-  dedicated synthetic accounts, shelf data, and an eligible execution were
-  unavailable; protocol execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: distinct isolated Owner A/B
+  identities, separate shelf items, an eligible active decision step, and
+  reviewed owner-scoped containment. No account-dependent action was
+  attempted. See the Task 6 device acceptance record.
 
 ### 7. Offline / reconnect (explicit offline card + retry, no duplicate)
 
@@ -134,9 +147,11 @@
   (`restore.phase === 'failed'`, same offline copy, same idempotent retry).
   After reconnect, success resumes at authoritative revision with no duplicate
   execution.
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but
-  synthetic owner and active execution preconditions were unavailable; protocol
-  execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: an owner identity, active
+  server-backed execution/receipt, online setup session, and controllable
+  network transition for offline retry/reconnect on a proven isolated backend.
+  No account-dependent action was attempted. See the Task 6 device acceptance
+  record.
 
 ### 8. Account switch (no prior-owner paint, fresh load per owner)
 
@@ -148,9 +163,10 @@
   paint of A's execution — owner-mismatch guard); B's surface loads fresh
   (B's execution resumed, or idle start card if B has none); late A responses
   discarded by epoch/token guards, never painted.
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but two
-  dedicated synthetic account credentials and execution states were
-  unavailable; protocol execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: distinct Owner A/B identities
+  with credentials and known separate server states, including A's active run,
+  on a proven isolated backend. No account-dependent action was attempted. See
+  the Task 6 device acceptance record.
 
 ### 9. Completion (terminal display, no further controls)
 
@@ -165,6 +181,22 @@
   the server returns `null` once the execution is terminal, so no terminal
   display is restored. Execution history may be exposed later through a
   separately designed history screen.
-- **Result (2026-10-18): BLOCKED.** Task 4 first launch now passes, but a
-  synthetic owner with an execution one step from completion was unavailable;
-  protocol execution was not attempted. See Task 4 report.
+- **Result (2026-10-18): BLOCKED.** Missing: an owner identity and active
+  execution one step from completion (or fixture-approved abandonment state),
+  with authoritative revision and terminal result on a proven isolated
+  backend. No account-dependent action was attempted. See the Task 6 device
+  acceptance record.
+
+## Adjacent release journeys
+
+These are tracked separately from scenarios 1–9. Each is **NOT RUN** in the
+Task 6 disposition; see the bound Task 6 device acceptance record for details.
+
+- Signup — **NOT RUN**.
+- Account confirmation — **NOT RUN**.
+- Recovery — **NOT RUN**.
+- Export/share — **NOT RUN**.
+- Deletion/cancellation — **NOT RUN**.
+- Offline launch — **NOT RUN**. Protocol scenario 7 is separately BLOCKED.
+- TalkBack — **NOT RUN**.
+- Touch targets — **NOT RUN**.
