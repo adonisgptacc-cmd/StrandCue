@@ -81,6 +81,9 @@ checklist, which remains **0/9 BLOCKED**. See the
 
 ## Task 6 — signed APK emulator attempt (2026-10-18)
 
+This records the initial attempt on `native-spike`; it was superseded for
+installation by the separate fresh-AVD run below.
+
 - Observed: `2026-10-18T20:12:09+02:00` (Africa/Johannesburg); metadata
   inspection completed immediately afterward.
 - Device: Android Emulator `sdk_gphone64_x86_64`, Android 14 / API 34;
@@ -108,3 +111,36 @@ checklist, which remains **0/9 BLOCKED**. See the
   or log containing identifiers was retained.
 - Detailed per-scenario outcomes and exact missing preconditions:
   `.superpowers/sdd/2026-10-18-local-signed-android-apk-and-device-acceptance/task-6-report.md`.
+
+## Task 6 continuation — fresh API 34 AVD (2026-10-18)
+
+- A separate `strandcue-alpha-api34` AVD was created from the installed
+  `system-images;android-34;google_apis;x86_64` image. The `native-spike` AVD
+  was not wiped, uninstalled from, or intentionally modified.
+- Device: Android Emulator `sdk_gphone64_x86_64`, Android 14 / API 34,
+  ADB serial redacted as `emulator-****`. ADB package-path query returned no
+  `za.co.strandcue.app` before installation.
+- Install: **PASS** on the fresh AVD. An early attempt before first boot
+  completed returned a PackageManager/StorageManager `NullPointerException`;
+  after `sys.boot_completed=1`, the exact candidate installed successfully.
+- Installed package: `za.co.strandcue.app`, version `0.1.0` / code 1.
+  Pulled installed `base.apk` SHA-256 matched candidate hash
+  `b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3`; local
+  `apksigner` verification reported signer SHA-256
+  `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`.
+- First launch: **FAIL**. `monkey -p za.co.strandcue.app 1` started the launcher
+  activity, then the app crashed and Android force-finished it. Safe crash
+  excerpt: `SoLoaderDSONotFoundError: couldn't find DSO to load: libreactnative.so`
+  from the React Native startup path (`MainApplication.onCreate`, line 37).
+  No app process remained; the launcher was foreground. A local screenshot
+  shows the system UI not responding dialog after the crash. The fresh emulator
+  was shut down cleanly after evidence capture.
+- Protocol: **0/9 run; all BLOCKED** because the app crashed on launch and no
+  dedicated synthetic accounts or execution state were available. No signup,
+  server write, or hosted account/data change was attempted. No crash, owner
+  leakage, or execution-integrity test proceeded past first launch.
+- Safe local evidence (not committed):
+  `C:\scb\artifacts\strandcue-alpha-api34-first-launch.png` and
+  `C:\scb\artifacts\task6-launch-crash-safe.log`.
+- Summary: `.superpowers/sdd/2026-10-18-local-android-apk/task-6-device-run.md`;
+  detailed command record: `.superpowers/sdd/2026-10-18-local-signed-android-apk-and-device-acceptance/task-6-report.md`.
