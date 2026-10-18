@@ -56,6 +56,22 @@ describe('validateNativeManifest', () => {
     expect(result.errors).toContain('ABI_ELF_MACHINE_MISMATCH');
   });
 
+  it.each([
+    ['armeabi-v7a', 'armeabi-v7a'],
+    ['arm64v8a', 'arm64v8a'],
+  ])('rejects unsupported expected ABI %s before inspecting library records', (expectedAbi, inputAbi) => {
+    const input = {
+      abis: {
+        [inputAbi]: [{ name: 'libreactnative.so', machine: 'arbitrary-machine', needed: ['missing.so'] }],
+      },
+    } as unknown as NativeManifestInput;
+    const expected = { ...expectation, requiredAbis: [expectedAbi] };
+    const before = JSON.stringify({ input, expected });
+
+    expect(validateNativeManifest(input, expected)).toEqual({ status: 'HOLD', errors: ['ABI_UNSUPPORTED'] });
+    expect(JSON.stringify({ input, expected })).toBe(before);
+  });
+
   it('holds on duplicate library entries within an ABI', () => {
     const libraries = valid.abis['arm64-v8a'];
     const result = validateNativeManifest({
@@ -64,7 +80,7 @@ describe('validateNativeManifest', () => {
     expect(result.errors).toContain('LIBRARY_DUPLICATE');
   });
 
-  it('holds when a DT_NEEDED dependency cannot be resolved', () => {
+  it('holds when a DT_NEEDED entry names a missing shared object', () => {
     const result = validateNativeManifest({
       abis: {
         ...valid.abis,
@@ -74,14 +90,15 @@ describe('validateNativeManifest', () => {
     expect(result.errors).toContain('DEPENDENCY_UNRESOLVED');
   });
 
-  it('holds when a required shared dependency is absent from every ABI', () => {
+  it('holds when a required library is missing from each ABI', () => {
     const result = validateNativeManifest({
       abis: {
-        'arm64-v8a': [valid.abis['arm64-v8a'][1]!],
-        x86_64: [valid.abis.x86_64[1]!],
+        'arm64-v8a': [valid.abis['arm64-v8a'][0]!],
+        x86_64: [valid.abis.x86_64[0]!],
       },
     }, expectation);
-    expect(result.errors).toContain('DEPENDENCY_UNRESOLVED');
+    expect(result.errors).toContain('LIBRARY_REQUIRED_MISSING');
+    expect(result.errors).not.toContain('DEPENDENCY_UNRESOLVED');
   });
 
   it('holds on malformed readelf-derived records without exposing input paths', () => {

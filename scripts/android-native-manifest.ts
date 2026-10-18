@@ -22,9 +22,8 @@ export interface NativeManifestResult {
 const machineByAbi: Readonly<Record<string, string>> = Object.freeze({
   'arm64-v8a': 'AArch64',
   x86_64: 'Advanced Micro Devices X86-64',
-  'armeabi-v7a': 'ARM',
-  x86: 'Intel 80386',
 });
+const supportedAbis = new Set(Object.keys(machineByAbi));
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -62,6 +61,10 @@ export function validateNativeManifest(
   const requiredAbis = unique(rawExpected.requiredAbis);
   const requiredLibraries = unique(rawExpected.requiredLibraries);
   const allowedSystemDependencies = new Set(unique(rawExpected.allowedSystemDependencies));
+  if (requiredAbis.some((abi) => !supportedAbis.has(abi))) {
+    return Object.freeze({ status: 'HOLD', errors: Object.freeze(['ABI_UNSUPPORTED']) });
+  }
+
   const providedAbis = Object.keys(abis);
 
   for (const abi of requiredAbis) {
