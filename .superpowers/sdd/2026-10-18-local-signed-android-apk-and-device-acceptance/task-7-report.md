@@ -65,6 +65,23 @@ synthetic scenario accounts available and no hosted accounts or data were
 created or changed. Device evidence is recorded in the Task 6 report and
 `docs/verification/device-evidence.md`.
 
+The nine protocol scenarios from the canonical checklist are:
+
+1. Start a new execution from idle — **BLOCKED**.
+2. Pause an in-progress execution — **BLOCKED**.
+3. Resume after process death — **BLOCKED**.
+4. Confirmed steps persist at revision — **BLOCKED**.
+5. Deviations — skip / modify with reason — **BLOCKED**.
+6. Owned substitution (owned shelf item accepted, foreign item rejected) — **BLOCKED**.
+7. Offline / reconnect (explicit offline card + retry, no duplicate) — **BLOCKED**.
+8. Account switch (no prior-owner paint, fresh load per owner) — **BLOCKED**.
+9. Completion (terminal display, no further controls) — **BLOCKED**.
+
+Adjacent journeys, separate from the nine protocol scenarios, are also **NOT
+RUN**: signup, email confirmation, password recovery, export/share,
+account-deletion request/cancellation, offline launch without protocol state,
+TalkBack, and touch-target inspection.
+
 **Android readiness: HOLD. Overall launch: HOLD.** The artifact identity and
 signature are verified, but app startup fails, protocol/device scenarios have
 no evidence, App Links association does not match, and the canonical 32-row
@@ -108,3 +125,13 @@ a fresh independent review. Then run all nine scenarios on that same artifact
 with approved synthetic state, resolve the live App Links association, and
 collect outstanding hosted and named-human evidence before changing either
 HOLD decision.
+
+## Fix round 1/5 — documentation findings
+
+- Low finding 1: corrected the final-handoff canonical-decision link to
+  `../../../docs/verification/security-audit-launch-decision-2026-10-18.md`.
+  The resolved target was checked and exists inside this worktree.
+- Low finding 2: listed all nine canonical protocol scenario names and their
+  BLOCKED outcomes above; adjacent journeys are listed separately as NOT RUN.
+- Validation: the corrected relative link resolves to the tracked canonical
+  decision file, and `git diff --check` passes for this fix round.

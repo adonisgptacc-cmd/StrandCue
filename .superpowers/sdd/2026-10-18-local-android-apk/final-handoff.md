@@ -25,7 +25,7 @@ inspection, and diff check. The release-link check is HOLD. Gitleaks was not
 installed for a fresh scan, and the required fresh independent full-plan
 code/security review was not obtained. Details and exact outcomes are in the
 [Task 7 report](../2026-10-18-local-signed-android-apk-and-device-acceptance/task-7-report.md)
-and [canonical launch decision](../../../../docs/verification/security-audit-launch-decision-2026-10-18.md).
+and [canonical launch decision](../../../docs/verification/security-audit-launch-decision-2026-10-18.md).
 
 Resume only after a bounded native startup diagnosis identifies and fixes the
 failure, a new candidate is bound to an exact source receipt and passes the
