@@ -50,3 +50,47 @@ the later association check. No signing value is needed by this preflight.
 Never store a keystore, passwords, Expo token, Supabase secret, or service-account
 JSON in Git, build logs, shell history, or tester messages. Do not print an
 environment dump.
+
+## Local alpha signing and artifact verification
+
+Keep the local alpha PKCS12 keystore and its DPAPI-protected password record in a
+user-only directory outside the checkout. The key is for local acceptance only;
+never use it as a release identity. If no StrandCue alpha key exists, create one
+once and preserve it for later device acceptance. Generate its password in a
+PowerShell `SecureString`, persist only the output of `ConvertFrom-SecureString`,
+and set the four `STRANDCUE_ANDROID_*` process variables from that secure record
+for each signing session. Do not print those variables or the keystore path.
+Use `keytool -genkeypair` with `-storepass:env STRANDCUE_ANDROID_STORE_PASSWORD`
+and `-keypass:env STRANDCUE_ANDROID_KEY_PASSWORD`; this keeps password values out
+of command history. The alias is `strandcue-local-alpha`.
+
+Before signing, remove prior APK signature records (`META-INF/MANIFEST.MF` and
+`.SF`, `.RSA`, `.DSA`, or `.EC` signature blocks) from a disposable extraction of
+the source APK. Rebuild the APK outside the checkout, run `zipalign -f 4` to a
+new file, then sign that aligned file with `apksigner sign`. Supply passwords
+with `--ks-pass env:STRANDCUE_ANDROID_STORE_PASSWORD` and
+`--key-pass env:STRANDCUE_ANDROID_KEY_PASSWORD`. Do not reuse or overwrite the
+input artifact.
+
+Capture the public SHA-256 certificate fingerprint from `keytool -list -v` and
+set `STRANDCUE_ANDROID_CERT_SHA256` for verification. Alongside the signed APK,
+write a local `*.source-receipt.json` containing only `sourceCommit`,
+`inputApkSha256`, and `signedApkSha256`. The signed hash must be the SHA-256 of
+the exact APK being verified. The verifier checks both the recorded input APK
+hash and signed APK hash against the approved input and inspected artifact.
+The receipt, APK, keystore, and password record remain outside Git.
+
+Run the verifier with Node 24.x and Android build-tools 36.0.0:
+
+```powershell
+npm run verify:android-artifact -- C:\scb\artifacts\strandcue-alpha.apk
+```
+
+The verifier runs `aapt dump badging`, `apksigner verify --verbose --print-certs`,
+and `jar tf`, then checks package `za.co.strandcue.app`, source commit, the
+`arm64-v8a` ABI, version `0.1.0`, a single signer with the configured public
+fingerprint, a valid APK SHA-256, and a matching source receipt. It prints
+`ANDROID-ARTIFACT-PASS` only when every required field is present and unambiguous.
+Missing tools, missing fields, malformed output, unsigned or multiply signed
+APKs, and receipt mismatches return `ANDROID-ARTIFACT-HOLD` with stable codes;
+raw tool output is not included.
