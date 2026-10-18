@@ -1,9 +1,13 @@
 # Android acceptance checklist — Increment 3 protocol execution
 
-> **DEVICE EVIDENCE PENDING — THIS BRANCH STOPS HERE.** No item below has been
-> run on a signed physical device or emulator in this environment. No PASS is
-> claimed anywhere in this document. A signed build + device/emulator run is
-> required before any acceptance verdict. (Prior build/install history lives in
+> **DEVICE EVIDENCE BLOCKED — 0/9 scenarios run.** On 2026-10-18, the signed
+> Task 5 APK was verified against its expected SHA-256 and signer, but Android
+> rejected installing it over the existing `za.co.strandcue.app` because that
+> installed package has a different signing certificate. Replacing it would
+> require removing the existing app and could erase its data, so no uninstall
+> was attempted. The nine scenarios remain BLOCKED; no PASS is claimed. See
+> `docs/verification/device-evidence.md` and the Task 6 report for device facts.
+> (Prior build/install history lives in
 > `docs/verification/device-evidence.md`, which is a log, not a checklist —
 > hence this new file alongside it, following the `beta-gate-review-checklist.md`
 > precedent.)
@@ -37,7 +41,9 @@
 - **Expected:** idle start card renders (no "Checking for a saved plan…", no
   preview); tap transitions idle → starting → ready at revision 0 with ordered
   steps and per-step controls; `start` called exactly once.
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); account and execution preconditions
+  were also unavailable. See Task 6 report.
 
 ### 2. Pause an in-progress execution
 
@@ -48,7 +54,9 @@
 - **Expected:** pause control acknowledges without data loss; foregrounding
   re-renders the same execution at the authoritative revision (no fresh start
   offered, no duplicate execution created server-side).
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); active execution/account precondition
+  was unavailable. See Task 6 report.
 
 ### 3. Resume after process death
 
@@ -62,7 +70,9 @@
   called. Fingerprint mismatch (other run / reshaped steps) must instead show
   "This saved plan could not be verified. Nothing is shown yet." with nothing
   painted.
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); matching owner execution and receipt
+  preconditions were unavailable. See Task 6 report.
 
 ### 4. Confirmed steps persist at revision
 
@@ -72,7 +82,9 @@
 - **Expected:** step N renders confirmed after relaunch; the next transition
   uses the confirmed revision (op-idempotent retry, same op id — no duplicate
   server effect); failed transition maps the stable code to copy with retry.
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); owner execution/account preconditions
+  were unavailable. See Task 6 report.
 
 ### 5. Deviations — skip / modify with reason
 
@@ -82,7 +94,9 @@
 - **Expected:** deviation form validates reason; confirmed deviation records
   against the step at the current revision; deviation summary renders in
   progress view; no unbounded free-text is sent beyond the bounded command.
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); dedicated synthetic owner accounts
+  and shelf data were unavailable. See Task 6 report.
 
 ### 6. Owned substitution (owned shelf item accepted, foreign item rejected)
 
@@ -95,7 +109,9 @@
 - **Expected:** owned choice sends a bounded replacement carrying only
   `{shelfItemId}`; foreign item is rejected (never applied, never painted —
   owner-mismatch guard renders nothing of the prior owner).
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); two dedicated synthetic accounts,
+  shelf data, and an eligible execution were unavailable. See Task 6 report.
 
 ### 7. Offline / reconnect (explicit offline card + retry, no duplicate)
 
@@ -114,7 +130,9 @@
   (`restore.phase === 'failed'`, same offline copy, same idempotent retry).
   After reconnect, success resumes at authoritative revision with no duplicate
   execution.
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); signed-in owner and active execution
+  preconditions were unavailable. See Task 6 report.
 
 ### 8. Account switch (no prior-owner paint, fresh load per owner)
 
@@ -126,7 +144,9 @@
   paint of A's execution — owner-mismatch guard); B's surface loads fresh
   (B's execution resumed, or idle start card if B has none); late A responses
   discarded by epoch/token guards, never painted.
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); two dedicated synthetic account
+  credentials and their execution state were unavailable. See Task 6 report.
 
 ### 9. Completion (terminal display, no further controls)
 
@@ -141,4 +161,6 @@
   the server returns `null` once the execution is terminal, so no terminal
   display is restored. Execution history may be exposed later through a
   separately designed history screen.
-- **Result:** _requires signed physical-device or emulator run — NOT RUN._
+- **Result (2026-10-18): BLOCKED.** Task 5 APK could not be installed over the
+  existing package (signature mismatch); an active execution one step from
+  completion and owner credentials were unavailable. See Task 6 report.

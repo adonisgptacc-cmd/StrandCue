@@ -5,7 +5,7 @@ changed outbound signup/recovery redirects to the approved HTTPS callback;
 `strandcue://auth/callback` remains inbound compatibility only. Historical
 custom-scheme/build observations below describe their dated binaries. None
 certifies current hosted allowlists, App Links or the Android acceptance
-checklist, which remains **0/9 NOT RUN**. See the
+checklist, which remains **0/9 BLOCKED**. See the
 [final HOLD packet](security-audit-launch-decision-2026-10-18.md).
 
 ## Build 1 — preview APK (2026-09-24)
@@ -78,3 +78,33 @@ checklist, which remains **0/9 NOT RUN**. See the
 - `npm run check:release-links` with this fingerprint: HOLD — the live association endpoint did not contain a matching app/certificate association. Production association was not changed.
 - Physical-device/emulator installation and all acceptance journeys remain NOT RUN. No acceptance PASS is claimed.
 - Tester packet: local distribution folder outside Git, supplied separately by the coordinator.
+
+## Task 6 — signed APK emulator attempt (2026-10-18)
+
+- Observed: `2026-10-18T20:12:09+02:00` (Africa/Johannesburg); metadata
+  inspection completed immediately afterward.
+- Device: Android Emulator `sdk_gphone64_x86_64`, Android 14 / API 34;
+  ADB serial redacted as `emulator-****`. Reported ABIs are `x86_64,arm64-v8a`,
+  so the candidate's ARM64 ABI is supported.
+- Candidate: package `za.co.strandcue.app`, version `0.1.0` / code 1,
+  SHA-256 `b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3`.
+  Independent local SHA-256 matched the supplied Task 5 receipt.
+- Signer: SHA-256
+  `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`;
+  independent `apksigner verify --print-certs` matched the supplied receipt.
+- Existing package: same application ID, version `0.1.0` / code 1, installed
+  `2026-09-30 18:17:20`; its installed signing certificate differs from the
+  candidate (Android rejected the update). No certificate or account identifiers
+  were copied into this log.
+- Install: **BLOCKED** — `adb install -r` returned
+  `INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package za.co.strandcue.app
+  signatures do not match newer version; ignoring!` No uninstall or data clear
+  was attempted because it could remove the existing app's data.
+- First launch: **BLOCKED / NOT ATTEMPTED** — the candidate was not installed;
+  the already-installed app was not launched as a substitute.
+- Acceptance protocol: **0/9 run; all BLOCKED**. The signed candidate could not
+  be installed, and dedicated synthetic accounts and scenario state were not
+  available. No hosted account or data was created or modified. No screenshot
+  or log containing identifiers was retained.
+- Detailed per-scenario outcomes and exact missing preconditions:
+  `.superpowers/sdd/2026-10-18-local-signed-android-apk-and-device-acceptance/task-6-report.md`.
