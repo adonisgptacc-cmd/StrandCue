@@ -73,8 +73,9 @@ export function parseArtifactInspectionOutputs(
   output: AndroidArtifactInspectionOutputs,
 ): AndroidArtifactMetadata {
   const errors: string[] = [];
-  const extractMatch = output.manifestTree?.match(/android:extractNativeLibs[^\r\n]*\(type 0x12\)(0x[\da-f]+)/i);
-  const extractNativeLibs = extractMatch ? extractMatch[1].toLowerCase() === '0xffffffff' : null;
+  const extractMatches = [...(output.manifestTree ?? '').matchAll(/android:extractNativeLibs[^\r\n]*\(type 0x12\)([^\s]*)/g)];
+  const extractValue = extractMatches.length === 1 ? extractMatches[0][1] : null;
+  const extractNativeLibs = extractValue === '0x0' ? false : extractValue === '0xffffffff' ? true : null;
   if (extractNativeLibs === null) errors.push('EXTRACT_NATIVE_LIBS_PARSE');
   if (!output.nativeZipEntries) errors.push('NATIVE_ZIP_PARSE');
   const packageMatches = [...output.badging.matchAll(/package:\s+name='([^']+)'\s+versionCode='([^']+)'\s+versionName='([^']+)'/g)];

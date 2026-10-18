@@ -298,6 +298,30 @@ describe('verifyAndroidArtifact', () => {
       .toContain('SOURCE_RECEIPT_MISSING');
   });
 
+  it('accepts only canonical binary manifest boolean encodings', () => {
+    const output = {
+      badging: "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'",
+      signer: `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`,
+      archiveListing: nativeArchiveListing(),
+      nativeManifestSha256,
+      sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
+      apkSha256: 'b'.repeat(64),
+      nativeZipEntries: valid.nativeZipEntries!,
+    };
+    const falseValue = parseArtifactInspectionOutputs({ ...output, manifestTree: 'android:extractNativeLibs=(type 0x12)0x0' });
+    expect(falseValue.extractNativeLibs).toBe(false);
+    expect(falseValue.parseErrors).not.toContain('EXTRACT_NATIVE_LIBS_PARSE');
+
+    const trueValue = parseArtifactInspectionOutputs({ ...output, manifestTree: 'android:extractNativeLibs=(type 0x12)0xffffffff' });
+    expect(trueValue.extractNativeLibs).toBe(true);
+    expect(trueValue.parseErrors).not.toContain('EXTRACT_NATIVE_LIBS_PARSE');
+
+    const noncanonical = parseArtifactInspectionOutputs({ ...output, manifestTree: 'android:extractNativeLibs=(type 0x12)0x1' });
+    expect(noncanonical.extractNativeLibs).toBeNull();
+    expect(noncanonical.parseErrors).toContain('EXTRACT_NATIVE_LIBS_PARSE');
+    expect(verifyAndroidArtifact(noncanonical, expected).status).toBe('HOLD');
+  });
+
   it('returns a redacted HOLD when CLI inspection fails', () => {
     const result = verifyAndroidArtifactCli('artifact.apk', {
       STRANDCUE_AAPT: 'aapt', STRANDCUE_APKSIGNER: 'apksigner', STRANDCUE_ZIPALIGN: 'zipalign', STRANDCUE_JAR: 'jar',
