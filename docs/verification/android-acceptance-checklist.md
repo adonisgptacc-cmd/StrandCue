@@ -14,7 +14,9 @@
   tests do not certify this final source.
 - Required build flavor: signed APK built from source commit `d8c2818a7fac0e996910a5a33d6784875800993b`
   (EAS preview APK equivalent, `za.co.strandcue.app`), installed on a physical
-  device or emulator. Artifact SHA-256: `b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3`;\n  package `za.co.strandcue.app`, version `0.1.0`, ABI `arm64-v8a`; signer SHA-256:\n  `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`. Record device model/API
+  device or emulator. Artifact SHA-256: `b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3`;
+  package `za.co.strandcue.app`, version `0.1.0`, ABI `arm64-v8a`; signer SHA-256:
+  `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`. Record device model/API
   in the Result column when run. All scenarios remain NOT RUN.
 - Conventions: "server state" = Supabase project state for the signed-in owner
   (`getActiveProtocolExecution` receipt or none); UI copy in quotes is from

@@ -3,13 +3,13 @@
 ## Artifact identity
 
 - Application source commit: `d8c2818a7fac0e996910a5a33d6784875800993b`.
-- Artifact timestamp: `2026-10-18T19:26:11+02:00`, derived from the signed APK file's recorded `LastWriteTimeUtc`; the precise native Gradle completion timestamp was not retained.
+- Successful Gradle completion estimate: `2026-10-18T15:40:30.2006454+02:00` (Africa/Johannesburg, UTC+02:00), derived from the retained successful output log `C:\scb\a\gradle-attempt3.log` `LastWriteTimeUtc` `2026-10-18T13:40:30.2006454Z`. Its final lines report `BUILD SUCCESSFUL in 13m 36s`. This is a filesystem-metadata estimate of when the redirected Gradle output finished; Gradle did not embed a wall-clock completion timestamp.
 - Package: `za.co.strandcue.app`.
 - Version: `0.1.0` (version code `1`).
 - ABI: `arm64-v8a`.
 - APK size: `42027000` bytes.
 - APK SHA-256: `b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3`.
-- APK signature: v2; one signer.
+- APK signature verification: v1 false, v2 true, v3 true, v3.1 false, v4 false, SourceStamp false; one signer.
 - Public certificate SHA-256: `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`.
 
 ## Build and verification

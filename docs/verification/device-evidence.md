@@ -71,9 +71,9 @@ checklist, which remains **0/9 NOT RUN**. See the
 - Source commit: `d8c2818a7fac0e996910a5a33d6784875800993b` (application source recorded in the signed artifact receipt).
 - Package/version/version code: `za.co.strandcue.app`, `0.1.0`, `1`; ABI: `arm64-v8a`.
 - APK: privately distributed alpha artifact; size `42027000` bytes; SHA-256 `b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3`.
-- Public signer certificate SHA-256: `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`; one signer; APK Signature Scheme v2; `zipalign -c -v 4` passed.
+- Public signer certificate SHA-256: `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`; one signer. `apksigner` reports v1 false, v2 true, v3 true, v3.1 false, v4 false, and SourceStamp false; `zipalign -c -v 4` passed.
 - Toolchain recorded for the native build: Node `24.19.0`, Java `17.0.20.1`, Gradle `9.3.1`, Android SDK platform `36`, build-tools `36.0.0`, NDK `27.1.12297006`, CMake `3.22.1`, Ninja `1.10.2`.
-- Artifact file timestamp: `2026-10-18T19:26:11+02:00` (filesystem `LastWriteTimeUtc` converted to Africa/Johannesburg UTC+02:00; the precise Gradle completion timestamp was not retained).
+- Successful Gradle completion estimate: `2026-10-18T15:40:30.2006454+02:00` (Africa/Johannesburg, UTC+02:00), based on retained log `C:\scb\a\gradle-attempt3.log` `LastWriteTimeUtc` `2026-10-18T13:40:30.2006454Z`; its final lines report `BUILD SUCCESSFUL in 13m 36s`. This log filesystem timestamp estimates when redirected output finished; Gradle did not embed a wall-clock completion timestamp.
 - `npm run verify:android-artifact` with the public certificate fingerprint: PASS.
 - `npm run check:release-links` with this fingerprint: HOLD — the live association endpoint did not contain a matching app/certificate association. Production association was not changed.
 - Physical-device/emulator installation and all acceptance journeys remain NOT RUN. No acceptance PASS is claimed.
