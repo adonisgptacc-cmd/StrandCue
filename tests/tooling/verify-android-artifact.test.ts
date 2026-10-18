@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,19 +9,24 @@ import {
   runAndroidInspectionCommand,
   verifyAndroidArtifactCli,
   verifyAndroidArtifact,
+  validateAndroidNativeManifest,
+  inspectAndroidNativeManifest,
+  type AndroidNativeManifest,
   type AndroidArtifactMetadata,
   type AndroidArtifactExpectation,
 } from '../../scripts/verify-android-artifact.ts';
 
-const fingerprint = 'A'.repeat(64);
+const fingerprint = 'b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe';
 const sourceCommit = 'd8c2818a7fac0e996910a5a33d6784875800993b';
-const inputApkSha256 = '466330d1578e8019cb6e312b2653e750a550338d6c2637d5cda076555236b1ae';
+const inputApkSha256 = 'd582bdf4110ce73cba386cfe16ad6cb16de97560862b35a26a9ea8b96b635b16';
+const nativeManifestSha256 = 'c459015a3b52af685ebadf3e529f5fa952d1c89c923493d903eef545c519b6cd';
 
 const expected: AndroidArtifactExpectation = {
   packageName: 'za.co.strandcue.app',
   sourceCommit,
   inputApkSha256,
-  abi: 'arm64-v8a',
+  abis: ['arm64-v8a', 'x86_64'],
+  nativeManifestSha256,
   versionName: '0.1.0',
   expectedVersionCode: '1',
   signerCount: 1,
@@ -33,7 +39,8 @@ const valid: AndroidArtifactMetadata = {
   versionCode: '1',
   sourceCommit,
   inputApkSha256,
-  abi: ['arm64-v8a'],
+  abi: ['arm64-v8a', 'x86_64'],
+  nativeManifestSha256,
   signerCount: 1,
   signerSha256: fingerprint,
   apkSha256: 'b'.repeat(64),
@@ -41,9 +48,38 @@ const valid: AndroidArtifactMetadata = {
   parseErrors: [],
 };
 
+const nativeNames = [
+  'libandroidx.graphics.path.so', 'libappmodules.so', 'libc++_shared.so', 'libexpo-modules-core.so',
+  'libfbjni.so', 'libgesturehandler.so', 'libgifimage.so', 'libhermestooling.so', 'libhermesvm.so',
+  'libimagepipeline.so', 'libjsi.so', 'libnative-filters.so', 'libnative-imagetranscoder.so',
+  'libreact_codegen_rngesturehandler_codegen.so', 'libreact_codegen_rnscreens.so',
+  'libreact_codegen_safeareacontext.so', 'libreactnative.so', 'libreanimated.so', 'librnscreens.so',
+  'libstatic-webp.so', 'libworklets.so', 'libzstd-kmp.so',
+];
+const nativeManifest = (): AndroidNativeManifest => ({
+  'arm64-v8a': nativeNames.map((name) => ({ name, machine: 'AArch64', needed: ['libc.so'] })),
+  x86_64: nativeNames.map((name) => ({ name, machine: 'Advanced Micro Devices X86-64', needed: ['libc.so'] })),
+});
+const nativeArchiveListing = (arm = nativeNames, x86 = nativeNames) => [
+  ...arm.map((name) => `lib/arm64-v8a/${name}`),
+  ...x86.map((name) => `lib/x86_64/${name}`),
+].join('\n');
+const nativeToolEnv = {
+  STRANDCUE_READELF: 'readelf',
+  STRANDCUE_JAR: 'jar',
+  STRANDCUE_JAVA: 'java',
+};
+const nativeReadelf = (machineOverride?: string, dependencyOverride?: string) => (command: string, args: string[]) => {
+  if (command !== 'readelf') return '';
+  const path = args.at(-1) ?? '';
+  const machine = machineOverride ?? (path.includes('arm64-v8a') ? 'AArch64' : 'Advanced Micro Devices X86-64');
+  return `  Machine: ${machine}\n 0x00000001 (NEEDED) Shared library: [${dependencyOverride ?? 'libc.so'}]`;
+};
+
 describe('verifyAndroidArtifact', () => {
   it('passes metadata matching the expected local alpha identity', () => {
     expect(verifyAndroidArtifact(valid, expected)).toEqual({ status: 'PASS', errors: [] });
+    expect(validateAndroidNativeManifest(nativeManifest())).toBe(true);
   });
 
   it('holds when the package identity is wrong', () => {
@@ -64,6 +100,75 @@ describe('verifyAndroidArtifact', () => {
 
   it('holds when arm64-v8a is absent', () => {
     expect(verifyAndroidArtifact({ ...valid, abi: ['x86_64'] }, expected).status).toBe('HOLD');
+  });
+
+  it.each([
+    ['missing x86_64', ['arm64-v8a']],
+    ['missing arm64-v8a', ['x86_64']],
+    ['extra ABI', ['arm64-v8a', 'x86_64', 'armeabi-v7a']],
+  ])('requires the exact universal ABI set when %s', (_label, abi) => {
+    expect(verifyAndroidArtifact({ ...valid, abi }, expected).errors).toContain('ABI_SET_MISMATCH');
+  });
+
+  it('rejects a missing x86_64 manifest', () => {
+    const manifest = nativeManifest();
+    delete manifest.x86_64;
+    expect(validateAndroidNativeManifest(manifest)).toBe(false);
+  });
+
+  it('rejects a missing arm64 manifest', () => {
+    const manifest = nativeManifest();
+    delete manifest['arm64-v8a'];
+    expect(validateAndroidNativeManifest(manifest)).toBe(false);
+  });
+
+  it('rejects an extra ABI', () => {
+    expect(validateAndroidNativeManifest({ ...nativeManifest(), 'armeabi-v7a': [] })).toBe(false);
+  });
+
+  it('rejects missing per-ABI libreactnative.so and unequal DSO sets', () => {
+    const missingReactNative = nativeManifest();
+    missingReactNative.x86_64 = missingReactNative.x86_64.filter(({ name }) => name !== 'libreactnative.so');
+    expect(validateAndroidNativeManifest(missingReactNative)).toBe(false);
+
+    const unequalSets = nativeManifest();
+    unequalSets.x86_64[0] = { ...unequalSets.x86_64[0], name: 'libdifferent.so' };
+    expect(validateAndroidNativeManifest(unequalSets)).toBe(false);
+  });
+
+  it('rejects the wrong ELF machine and unresolved DT_NEEDED dependencies', () => {
+    const wrongMachine = nativeManifest();
+    wrongMachine['arm64-v8a'][0] = { ...wrongMachine['arm64-v8a'][0], machine: 'Advanced Micro Devices X86-64' };
+    expect(validateAndroidNativeManifest(wrongMachine)).toBe(false);
+
+    const dependencyGap = nativeManifest();
+    dependencyGap['arm64-v8a'][0] = { ...dependencyGap['arm64-v8a'][0], needed: ['libmissing.so'] };
+    expect(validateAndroidNativeManifest(dependencyGap)).toBe(false);
+  });
+
+  it('inspects all 44 libraries and hashes the canonical native manifest', () => {
+    const hash = inspectAndroidNativeManifest('artifact.apk', nativeArchiveListing(), nativeToolEnv, nativeReadelf());
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('holds when archive inspection finds missing ABI or library entries', () => {
+    expect(() => inspectAndroidNativeManifest('artifact.apk', nativeArchiveListing(nativeNames, []), nativeToolEnv, nativeReadelf()))
+      .toThrow('ABI_SET_MISMATCH');
+    const missingReactNative = nativeNames.filter((name) => name !== 'libreactnative.so');
+    expect(() => inspectAndroidNativeManifest('artifact.apk', nativeArchiveListing(nativeNames, missingReactNative), nativeToolEnv, nativeReadelf()))
+      .toThrow('NATIVE_MANIFEST_MISMATCH');
+  });
+
+  it('holds when readelf reports the wrong machine or an unresolved dependency', () => {
+    expect(() => inspectAndroidNativeManifest('artifact.apk', nativeArchiveListing(), nativeToolEnv, nativeReadelf('AArch64')))
+      .toThrow('NATIVE_MANIFEST_MISMATCH');
+    expect(() => inspectAndroidNativeManifest('artifact.apk', nativeArchiveListing(), nativeToolEnv, nativeReadelf(undefined, 'libmissing.so')))
+      .toThrow('NATIVE_MANIFEST_MISMATCH');
+  });
+
+  it('rejects a native manifest hash that differs from the pinned manifest', () => {
+    expect(verifyAndroidArtifact({ ...valid, nativeManifestSha256: 'c'.repeat(64) }, expected).errors)
+      .toContain('NATIVE_MANIFEST_MISMATCH');
   });
 
   it('holds when the version is wrong', () => {
@@ -91,6 +196,7 @@ describe('verifyAndroidArtifact', () => {
       badging: `unrecognized ${secretSentinel}`,
       signer: `failed ${secretSentinel}`,
       archiveListing: 'not an archive listing',
+      nativeManifestSha256,
       sourceReceipt: '{ malformed',
       apkSha256: 'b'.repeat(64),
     });
@@ -104,7 +210,8 @@ describe('verifyAndroidArtifact', () => {
     const parsed = parseArtifactInspectionOutputs({
       badging: "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'",
       signer: `Number of signers: 2\nSigner #1 certificate SHA-256 digest: ${fingerprint}`,
-      archiveListing: 'lib/arm64-v8a/libstrandcue.so',
+      archiveListing: 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
+      nativeManifestSha256,
       sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       apkSha256: 'b'.repeat(64),
     });
@@ -116,7 +223,8 @@ describe('verifyAndroidArtifact', () => {
     const parsed = parseArtifactInspectionOutputs({
       badging: "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'",
       signer: `Number of signers: 1 extra\nSigner #1 certificate SHA-256 digest: ${fingerprint}`,
-      archiveListing: 'lib/arm64-v8a/libstrandcue.so',
+      archiveListing: 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
+      nativeManifestSha256,
       sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       apkSha256: 'b'.repeat(64),
     });
@@ -134,6 +242,7 @@ describe('verifyAndroidArtifact', () => {
         badging: "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'",
         signer,
         archiveListing: 'lib/arm64-v8a/libstrandcue.so',
+        nativeManifestSha256,
         sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
         apkSha256: 'b'.repeat(64),
       });
@@ -147,7 +256,8 @@ describe('verifyAndroidArtifact', () => {
     const parsed = parseArtifactInspectionOutputs({
       badging: "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'",
       signer: `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`,
-      archiveListing: 'lib/arm64-v8a/libstrandcue.so',
+      archiveListing: 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
+      nativeManifestSha256,
       sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: apkSha256 }),
       apkSha256,
     });
@@ -157,6 +267,20 @@ describe('verifyAndroidArtifact', () => {
 
   it('holds when the source receipt names a different input APK hash', () => {
     expect(verifyAndroidArtifact({ ...valid, inputApkSha256: 'c'.repeat(64) }, expected).status).toBe('HOLD');
+  });
+
+  it('holds when the signed APK hash differs from the source receipt', () => {
+    const parsed = parseArtifactInspectionOutputs({
+      badging: "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'",
+      signer: `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`,
+      archiveListing: 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
+      nativeManifestSha256,
+      sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'c'.repeat(64) }),
+      apkSha256: 'b'.repeat(64),
+    });
+    expect(parsed.sourceReceiptPresent).toBe(false);
+    expect(verifyAndroidArtifact(parsed, expected).errors)
+      .toContain('SOURCE_RECEIPT_MISSING');
   });
 
   it('returns a redacted HOLD when CLI inspection fails', () => {
@@ -172,27 +296,31 @@ describe('verifyAndroidArtifact', () => {
     expect(result.stderr).not.toContain('password-output-should-not-escape');
   });
 
-  it('requires an APK path and a configured public certificate fingerprint', () => {
+  it('uses the pinned certificate and ignores environment trust-anchor overrides', () => {
     expect(verifyAndroidArtifactCli(undefined).exitCode).toBe(2);
-    const result = verifyAndroidArtifactCli('artifact.apk', { LOCALAPPDATA: 'C:/Android' }, {
+    const result = verifyAndroidArtifactCli('artifact.apk', {
+      LOCALAPPDATA: 'C:/Android',
+      STRANDCUE_ANDROID_CERT_SHA256: 'c'.repeat(64),
+    }, {
       runCommand: (command, args) => args[0] === '-c'
         ? 'Verification successful.'
         : command.includes('aapt')
         ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
         : args.join(' ').includes('apksigner')
           ? `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`
-          : 'lib/arm64-v8a/libstrandcue.so',
+          : 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
       readText: () => JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
+      inspectNativeManifest: () => nativeManifestSha256,
     });
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('EXPECTED_CERTIFICATE_MISSING');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`certSha256=${fingerprint}`);
   });
 
   it('prints a pass receipt from the CLI when all inspected facts match', () => {
     const result = verifyAndroidArtifactCli('artifact.apk', {
       ANDROID_HOME: 'C:/Android/Sdk',
-      STRANDCUE_ANDROID_CERT_SHA256: fingerprint,
+      STRANDCUE_ANDROID_CERT_SHA256: 'c'.repeat(64),
       STRANDCUE_APKSIGNER: 'apksigner.jar',
     }, {
       runCommand: (command, args) => args[0] === '-c'
@@ -201,9 +329,10 @@ describe('verifyAndroidArtifact', () => {
         ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
         : args.join(' ').includes('apksigner')
           ? `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`
-          : 'lib/arm64-v8a/libstrandcue.so',
+          : 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
       readText: () => JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
+      inspectNativeManifest: () => nativeManifestSha256,
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('ANDROID-ARTIFACT-PASS');
@@ -214,7 +343,7 @@ describe('verifyAndroidArtifact', () => {
     const otherInputHash = 'c'.repeat(64);
     const result = verifyAndroidArtifactCli('artifact.apk', {
       ANDROID_HOME: 'C:/Android/Sdk',
-      STRANDCUE_ANDROID_CERT_SHA256: fingerprint,
+      STRANDCUE_ANDROID_CERT_SHA256: 'c'.repeat(64),
       STRANDCUE_APKSIGNER: 'apksigner.jar',
       STRANDCUE_ANDROID_EXPECTED_SOURCE_COMMIT: otherSourceCommit,
       STRANDCUE_ANDROID_EXPECTED_INPUT_APK_SHA256: otherInputHash,
@@ -225,9 +354,10 @@ describe('verifyAndroidArtifact', () => {
         ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
         : args.join(' ').includes('apksigner')
           ? `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`
-          : 'lib/arm64-v8a/libstrandcue.so',
+          : 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
       readText: () => JSON.stringify({ sourceCommit: otherSourceCommit, inputApkSha256: otherInputHash, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
+      inspectNativeManifest: () => nativeManifestSha256,
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('SOURCE_MISMATCH');
@@ -246,10 +376,11 @@ describe('verifyAndroidArtifact', () => {
         if (args[0] === '-c') throw new Error('zipalign returned nonzero');
         if (command.includes('aapt')) return "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'";
         if (args.join(' ').includes('apksigner')) return `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`;
-        return 'lib/arm64-v8a/libstrandcue.so';
+        return 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so';
       },
       readText: () => JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
+      inspectNativeManifest: () => nativeManifestSha256,
     });
     expect(calls.some(({ args }) => args.slice(0, 3).join(' ') === '-c -v 4')).toBe(true);
     expect(result.exitCode).toBe(1);
@@ -266,7 +397,7 @@ describe('verifyAndroidArtifact', () => {
         if (args[0] === '-c') return '';
         if (command.includes('aapt')) return "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'";
         if (args.join(' ').includes('apksigner')) return `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`;
-        return 'lib/arm64-v8a/libstrandcue.so';
+        return 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so';
       },
       readText: () => JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
@@ -310,7 +441,8 @@ describe('verifyAndroidArtifact', () => {
           ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
           : args.join(' ').includes('apksigner')
             ? `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`
-            : 'lib/arm64-v8a/libstrandcue.so',
+            : 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
+        inspectNativeManifest: () => nativeManifestSha256,
       });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(`apkSha256=${apkSha256}`);
@@ -322,5 +454,9 @@ describe('verifyAndroidArtifact', () => {
   it('runs a local inspection command without exposing stderr', () => {
     expect(runAndroidInspectionCommand(process.execPath, ['-e', "process.stdout.write('tool-output')"]))
       .toBe('tool-output');
+  });
+
+  it('emits a stable hold from the executable entry point when no APK path is supplied', () => {
+    expect(() => execFileSync(process.execPath, ['scripts/verify-android-artifact.ts'], { stdio: 'pipe' })).toThrow();
   });
 });

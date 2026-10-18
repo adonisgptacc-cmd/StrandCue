@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,6 +12,7 @@ export interface AndroidArtifactMetadata {
   sourceCommit: string | null;
   inputApkSha256: string | null;
   abi: string[];
+  nativeManifestSha256?: string | null;
   signerCount: number | null;
   signerSha256: string | null;
   apkSha256: string | null;
@@ -18,11 +20,20 @@ export interface AndroidArtifactMetadata {
   parseErrors: string[];
 }
 
+export interface AndroidNativeLibrary {
+  name: string;
+  machine: string;
+  needed: string[];
+}
+
+export type AndroidNativeManifest = Record<string, AndroidNativeLibrary[]>;
+
 export interface AndroidArtifactExpectation {
   packageName: string;
   sourceCommit: string;
   inputApkSha256: string;
-  abi: string;
+  abis: string[];
+  nativeManifestSha256: string;
   versionName: string;
   expectedVersionCode: string;
   signerCount: number;
@@ -38,6 +49,7 @@ export interface AndroidArtifactInspectionOutputs {
   badging: string;
   signer: string;
   archiveListing: string;
+  nativeManifestSha256: string | null;
   sourceReceipt: string;
   apkSha256: string;
 }
@@ -79,6 +91,8 @@ export function parseArtifactInspectionOutputs(
 
   const abi = [...new Set([...output.archiveListing.matchAll(/(?:^|\s)lib\/([^/\s]+)\/[^\s]+/gm)].map((match) => match[1]))];
   if (!abi.length) errors.push('ABI_PARSE');
+  const nativeManifestSha256 = normalizeSha256(output.nativeManifestSha256);
+  if (!nativeManifestSha256) errors.push('NATIVE_MANIFEST_PARSE');
 
   const apkSha256 = normalizeSha256(output.apkSha256);
   if (!apkSha256) errors.push('APK_HASH_PARSE');
@@ -111,6 +125,7 @@ export function parseArtifactInspectionOutputs(
     sourceCommit,
     inputApkSha256,
     abi,
+    nativeManifestSha256,
     signerCount,
     signerSha256,
     apkSha256,
@@ -133,7 +148,13 @@ export function verifyAndroidArtifact(
   if (!actualInputHash || !expectedInputHash || actualInputHash !== expectedInputHash) {
     errors.push('INPUT_APK_HASH_MISMATCH');
   }
-  if (!metadata.abi.includes(expected.abi)) errors.push('ABI_MISMATCH');
+  if (metadata.abi.length !== expected.abis.length
+    || [...metadata.abi].sort().join(',') !== [...expected.abis].sort().join(',')) errors.push('ABI_SET_MISMATCH');
+  const actualManifestHash = normalizeSha256(metadata.nativeManifestSha256 ?? null);
+  const expectedManifestHash = normalizeSha256(expected.nativeManifestSha256);
+  if (!actualManifestHash || !expectedManifestHash || actualManifestHash !== expectedManifestHash) {
+    errors.push('NATIVE_MANIFEST_MISMATCH');
+  }
   if (metadata.versionName !== expected.versionName) errors.push('VERSION_MISMATCH');
   if (metadata.versionCode !== expected.expectedVersionCode) errors.push('VERSION_CODE_MISMATCH');
   if (metadata.signerCount !== expected.signerCount) errors.push('SIGNER_COUNT_MISMATCH');
@@ -150,8 +171,8 @@ export function verifyAndroidArtifact(
   return { status: distinctErrors.length === 0 ? 'PASS' : 'HOLD', errors: distinctErrors };
 }
 
-function run(command: string, args: string[]): string {
-  return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+function run(command: string, args: string[], cwd?: string): string {
+  return execFileSync(command, args, { encoding: 'utf8', cwd, stdio: ['ignore', 'pipe', 'ignore'] });
 }
 
 export function runAndroidInspectionCommand(command: string, args: string[]): string {
@@ -171,9 +192,84 @@ export interface AndroidArtifactCliResult {
 }
 
 export interface AndroidArtifactCliDependencies {
-  runCommand?: (command: string, args: string[]) => string;
+  runCommand?: (command: string, args: string[], cwd?: string) => string;
   readText?: (path: string) => string;
   hashFile?: (path: string) => string;
+  inspectNativeManifest?: (apkPath: string, archiveListing: string) => string;
+}
+
+const expectedNativeAbis = ['arm64-v8a', 'x86_64'];
+const expectedNativeManifestSha256 = 'c459015a3b52af685ebadf3e529f5fa952d1c89c923493d903eef545c519b6cd';
+const expectedInputApkSha256 = 'd582bdf4110ce73cba386cfe16ad6cb16de97560862b35a26a9ea8b96b635b16';
+const expectedCertificateSha256 = 'b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe';
+
+const readElfMachinePattern = /^\s*Machine:\s*(.+?)\s*$/m;
+const neededPattern = /\(NEEDED\).*?Shared library:\s*\[([^\]]+)\]/g;
+const platformLibraries = new Set(['libandroid.so', 'libc.so', 'libdl.so', 'libjnigraphics.so', 'liblog.so', 'libm.so', 'libz.so']);
+const expectedNativeLibraryNames = [
+  'libandroidx.graphics.path.so', 'libappmodules.so', 'libc++_shared.so', 'libexpo-modules-core.so',
+  'libfbjni.so', 'libgesturehandler.so', 'libgifimage.so', 'libhermestooling.so', 'libhermesvm.so',
+  'libimagepipeline.so', 'libjsi.so', 'libnative-filters.so', 'libnative-imagetranscoder.so',
+  'libreact_codegen_rngesturehandler_codegen.so', 'libreact_codegen_rnscreens.so',
+  'libreact_codegen_safeareacontext.so', 'libreactnative.so', 'libreanimated.so', 'librnscreens.so',
+  'libstatic-webp.so', 'libworklets.so', 'libzstd-kmp.so',
+];
+
+export function validateAndroidNativeManifest(manifest: AndroidNativeManifest): boolean {
+  const abiNames = Object.keys(manifest).sort();
+  if (abiNames.join(',') !== [...expectedNativeAbis].sort().join(',')) return false;
+  for (const abi of expectedNativeAbis) {
+    const libraries = manifest[abi];
+    if (!Array.isArray(libraries) || libraries.length !== expectedNativeLibraryNames.length) return false;
+    const names = libraries.map(({ name }) => name);
+    if (new Set(names).size !== names.length
+      || [...names].sort().join(',') !== [...expectedNativeLibraryNames].sort().join(',')) return false;
+    const nameSet = new Set(names);
+    const expectedMachine = abi === 'arm64-v8a' ? 'AArch64' : 'Advanced Micro Devices X86-64';
+    if (libraries.some(({ machine, needed }) => machine !== expectedMachine
+      || !Array.isArray(needed)
+      || needed.some((dependency) => !nameSet.has(dependency) && !platformLibraries.has(dependency)))) return false;
+  }
+  return true;
+}
+
+export function inspectAndroidNativeManifest(apkPath: string, archiveListing: string, env: Partial<NodeJS.ProcessEnv>, runCommand: (command: string, args: string[], cwd?: string) => string): string {
+  const entries = [...new Set([...archiveListing.matchAll(/^lib\/([^/]+)\/([^/]+\.so)$/gm)].map((match) => match[0]))].sort();
+  const listedAbis = [...new Set([...archiveListing.matchAll(/^lib\/([^/]+)\/[^\r\n]+$/gm)].map((match) => match[1]))].sort();
+  if (listedAbis.length !== expectedNativeAbis.length || [...listedAbis].sort().join(',') !== [...expectedNativeAbis].sort().join(',')) {
+    throw new Error('ABI_SET_MISMATCH');
+  }
+  if (entries.length !== 44) throw new Error('NATIVE_MANIFEST_MISMATCH');
+  const sdkRoot = env.ANDROID_HOME || env.ANDROID_SDK_ROOT
+    || (env.LOCALAPPDATA ? join(env.LOCALAPPDATA, 'Android', 'Sdk') : '');
+  const ndkRoot = env.ANDROID_NDK_HOME || env.ANDROID_NDK_ROOT
+    || (sdkRoot ? join(sdkRoot, 'ndk', '27.1.12297006') : '');
+  const readelf = requireTool(env.STRANDCUE_READELF, ndkRoot ? join(ndkRoot, 'toolchains', 'llvm', 'prebuilt', 'windows-x86_64', 'bin', 'llvm-readelf.exe') : '', 'READELF');
+  const jar = requireTool(env.STRANDCUE_JAR, env.JAVA_HOME ? join(env.JAVA_HOME, 'bin', 'jar.exe') : 'jar.exe', 'JAR');
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'strandcue-native-'));
+  try {
+    const abis: Record<string, { name: string; machine: string; needed: string[] }[]> = {};
+    for (const abi of expectedNativeAbis) {
+      const names = entries.filter((entry) => entry.startsWith(`lib/${abi}/`)).map((entry) => entry.split('/')[2]).sort();
+      const libraries = [];
+      for (const name of names) {
+        const entry = `lib/${abi}/${name}`;
+        runCommand(jar, ['xf', resolve(apkPath), entry], temporaryDirectory);
+        const output = runCommand(readelf, ['-h', '-d', join(temporaryDirectory, 'lib', abi, name)]);
+        const machine = output.match(readElfMachinePattern)?.[1] ?? '';
+        const needed = [...output.matchAll(neededPattern)].map((match) => match[1]);
+        if (!machine || !needed.length) throw new Error('NATIVE_MANIFEST_PARSE');
+        libraries.push({ name, machine, needed });
+      }
+      abis[abi] = libraries;
+    }
+    if (!validateAndroidNativeManifest(abis)) throw new Error('NATIVE_MANIFEST_MISMATCH');
+    const manifest = { abis };
+    const canonical = `${JSON.stringify(manifest, null, 2).replace(/\n/g, '\r\n')}\r\n`;
+    return createHash('sha256').update(canonical).digest('hex');
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 export function verifyAndroidArtifactCli(
@@ -208,36 +304,39 @@ export function verifyAndroidArtifactCli(
       : ['verify', '--verbose', '--print-certs', absoluteApk];
     const signer = runCommand(apksigner.toLowerCase().endsWith('.jar') ? java : apksigner, signerArgs);
     const archiveListing = runCommand(jar, ['tf', absoluteApk]);
+    const nativeManifestHash = dependencies.inspectNativeManifest
+      ? dependencies.inspectNativeManifest(absoluteApk, archiveListing)
+      : inspectAndroidNativeManifest(absoluteApk, archiveListing, env, runCommand);
     const sourceReceipt = readText(receiptPath);
     const apkSha256 = hashFile(absoluteApk);
-    const metadata = parseArtifactInspectionOutputs({ badging, signer, archiveListing, sourceReceipt, apkSha256 });
-    const certificate = env.STRANDCUE_ANDROID_CERT_SHA256 || '';
+    const metadata = parseArtifactInspectionOutputs({ badging, signer, archiveListing, nativeManifestSha256: nativeManifestHash, sourceReceipt, apkSha256 });
     const expected: AndroidArtifactExpectation = {
       packageName: 'za.co.strandcue.app',
       sourceCommit: 'd8c2818a7fac0e996910a5a33d6784875800993b',
-      inputApkSha256: '466330d1578e8019cb6e312b2653e750a550338d6c2637d5cda076555236b1ae',
-      abi: 'arm64-v8a',
+      inputApkSha256: expectedInputApkSha256,
+      abis: expectedNativeAbis,
+      nativeManifestSha256: expectedNativeManifestSha256,
       versionName: '0.1.0',
       expectedVersionCode: '1',
       signerCount: 1,
-      signerSha256: certificate,
+      signerSha256: expectedCertificateSha256,
     };
-    const verification = verifyAndroidArtifact(metadata, expected);
+    const verification = verifyAndroidArtifact({ ...metadata, nativeManifestSha256: nativeManifestHash }, expected);
     if (verification.status !== 'PASS') {
       return {
         exitCode: 1,
         stdout: '',
-        stderr: `ANDROID-ARTIFACT-HOLD:${[...verification.errors, ...(certificate ? [] : ['EXPECTED_CERTIFICATE_MISSING'])].join(',')}\n`,
+        stderr: `ANDROID-ARTIFACT-HOLD:${verification.errors.join(',')}\n`,
       };
     }
     return {
       exitCode: 0,
-      stdout: `ANDROID-ARTIFACT-PASS package=${metadata.packageName} version=${metadata.versionName} source=${metadata.sourceCommit} abi=${metadata.abi.join(',')} signers=${metadata.signerCount} certSha256=${normalizeSha256(certificate)} apkSha256=${metadata.apkSha256}\n`,
+      stdout: `ANDROID-ARTIFACT-PASS package=${metadata.packageName} version=${metadata.versionName} source=${metadata.sourceCommit} abi=${metadata.abi.join(',')} signers=${metadata.signerCount} certSha256=${expectedCertificateSha256} nativeManifestSha256=${nativeManifestHash} apkSha256=${metadata.apkSha256}\n`,
       stderr: '',
     };
   } catch (error) {
-    const code = error instanceof Error && (/^TOOL_MISSING:(?:AAPT|APKSIGNER|ZIPALIGN|JAVA|JAR)$/.test(error.message)
-      || error.message === 'ZIPALIGN_OUTPUT_MISSING')
+    const code = error instanceof Error && (/^TOOL_MISSING:(?:AAPT|APKSIGNER|ZIPALIGN|JAVA|JAR|READELF)$/.test(error.message)
+      || ['ZIPALIGN_OUTPUT_MISSING', 'ABI_SET_MISMATCH', 'NATIVE_MANIFEST_MISMATCH', 'NATIVE_MANIFEST_PARSE'].includes(error.message))
       ? error.message
       : 'INSPECTION_FAILED';
     return { exitCode: 1, stdout: '', stderr: `ANDROID-ARTIFACT-HOLD:${code}\n` };

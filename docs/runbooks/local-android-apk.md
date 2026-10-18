@@ -44,9 +44,9 @@ path can change after preflight.
 
 Signing inputs remain external. Planned process-local names are
 `STRANDCUE_ANDROID_KEYSTORE`, `STRANDCUE_ANDROID_KEY_ALIAS`,
-`STRANDCUE_ANDROID_STORE_PASSWORD`, and `STRANDCUE_ANDROID_KEY_PASSWORD`;
-`STRANDCUE_ANDROID_CERT_SHA256` is the public certificate fingerprint used by
-the later association check. No signing value is needed by this preflight.
+`STRANDCUE_ANDROID_STORE_PASSWORD`, and `STRANDCUE_ANDROID_KEY_PASSWORD`.
+The certificate fingerprint is pinned in tracked verifier code and cannot be
+replaced through the environment. No signing value is needed by this preflight.
 Never store a keystore, passwords, Expo token, Supabase secret, or service-account
 JSON in Git, build logs, shell history, or tester messages. Do not print an
 environment dump.
@@ -60,6 +60,8 @@ once and preserve it for later device acceptance. Generate its password in a
 PowerShell `SecureString`, persist only the output of `ConvertFrom-SecureString`,
 and set the four `STRANDCUE_ANDROID_*` process variables from that secure record
 for each signing session. Do not print those variables or the keystore path.
+The fingerprint read from the alpha keystore must match the tracked pin before
+signing.
 Use `keytool -genkeypair` with `-storepass:env STRANDCUE_ANDROID_STORE_PASSWORD`
 and `-keypass:env STRANDCUE_ANDROID_KEY_PASSWORD`; this keeps password values out
 of command history. The alias is `strandcue-local-alpha`.
@@ -73,7 +75,7 @@ with `--ks-pass env:STRANDCUE_ANDROID_STORE_PASSWORD` and
 input artifact.
 
 Capture the public SHA-256 certificate fingerprint from `keytool -list -v` and
-set `STRANDCUE_ANDROID_CERT_SHA256` for verification. Alongside the signed APK,
+compare it with the tracked pin before signing. Alongside the signed APK,
 write a local `*.source-receipt.json` containing only `sourceCommit`,
 `inputApkSha256`, and `signedApkSha256`. The signed hash must be the SHA-256 of
 the exact APK being verified. The verifier checks both the recorded input APK
@@ -87,17 +89,37 @@ npm run verify:android-artifact -- C:\scb\artifacts\strandcue-alpha.apk
 ```
 
 The verifier runs `zipalign -c -v 4`, `aapt dump badging`,
-`apksigner verify --verbose --print-certs`, and `jar tf`, then checks package
-`za.co.strandcue.app`, the pinned source commit and input APK hash, the
-`arm64-v8a` ABI, version `0.1.0` / version code `1`, a single signer with the
-configured public fingerprint, a valid APK SHA-256, and a matching source
-receipt. Source commit and input APK hash expectations are pinned in tracked
-verifier code; caller environment values cannot replace them. It parses apksigner's declared signer count and
-requires one digest record for every contiguous signer number. A missing,
-duplicate, gapped, or inconsistent signer record returns HOLD. The zipalign
-check runs on the exact APK being inspected; a missing tool or nonzero result
-returns HOLD. It prints
-`ANDROID-ARTIFACT-PASS` only when every required field is present and unambiguous.
-Missing tools, missing fields, malformed output, unsigned or multiply signed
-APKs, and receipt mismatches return `ANDROID-ARTIFACT-HOLD` with stable codes;
-raw tool output is not included.
+`apksigner verify --verbose --print-certs`, `jar tf`, and NDK
+`llvm-readelf -h -d` over each native library. It requires package
+`za.co.strandcue.app`, source commit `d8c2818a7fac0e996910a5a33d6784875800993b`,
+universal unsigned input SHA-256
+`d582bdf4110ce73cba386cfe16ad6cb16de97560862b35a26a9ea8b96b635b16`, exactly
+the ABIs `arm64-v8a` and `x86_64`, the pinned 22-library manifest in each ABI,
+the expected ELF machine for each ABI, closed `DT_NEEDED` dependencies, version
+`0.1.0` / version code `1`, exactly one signer, and pinned public certificate
+SHA-256 `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`.
+The canonical native manifest SHA-256 is pinned as
+`c459015a3b52af685ebadf3e529f5fa952d1c89c923493d903eef545c519b6cd`.
+Source, input, native-manifest, and certificate trust anchors live in tracked
+verifier code; caller environment values cannot replace them. Tool paths may be
+configured through the documented `STRANDCUE_*` process variables.
+
+Before signing, check the existing alpha key's **public certificate** against
+the pinned fingerprint above. Stop if it differs. Extract the two ABI trees
+from the supplied universal APK to a fresh external temporary directory, remove
+the source APK's `META-INF/MANIFEST.MF` and `.SF`, `.RSA`, `.DSA`, or `.EC`
+signature records, and rebuild outside the checkout. Run `zipalign -f 4` into a
+new APK path and sign that new aligned APK with the existing alpha key. Supply
+passwords through process environment variables populated from the DPAPI
+protected password record; do not place password values on command lines or
+print the keystore path. Keep the original universal APK unchanged.
+
+Write the signed APK and its `.source-receipt.json` outside the checkout. The
+receipt contains only `sourceCommit`, `inputApkSha256`, and `signedApkSha256`.
+Run `zipalign -c -v 4`, `apksigner verify --verbose --print-certs`,
+`npm run verify:android-artifact -- <signed-apk>`, and SHA-256 hashing on the
+exact signed file. A missing tool, missing field, malformed output, unsigned or
+multiply signed APK, wrong ABI/native inventory, unresolved dependency, or
+receipt mismatch returns `ANDROID-ARTIFACT-HOLD` with stable codes; raw tool
+output is not included. The verifier prints `ANDROID-ARTIFACT-PASS` only when
+all pinned checks pass.
