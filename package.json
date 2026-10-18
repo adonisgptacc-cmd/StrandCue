@@ -12,6 +12,7 @@
   },
   "scripts": {
     "check:runtime": "node scripts/check-runtime.ts",
+    "check:android-local": "node scripts/android-local-preflight.ts",
     "lint": "eslint apps/mobile packages/domain scripts tests vitest.config.ts eslint.config.mjs --max-warnings=0",
     "preverify": "npm run check:runtime",
     "test": "vitest run",
