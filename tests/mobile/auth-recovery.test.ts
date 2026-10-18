@@ -37,6 +37,38 @@ beforeEach(() => {
   recoveryMocks.signOut.mockResolvedValue({ error: null });
 });
 describe('recovery callback transition', () => {
+  it.each(['cold', 'warm'])('ignores unsolicited approved %s links and retains the verified account', async mode => {
+    const url = 'https://strandcue.adonisgptacc.workers.dev/auth/callback?code=abc&sb_flow_id=12345678';
+    recoveryMocks.storageGet.mockResolvedValue(null);
+    recoveryMocks.getInitialURL.mockResolvedValue(mode === 'cold' ? url : null);
+    recoveryMocks.getUser.mockResolvedValue({data: {user: {id: 'existing-owner'}}, error: null});
+    let observed: ReturnType<typeof useAccount> | undefined;
+    function Harness() { observed = useAccount(); return null; }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Harness)); });
+    if (mode === 'warm') await act(async () => { recoveryMocks.linkListener?.({url}); });
+    expect(recoveryMocks.signOut).not.toHaveBeenCalled();
+    expect(recoveryMocks.exchange).not.toHaveBeenCalled();
+    expect(recoveryMocks.storageRemove).not.toHaveBeenCalled();
+    expect(observed?.user?.id).toBe('existing-owner');
+    expect(observed?.recovery).toBe(false);
+    expect(observed?.loading).toBe(false);
+    expect(observed?.notice).toBe('');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it.each(['invalid', 'expired'])('fails a pending %s marker and signs out explicitly', async marker => {
+    recoveryMocks.storageGet.mockImplementation(async (key: string) => key === 'recovery' ? marker === 'invalid' ? 'garbage' : String(Date.now() - 3_600_001) : null);
+    recoveryMocks.getInitialURL.mockResolvedValue('strandcue://auth/callback?code=abc&sb_flow_id=12345678');
+    let observed: ReturnType<typeof useAccount> | undefined;
+    function Harness() { observed = useAccount(); return null; }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Harness)); });
+    expect(recoveryMocks.signOut).toHaveBeenCalledWith({scope: 'local'});
+    expect(recoveryMocks.exchange).not.toHaveBeenCalled();
+    expect(observed?.notice).toContain('cannot be used');
+    await act(async () => { renderer.unmount(); });
+  });
   it('runs a duplicated recovery callback only once and reuses its successful result', async () => {
     const gate = createRecoveryCallbackGate();
     const pending = deferred<{status: 'ready'}>();

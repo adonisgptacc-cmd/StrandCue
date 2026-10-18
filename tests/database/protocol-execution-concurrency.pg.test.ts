@@ -1,197 +1,130 @@
-// Real-Postgres two-session op-id concurrency proof (DB-002 live gate).
-//
-// SPECIFIED, NEVER EXECUTED HERE. This suite SKIPS unless the operator sets
-// STRANDCUE_PG_DSN to a real LOCAL/STAGING Postgres with the full migration
-// chain applied. It NEVER defaults to any hosted DSN, reads the DSN only from
-// the environment, and refuses known production hosts with a hard skip.
-// Normative choreography: ./protocol-execution-concurrency.pg-spec.md.
-// PGlite proves replay-convergence only; only this suite can prove
-// wire-level blocking (see the spec's binding PGlite-limits section).
-//
-// The `pg` driver is intentionally NOT a repo dependency: it is loaded with a
-// dynamic import inside beforeAll, so default CI (no DSN) never needs it.
-// To run: STRANDCUE_PG_DSN=postgres://... npx vitest run
-//   tests/database/protocol-execution-concurrency.pg.test.ts
-// with `pg` resolvable in a scratch environment (never commit it).
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-
-// Minimal structural contract for the dynamically loaded `pg` driver lives in
-// ./pg-driver.d.ts (ambient declaration; `pg` is intentionally NOT a repo
-// dependency) so typecheck passes with zero new dependencies.
+// Opt-in, disposable numeric-loopback PostgreSQL only. No hosted targets.
+// The optional pg driver is supplied in an ignored scratch environment.
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {refusalReason} from '../helpers/local-postgres-target';
 type PgClient = import('pg').Client;
+type PgConstructor = new (config: {connectionString: string}) => PgClient;
+const dsn = process.env.STRANDCUE_PG_DSN ?? '';
+const refusal = refusalReason(dsn);
+const suite = refusal === null ? describe : describe.skip;
+if (refusal) console.warn(`[protocol-execution-concurrency.pg] SKIP: ${refusal}`);
 
-const DSN = process.env.STRANDCUE_PG_DSN ?? '';
-
-function refusalReason(dsn: string): string | null {
-  if (!dsn) return 'STRANDCUE_PG_DSN is not set';
-  let host = '';
-  try {
-    host = new URL(dsn).hostname.toLowerCase();
-  } catch {
-    return 'STRANDCUE_PG_DSN is not a parseable Postgres URL';
-  }
-  if (host.endsWith('supabase.co') || host.includes('pooler')) {
-    return `refusing production-looking host '${host}' (supabase.co / pooler pattern)`;
-  }
-  return null;
-}
-
-const refusal = refusalReason(DSN);
-const enabled = refusal === null;
-const describeGated = enabled ? describe : describe.skip;
-
-if (!enabled) {
-  const why = DSN
-    ? `HARD SKIP with warning: ${refusal}. This suite never touches hosted databases.`
-    : 'SKIP: STRANDCUE_PG_DSN is not set — real-Postgres wire-level blocking proof not run (PGlite replay-convergence suites still cover convergence).';
-  console.warn(`[protocol-execution-concurrency.pg] ${why}`);
-}
-
-describeGated('real-Postgres two-session op-id blocking (DB-002 live proof)', () => {
-  let admin: PgClient;
-  let ownerId: string;
-
-  const asOwner = async (client: PgClient, uid: string): Promise<void> => {
-    await client.query('reset role');
-    await client.query("select set_config('request.jwt.claim.sub', $1, false)", [uid]);
-    await client.query(
-      "select set_config('request.jwt.claims', $1, false)",
-      [JSON.stringify({ sub: uid, role: 'authenticated', email: `${uid}@example.test`, is_anonymous: false })],
-    );
-    await client.query('set role authenticated');
-  };
-
-  const newClient = async (Client: new (config: { connectionString: string }) => PgClient): Promise<PgClient> => {
-    const client = new Client({ connectionString: DSN });
+suite('real-Postgres two-session op-id blocking (DB-002 local proof)', () => {
+  let admin: PgClient | undefined;
+  let Client: PgConstructor;
+  const ownerId = crypto.randomUUID();
+  const newClient = async () => {
+    const client = new Client({connectionString: dsn});
     await client.connect();
+    await client.query("set statement_timeout = '10000'");
     return client;
   };
-
-  const loadDriver = async (): Promise<new (config: { connectionString: string }) => PgClient> => {
-    try {
-      // eslint-disable-next-line import/no-unresolved -- 'pg' is an optional operator-provided driver, resolved only when STRANDCUE_PG_DSN is set
-      const { Client } = await import('pg');
-      return Client;
-    } catch {
-      throw new Error(
-        "STRANDCUE_PG_DSN is set but the 'pg' driver is not resolvable. Install it in a scratch environment " +
-          '(never commit it as a dependency) and re-run this suite against a local/staging Postgres only.',
-      );
-    }
+  const asOwner = async (client: PgClient) => {
+    await client.query('reset role');
+    await client.query("select set_config('request.jwt.claim.sub', $1, false), set_config('request.jwt.claims', $2, false)",
+      [ownerId, JSON.stringify({sub: ownerId, role: 'authenticated', email: 'pgproof@example.test', is_anonymous: false})]);
+    await client.query('set role authenticated');
   };
-
-  beforeAll(async () => {
-    const Client = await loadDriver();
-    admin = await newClient(Client);
-
-    // 1. The full migration chain must be present, or fail loudly.
-    const chain = await admin.query<{ start_fn: unknown; ops_table: unknown }>(
-      `select to_regproc('public.start_protocol_execution') as start_fn,
-              to_regclass('strandcue_private.protocol_execution_operations') as ops_table`,
-    );
-    expect(chain.rows[0].start_fn, 'start_protocol_execution must exist: apply the full migration chain').toBeTruthy();
-    expect(chain.rows[0].ops_table, 'protocol_execution_operations must exist: apply the full migration chain').toBeTruthy();
-
-    // 2-3. Fresh owner + completed profile + one trusted run (spec setup).
-    ownerId = crypto.randomUUID();
-    await admin.query('insert into auth.users(id) values ($1) on conflict (id) do nothing', [ownerId]);
-    await asOwner(admin, ownerId);
-    await admin.query('select public.complete_account($1, true)', [`pgproof_${Date.now()}`]);
-  }, 60_000);
-
-  afterAll(async () => {
-    if (admin) await admin.end();
-  });
-
-  it('pair 1: identical op blocks on the open transaction, then returns the winner receipt with zero raw 23505', async () => {
-    const Client = await loadDriver();
-    const sessionA = await newClient(Client);
-    const sessionB = await newClient(Client);
+  const seedRun = async () => {
+    const id = crypto.randomUUID();
+    const decision = {status: 'ready', requestId: id, steps: [{stepId: 'synthetic-1', position: 1,
+      action: 'Synthetic test', productId: null, productVersionId: null, toolId: null,
+      toolVersionId: null, waitSeconds: null, rinse: null, reasons: ['fixture']}]};
+    await asOwner(admin!);
+    await admin!.query('reset role');
+    await admin!.query('set role strandcue_mutator');
     try {
-      await asOwner(sessionA, ownerId);
-      await asOwner(sessionB, ownerId);
-      const opX = crypto.randomUUID();
-      const runId = crypto.randomUUID();
-      const execA = crypto.randomUUID();
-
-      // Session A: begin, start with op X, hold the xact (and its advisory lock) open.
-      await sessionA.query('begin');
-      const receiptA = (
-        await sessionA.query<{ result: { executionId: string } }>(
-          'select public.start_protocol_execution($1, $2, $3) as result',
-          [opX, execA, runId],
-        )
-      ).rows[0].result;
-      const holdOpen = sessionA.query('select pg_sleep(5)');
-      // Give A a moment to enter pg_sleep holding the advisory xact lock.
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-
-      // Session B: identical op X must BLOCK, then converge after A commits.
-      const startedAt = Date.now();
-      const pendingB = sessionB.query<{ result: { executionId: string } }>(
-        'select public.start_protocol_execution($1, $2, $3) as result',
-        [opX, crypto.randomUUID(), runId],
-      );
-      // While B is in flight, observe lock waiting on B's backend.
-      await new Promise((resolve) => setTimeout(resolve, 1_500));
-      const waiting = await admin.query<{ wait_event_type: string | null; wait_event: string | null }>(
-        `select wait_event_type, wait_event from pg_stat_activity
-          where datname = current_database() and usename <> 'postgres'
-            and wait_event_type = 'Lock' limit 1`,
-      );
-      expect(
-        waiting.rows.length,
-        'session B must be observably lock-waiting while session A holds the op (pg_stat_activity Lock)',
-      ).toBeGreaterThan(0);
-
-      await holdOpen;
-      await sessionA.query('commit');
-      const receiptB = (await pendingB).rows[0].result;
-      const elapsedMs = Date.now() - startedAt;
-
-      expect(elapsedMs, 'session B must demonstrably block until A commits').toBeGreaterThanOrEqual(4_000);
-      expect(receiptB.executionId, 'replayed op returns the winner receipt').toBe(receiptA.executionId);
-      // Zero raw 23505: any constraint violation escaping the mapped stable
-      // errors would reject the query above instead of returning a receipt.
-    } finally {
-      try {
-        await sessionA.query('rollback');
-      } catch {
-        // Already committed; ignore.
+      await admin!.query(`select strandcue_private.record_trusted_run($1,$2,now(),'synthetic','pgproof-synthetic','1','ready',$3::jsonb,$4::jsonb)`,
+        [id, 'd'.repeat(64), JSON.stringify({requestId: id, goal: 'basic_wash'}), JSON.stringify(decision)]);
+    } finally { await admin!.query('reset role'); }
+    return id;
+  };
+  const startSql = 'select public.start_protocol_execution($1::uuid,$2::uuid,$3::uuid,$4::timestamptz) as result';
+  const startArgs = (runId: string) => [crypto.randomUUID(), crypto.randomUUID(), runId, new Date().toISOString()];
+  const backend = async (client: PgClient) => (await client.query<{pid: number}>('select pg_backend_pid() as pid')).rows[0].pid;
+  const observeBlocking = async (waitingPid: number, blockerPid: number) => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const observation = (await admin!.query<{wait_event_type: string; wait_event: string; blockers: number[]}>(
+        'select wait_event_type, wait_event, pg_blocking_pids(pid) as blockers from pg_stat_activity where pid=$1', [waitingPid])).rows[0];
+      if (observation?.wait_event_type === 'Lock' && observation.blockers.includes(blockerPid)) {
+        expect(['transactionid', 'advisory']).toContain(observation.wait_event);
+        console.log(`LOCAL-PG-BLOCKING pid=${waitingPid} blocker=${blockerPid} Lock/${observation.wait_event}`);
+        return;
       }
-      await sessionA.end();
-      await sessionB.end();
+      await new Promise(resolve => setTimeout(resolve, 20));
     }
-  }, 120_000);
-
-  it('pair 2 (sanity): distinct ops do not cross-block', async () => {
-    const Client = await loadDriver();
-    const sessionC = await newClient(Client);
-    const sessionD = await newClient(Client);
+    throw new Error('Exact session B was not blocked by exact session A');
+  };
+  beforeAll(async () => {
+    // eslint-disable-next-line import/no-unresolved -- optional scratch driver, opt-in local suite only
+    ({Client} = await import('pg'));
+    admin = await newClient();
+    const chain = await admin.query<{signature: string | null}>("select to_regprocedure('public.start_protocol_execution(uuid,uuid,uuid,timestamp with time zone)')::text as signature");
+    expect(chain.rows[0].signature).toBeTruthy();
+    await admin.query('insert into auth.users(id,email_confirmed_at) values($1,now())', [ownerId]);
+    await asOwner(admin);
+    await admin.query('select public.complete_account($1,true)', [`pgproof_${ownerId.replaceAll('-', '').slice(0,12)}`]);
+    await admin.query('reset role');
+  });
+  afterAll(async () => {
+    if (!admin) return;
     try {
-      await asOwner(sessionC, ownerId);
-      await asOwner(sessionD, ownerId);
-      const runId = crypto.randomUUID();
-      const startedAt = Date.now();
-      const [receiptC, receiptD] = await Promise.all([
-        sessionC.query<{ result: { executionId: string } }>(
-          'select public.start_protocol_execution($1, $2, $3) as result',
-          [crypto.randomUUID(), crypto.randomUUID(), runId],
-        ),
-        sessionD.query<{ result: { executionId: string } }>(
-          'select public.start_protocol_execution($1, $2, $3) as result',
-          [crypto.randomUUID(), crypto.randomUUID(), runId],
-        ),
-      ]);
-      const elapsedMs = Date.now() - startedAt;
-      expect(elapsedMs, 'distinct ops must complete near the no-contention baseline').toBeLessThan(30_000);
-      expect(
-        receiptC.rows[0].result.executionId,
-        'distinct ops mint distinct executions (op-scoped lock, not owner-scoped)',
-      ).not.toBe(receiptD.rows[0].result.executionId);
-    } finally {
-      await sessionC.end();
-      await sessionD.end();
+      await admin.query('reset role');
+      await admin.query('delete from auth.users where id=$1', [ownerId]);
+      const count = await admin.query<{n: number}>(`select (
+        (select count(*) from auth.users where id=$1) +
+        (select count(*) from public.profiles where user_id=$1) +
+        (select count(*) from public.recommendation_runs where user_id=$1) +
+        (select count(*) from public.protocol_executions where user_id=$1) +
+        (select count(*) from public.protocol_execution_events where user_id=$1) +
+        (select count(*) from strandcue_private.protocol_execution_operations where user_id=$1)
+      )::int as n`, [ownerId]);
+      expect(count.rows[0].n).toBe(0);
+      console.log('LOCAL-PG-SYNTHETIC-CLEANUP-PASS');
+    } finally { await admin.end(); }
+  });
+  it.each(['start', 'transition'])('identical %s operation blocks then replays the complete receipt', async kind => {
+    const runId = await seedRun();
+    const args = startArgs(runId);
+    if (kind === 'transition') {
+      await asOwner(admin!);
+      await admin!.query(startSql, args);
+      await admin!.query('reset role');
     }
-  }, 120_000);
+    const sql = kind === 'start' ? startSql : 'select public.apply_protocol_execution_command($1::uuid,$2::uuid,$3::integer,$4::jsonb,$5::timestamptz) as result';
+    const operation = kind === 'start' ? args : [crypto.randomUUID(), args[1], 0, JSON.stringify({kind: 'pause'}), args[3]];
+    const a = await newClient(), b = await newClient();
+    let pending: Promise<unknown> | undefined;
+    try {
+      await asOwner(a); await asOwner(b);
+      const pidA = await backend(a), pidB = await backend(b);
+      await a.query('begin');
+      const winner = (await a.query<{result: unknown}>(sql, operation)).rows[0].result;
+      const replay = b.query<{result: unknown}>(sql, operation);
+      pending = replay;
+      // Attach rejection handling before observation to avoid unhandled rejection.
+      void replay.catch(() => undefined);
+      await observeBlocking(pidB, pidA);
+      await a.query('commit');
+      expect((await replay).rows[0].result).toEqual(winner);
+    } finally {
+      await a.query('rollback');
+      await pending?.catch(() => undefined);
+      await Promise.all([a.end(), b.end()]);
+    }
+  });
+  it('distinct runs and operations complete while the first transaction remains open', async () => {
+    const argsA = startArgs(await seedRun()), argsB = startArgs(await seedRun());
+    const a = await newClient(), b = await newClient();
+    try {
+      await asOwner(a); await asOwner(b);
+      await b.query("set statement_timeout = '2000'");
+      await a.query('begin');
+      const first = (await a.query<{result: {executionId: string}}>(startSql, argsA)).rows[0].result;
+      const second = (await b.query<{result: {executionId: string}}>(startSql, argsB)).rows[0].result;
+      expect(first.executionId).not.toBe(second.executionId);
+      // A is still uncommitted: success on B is direct non-contention evidence.
+      await a.query('commit');
+    } finally { await a.query('rollback'); await Promise.all([a.end(), b.end()]); }
+  });
 });

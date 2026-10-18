@@ -79,7 +79,7 @@ describe('recovery callback hardening', () => {
     expect(parse(`strandcue://auth/callback?code=${'a'.repeat(2049)}${flow}`, true)).toBeNull();
     expect(parse(`strandcue://auth/callback?code=${'a'.repeat(2048)}${flow}`, true)).toEqual({code: 'a'.repeat(2048), flowId: '12345678'});
     expect(parse(`strandcue://user:pass@auth/callback?code=a${flow}`, true)).toBeNull();
-    expect(parse(`strandcue://auth/callback?code=a&other=b${flow}`, true)).toEqual({code: 'a', flowId: '12345678'});
+    expect(parse(`strandcue://auth/callback?code=a&other=b${flow}`, true)).toBeNull();
     expect(parse(`STRANDCUE://auth/callback?code=a${flow}`, true)).toEqual({code: 'a', flowId: '12345678'});
     expect(parse(`strandcue://other/callback?code=a${flow}`, true)).toBeNull();
     expect(parse('', true)).toBeNull();

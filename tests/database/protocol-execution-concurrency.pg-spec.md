@@ -1,91 +1,55 @@
-# Real-Postgres two-session op-id concurrency spec (DB-002 live proof — SPECIFIED, NOT EXECUTED)
+# Real-Postgres two-session op-id concurrency proof (DB-002)
 
-Status: specification only. No live Postgres is available in this environment
-and hosted services are forbidden, so the choreography below has never been
-run. The env-gated suite `protocol-execution-concurrency.pg.test.ts` in this
-directory implements exactly this spec and skips by default.
+The automated suite `protocol-execution-concurrency.pg.test.ts` passed against
+the disposable local Supabase stack during the final Increment-4 fix wave on
+2026-10-18. See the Task-25 addendum for exact evidence. It remains opt-in and
+skips by default. Local execution does not prove hosted behavior or close DB-002.
 
-## Why this spec exists
+## Target and fixture boundary
 
-The op-id concurrency mechanism (`supabase/migrations/20261014211011_protocol_execution_bounds_integrity.sql:41-50,203-217,353-367`)
-serializes same-owner+same-op work with
-`pg_advisory_xact_lock(hashtext(uid || ':' || operation_id))` taken BEFORE the
-replay SELECT, using the identical key in both the start and transition cores.
-A replayed op returns the winner's receipt (`operation-conflict` is raised only
-for genuinely conflicting state, never as a raw constraint violation to the
-client).
+Set `STRANDCUE_PG_DSN` only for a disposable database with the full migration
+chain. Only `postgres:`/`postgresql:` URLs using numeric `127.0.0.1` or `[::1]`
+are accepted. Query options and fragments are rejected, preventing `host` or
+`service` options from changing the connection target. DNS hosts, including
+localhost and every hosted/staging host, are refused. No DSN default exists.
+The optional `pg` driver is supplied in ignored scratch dependencies; no
+manifest/lockfile change is needed. Never print credentials.
 
-PGlite CANNOT prove the blocking half of this: it runs a single embedded
-backend that serializes all queries, so two "sessions" can never contend on an
-advisory lock. PGlite proves replay-convergence only (same op twice → winner's
-receipt, zero raw 23505). Wire-level blocking — session B demonstrably waiting
-on session A's open transaction — requires two real wire-protocol sessions
-against a real Postgres. That proof is specified here and stays carried until
-an operator runs it against a local/staging database.
+Use fixture authority that can insert a synthetic confirmed Auth owner,
+complete that owner's profile, and invoke the private trusted writer as
+`strandcue_mutator` with the owner's claims. The suite never changes grants,
+roles or schema. Fresh trusted `ready` runs contain synthetic unpublished
+content. Public start/transition calls execute as `authenticated`.
 
-## Prerequisites (operator-provided, never hosted)
+## Binding choreography
 
-1. A real **local or staging** Postgres with the FULL migration chain applied
-   in order (same chain the PGlite harness replays from `supabase/migrations`,
-   including the `auth.users` stand-in or a local Supabase `db` service with
-   the `strandcue_*` roles present).
-2. The operator exports `STRANDCUE_PG_DSN` pointing at that database, e.g.
-   `postgres://postgres:postgres@localhost:5432/strandcue_local`.
-3. The DSN must NEVER point at a hosted project: any host ending in
-   `supabase.co` or matching the pooler pattern (`pooler`, `*.pooler.*`) is
-   refused with a hard skip + warning. There is no default DSN.
-4. The `pg` driver must be resolvable (it is intentionally NOT a repo
-   dependency; install it in a scratch environment, never commit it).
+1. Assert the exact current start signature exists:
+   `start_protocol_execution(uuid,uuid,uuid,timestamptz)`.
+2. Seed a fresh owner/profile and trusted ready run.
+3. Obtain both clients' `pg_backend_pid()` values. A begins a transaction and
+   executes a start operation, retaining its transaction lock.
+4. B submits the *identical* operation, execution, run and timestamp. Poll
+   `pg_stat_activity` by B's exact PID; require `wait_event_type='Lock'` and
+   `pg_blocking_pids(B)` containing A's exact PID. No username filter, elapsed
+   time substitute, arbitrary sleep or unrelated backend counts as proof.
+5. Only after observation, commit A. Require B's complete receipt to equal A's
+   receipt; a raw 23505 or stable conflict rejects the query and fails the test.
+6. Repeat with the exact same pause transition operation, expected revision,
+   command and timestamp. Start may block on `transactionid` because the run
+   row locks first; transition directly observes `advisory` contention.
+7. For non-contention, seed distinct runs and operations. Hold A's successful
+   start uncommitted while B completes under a 2-second statement timeout.
+   Require distinct execution IDs before committing A. Same-run starts
+   intentionally serialize and do not belong in this sanity case.
+8. In failure paths roll back A, settle B under the bounded statement timeout,
+   and close both clients. After the suite delete only the freshly minted Auth
+   owner and verify no owner rows remain in Auth, profile, run, execution,
+   event or operations tables. Cascades remove all fixtures.
 
-## Choreography (normative)
+## What PGlite proves
 
-Setup (admin client on the DSN):
-
-1. Assert the chain is present: `to_regproc('public.start_protocol_execution')`
-   is not null AND `strandcue_private.protocol_execution_operations` exists.
-   Otherwise fail loudly (never silently pass).
-2. Mint a fresh owner UUID; ensure its `auth.users` row and a completed
-   `complete_account` profile exist (act as the owner via
-   `set_config('request.jwt.claim.sub', uid, false)` + `set role authenticated`,
-   mirroring `tests/database/harness.ts`).
-3. Seed one trusted recommendation run usable by `start_protocol_execution`.
-
-Pair 1 — identical op must block, then converge (the proof):
-
-4. Session A (client 1): `BEGIN`; `SELECT public.start_protocol_execution(op X,
-   ...)`; hold the transaction open and `SELECT pg_sleep(5)` — the advisory
-   xact lock from step 4 is held until A commits.
-5. Session B (client 2, concurrent while A sleeps): issue the IDENTICAL call
-   with op X and record start time.
-6. While B is in flight, on the admin client assert B is blocked on a lock:
-   `select wait_event_type, wait_event from pg_stat_activity where ... = B's
-   backend pid` shows `wait_event_type = 'Lock'` (advisory-xact contention),
-   OR equivalently B's elapsed time already exceeds the no-contention baseline.
-7. A: `COMMIT`. B must now resolve.
-8. Assert: B's elapsed time ≥ the sleep window (it demonstrably waited); B's
-   returned receipt EQUALS A's receipt (same `execution_id` — the winner's
-   receipt, replay-converged); and at no point did either session surface a raw
-   `23505` to the caller (the only `23505`-coded raises are the mapped
-   `operation-conflict`/`execution-conflict` stable errors, and pair 1 must
-   produce neither — it produces the winner's receipt twice).
-9. Cleanup pair-1 rows.
-
-Pair 2 — distinct-op sanity (no cross-blocking):
-
-10. Sessions C and D concurrently call `start_protocol_execution` with DISTINCT
-    ops Y and Z (same owner).
-11. Assert: both resolve in ≈ the no-contention baseline (no lock waiting in
-    `pg_stat_activity`), each with its OWN `execution_id`. This proves the lock
-    key is op-scoped (`uid || ':' || operation_id`), not owner-scoped.
-12. Cleanup all seeded rows (executions, events, operations ledger, run,
-    profile, auth user) so re-runs are hermetic.
-
-## What PGlite can and CANNOT prove (binding)
-
-- PGlite PROVES replay-convergence only: same op issued twice returns the
-  winner's receipt with zero raw 23505 (covered by
-  `tests/database/protocol-executions.test.ts`).
-- PGlite CANNOT prove wire-level blocking: its single embedded backend
-  serializes every query, so two sessions can never contend on
-  `pg_advisory_xact_lock`. Any claim that PGlite demonstrates blocking is
-  false. The live proof is this spec, still unexecuted.
+PGlite proves replay convergence and the SQL invariants in the embedded suites.
+Its single embedded backend cannot prove wire-level blocking or two backends
+contending on `pg_advisory_xact_lock`. The opt-in suite above provides real local
+wire-protocol observations. Required hosted/device proof and closing authority
+remain separate release gates.

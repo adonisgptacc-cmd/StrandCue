@@ -89,7 +89,8 @@ export function parseRecoveryCallback(raw: string, pending: boolean): {code: str
   if (!pending || !isApprovedAuthCallback(raw)) return null;
   try {
     const url = new URL(raw);
-    if (url.searchParams.getAll('code').length !== 1
+    if ([...url.searchParams.keys()].some(key => !['code', 'sb_flow_id'].includes(key))
+      || url.searchParams.getAll('code').length !== 1
       || url.searchParams.getAll('sb_flow_id').length !== 1) return null;
     const code = url.searchParams.get('code');
     const flowId = url.searchParams.get('sb_flow_id');

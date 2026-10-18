@@ -303,6 +303,34 @@ async function transportResults(http: Response | Error = transportHttpRedirect, 
 }
 
 describe('website transport checker', () => {
+  it.each(['xmax-age=86400', 'max-age=86400junk', 'max-age=86400.5', 'max-age=86400; max-age=0',
+    'max-age=86400; MAX-AGE=86400', 'max-age=86400, max-age=0', 'max-age=86400; includeSubDomains=oops',
+    'max-age=86400; bad directive', 'max-age=86400; preload; preload', 'max-age=-86400', 'max-age=+86400',
+    'max-age=1e9', 'max-age=999999999999999999999', 'max-age="86400junk"', 'max-age=86400;'])('rejects malformed HSTS: %s', async header => {
+    const results = await transportResults(transportHttpRedirect, new Response('', {
+      headers: { 'content-type': 'text/html', 'strict-transport-security': header },
+    }));
+    expect(results[2].ok).toBe(false);
+  });
+
+  it.each(['MAX-AGE = 86400; includeSubDomains; preload', 'max-age="86400"; extension="valid value"'])('accepts complete valid HSTS directives: %s', async header => {
+    const results = await transportResults(transportHttpRedirect, new Response('', {
+      headers: {'content-type': 'text/html', 'strict-transport-security': header},
+    }));
+    expect(results[2].ok).toBe(true);
+  });
+
+  it.each(['https://strandcue.co.za:8080/', 'https://strandcue.co.za:8443/'])('rejects redirected port: %s', async location => {
+    expect((await transportResults(new Response(null, {status: 301, headers: {location}})))[1].ok).toBe(false);
+  });
+
+  it.each([
+    ['http://strandcue.co.za:8080', 'https://strandcue.co.za'],
+    ['http://strandcue.co.za', 'https://strandcue.co.za:8443'],
+  ])('rejects non-default remote probe ports %s %s', async (http, https) => {
+    const {checkWebsiteTransport} = await loadTransportChecker();
+    await expect(checkWebsiteTransport(http, https)).rejects.toThrow();
+  });
   it('passes a redirect to the approved HTTPS host carrying the staged HSTS floor', async () => {
     const results = await transportResults();
     expect(results.map(result => result.check)).toEqual(['http-redirect', 'http-redirect-host', 'https-strict-transport-security']);

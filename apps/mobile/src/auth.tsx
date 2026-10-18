@@ -156,6 +156,13 @@ export function useAccount() {
           return;
         }
         const raw = await secureStorage.getItem(RECOVERY_KEY);
+        // An approved URL is not proof that this device requested recovery.
+        // Ignore unsolicited links and resume ordinary account verification.
+        if (raw === null) {
+          recoveryRef.current = false;
+          if (!initialLinkChecked) refresh();
+          return;
+        }
         const started = raw ? Number(raw) : 0;
         const outcome = await recoveryCallbackGate.run(() => completeRecoveryCallback({
           url,

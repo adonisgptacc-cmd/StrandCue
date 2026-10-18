@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { changedFields, parseRecoveryCallback, publicConfig, saveErrorMessage, toggleSelection, reviewRebase, authNeedsLoading, resolvedRefreshUser, authUserFromResult, normalizeUsernameInput, normalizeUsernameSuffix, recoveryFailureMessage, parseUsernameOptions } from '../../apps/mobile/src/contracts';
 
 describe('mobile boundary contracts', () => {
+  it.each(['https://strandcue.adonisgptacc.workers.dev/auth/callback', 'strandcue://auth/callback'])('rejects unexpected callback keys for %s', base => {
+    for (const extra of ['redirect_to=https://evil.test', 'access_token=abc', 'refresh_token=abc', 'type=recovery', 'unexpected=x', 'code=a', 'sb_flow_id=abcdefgh', 'redirect_to=a&redirect_to=b', '%63ode=other']) {
+      expect(parseRecoveryCallback(`${base}?code=abc&sb_flow_id=12345678&${extra}`, true)).toBeNull();
+    }
+  });
   it('maps database validation and operation errors without exposing details', () => {
     expect(saveErrorMessage({message:'username-unavailable'})).toContain('username');
     expect(saveErrorMessage({message:'operation-conflict'})).toContain('original attempt');

@@ -65,6 +65,9 @@ The HTTP probe origin must be the plain HTTP origin of the approved host,
 without credentials, path, query, or fragment; the secure origin accepts HTTP
 only for a localhost test origin. Credentialed, path-bearing, query-bearing,
 and fragment-bearing origins are rejected for both.
+Remote probes use default HTTP/HTTPS ports only. Explicit numeric-loopback
+fixture ports remain supported. Redirect destinations must match the entire
+secure origin, including its port.
 
 It performs three checks and prints one line each:
 
@@ -77,6 +80,9 @@ It performs three checks and prints one line each:
 - `https-strict-transport-security` — the final HTTPS response is HTTP 200
   `text/html` and carries `Strict-Transport-Security` with a `max-age` at or
   above the staged floor of `86400`.
+  The checker requires exactly one integer `max-age` directive and parses
+  every complete directive; malformed values, lookalike names without a real
+  max-age, duplicate/conflicting directives and garbage suffixes fail closed.
 
 Each satisfied check prints `WEBSITE-TRANSPORT-PASS ...`; each failure prints
 `WEBSITE-TRANSPORT-HOLD ...` and the command exits with code 1. Redirect
