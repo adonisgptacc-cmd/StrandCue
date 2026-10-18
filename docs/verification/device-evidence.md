@@ -66,3 +66,15 @@ checklist, which remains **0/9 NOT RUN**. See the
 - AAB: `%LOCALAPPDATA%\StrandCue\releases\StrandCue-0.1.0-launch-candidate-arm64-v8a.aab`; SHA-256 `045290055C33F2CE4C74582161E72203721A3FA10FCC1FB2966FBE3DC72F0E62`; size 30,996,817 bytes; `jarsigner -verify` exit 0.
 - `npm run check:release-links` passed against the matching live certificate.
 - Physical ARM64 installation and the signup, confirmation, recovery, offline, export share/save, deletion, and accessibility journeys remain pending.
+## Build 6 — locally signed alpha artifact (2026-10-18)
+
+- Source commit: `d8c2818a7fac0e996910a5a33d6784875800993b` (application source recorded in the signed artifact receipt).
+- Package/version/version code: `za.co.strandcue.app`, `0.1.0`, `1`; ABI: `arm64-v8a`.
+- APK: privately distributed alpha artifact; size `42027000` bytes; SHA-256 `b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3`.
+- Public signer certificate SHA-256: `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`; one signer; APK Signature Scheme v2; `zipalign -c -v 4` passed.
+- Toolchain recorded for the native build: Node `24.19.0`, Java `17.0.20.1`, Gradle `9.3.1`, Android SDK platform `36`, build-tools `36.0.0`, NDK `27.1.12297006`, CMake `3.22.1`, Ninja `1.10.2`.
+- Artifact file timestamp: `2026-10-18T19:26:11+02:00` (filesystem `LastWriteTimeUtc` converted to Africa/Johannesburg UTC+02:00; the precise Gradle completion timestamp was not retained).
+- `npm run verify:android-artifact` with the public certificate fingerprint: PASS.
+- `npm run check:release-links` with this fingerprint: HOLD — the live association endpoint did not contain a matching app/certificate association. Production association was not changed.
+- Physical-device/emulator installation and all acceptance journeys remain NOT RUN. No acceptance PASS is claimed.
+- Tester packet: local distribution folder outside Git, supplied separately by the coordinator.
