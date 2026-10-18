@@ -17,7 +17,7 @@ Date: 2026-10-18. Scope: evidence capture only; no build or configuration fix at
 | `JAVA_HOME` | `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot\` |
 | Android SDK | `C:\Users\ABADO\AppData\Local\Android\Sdk` (exists; discovered at the standard local path; `ANDROID_HOME` and `ANDROID_SDK_ROOT` were unset) |
 | Android platforms | `android-34`, `android-36`, `android-37.0` |
-| Android build-tools | Installed: `35.0.0`, `36.0.0`; the retained failure evidence does not identify which Gradle selected |
+| Android build-tools | Installed: `35.0.0`, `36.0.0`. The retained Task 25 Gradle log line 62 reports `[ExpoRootProject]` buildTools `36.0.0`; generated `app/build.gradle` line 87 uses `rootProject.ext.buildToolsVersion`. Thus `36.0.0` is the Gradle/Expo configured-announced selection, not proof of a completed artifact. |
 | Android NDK | `27.1.12297006`; selected path confirmed by the prior generated app's `CMakeCache.txt` |
 | Android CMake | `3.22.1`; selected executable confirmed by `CMakeCache.txt`; SDK executable reports `3.22.1-g37088a8-dirty` |
 | Ninja | Selected SDK CMake `ninja.exe` confirmed by `CMakeCache.txt`; reports `1.10.2` |
@@ -26,7 +26,7 @@ Date: 2026-10-18. Scope: evidence capture only; no build or configuration fix at
 | Windows long-path policy | `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 0` |
 | C: free space | 532,409,626,624 bytes (495.85 GiB) during inventory |
 
-Only named toolchain paths and versions, disk space, and long-path policy were queried; no environment dump or credentials were read. The selected Android build-tools version is an unresolved inventory item, rather than an assumed choice between the two installed versions.
+Only named toolchain paths and versions, disk space, and long-path policy were queried; no environment dump or credentials were read. The build-tools selection above comes from retained configuration output; compilation failed before an artifact could verify successful use.
 
 ## Prior failure signature
 
