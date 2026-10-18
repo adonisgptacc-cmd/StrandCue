@@ -9,6 +9,7 @@ const criticalModules = [
   'scripts/lock-agreement.ts', 'scripts/audit-control-plane.ts', 'scripts/audit-cli.ts',
   'scripts/expo-sdk-evidence.ts', 'scripts/local-supabase-test-target.ts',
   'scripts/audit-dependencies-cli.ts', 'scripts/runner-dependency-policy.ts',
+  'scripts/android-local-preflight.ts',
 ];
 const floor = { lines: 80, statements: 80, functions: 80, branches: 80 };
 

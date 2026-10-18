@@ -7,13 +7,16 @@ the preflight checks that condition separately from the pinned source object.
 
 Use Node 24.x, Java 17, the Android SDK with platform `android-36`, build-tools
 `36.0.0`, NDK `27.1.12297006`, CMake `3.22.1` and its Ninja binary, and Android
-platform-tools. ADB and the build-tools binaries are required for later artifact
-and device checks. On this Windows host, select the existing Node 24 runtime in
+platform-tools. The preflight requires `android-36/android.jar`, build-tools
+`apksigner.bat`, `aapt.exe`, and `zipalign.exe`, and platform-tools `adb.exe`.
+On this Windows host, select the existing Node 24 runtime in
 the current process before invoking npm. The CLI reads Java from `JAVA_HOME` when
 set, otherwise from `PATH`. It reads the SDK from `ANDROID_HOME`, then
 `ANDROID_SDK_ROOT`, then the standard path beneath `LOCALAPPDATA`.
 
-Use the approved scratch root `C:\scb`. The full scratch directory path must be
+Create the approved scratch root `C:\scb` as a normal local directory before
+preflight. The CLI rejects a missing root and existing scratch-path components
+that resolve through a junction or symlink. The full scratch directory path must be
 at most **40 characters**, and the target drive must have at least **30 GiB**
 available. Choose a fresh child directory for each attempt and pass that exact
 path to the preflight:
@@ -36,6 +39,8 @@ local folder outside the Git worktree. After preserving redacted failure facts o
 the verified artifact receipt, stop Gradle/ADB users of the scratch directory,
 confirm the absolute target is a child of `C:\scb`, then remove that attempt's
 directory. Never remove `C:\scb` wholesale or clean another active attempt.
+Recheck the resolved path immediately before extraction and cleanup because a
+path can change after preflight.
 
 Signing inputs remain external. Planned process-local names are
 `STRANDCUE_ANDROID_KEYSTORE`, `STRANDCUE_ANDROID_KEY_ALIAS`,

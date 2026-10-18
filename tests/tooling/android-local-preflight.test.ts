@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import config from '../../vitest.config';
 import {
   checkAndroidLocalPreflight,
   formatAndroidLocalPreflight,
@@ -16,10 +17,19 @@ const ready = () => ({
   javaMajor: 17,
   sdkAvailable: true,
   scratchPath: 'C:\\scb\\build-d8c2818',
+  scratchRealPathContained: true,
   availableDiskBytes: 80 * 1024 ** 3,
 } as const);
 
 describe('Android local build preflight', () => {
+  it('is included in the standard per-file 80% coverage gate', () => {
+    const path = 'scripts/android-local-preflight.ts';
+    const coverage = config.test?.coverage;
+    expect(coverage?.include).toContain(path);
+    const thresholds = coverage?.thresholds as Record<string, unknown>;
+    expect(thresholds[path]).toMatchObject({ statements: 80, branches: 80, functions: 80, lines: 80, perFile: true });
+  });
+
   it('accepts the exact pinned source independently of the evidence HEAD', () => {
     const result = checkAndroidLocalPreflight(ready());
     expect(result.ok).toBe(true);
@@ -80,6 +90,8 @@ describe('Android local build preflight', () => {
         return { status: 0, stdout: '', stderr: 'openjdk version "17.0.20"' };
       },
       exists: () => true,
+      isFile: () => true,
+      realpath: path => path,
       diskBytes: () => ready().availableDiskBytes,
       env: { ANDROID_HOME: 'C:\\AndroidSdk', JAVA_HOME: 'C:\\Java17' },
       nodeVersion: 'v24.19.0',
@@ -94,6 +106,8 @@ describe('Android local build preflight', () => {
     const facts = gatherAndroidLocalPreflight(ready().scratchPath, {
       run: () => ({ status: 1, stdout: '', stderr: 'TEST_SECRET_SENTINEL_DO_NOT_PRINT' }),
       exists: () => false,
+      isFile: () => false,
+      realpath: path => path,
       diskBytes: () => { throw new Error('unavailable'); },
       env: { ANDROID_SDK_ROOT: 'C:\\AndroidSdk', LOCALAPPDATA: 'C:\\Local' },
       nodeVersion: 'unknown',
@@ -104,6 +118,66 @@ describe('Android local build preflight', () => {
     expect(output).toContain('DIRTY_TREE');
     expect(output).toContain('DISK_SPACE');
     expect(output).not.toContain('TEST_SECRET_SENTINEL_DO_NOT_PRINT');
+  });
+
+  it('rejects Java when the process exits unsuccessfully despite printing version 17', () => {
+    const facts = gatherAndroidLocalPreflight(ready().scratchPath, {
+      run: (_file, args) => {
+        if (args[0] === '-version') return { status: 1, stdout: '', stderr: 'openjdk version "17.0.20"' };
+        if (args[0] === 'rev-parse') return { status: 0, stdout: ready().evidenceHead, stderr: '' };
+        if (args[0] === 'cat-file') return { status: 0, stdout: 'commit', stderr: '' };
+        return { status: 0, stdout: '', stderr: '' };
+      },
+      exists: () => true,
+      isFile: () => true,
+      realpath: path => path,
+      diskBytes: () => ready().availableDiskBytes,
+      env: { ANDROID_HOME: 'C:\\AndroidSdk' },
+      nodeVersion: 'v24.19.0',
+    });
+    expect(checkAndroidLocalPreflight(facts).errorCodes).toContain('JAVA_VERSION');
+  });
+
+  it.each(['platforms\\android-36\\android.jar', 'build-tools\\36.0.0\\aapt.exe', 'build-tools\\36.0.0\\zipalign.exe'])(
+    'rejects an SDK missing %s', missing => {
+      const facts = gatherAndroidLocalPreflight(ready().scratchPath, {
+        run: (_file, args) => {
+          if (args[0] === '-version') return { status: 0, stdout: '', stderr: 'openjdk version "17.0.20"' };
+          if (args[0] === 'rev-parse') return { status: 0, stdout: ready().evidenceHead, stderr: '' };
+          if (args[0] === 'cat-file') return { status: 0, stdout: 'commit', stderr: '' };
+          return { status: 0, stdout: '', stderr: '' };
+        },
+        exists: () => true,
+        isFile: path => !path.endsWith(missing),
+        realpath: path => path,
+        diskBytes: () => ready().availableDiskBytes,
+        env: { ANDROID_HOME: 'C:\\AndroidSdk' },
+        nodeVersion: 'v24.19.0',
+      });
+      expect(checkAndroidLocalPreflight(facts).errorCodes).toContain('SDK_MISSING');
+    },
+  );
+
+  it('rejects an in-root scratch path resolved through a reparse point', () => {
+    expect(checkAndroidLocalPreflight({ ...ready(), scratchRealPathContained: false }).errorCodes).toContain('SCRATCH_REPARSE');
+  });
+
+  it('marks a scratch path unsafe when its existing root resolves elsewhere', () => {
+    const facts = gatherAndroidLocalPreflight(ready().scratchPath, {
+      run: (_file, args) => {
+        if (args[0] === '-version') return { status: 0, stdout: '', stderr: 'openjdk version "17.0.20"' };
+        if (args[0] === 'rev-parse') return { status: 0, stdout: ready().evidenceHead, stderr: '' };
+        if (args[0] === 'cat-file') return { status: 0, stdout: 'commit', stderr: '' };
+        return { status: 0, stdout: '', stderr: '' };
+      },
+      exists: () => true,
+      isFile: () => true,
+      realpath: path => path === 'C:\\scb' ? 'D:\\elsewhere' : path,
+      diskBytes: () => ready().availableDiskBytes,
+      env: { ANDROID_HOME: 'C:\\AndroidSdk' },
+      nodeVersion: 'v24.19.0',
+    });
+    expect(checkAndroidLocalPreflight(facts).errorCodes).toContain('SCRATCH_REPARSE');
   });
 
   it('CLI prints one safe line and returns nonzero for bad arguments or HOLD', () => {
