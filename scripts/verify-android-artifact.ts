@@ -18,7 +18,11 @@ export interface AndroidArtifactMetadata {
   apkSha256: string | null;
   sourceReceiptPresent: boolean;
   parseErrors: string[];
+  extractNativeLibs?: boolean | null;
+  nativeZipEntries?: AndroidNativeZipEntry[];
 }
+
+export interface AndroidNativeZipEntry { name: string; compressionMethod: number; dataOffset: number }
 
 export interface AndroidNativeLibrary {
   name: string;
@@ -52,6 +56,8 @@ export interface AndroidArtifactInspectionOutputs {
   nativeManifestSha256: string | null;
   sourceReceipt: string;
   apkSha256: string;
+  manifestTree?: string;
+  nativeZipEntries?: AndroidNativeZipEntry[];
 }
 
 const sha256Pattern = /^[a-f\d]{64}$/i;
@@ -67,6 +73,10 @@ export function parseArtifactInspectionOutputs(
   output: AndroidArtifactInspectionOutputs,
 ): AndroidArtifactMetadata {
   const errors: string[] = [];
+  const extractMatch = output.manifestTree?.match(/android:extractNativeLibs[^\r\n]*\(type 0x12\)(0x[\da-f]+)/i);
+  const extractNativeLibs = extractMatch ? extractMatch[1].toLowerCase() === '0xffffffff' : null;
+  if (extractNativeLibs === null) errors.push('EXTRACT_NATIVE_LIBS_PARSE');
+  if (!output.nativeZipEntries) errors.push('NATIVE_ZIP_PARSE');
   const packageMatches = [...output.badging.matchAll(/package:\s+name='([^']+)'\s+versionCode='([^']+)'\s+versionName='([^']+)'/g)];
   const packageInfo = packageMatches.length === 1 ? packageMatches[0] : null;
   if (!packageInfo) errors.push('BADGING_PARSE');
@@ -131,6 +141,8 @@ export function parseArtifactInspectionOutputs(
     apkSha256,
     sourceReceiptPresent,
     parseErrors: errors,
+    extractNativeLibs,
+    nativeZipEntries: output.nativeZipEntries,
   };
 }
 
@@ -166,9 +178,53 @@ export function verifyAndroidArtifact(
   }
   if (!normalizeSha256(metadata.apkSha256)) errors.push('APK_HASH_INVALID');
   if (!metadata.sourceReceiptPresent) errors.push('SOURCE_RECEIPT_MISSING');
+  if (metadata.extractNativeLibs !== false) errors.push('EXTRACT_NATIVE_LIBS_MISMATCH');
+  if (!metadata.nativeZipEntries || !validateAndroidNativeZipEntries(metadata.nativeZipEntries)) {
+    if (metadata.nativeZipEntries?.some((entry) => entry.compressionMethod !== 0)) errors.push('NATIVE_ZIP_METHOD_MISMATCH');
+    if (metadata.nativeZipEntries?.some((entry) => entry.dataOffset % 16384 !== 0)) errors.push('NATIVE_ZIP_ALIGNMENT_MISMATCH');
+    if (!metadata.nativeZipEntries) errors.push('NATIVE_ZIP_PARSE');
+    if (metadata.nativeZipEntries && metadata.nativeZipEntries.length !== 44) errors.push('NATIVE_ZIP_SET_MISMATCH');
+  }
 
   const distinctErrors = [...new Set(errors)];
   return { status: distinctErrors.length === 0 ? 'PASS' : 'HOLD', errors: distinctErrors };
+}
+
+export function validateAndroidNativeZipEntries(entries: AndroidNativeZipEntry[]): boolean {
+  return entries.length === 44 && entries.every((entry) => entry.compressionMethod === 0
+    && Number.isSafeInteger(entry.dataOffset) && entry.dataOffset >= 0 && entry.dataOffset % 16384 === 0);
+}
+
+export function inspectAndroidNativeZipEntries(apkPath: string): AndroidNativeZipEntry[] {
+  const data = readFileSync(apkPath);
+  const min = Math.max(0, data.length - 65557);
+  let eocd = -1;
+  for (let i = data.length - 22; i >= min; i -= 1) if (data.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('NATIVE_ZIP_PARSE');
+  const count = data.readUInt16LE(eocd + 10);
+  const centralOffset = data.readUInt32LE(eocd + 16);
+  if (count > 100000 || centralOffset >= data.length) throw new Error('NATIVE_ZIP_PARSE');
+  const result: AndroidNativeZipEntry[] = [];
+  let cursor = centralOffset;
+  for (let i = 0; i < count; i += 1) {
+    if (cursor + 46 > data.length || data.readUInt32LE(cursor) !== 0x02014b50) throw new Error('NATIVE_ZIP_PARSE');
+    const method = data.readUInt16LE(cursor + 10);
+    const nameLength = data.readUInt16LE(cursor + 28);
+    const extraLength = data.readUInt16LE(cursor + 30);
+    const commentLength = data.readUInt16LE(cursor + 32);
+    const localOffset = data.readUInt32LE(cursor + 42);
+    const name = data.toString('utf8', cursor + 46, cursor + 46 + nameLength);
+    if (/^lib\/[^/]+\/[^/]+\.so$/.test(name)) {
+      if (localOffset + 30 > data.length || data.readUInt32LE(localOffset) !== 0x04034b50) throw new Error('NATIVE_ZIP_PARSE');
+      const localNameLength = data.readUInt16LE(localOffset + 26);
+      const localExtraLength = data.readUInt16LE(localOffset + 28);
+      const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+      if (data.readUInt16LE(localOffset + 8) !== method) throw new Error('NATIVE_ZIP_PARSE');
+      result.push({ name, compressionMethod: method, dataOffset });
+    }
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return result;
 }
 
 function run(command: string, args: string[], cwd?: string): string {
@@ -196,6 +252,7 @@ export interface AndroidArtifactCliDependencies {
   readText?: (path: string) => string;
   hashFile?: (path: string) => string;
   inspectNativeManifest?: (apkPath: string, archiveListing: string) => string;
+  inspectNativeZipEntries?: (apkPath: string) => AndroidNativeZipEntry[];
 }
 
 const expectedNativeAbis = ['arm64-v8a', 'x86_64'];
@@ -296,9 +353,10 @@ export function verifyAndroidArtifactCli(
     const readText = dependencies.readText ?? ((path: string) => readFileSync(path, 'utf8'));
     const hashFile = dependencies.hashFile ?? ((path: string) => createHash('sha256').update(readFileSync(path)).digest('hex'));
 
-    const zipalignOutput = runCommand(zipalign, ['-c', '-v', '4', absoluteApk]);
+    const zipalignOutput = runCommand(zipalign, ['-c', '-P', '16', '-v', '4', absoluteApk]);
     if (!/\bVerification successful\b/i.test(zipalignOutput)) throw new Error('ZIPALIGN_OUTPUT_MISSING');
     const badging = runCommand(aapt, ['dump', 'badging', absoluteApk]);
+    const manifestTree = runCommand(aapt, ['dump', 'xmltree', absoluteApk, 'AndroidManifest.xml']);
     const signerArgs = apksigner.toLowerCase().endsWith('.jar')
       ? ['-jar', apksigner, 'verify', '--verbose', '--print-certs', absoluteApk]
       : ['verify', '--verbose', '--print-certs', absoluteApk];
@@ -309,7 +367,7 @@ export function verifyAndroidArtifactCli(
       : inspectAndroidNativeManifest(absoluteApk, archiveListing, env, runCommand);
     const sourceReceipt = readText(receiptPath);
     const apkSha256 = hashFile(absoluteApk);
-    const metadata = parseArtifactInspectionOutputs({ badging, signer, archiveListing, nativeManifestSha256: nativeManifestHash, sourceReceipt, apkSha256 });
+    const metadata = parseArtifactInspectionOutputs({ badging, signer, archiveListing, nativeManifestSha256: nativeManifestHash, sourceReceipt, apkSha256, manifestTree, nativeZipEntries: dependencies.inspectNativeZipEntries?.(absoluteApk) ?? inspectAndroidNativeZipEntries(absoluteApk) });
     const expected: AndroidArtifactExpectation = {
       packageName: 'za.co.strandcue.app',
       sourceCommit: 'd8c2818a7fac0e996910a5a33d6784875800993b',

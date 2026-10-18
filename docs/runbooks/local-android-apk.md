@@ -66,13 +66,14 @@ Use `keytool -genkeypair` with `-storepass:env STRANDCUE_ANDROID_STORE_PASSWORD`
 and `-keypass:env STRANDCUE_ANDROID_KEY_PASSWORD`; this keeps password values out
 of command history. The alias is `strandcue-local-alpha`.
 
-Before signing, remove prior APK signature records (`META-INF/MANIFEST.MF` and
-`.SF`, `.RSA`, `.DSA`, or `.EC` signature blocks) from a disposable extraction of
-the source APK. Rebuild the APK outside the checkout, run `zipalign -f 4` to a
-new file, then sign that aligned file with `apksigner sign`. Supply passwords
-with `--ks-pass env:STRANDCUE_ANDROID_STORE_PASSWORD` and
-`--key-pass env:STRANDCUE_ANDROID_KEY_PASSWORD`. Do not reuse or overwrite the
-input artifact.
+Do not extract and rebuild an APK with `jar`, `zip`, or another archiver. That
+changes native ZIP entry methods and can break launch when
+`extractNativeLibs=false`. Keep the original APK unchanged. If needed, run
+`zipalign -f -P 16 4 <input.apk> <aligned.apk>` to create a separate aligned
+copy, then sign directly to a new output with `apksigner sign --out <signed.apk>`.
+This replaces the old signer while preserving native entry methods. Supply
+passwords with `--ks-pass env:STRANDCUE_ANDROID_STORE_PASSWORD` and
+`--key-pass env:STRANDCUE_ANDROID_KEY_PASSWORD`.
 
 Capture the public SHA-256 certificate fingerprint from `keytool -list -v` and
 compare it with the tracked pin before signing. Alongside the signed APK,
@@ -88,7 +89,8 @@ Run the verifier with Node 24.x and Android build-tools 36.0.0:
 npm run verify:android-artifact -- C:\scb\artifacts\strandcue-alpha.apk
 ```
 
-The verifier runs `zipalign -c -v 4`, `aapt dump badging`,
+The verifier runs `zipalign -c -P 16 -v 4`, `aapt dump badging` and
+`aapt dump xmltree`,
 `apksigner verify --verbose --print-certs`, `jar tf`, and NDK
 `llvm-readelf -h -d` over each native library. It requires package
 `za.co.strandcue.app`, source commit `d8c2818a7fac0e996910a5a33d6784875800993b`,
@@ -100,23 +102,24 @@ the expected ELF machine for each ABI, closed `DT_NEEDED` dependencies, version
 SHA-256 `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`.
 The canonical native manifest SHA-256 is pinned as
 `c459015a3b52af685ebadf3e529f5fa952d1c89c923493d903eef545c519b6cd`.
+It also requires `extractNativeLibs=false`, all 44 native libraries ZIP STORED,
+and each native data offset aligned to a 16 KiB page boundary.
 Source, input, native-manifest, and certificate trust anchors live in tracked
 verifier code; caller environment values cannot replace them. Tool paths may be
 configured through the documented `STRANDCUE_*` process variables.
 
 Before signing, check the existing alpha key's **public certificate** against
-the pinned fingerprint above. Stop if it differs. Extract the two ABI trees
-from the supplied universal APK to a fresh external temporary directory, remove
-the source APK's `META-INF/MANIFEST.MF` and `.SF`, `.RSA`, `.DSA`, or `.EC`
-signature records, and rebuild outside the checkout. Run `zipalign -f 4` into a
-new APK path and sign that new aligned APK with the existing alpha key. Supply
-passwords through process environment variables populated from the DPAPI
-protected password record; do not place password values on command lines or
-print the keystore path. Keep the original universal APK unchanged.
+the pinned fingerprint above. Stop if it differs. Keep the original Gradle APK
+unchanged. Preserve native ZIP entries by aligning a separate copy with
+`zipalign -f -P 16 4 <input.apk> <aligned.apk>` only when needed, then sign
+directly to a new output using `apksigner sign --out <signed.apk>`. Do not
+repack the APK or remove signature records manually. Supply passwords through
+process environment variables populated from the DPAPI-protected password
+record; do not place password values on command lines or print the keystore path.
 
 Write the signed APK and its `.source-receipt.json` outside the checkout. The
 receipt contains only `sourceCommit`, `inputApkSha256`, and `signedApkSha256`.
-Run `zipalign -c -v 4`, `apksigner verify --verbose --print-certs`,
+Run `zipalign -c -P 16 -v 4`, `apksigner verify --verbose --print-certs`,
 `npm run verify:android-artifact -- <signed-apk>`, and SHA-256 hashing on the
 exact signed file. A missing tool, missing field, malformed output, unsigned or
 multiply signed APK, wrong ABI/native inventory, unresolved dependency, or

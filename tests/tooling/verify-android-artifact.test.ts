@@ -11,6 +11,7 @@ import {
   verifyAndroidArtifact,
   validateAndroidNativeManifest,
   inspectAndroidNativeManifest,
+  validateAndroidNativeZipEntries,
   type AndroidNativeManifest,
   type AndroidArtifactMetadata,
   type AndroidArtifactExpectation,
@@ -46,6 +47,8 @@ const valid: AndroidArtifactMetadata = {
   apkSha256: 'b'.repeat(64),
   sourceReceiptPresent: true,
   parseErrors: [],
+  extractNativeLibs: false,
+  nativeZipEntries: Array.from({ length: 44 }, (_, i) => ({ name: `lib/${i < 22 ? 'arm64-v8a' : 'x86_64'}/lib${i % 22}.so`, compressionMethod: 0, dataOffset: 16384 * (i + 1) })),
 };
 
 const nativeNames = [
@@ -80,6 +83,16 @@ describe('verifyAndroidArtifact', () => {
   it('passes metadata matching the expected local alpha identity', () => {
     expect(verifyAndroidArtifact(valid, expected)).toEqual({ status: 'PASS', errors: [] });
     expect(validateAndroidNativeManifest(nativeManifest())).toBe(true);
+  });
+
+  it('requires STORED native entries and 16 KiB aligned data offsets when extraction is disabled', () => {
+    expect(validateAndroidNativeZipEntries(valid.nativeZipEntries!)).toBe(true);
+    expect(verifyAndroidArtifact({ ...valid, nativeZipEntries: valid.nativeZipEntries!.map((entry) => ({ ...entry, compressionMethod: 8 })) }, expected).errors)
+      .toContain('NATIVE_ZIP_METHOD_MISMATCH');
+    expect(verifyAndroidArtifact({ ...valid, nativeZipEntries: valid.nativeZipEntries!.map((entry, index) => index ? entry : ({ ...entry, dataOffset: entry.dataOffset + 4 })) }, expected).errors)
+      .toContain('NATIVE_ZIP_ALIGNMENT_MISMATCH');
+    expect(verifyAndroidArtifact({ ...valid, extractNativeLibs: true }, expected).errors)
+      .toContain('EXTRACT_NATIVE_LIBS_MISMATCH');
   });
 
   it('holds when the package identity is wrong', () => {
@@ -260,6 +273,8 @@ describe('verifyAndroidArtifact', () => {
       nativeManifestSha256,
       sourceReceipt: JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: apkSha256 }),
       apkSha256,
+      manifestTree: 'android:extractNativeLibs=(type 0x12)0x0',
+      nativeZipEntries: valid.nativeZipEntries,
     });
     expect(parsed.sourceReceiptPresent).toBe(true);
     expect(verifyAndroidArtifact(parsed, expected)).toEqual({ status: 'PASS', errors: [] });
@@ -304,6 +319,7 @@ describe('verifyAndroidArtifact', () => {
     }, {
       runCommand: (command, args) => args[0] === '-c'
         ? 'Verification successful.'
+        : args.includes('xmltree') ? 'android:extractNativeLibs=(type 0x12)0x0'
         : command.includes('aapt')
         ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
         : args.join(' ').includes('apksigner')
@@ -312,6 +328,7 @@ describe('verifyAndroidArtifact', () => {
       readText: () => JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
       inspectNativeManifest: () => nativeManifestSha256,
+      inspectNativeZipEntries: () => valid.nativeZipEntries!,
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain(`certSha256=${fingerprint}`);
@@ -325,6 +342,7 @@ describe('verifyAndroidArtifact', () => {
     }, {
       runCommand: (command, args) => args[0] === '-c'
         ? 'Verification successful.'
+        : args.includes('xmltree') ? 'android:extractNativeLibs=(type 0x12)0x0'
         : command.includes('aapt')
         ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
         : args.join(' ').includes('apksigner')
@@ -333,6 +351,7 @@ describe('verifyAndroidArtifact', () => {
       readText: () => JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
       inspectNativeManifest: () => nativeManifestSha256,
+      inspectNativeZipEntries: () => valid.nativeZipEntries!,
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('ANDROID-ARTIFACT-PASS');
@@ -350,6 +369,7 @@ describe('verifyAndroidArtifact', () => {
     }, {
       runCommand: (command, args) => args[0] === '-c'
         ? 'Verification successful.'
+        : args.includes('xmltree') ? 'android:extractNativeLibs=(type 0x12)0x0'
         : command.includes('aapt')
         ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
         : args.join(' ').includes('apksigner')
@@ -358,13 +378,14 @@ describe('verifyAndroidArtifact', () => {
       readText: () => JSON.stringify({ sourceCommit: otherSourceCommit, inputApkSha256: otherInputHash, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
       inspectNativeManifest: () => nativeManifestSha256,
+      inspectNativeZipEntries: () => valid.nativeZipEntries!,
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('SOURCE_MISMATCH');
     expect(result.stderr).toContain('INPUT_APK_HASH_MISMATCH');
   });
 
-  it('runs zipalign check with -c -v 4 and holds when alignment fails', () => {
+  it('runs zipalign check with 16 KiB page alignment and holds when alignment fails', () => {
     const calls: { command: string; args: string[] }[] = [];
     const result = verifyAndroidArtifactCli('artifact.apk', {
       ANDROID_HOME: 'C:/Android/Sdk',
@@ -374,6 +395,7 @@ describe('verifyAndroidArtifact', () => {
       runCommand: (command, args) => {
         calls.push({ command, args });
         if (args[0] === '-c') throw new Error('zipalign returned nonzero');
+        if (args.includes('xmltree')) return 'android:extractNativeLibs=(type 0x12)0x0';
         if (command.includes('aapt')) return "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'";
         if (args.join(' ').includes('apksigner')) return `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`;
         return 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so';
@@ -381,8 +403,9 @@ describe('verifyAndroidArtifact', () => {
       readText: () => JSON.stringify({ sourceCommit, inputApkSha256, signedApkSha256: 'b'.repeat(64) }),
       hashFile: () => 'b'.repeat(64),
       inspectNativeManifest: () => nativeManifestSha256,
+      inspectNativeZipEntries: () => valid.nativeZipEntries!,
     });
-    expect(calls.some(({ args }) => args.slice(0, 3).join(' ') === '-c -v 4')).toBe(true);
+    expect(calls.some(({ args }) => args.slice(0, 5).join(' ') === '-c -P 16 -v 4')).toBe(true);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('ANDROID-ARTIFACT-HOLD:INSPECTION_FAILED');
   });
@@ -435,7 +458,7 @@ describe('verifyAndroidArtifact', () => {
         STRANDCUE_ANDROID_CERT_SHA256: fingerprint,
         STRANDCUE_APKSIGNER: 'apksigner.jar',
       }, {
-        runCommand: (command, args) => args[0] === '-c'
+        runCommand: (command, args) => args.includes('xmltree') ? 'android:extractNativeLibs=(type 0x12)0x0' : args[0] === '-c'
           ? 'Verification successful.'
           : command.includes('aapt')
           ? "package: name='za.co.strandcue.app' versionCode='1' versionName='0.1.0'"
@@ -443,6 +466,7 @@ describe('verifyAndroidArtifact', () => {
             ? `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${fingerprint}`
             : 'lib/arm64-v8a/libreactnative.so\nlib/x86_64/libreactnative.so',
         inspectNativeManifest: () => nativeManifestSha256,
+        inspectNativeZipEntries: () => valid.nativeZipEntries!,
       });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(`apkSha256=${apkSha256}`);
