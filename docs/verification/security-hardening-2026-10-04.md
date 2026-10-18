@@ -96,3 +96,14 @@ scan returns ten triaged historical catalogue rowKey false positives and is not
 labelled PASS. No fresh independent Task-25 reviewer was permitted; historical
 verdicts are not relabelled. All statuses remain OPEN and release is HOLD for
 hosted/manual/device evidence, unassigned risk/cutover owners and human decisions.
+
+Task 7 Android plan review follow-up (2026-10-18): the full-plan reviewer
+initially returned HOLD on four verifier/evidence findings. Commit `67e5899`
+addressed all four; scoped re-review returned APPROVED with no new Critical,
+High or Medium findings, satisfying the full-plan review gate. The focused
+verifier suite passed 25/25 (93.60/88.88/100/96.11% statements/branches/
+functions/lines); bounded full coverage passed 135 files / 2 skipped and
+2,263 tests / 9 skipped (0 failed; 96.70/91.51/98.52/98.41%). Android remains
+HOLD: startup crashes with `SoLoaderDSONotFoundError`, acceptance is 0/9, and
+the deployed App Links association does not match. This review does not close
+any audit finding or supply hosted or human-authority evidence.

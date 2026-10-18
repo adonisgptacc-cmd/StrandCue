@@ -107,24 +107,28 @@ non-PASS with ten previously triaged catalogue `rowKey` detections; the prior
 working-directory scan had passed before Task 6 added evidence. This Task 7 run
 did not repeat the history scan or claim its detections were clean.
 
-The current Task 6 documentation diff and artifact receipt were reviewed as
-part of this final evidence pass. A **fresh independent code/security review of
-the full plan range was not obtained**, and no fresh independent reviewer
-verdict is claimed. The previously recorded scoped Increment-4 re-review and
-Android tooling reviews remain historical evidence only. This missing review
-is an outstanding completion item.
+The full-plan reviewer initially returned **HOLD** on four verifier/evidence
+findings. Commit `67e589981b363f41c2d1a8a3f836b5d9b107cb37` addressed all four.
+Scoped re-review returned **APPROVED**, with no new Critical, High or Medium
+findings. The full-plan review gate is satisfied. This approval does not clear
+the native startup failure, device acceptance, App Links association, canonical
+finding matrix, or hosted and named-human release gates. Gitleaks was
+unavailable on this host, so no fresh automated scan PASS is claimed. The
+previous raw full-history result remains a non-PASS with ten triaged catalogue
+`rowKey` detections.
 
 ## Completion status and follow-up
 
 The final-gate run and decision packet are recorded, but the work order's
 completion definition is **not met**: all nine Android scenarios have not been
-observed on a launchable candidate and a fresh independent review is missing.
-The next acceptance attempt must first resolve and verify the native startup
-failure, bind any replacement artifact to its exact source receipt, and obtain
-a fresh independent review. Then run all nine scenarios on that same artifact
+observed on a launchable candidate. The next acceptance attempt must first
+resolve and verify the native startup failure and bind any replacement artifact
+to its exact source receipt. Then run all nine scenarios on that same artifact
 with approved synthetic state, resolve the live App Links association, and
 collect outstanding hosted and named-human evidence before changing either
-HOLD decision.
+HOLD decision. The completed full-plan review applies to the verifier/evidence
+changes in commit `67e5899`; any later material source changes need review in
+their own scope.
 
 ## Fix round 1/5 — documentation findings
 
@@ -135,3 +139,20 @@ HOLD decision.
   BLOCKED outcomes above; adjacent journeys are listed separately as NOT RUN.
 - Validation: the corrected relative link resolves to the tracked canonical
   decision file, and `git diff --check` passes for this fix round.
+
+## Fix round 2/5 — reviewer findings and scoped re-review
+
+- The full-plan reviewer initially returned **HOLD** on four verifier/evidence
+  findings. Commit `67e589981b363f41c2d1a8a3f836b5d9b107cb37` addressed all four.
+- Scoped re-review returned **APPROVED**, with no new Critical, High or Medium
+  findings. The full-plan review gate is satisfied; this does not change the
+  Android HOLD, overall HOLD, 0/9 BLOCKED result, or outstanding hosted and
+  human-authority requirements.
+- Focused verification: **25/25 tests passed**; focused coverage was **93.60%
+  statements / 88.88% branches / 100% functions / 96.11% lines**.
+- Bounded full coverage verification (`npm run test:coverage -- --maxWorkers=4`):
+  **135 files passed / 2 skipped; 2,263 tests passed / 9 skipped; 0 failed**;
+  coverage was **96.70% statements / 91.51% branches / 98.52% functions /
+  98.41% lines**. Two dependency-policy CLI tests timed out in the initial
+  parallel attempt and passed when run in isolation. Typecheck, lint, and the
+  live artifact verifier also passed after the fix.
