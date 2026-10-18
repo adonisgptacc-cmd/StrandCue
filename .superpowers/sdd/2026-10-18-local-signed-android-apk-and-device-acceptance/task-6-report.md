@@ -75,7 +75,7 @@ operation was performed on `native-spike`.
 Commands were run from PowerShell with these paths:
 
 ```powershell
-$sdk = 'C:\Users\ABADO\AppData\Local\Android\Sdk'
+$sdk = '<Android SDK root>'
 $avdmanager = "$sdk\cmdline-tools\latest\bin\avdmanager.bat"
 $emulator = "$sdk\emulator\emulator.exe"
 $adb = "$sdk\platform-tools\adb.exe"
