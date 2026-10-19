@@ -79,7 +79,22 @@ checklist, which remains **0/9 BLOCKED**. See the
 - Physical-device/emulator installation and all acceptance journeys remain NOT RUN. No acceptance PASS is claimed.
 - Tester packet: local distribution folder outside Git, supplied separately by the coordinator.
 
-## Task 6 — signed APK emulator attempt (2026-10-18)
+## Install 7 — Increment 1 launch-level acceptance (2026-10-19)
+
+- Fresh install of the receipt-verified universal APK (SHA-256
+  `f68053fa…`, source `d8c2818…`) on AVD `strandcue-universal-api34-x86_64`
+  at 16:29:04 (Africa/Johannesburg): uninstall + streamed install Success.
+- Cold launch: expected no-backend render ("Connect your development
+  environment"), process stable, no runtime crash in logcat. Boot-level PASS
+  only; the artifact predates the Increment 1 source. Full scenario rows and
+  blocking grounds:
+  `docs/verification/hair-passport-journey-acceptance-2026-10-19.md`.
+- A same-day earlier acceptance-session artifact
+  (`strandcue-acceptance-test-universal-alpha.apk`, SHA-256 `e7b14cb6…`, no
+  source receipt) was found installed and was displaced by this
+  documented install; its unverified results are not claimed here.
+
+## Task 6 - signed APK emulator attempt (2026-10-18)
 
 This records the initial attempt on `native-spike`; it was superseded for
 installation by the separate fresh-AVD run below.
