@@ -46,7 +46,7 @@ matrix promotes draft content, fills reviewer identities or publishes facts.
 | HP-02 Chemical/service events with precision/zones | Implemented | `packages/domain/src/services.ts`, `apps/mobile/src/services.tsx`, `service-editor.tsx`; `tests/domain/services.test.ts`, `tests/database/services.test.ts`, `tests/mobile/services.test.ts` |
 | HP-03 Current vs dated vs correction vs change | Implemented | `packages/domain/src/history.ts`, `supabase/migrations/20260924150000_activities_history.sql`; `tests/domain/history.test.ts`, `tests/mobile/history.test.ts` |
 | HP-04 Mixed states and zone-specific facts | Partial | `naturalPattern: 'mixed'`, zone bounds in `20261004104838_activity_zone_bounds.sql`, `activity.ts` zones; not every Passport field supports per-zone values |
-| HP-05 Goal-based completeness explanation | Not started | — |
+| HP-05 Goal-based completeness explanation | Implemented | `apps/mobile/src/MyHairOverview.tsx`, `apps/mobile/src/passport-completeness.ts` (per chosen goal, the facts its plan leans on and the plain-language questions that are still missing or answered "unknown"; no percentage, score or progress fraction anywhere; legacy `lengthCm` counts as the recorded length and mixed projections read as one current length plus one readable earlier entry); `tests/mobile/passport-completeness.test.ts`, `tests/mobile/my-hair-overview.test.tsx` |
 | HP-06 Temporary current-condition without saving | Partial | `apps/mobile/src/TodayCheckIn.tsx`, `guidance/current-condition-state.ts`; session-only, no save flag |
 | HP-07 Coarse city/timezone optional | Not started | — |
 

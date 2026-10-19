@@ -9,6 +9,7 @@ import { PassportEditor } from './passport-editor';
 import { ReleaseStageBanner } from './ReleaseStageBanner';
 import { DESTINATIONS, INITIAL_DESTINATION, type DestinationId } from './navigation';
 import { TodayGuidance } from './TodayGuidance';
+import { MyHairOverview } from './MyHairOverview';
 import { useOwnerLoad } from './owner-load';
 import { Services } from './services';
 import { Activities } from './activities';
@@ -20,15 +21,7 @@ import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperT
 import { consentErrorMessage, consentPurposeLabel, listConsents, optionalPurposes, setConsent, type ConsentList, type ConsentPurpose } from './consent-api';
 import { clearServiceDrafts } from './service-form';
 import * as Crypto from 'expo-crypto';
-import { Button, Field, Page, styles } from './ui';
-
-const display = (value: unknown): string => {
-  if (value === null || value === undefined) return 'Not recorded';
-  if (Array.isArray(value)) return value.map(display).join(', ');
-  if (typeof value === 'object') return Object.entries(value).map(([k,v])=>`${k}: ${display(v)}`).join(' · ');
-  return String(value).replaceAll('-', ' ');
-};
-const fieldLabel = (value: string) => value.replace(/([A-Z])/g,' $1').replace(/^./,char=>char.toUpperCase());
+import { Button, Field, Page, styles, display, fieldLabel } from './ui';
 
 function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   owner: string; profile: { username: string }; busy: boolean; onLogout: () => void; onProfileChanged: () => void;
@@ -266,11 +259,8 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     {destination === 'my_shelf' && <Shelf owner={user.id} />}
     {destination === 'my_tools' && <Tools owner={user.id} />}
     {destination === 'my_hair' && hairView === 'Passport' && !editing && <><Text style={styles.subtitle}>A picture of your hair, built from what you’ve recorded. It grows with you.</Text>
-      {record ? <View style={styles.card}><Text style={styles.kicker}>CURRENT RECORD · {record.projection.asOf}</Text>{Object.entries(record.projection.values).map(([key,value]) => <View key={key}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>{display(value)}</Text></View>)}
-        {Object.keys(record.projection.ambiguousFields).map(key => <View key={key} style={styles.notice}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>Dates overlap or are unknown. Review these entries in History to clarify which is current.</Text></View>)}
-        <Button title="Record a change" onPress={() => {setEditing(true);setTarget(undefined);}}/>
-      </View> : <View style={styles.card}><Text style={styles.heading}>Start with what you know.</Text><Text style={styles.body}>Hair pattern, how it feels, and what matters to you. “Unknown” is a useful answer too.</Text><Button title="Create my Hair Passport" onPress={() => setEditing(true)}/></View>}
-      <View style={styles.notice}><Text style={styles.body}>A real change creates a new entry. To fix an earlier mistake, use History → Correct this entry.</Text></View></>}
+      {record ? <MyHairOverview record={record} onRecordChange={() => {setEditing(true);setTarget(undefined);}}/> : <View style={styles.card}><Text style={styles.heading}>Start with what you know.</Text><Text style={styles.body}>Hair pattern, how it feels, and what matters to you. “Unknown” is a useful answer too.</Text><Button title="Create my Hair Passport" onPress={() => setEditing(true)}/></View>}
+    </>}
     {editing && <PassportEditor key={target?.id ?? `edit-${record?.revision ?? 0}`} owner={user.id} record={record} target={target} onSaved={() => {setEditing(false);setTarget(undefined);setHistorical(null);void refresh();}} onCancel={() => {setEditing(false);setTarget(undefined);}}/>}
     {destination === 'journey' && journeyView === 'History' && !editing && <>
       <View style={styles.card}><Text style={styles.heading}>Look back</Text><Field label="As-of date (YYYY-MM-DD)" value={asOf} onChangeText={setAsOf}/><Button title="View that date" secondary disabled={busy} onPress={() => void viewHistory()}/><Button title={audit ? 'Hide correction audit' : 'Show correction audit'} secondary onPress={() => setAudit(!audit)}/></View>

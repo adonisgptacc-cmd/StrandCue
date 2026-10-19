@@ -53,3 +53,13 @@ export function MultiChoice({label, value, options, onChange}: {label: string; v
     <Text style={[styles.body, value.includes(option) && {color: colors.white}]}>{option.replaceAll('-', ' ')}</Text>
   </Pressable>)}</View></View>;
 }
+
+/** Human display for a stored fact value, shared by every My Hair view. */
+export const display = (value: unknown): string => {
+  if (value === null || value === undefined) return 'Not recorded';
+  if (Array.isArray(value)) return value.map(display).join(', ');
+  if (typeof value === 'object') return Object.entries(value).map(([k,v])=>`${k}: ${display(v)}`).join(' · ');
+  return String(value).replaceAll('-', ' ');
+};
+/** Field key to heading text: every word capitalised, no raw snake/camel keys. */
+export const fieldLabel = (value: string) => value.replace(/([A-Z])/g,' $1').replace(/^./,char=>char.toUpperCase());
