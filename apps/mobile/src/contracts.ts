@@ -1,7 +1,19 @@
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
 
+/** Order-stable JSON representation: two equivalent objects produce the
+ * same string regardless of key insertion order, so a value round-tripped
+ * through PostgreSQL's normalised jsonb key order is never mistaken for a
+ * change. `undefined` stays distinct from `null` (omitted and explicit null
+ * are different contract states). */
+function stableStringify(value: unknown): string {
+  if (value === undefined) return '\u0000undefined';
+  if (value === null || typeof value !== 'object') return String(JSON.stringify(value));
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`).join(',')}}`;
+}
+
 export function changedFields(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(after).filter(([key, value]) => value !== undefined && JSON.stringify(before[key]) !== JSON.stringify(value)));
+  return Object.fromEntries(Object.entries(after).filter(([key, value]) => value !== undefined && stableStringify(before[key]) !== stableStringify(value)));
 }
 export const authNeedsLoading = (hasVerifiedUser: boolean) => !hasVerifiedUser;
 export const resolvedRefreshUser = <T>(current: T | null, verified: T | null, requestFailed: boolean): T | null =>

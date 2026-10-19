@@ -46,6 +46,7 @@ const trustedMigrationNames = [
   '20261015200000_privacy_retention_cleanup.sql',
   '20261016155100_consent_retention_cleanup.sql',
   '20261016211350_get_active_execution_with_decision.sql',
+  '20261019120000_passport_condition_length_fields.sql',
 ] as const;
 
 const candidateMigrationNames = [

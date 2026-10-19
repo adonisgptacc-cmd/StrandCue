@@ -9,8 +9,8 @@ import {
   type EffectiveInterval,
 } from './dates.ts';
 import {
-  PassportPatchSchema,
-  PassportSchema,
+  PassportPatchReadSchema,
+  PassportReadSchema,
   type Passport,
   type PassportField,
   type PassportPatch,
@@ -32,17 +32,17 @@ const RevisionBaseSchema = z.object({
 
 export const BaselineRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('baseline'),
-  patch: PassportSchema,
+  patch: PassportReadSchema,
 }).strict();
 
 export const ChangeRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('change'),
-  patch: PassportPatchSchema,
+  patch: PassportPatchReadSchema,
 }).strict();
 
 export const CorrectionRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('correction'),
-  patch: PassportPatchSchema,
+  patch: PassportPatchReadSchema,
   correctsId: z.string().uuid(),
   correctionReason: z.string().trim().min(1).max(500),
 }).strict();
@@ -270,7 +270,7 @@ function resolveActiveFacts(
   return roots.map((root) => {
     const replacement = finalReplacement(root, correctionByTarget);
     if (root.kind === 'baseline') {
-      const correctedBaseline = PassportSchema.safeParse(replacement.patch);
+      const correctedBaseline = PassportReadSchema.safeParse(replacement.patch);
       if (!correctedBaseline.success) {
         throw new HistoryValidationError(
           'invalid-baseline-correction',

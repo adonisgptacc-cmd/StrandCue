@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 // an untested mobile security path. The guidance glob also gates new modules.
 const criticalModules = [
   'apps/mobile/src/auth.tsx', 'apps/mobile/src/contracts.ts',
+  'apps/mobile/src/passport-editor.tsx',
   'apps/mobile/src/guidance/**/*.ts', 'apps/mobile/src/useProtocolExecutionController.ts',
   'apps/mobile/src/ProtocolExecution.tsx', 'apps/mobile/src/TodayGuidance.tsx',
   'scripts/lock-agreement.ts', 'scripts/audit-control-plane.ts', 'scripts/audit-cli.ts',

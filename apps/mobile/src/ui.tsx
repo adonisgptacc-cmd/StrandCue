@@ -38,15 +38,18 @@ export function Button({title, onPress, secondary = false, disabled = false, acc
   </Pressable>;
 }
 export function Field({label, ...props}: TextInputProps & {label: string}) {
-  return <View><Text style={styles.label}>{label}</Text><TextInput accessibilityLabel={label} placeholderTextColor={colors.quiet} style={styles.input} {...props}/></View>;
+  return <View><Text style={styles.label}>{label}</Text><TextInput accessibilityLabel={props.accessibilityLabel ?? label} placeholderTextColor={colors.quiet} style={styles.input} {...props}/></View>;
 }
-export function Choice({label, value, options, onChange, disabled = false}: {label: string; value: string; options: readonly string[]; onChange: (value: string) => void; disabled?: boolean}) {
-  return <View><Text style={styles.label}>{label}</Text><View style={styles.row}>{options.map(option => <Pressable key={option} accessibilityRole="radio" accessibilityLabel={`${label}: ${option.replaceAll('-', ' ')}`} accessibilityState={{selected: value === option, disabled}} disabled={disabled} onPress={() => onChange(option)} style={[styles.pill, value === option && styles.selected]}>
-    <Text style={[styles.body, value === option && {color: colors.white}]}>{option.replaceAll('-', ' ')}</Text>
-  </Pressable>)}</View></View>;
+export function Choice({label, value, options, onChange, disabled = false, labels: shown = {}}: {label: string; value: string; options: readonly string[]; onChange: (value: string) => void; disabled?: boolean; labels?: Readonly<Record<string, string>>}) {
+  return <View><Text style={styles.label}>{label}</Text><View accessibilityRole="radiogroup" accessibilityLabel={label} style={styles.row}>{options.map(option => {
+    const shownText = shown[option] ?? option.replaceAll('-', ' ');
+    return <Pressable key={option} accessibilityRole="radio" accessibilityLabel={`${label}: ${shownText}`} accessibilityState={{selected: value === option, disabled}} disabled={disabled} onPress={() => onChange(option)} style={[styles.pill, value === option && styles.selected]}>
+      <Text style={[styles.body, value === option && {color: colors.white}]}>{shownText}</Text>
+    </Pressable>;
+  })}</View></View>;
 }
 export function MultiChoice({label, value, options, onChange}: {label: string; value: string[]; options: readonly string[]; onChange: (value: string[]) => void}) {
-  return <View><Text style={styles.label}>{label} (choose all that apply)</Text><View style={styles.row}>{options.map(option => <Pressable key={option} accessibilityRole="checkbox" accessibilityLabel={`${label}: ${option.replaceAll('-', ' ')}`} accessibilityState={{checked: value.includes(option)}} onPress={() => onChange(toggleSelection(value, option))} style={[styles.pill, value.includes(option) && styles.selected]}>
+  return <View><Text style={styles.label}>{label} (choose all that apply)</Text><View accessibilityLabel={label} style={styles.row}>{options.map(option => <Pressable key={option} accessibilityRole="checkbox" accessibilityLabel={`${label}: ${option.replaceAll('-', ' ')}`} accessibilityState={{checked: value.includes(option)}} onPress={() => onChange(toggleSelection(value, option))} style={[styles.pill, value.includes(option) && styles.selected]}>
     <Text style={[styles.body, value.includes(option) && {color: colors.white}]}>{option.replaceAll('-', ' ')}</Text>
   </Pressable>)}</View></View>;
 }
