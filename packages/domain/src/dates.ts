@@ -66,6 +66,13 @@ const EffectiveDateInputSchema = z.discriminatedUnion('precision', [
   z.object({ precision: z.literal('unknown'), value: z.null() }).strict(),
 ]);
 
+/** A stored effective date, read without the rules a new fact has to meet.
+ * The write path refuses a date that is not a real calendar value or that
+ * lies in the future; stored history can still hold one - a trusted writer
+ * put it there - and a client reading that history has to see the date the
+ * record holds rather than fail to open the record at all. */
+export const StoredEffectiveDateSchema = EffectiveDateInputSchema;
+
 export const EffectiveDateSchema = EffectiveDateInputSchema.superRefine(
   (effectiveDate, context) => {
     if (
@@ -122,7 +129,12 @@ export interface EffectiveInterval {
   readonly end: string | null;
 }
 
-function effectiveDateToIntervalUnchecked(
+/** The interval a stored effective date covers, read without the rules the
+ * domain applies to a new fact: no future-date rule and no format
+ * validation. Stored history can hold a date the domain would refuse - a
+ * future year, an impossible day - and a client reading that history has to
+ * see the date the record actually holds, not an exception. */
+export function effectiveDateToIntervalUnchecked(
   effectiveDate: EffectiveDate,
 ): EffectiveInterval {
   switch (effectiveDate.precision) {

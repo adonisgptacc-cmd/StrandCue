@@ -159,6 +159,26 @@ describe('MyHairOverview', () => {
     expect(text(root).some((line) => /choose a goal/i.test(line))).toBe(true);
   });
 
+  it('says plainly when the record still holds a length it cannot place in time', async () => {
+    const record: PassportRecord = {
+      ...makeRecord({ ...base }),
+      projection: {
+        asOf: '2026-09-01',
+        values: { ...base } as PassportRecord['projection']['values'],
+        ambiguousFields: { lengthCm: { reason: 'uncertain-as-of', candidates: [{ revisionId: 'rev-legacy', value: 25, applicability: 'possible' }] } },
+        appliedRevisionIds: [],
+        supersededRevisionIds: [],
+      },
+    };
+    const root = await render(createElement(MyHairOverview, { record, onRecordChange: mocks.onRecordChange }));
+    const lines = text(root);
+    expect(lines.some((line) => /earlier entry kept 25 centimetres/i.test(line))).toBe(true);
+    // The ambiguous length is never presented as a current length.
+    expect(lines.some((line) => /Your length/.test(line))).toBe(false);
+    // The overview never writes, so it never speaks about a save.
+    expect(lines.some((line) => /recorded in the same save/i.test(line))).toBe(false);
+  });
+
   it('marks ambiguous facts and keeps the editor one button away', async () => {
     const record: PassportRecord = {
       ...makeRecord({ ...base, porosity: 'low' }), revisions: [],

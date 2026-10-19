@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeLength, GOAL_LABELS, goalGaps, hasRecordedLength } from '../../apps/mobile/src/passport-completeness.ts';
+import { describeLength, GOAL_LABELS, goalGaps, hasRecordedLength, legacyLength, legacyLengthIntervals } from '../../apps/mobile/src/passport-completeness.ts';
 
 const base = { naturalPattern: 'unknown', strandDiameter: 'unknown', density: 'unknown', porosity: 'unknown', concerns: ['unknown'], goals: ['unknown'], budgetPreference: 'no-preference' };
 
 describe('goal-scoped completeness', () => {
   it('lists one section per chosen passport goal, never for none or unknown', () => {
-    const gaps = goalGaps({ ...base, goals: ['shine', 'none', 'unknown'] });
+    const gaps = goalGaps({values: {...base, goals: ['shine', 'none', 'unknown']}, ambiguousFields: {}});
     expect(gaps.map((entry) => entry.goal)).toEqual(['shine']);
     expect(GOAL_LABELS.shine).toBe('Shine');
   });
 
   it('names the facts each goal leans on with plain questions, not scores', () => {
-    const gaps = goalGaps({ ...base, goals: ['shine', 'moisture-retention'] });
+    const gaps = goalGaps({values: {...base, goals: ['shine', 'moisture-retention']}, ambiguousFields: {}});
     const shine = gaps.find((entry) => entry.goal === 'shine')!;
     expect(shine.label).toBe('Shine');
     expect(shine.missing).toEqual([
@@ -26,41 +26,113 @@ describe('goal-scoped completeness', () => {
   });
 
   it('counts a legacy centimetre entry as the recorded length fact', () => {
-    expect(hasRecordedLength({ ...base, lengthCm: 25 })).toBe(true);
-    expect(hasRecordedLength({ ...base, lengthMeasurement: { value: 30, unit: 'cm' } })).toBe(true);
+    expect(hasRecordedLength({values: {...base, lengthCm: 25}})).toBe(true);
+    expect(hasRecordedLength({values: {...base, lengthMeasurement: { value: 30, unit: 'cm' }}})).toBe(true);
     // A mixed projection (both keys) still counts as one recorded length.
-    expect(hasRecordedLength({ ...base, lengthCm: 25, lengthMeasurement: { value: 30, unit: 'cm' } })).toBe(true);
-    expect(hasRecordedLength({ ...base, lengthCm: null })).toBe(false);
-    expect(hasRecordedLength({ ...base })).toBe(false);
+    expect(hasRecordedLength({values: {...base, lengthCm: 25, lengthMeasurement: { value: 30, unit: 'cm' }}})).toBe(true);
+    expect(hasRecordedLength({values: {...base, lengthCm: null}})).toBe(false);
+    expect(hasRecordedLength({values: {...base}})).toBe(false);
   });
 
   it('keeps answered unknown as unrecorded, and a definite none as recorded', () => {
-    const gaps = goalGaps({
+    const gaps = goalGaps({values: {
       ...base,
       goals: ['reduced-frizz'],
       porosity: 'unknown',
       damageObservation: 'none',
       environmentSensitivities: ['none'],
-    });
+    }, ambiguousFields: {}});
     expect(gaps[0].missing).toEqual(['how your hair takes on and holds water']);
   });
 
   it('returns nothing further once every foundation fact is recorded', () => {
-    const gaps = goalGaps({
+    const gaps = goalGaps({values: {
       ...base,
       goals: ['definition'],
       strandDiameter: 'fine',
       naturalPattern: 'curly',
       density: 'medium',
-    });
+    }, ambiguousFields: {}});
     expect(gaps[0].missing).toEqual([]);
   });
 
   it('carries no percentage, score or progress fraction anywhere', () => {
-    const gaps = goalGaps({ ...base, goals: ['volume', 'manageability'] });
+    const gaps = goalGaps({values: {...base, goals: ['volume', 'manageability']}, ambiguousFields: {}});
     const text = JSON.stringify(gaps);
     expect(text).not.toMatch(/%|\d+ of \d+|\bscore\b|\bprogress\b/i);
     expect(Object.keys(gaps[0]).sort()).toEqual(['goal', 'label', 'missing']);
+  });
+});
+
+describe('the legacy length a record still holds', () => {
+  it('reads the number the projection places', () => {
+    expect(legacyLength({ values: { lengthCm: 25 }, ambiguousFields: {} })).toEqual({ recorded: true, value: 25, ambiguous: false, reason: null, candidates: [25] });
+  });
+
+  it('reads a length the projection cannot place in time', () => {
+    const fact = legacyLength({
+      values: {},
+      ambiguousFields: { lengthCm: { reason: 'uncertain-as-of', candidates: [{ revisionId: 'r1', value: 25, applicability: 'possible' }] } },
+    });
+    expect(fact.recorded).toBe(true);
+    expect(fact.ambiguous).toBe(true);
+    expect(fact.value).toBe(25);
+  });
+
+  it('does not invent a number when the candidates disagree', () => {
+    const fact = legacyLength({
+      values: {},
+      ambiguousFields: {
+        lengthCm: {
+          reason: 'overlapping-effective-intervals',
+          candidates: [
+            { revisionId: 'r1', value: 25, applicability: 'definite' },
+            { revisionId: 'r2', value: 30, applicability: 'definite' },
+          ],
+        },
+      },
+    });
+    expect(fact.recorded).toBe(true);
+    expect(fact.value).toBeNull();
+  });
+
+  it('answers honestly when the record holds no legacy length', () => {
+    expect(legacyLength({ values: {}, ambiguousFields: {} })).toEqual({ recorded: false, value: null, ambiguous: false, reason: null, candidates: [] });
+    expect(legacyLength({ values: { lengthCm: null }, ambiguousFields: {} })).toEqual({ recorded: false, value: null, ambiguous: false, reason: null, candidates: [] });
+    expect(legacyLength({ values: {}, ambiguousFields: { lengthCm: { reason: 'uncertain-as-of', candidates: [] } } })).toEqual({ recorded: false, value: null, ambiguous: false, reason: null, candidates: [] });
+  });
+});
+
+describe('the earlier entries the record still holds', () => {
+  const revision = (id: string, value: string | null, precision: 'day' | 'month' | 'year' | 'unknown', lengthCm: unknown) => ({
+    id,
+    effectiveDate: {precision, value} as never,
+    patch: lengthCm === undefined ? {} : {lengthCm},
+  });
+
+  it('ignores an earlier entry a later length fact already replaced', () => {
+    expect(legacyLengthIntervals([
+      revision('r1', '2026-02-01', 'day', 25),
+      revision('r2', '2026-03-01', 'day', null),
+    ])).toEqual([]);
+  });
+
+  it('keeps an earlier entry the record cannot place in time', () => {
+    expect(legacyLengthIntervals([
+      revision('r1', null, 'unknown', 25),
+      revision('r2', '2026-03-01', 'day', null),
+    ])).toEqual([{revisionId: 'r1', end: null}]);
+  });
+
+  it('keeps an earlier entry that no later fact follows', () => {
+    expect(legacyLengthIntervals([
+      revision('r1', '2026-02-01', 'day', 25),
+      revision('r2', '2026-01-01', 'day', null),
+    ])).toEqual([{revisionId: 'r1', end: '2026-02-01'}]);
+  });
+
+  it('ignores an entry a correction has replaced', () => {
+    expect(legacyLengthIntervals([revision('r1', '2026-02-01', 'day', 25)], ['r1'])).toEqual([]);
   });
 });
 

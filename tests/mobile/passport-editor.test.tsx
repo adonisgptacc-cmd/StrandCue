@@ -166,6 +166,266 @@ describe('PassportEditor structured length measurement', () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
+  it('retires an ambiguous legacy centimetres entry in the same save', async () => {
+    // A pre-contract record whose legacy length the projection cannot place
+    // in time: the projection reports it as an ambiguous field rather than a
+    // current value, but the record still holds that length, so the same
+    // save must retire it.
+    const record: RecordDraft = {
+      ...makeRecord({ ...defaults }),
+      projection: {
+        asOf: '2026-09-01',
+        values: { ...defaults },
+        ambiguousFields: {
+          lengthCm: { reason: 'uncertain-as-of', candidates: [{ revisionId: 'rev-legacy', value: 25, applicability: 'possible' }] },
+        },
+        appliedRevisionIds: [],
+        supersededRevisionIds: [],
+      },
+    };
+    const root = await render(createElement(PassportEditor, { owner: 'owner-a', record, onSaved: vi.fn(), onCancel: vi.fn() }));
+    await pressButton(root, 'Length unit: cm');
+    await typeInto(root, 'Your length in centimetres (self-measured, optional)', '30');
+    const command = await pressSave(root, record, 1);
+    expect(command.p_patch.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    expect(command.p_patch.lengthCm).toBeNull();
+  });
+
+  it('explains conflicting legacy lengths honestly, with both numbers', async () => {
+    const record: RecordDraft = {
+      ...makeRecord({ ...defaults }),
+      projection: {
+        asOf: '2026-09-01',
+        values: { ...defaults },
+        ambiguousFields: {
+          lengthCm: {
+            reason: 'overlapping-effective-intervals',
+            candidates: [
+              { revisionId: 'rev-legacy-a', value: 25, applicability: 'definite' },
+              { revisionId: 'rev-legacy-b', value: 30, applicability: 'definite' },
+            ],
+          },
+        },
+        appliedRevisionIds: [],
+        supersededRevisionIds: [],
+      },
+    };
+    const root = await render(createElement(PassportEditor, { owner: 'owner-a', record, onSaved: vi.fn(), onCancel: vi.fn() }));
+    const shown = labels(root).join(' | ');
+    expect(shown).not.toMatch(/undefined/);
+    expect(shown).toMatch(/two earlier entries record different lengths/i);
+    expect(shown).toMatch(/25 centimetres and 30 centimetres/i);
+    // Neither number is presented as the one current length.
+    expect(shown).not.toMatch(/An earlier entry kept 25 centimetres/);
+  });
+
+  it('never promises a retirement the record cannot perform', async () => {
+    const record: RecordDraft = {
+      ...makeRecord({ ...defaults }),
+      projection: {
+        asOf: '2026-09-01',
+        values: { ...defaults },
+        ambiguousFields: {
+          lengthCm: { reason: 'uncertain-as-of', candidates: [{ revisionId: 'rev-legacy', value: 25, applicability: 'possible' }] },
+        },
+        appliedRevisionIds: [],
+        supersededRevisionIds: [],
+      },
+    };
+    const root = await render(createElement(PassportEditor, { owner: 'owner-a', record, onSaved: vi.fn(), onCancel: vi.fn() }));
+    const shown = labels(root).join(' | ');
+    // An earlier entry the record cannot place in time is only removed by
+    // correcting it, so the screen must not say the save retires it.
+    expect(shown).not.toMatch(/retires that old entry/i);
+    expect(shown).toMatch(/cannot say when it applied/i);
+    expect(shown).toMatch(/correcting that earlier entry in History, with the length that replaces it, clears it for good/i);
+  });
+
+  it('attaches the retirement for conflicting legacy lengths', async () => {
+    const record: RecordDraft = {
+      ...makeRecord({ ...defaults }),
+      projection: {
+        asOf: '2026-09-01',
+        values: { ...defaults },
+        ambiguousFields: {
+          lengthCm: {
+            reason: 'overlapping-effective-intervals',
+            candidates: [
+              { revisionId: 'rev-legacy-a', value: 25, applicability: 'definite' },
+              { revisionId: 'rev-legacy-b', value: 30, applicability: 'definite' },
+            ],
+          },
+        },
+        appliedRevisionIds: [],
+        supersededRevisionIds: [],
+      },
+    };
+    const root = await render(createElement(PassportEditor, { owner: 'owner-a', record, onSaved: vi.fn(), onCancel: vi.fn() }));
+    await pressButton(root, 'Length unit: cm');
+    await typeInto(root, 'Your length in centimetres (self-measured, optional)', '30');
+    const command = await pressSave(root, record, 1);
+    expect(command.p_patch.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    expect(command.p_patch.lengthCm).toBeNull();
+  });
+
+  it('corrects a legacy length entry with the entry it replaces', async () => {
+    // The entry the correction replaces is not an earlier entry the record
+    // still holds, so the correction may carry that entry's own date - the
+    // database reads it the same way.
+    const legacy = {
+      id: 'rev-legacy', passportId: 'passport-1', sequence: 2, baseRevision: 1, kind: 'change' as const,
+      effectiveDate: { precision: 'day', value: '2026-02-01' } as const,
+      recordedAt: '2026-02-01T10:00:00.000Z',
+      source: 'user-reported' as const,
+      patch: { lengthCm: 25 },
+    };
+    const record = {
+      ...makeRecord({ ...defaults, lengthCm: 25 }),
+      revisions: [legacy],
+    };
+    const root = await render(createElement(PassportEditor, {
+      owner: 'owner-a',
+      record: record as unknown as Parameters<typeof PassportEditor>[0]['record'],
+      onSaved: vi.fn(), onCancel: vi.fn(),
+      target: legacy as unknown as Parameters<typeof PassportEditor>[0]['target'],
+    }));
+    await typeInto(root, 'Why are you correcting this?', 'I measured the wrong length');
+    await pressButton(root, 'Length unit: cm');
+    await typeInto(root, 'Your length in centimetres (self-measured, optional)', '30');
+    const command = await pressSave(root, record as unknown as RecordDraft, 1);
+    expect(command.p_kind).toBe('correction');
+    expect(command.p_patch.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    expect(command.p_patch.lengthCm).toBeNull();
+  });
+
+  it('refuses a length for an earlier entry dated in the future, and says why', async () => {
+    const record = {
+      ...makeRecord({ ...defaults }),
+      revisions: [{
+        id: 'rev-legacy', passportId: 'passport-1', sequence: 2, baseRevision: 1, kind: 'change',
+        effectiveDate: { precision: 'year', value: '2027' },
+        recordedAt: '2026-10-01T10:00:00.000Z', source: 'user-reported', patch: { lengthCm: 25 },
+      }],
+    };
+    const root = await render(createElement(PassportEditor, {
+      owner: 'owner-a',
+      record: record as unknown as Parameters<typeof PassportEditor>[0]['record'],
+      onSaved: vi.fn(), onCancel: vi.fn(),
+    }));
+    // The record still holds that entry even though the projection cannot
+    // show it, so the screen says so.
+    expect(labels(root).some((line) => /dated in the future/i.test(line))).toBe(true);
+    await pressButton(root, 'Length unit: cm');
+    await typeInto(root, 'Your length in centimetres (self-measured, optional)', '30');
+    await pressSaveExpectingMessage(root, /no new length can replace it/i);
+    expect(api.savePassport).not.toHaveBeenCalled();
+  });
+  it('opens a record whose history holds an entry the record cannot place in time', async () => {
+    // Stored server data can hold a date the domain would refuse; the screen
+    // must still open.
+    const record = {
+      ...makeRecord({ ...defaults, lengthCm: 25 }),
+      revisions: [{
+        id: 'rev-legacy', passportId: 'passport-1', sequence: 2, baseRevision: 1, kind: 'change',
+        effectiveDate: { precision: 'day', value: '2027-01-01' },
+        recordedAt: '2026-10-01T10:00:00.000Z', source: 'user-reported', patch: { lengthCm: 25 },
+      }],
+    };
+    const root = await render(createElement(PassportEditor, {
+      owner: 'owner-a',
+      record: record as unknown as Parameters<typeof PassportEditor>[0]['record'],
+      onSaved: vi.fn(), onCancel: vi.fn(),
+    }));
+    expect(find(root, (node) => node.props?.accessibilityLabel === 'Length unit: cm')).toBeDefined();
+  });
+
+  it('answers an impossible effective date with the plain message', async () => {
+    const record = {
+      ...makeRecord({ ...defaults, lengthCm: 25 }),
+      revisions: [{
+        id: 'rev-legacy', passportId: 'passport-1', sequence: 2, baseRevision: 1, kind: 'change',
+        effectiveDate: { precision: 'day', value: '2026-02-01' },
+        recordedAt: '2026-02-01T10:00:00.000Z', source: 'user-reported', patch: { lengthCm: 25 },
+      }],
+    };
+    const root = await render(createElement(PassportEditor, {
+      owner: 'owner-a',
+      record: record as unknown as Parameters<typeof PassportEditor>[0]['record'],
+      onSaved: vi.fn(), onCancel: vi.fn(),
+    }));
+    await pressButton(root, 'Length unit: cm');
+    await typeInto(root, 'Your length in centimetres (self-measured, optional)', '30');
+    await typeInto(root, 'Date (YYYY-MM-DD)', '2026-02-30');
+    await pressSaveExpectingMessage(root, /Check the fields and date/i);
+    expect(api.savePassport).not.toHaveBeenCalled();
+  });
+  it('saves an unrelated change on a record that still holds a legacy length', async () => {
+    // The stored legacy length is not a write, and the database accepts an
+    // unrelated change on such a record.
+    const record = makeRecord({ ...defaults, lengthCm: 25 });
+    const root = await render(createElement(PassportEditor, { owner: 'owner-a', record, onSaved: vi.fn(), onCancel: vi.fn() }));
+    await pressButton(root, 'Goals: volume');
+    const command = await pressSave(root, record, 1);
+    expect(command.p_patch.goals).toEqual(['volume']);
+    expect('lengthCm' in command.p_patch).toBe(false);
+  });
+  it('refuses a measurement dated before the earlier length entry', async () => {
+    // The database refuses a retirement that does not follow the earlier
+    // entry, so the screen refuses the same save with a plain explanation
+    // instead of letting it fail at the server.
+    const record = {
+      ...makeRecord({ ...defaults, lengthCm: 25 }),
+      revisions: [{
+        id: 'rev-legacy', passportId: 'passport-1', sequence: 2, baseRevision: 1, kind: 'change',
+        effectiveDate: { precision: 'day', value: '2026-02-01' },
+        recordedAt: '2026-02-01T10:00:00.000Z', source: 'user-reported', patch: { lengthCm: 25 },
+      }],
+    };
+    const root = await render(createElement(PassportEditor, {
+      owner: 'owner-a',
+      // Test fixture built by hand; the deliberate cast isolates the editor's
+      // behaviour from PassportRevisionSchema's full zod output shape.
+      record: record as unknown as Parameters<typeof PassportEditor>[0]['record'],
+      onSaved: vi.fn(), onCancel: vi.fn(),
+    }));
+    await pressButton(root, 'Length unit: cm');
+    await typeInto(root, 'Your length in centimetres (self-measured, optional)', '30');
+    // The save's own effective date, not the measurement's date, decides
+    // whether the retirement follows the earlier entry.
+    await typeInto(root, 'Date (YYYY-MM-DD)', '2026-01-01');
+    await pressSaveExpectingMessage(root, /Choose a date after the earlier length entry/i);
+    expect(api.savePassport).not.toHaveBeenCalled();
+  });
+  it('does not attach a retirement for a legacy entry that is already retired', async () => {
+    // The history really holds the earlier entry and the retirement that
+    // replaced it, so the screen reads the same state the database reads.
+    const record = {
+      ...makeRecord({ ...defaults, lengthCm: null }),
+      revisions: [
+        {
+          id: 'rev-legacy', passportId: 'passport-1', sequence: 2, baseRevision: 1, kind: 'change',
+          effectiveDate: { precision: 'day', value: '2026-02-01' },
+          recordedAt: '2026-02-01T10:00:00.000Z', source: 'user-reported', patch: { lengthCm: 25 },
+        },
+        {
+          id: 'rev-retirement', passportId: 'passport-1', sequence: 3, baseRevision: 2, kind: 'change',
+          effectiveDate: { precision: 'day', value: '2026-03-01' },
+          recordedAt: '2026-03-01T10:00:00.000Z', source: 'user-reported', patch: { lengthCm: null },
+        },
+      ],
+    };
+    const root = await render(createElement(PassportEditor, {
+      owner: 'owner-a',
+      record: record as unknown as Parameters<typeof PassportEditor>[0]['record'],
+      onSaved: vi.fn(), onCancel: vi.fn(),
+    }));
+    await pressButton(root, 'Length unit: cm');
+    await typeInto(root, 'Your length in centimetres (self-measured, optional)', '30');
+    const command = await pressSave(root, record as unknown as RecordDraft, 1);
+    expect(command.p_patch.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    expect('lengthCm' in command.p_patch).toBe(false);
+  });
+
   it('keeps the value field label in the selected unit when the unit changes', async () => {
     const record = makeRecord({ ...defaults });
     const root = await render(createElement(PassportEditor, { owner: 'owner-a', record, onSaved: vi.fn(), onCancel: vi.fn() }));

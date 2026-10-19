@@ -175,8 +175,20 @@ const LengthMeasurementSchema = z
     }
   });
 
-const PassportObjectSchema = z
+/** A stored length measurement, read as the record holds it. The write
+ * path refuses a measurement that is not a real value or that is dated
+ * after today; stored history can still carry one, and refusing to open
+ * the record would lock the owner out of their own data. */
+const StoredLengthMeasurementSchema = z
   .object({
+    value: z.number(),
+    unit: LengthUnitSchema,
+    precision: LengthPrecisionSchema.optional(),
+    measuredOn: z.union([z.string(), z.null()]).optional(),
+  })
+  .strict();
+
+const PassportObjectShape = {
     naturalPattern: NaturalPatternSchema,
     strandDiameter: StrandDiameterSchema,
     density: DensitySchema,
@@ -211,6 +223,15 @@ const PassportObjectSchema = z
       .optional(),
     wigOrExtensions: WigOrExtensionsSchema.nullable().optional(),
     notes: z.string().trim().max(2_000).nullable().optional(),
+};
+
+const PassportObjectSchema = z.object(PassportObjectShape).strict();
+
+/** The read shape: a stored measurement is read as the record holds it. */
+const PassportReadObjectSchema = z
+  .object({
+    ...PassportObjectShape,
+    lengthMeasurement: StoredLengthMeasurementSchema.nullable().optional(),
   })
   .strict();
 
@@ -294,13 +315,13 @@ function rejectLegacyLengthWrite(
 
 /** Read boundary for stored history: legacy revisions keep their numeric
  * `lengthCm` entry and replay verbatim. */
-export const PassportReadSchema = PassportObjectSchema.superRefine((passport, context) => {
+export const PassportReadSchema = PassportReadObjectSchema.superRefine((passport, context) => {
   rejectUndefinedOwnFields(passport, context);
   validateExclusiveSelections(passport, context);
   rejectMixedLengthFields(passport, context);
 });
 
-export const PassportPatchReadSchema = PassportObjectSchema.partial()
+export const PassportPatchReadSchema = PassportReadObjectSchema.partial()
   .superRefine((patch, context) => {
     rejectUndefinedOwnFields(patch, context);
     validateExclusiveSelections(patch, context);

@@ -3,6 +3,30 @@ import type { PGlite } from '@electric-sql/pglite';
 import { projectHistory } from '../../packages/domain/src/history.ts';
 import { asUser, BASELINE, complete, current, database, DAY, mutate, UNVERIFIED, USER_A, USER_B } from './harness.ts';
 
+/** Store a revision the way an earlier release stored it: written straight
+ * to the append-only history by a trusted writer, bypassing the API that
+ * now refuses new legacy length numbers. */
+async function storeLegacyRevision(
+  db: PGlite,
+  patch: Record<string, unknown>,
+  interval: { start: string | null; end: string | null; precision: string; value: string | null },
+) {
+  await db.exec('set session authorization postgres');
+  const passport = (await db.query<{ id: string; user_id: string }>('select id, user_id from public.hair_passports')).rows[0];
+  const sequence = (await db.query<{ sequence: number }>('select coalesce(max(sequence),0)+1 sequence from public.passport_revisions')).rows[0].sequence;
+  await db.query(
+    `insert into public.passport_revisions(user_id,passport_id,sequence,base_revision,kind,effective_date,effective_start,effective_end,source,patch)
+     values ($1,$2,$3,$3-1,'change',$4::jsonb,$5,$6,$8,$7::jsonb)`,
+    [passport.user_id, passport.id, sequence, JSON.stringify({ precision: interval.precision, value: interval.value }),
+      interval.start, interval.end, JSON.stringify(patch),
+      // The foundation records a day-precision entry as user-reported and
+      // every less precise one as user-estimated.
+      interval.precision === 'day' ? 'user-reported' : 'user-estimated'],
+  );
+  await db.query('update public.hair_passports set revision=$1 where id=$2', [sequence, passport.id]);
+  await asUser(db, USER_A);
+}
+
 describe('PostgreSQL ownership and immutable Passport transactions', () => {
   let db: PGlite;
   beforeAll(async () => { db = await database(); }, 60_000);
@@ -433,6 +457,383 @@ describe('PostgreSQL ownership and immutable Passport transactions', () => {
     expect(after.projection.values.lengthCm).toBeNull();
     expect(after.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm', precision: 'approximate' });
     expect(after.projection).toEqual(projectHistory(after.revisions, { asOf: '2026-09-01' }));
+  });
+
+  it('refuses a structured measurement while a legacy length has an unknown effective date', async () => {
+    await complete(db); await mutate(db);
+    // A pre-contract record whose legacy centimetre entry carries an unknown
+    // effective date: the projection cannot say which value is current, so
+    // it reports the field as ambiguous instead of a current value. The
+    // length is still recorded and still has to be retired.
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: null, end: null, precision: 'unknown', value: null });
+    const legacy = await current(db);
+    expect(legacy.projection.values.lengthCm).toBeUndefined();
+    expect(legacy.projection.ambiguousFields.lengthCm).toBeDefined();
+
+    // A structured measurement must not join a still-recorded legacy length.
+    await expect(
+      mutate(db, { kind: 'change', revision: 2, patch: { lengthMeasurement: { value: 30, unit: 'cm' } }, date: { precision: 'day', value: '2026-03-01' } }),
+    ).rejects.toThrow(/invalid-passport/);
+    // The same append retires the legacy field, so it is accepted.
+    const retired = await mutate(db, {
+      kind: 'change',
+      revision: 2,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    expect(retired.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    // History stays append-only: the stored legacy revision is untouched.
+    expect(JSON.stringify((await current(db)).revisions[1].patch)).toBe('{"lengthCm":25}');
+  });
+
+  it('refuses a structured measurement while legacy length entries conflict', async () => {
+    await complete(db); await mutate(db);
+    // Two pre-contract legacy lengths whose effective intervals overlap:
+    // the projection reports the field as ambiguous, not as a current value.
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2026-02-01', end: '2026-02-28', precision: 'month', value: '2026-02' });
+    await storeLegacyRevision(db, { lengthCm: 30 }, { start: '2026-02-10', end: '2026-02-10', precision: 'day', value: '2026-02-10' });
+    const legacy = await current(db);
+    expect(legacy.projection.values.lengthCm).toBeUndefined();
+    expect(legacy.projection.ambiguousFields.lengthCm.reason).toBe('overlapping-effective-intervals');
+
+    await expect(
+      mutate(db, { kind: 'change', revision: 3, patch: { lengthMeasurement: { value: 30, unit: 'cm' } }, date: { precision: 'day', value: '2026-03-01' } }),
+    ).rejects.toThrow(/invalid-passport/);
+    // Retiring the legacy field in the same append resolves the conflict.
+    const retired = await mutate(db, {
+      kind: 'change',
+      revision: 3,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    expect(retired.projection.values.lengthCm).toBeNull();
+    expect(retired.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    // Both legacy entries now fall behind the retirement, so a later
+    // measurement needs no retirement key any more.
+    const later = await mutate(db, {
+      kind: 'change',
+      revision: 4,
+      patch: { lengthMeasurement: { value: 32, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-04-01' },
+    });
+    expect(later.projection.values.lengthMeasurement).toEqual({ value: 32, unit: 'cm' });
+    // History stays append-only: both stored legacy revisions are untouched.
+    const after = await current(db);
+    expect(JSON.stringify(after.revisions[1].patch)).toBe('{"lengthCm":25}');
+    expect(JSON.stringify(after.revisions[2].patch)).toBe('{"lengthCm":30}');
+  });
+
+  it('lets a correction replace the legacy length with a structured measurement', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2026-02-01', end: '2026-02-01', precision: 'day', value: '2026-02-01' });
+    const legacyRevision = (await current(db)).revisions[1];
+    // Correcting the legacy entry with a structured measurement replaces
+    // that entry: the legacy length is not recorded any more, so the same
+    // append needs no retirement key.
+    const corrected = await mutate(db, {
+      kind: 'correction',
+      revision: 2,
+      correctsId: legacyRevision.id,
+      reason: 'Recorded the length in the wrong unit',
+      patch: { lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    expect(corrected.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    expect(corrected.projection.values.lengthCm).toBeUndefined();
+    // The superseded legacy revision is still exactly as recorded.
+    const after = await current(db);
+    expect(after.projection.supersededRevisionIds).toContain(legacyRevision.id);
+    expect(JSON.stringify(after.revisions[1].patch)).toBe('{"lengthCm":25}');
+    expect(after.projection).toEqual(projectHistory(after.revisions, { asOf: '2026-09-01' }));
+  });
+
+  it('refuses a retirement that falls inside the earlier entry interval', async () => {
+    await complete(db); await mutate(db);
+    // A legacy length recorded for the whole of 2020.
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2020-01-01', end: '2020-12-31', precision: 'year', value: '2020' });
+    // A retirement dated inside that interval does not replace the earlier
+    // entry: the earlier entry would stay the record's current length next
+    // to the new measurement, so the append is refused.
+    await expect(mutate(db, {
+      kind: 'change',
+      revision: 2,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2020-06-01' },
+    })).rejects.toThrow(/invalid-passport/);
+    // A retirement after the earlier entry is accepted and leaves one
+    // current length.
+    await mutate(db, {
+      kind: 'change',
+      revision: 2,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2021-03-01' },
+    });
+    const after = await current(db);
+    expect(after.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    expect(after.projection.values.lengthCm).toBeNull();
+    expect(after.projection.ambiguousFields.lengthCm).toBeUndefined();
+  });
+
+  it('refuses a retirement dated before the earlier entry', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2026-02-01', end: '2026-02-01', precision: 'day', value: '2026-02-01' });
+    // A retirement dated before the earlier entry leaves that entry as the
+    // record's current length, so the record would hold two current lengths.
+    await expect(mutate(db, {
+      kind: 'change',
+      revision: 2,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-01-01' },
+    })).rejects.toThrow(/invalid-passport/);
+    // The record is unchanged by the refused append.
+    const after = await current(db);
+    expect(after.projection.values.lengthCm).toBe(25);
+    expect(after.projection.values.lengthMeasurement).toBeUndefined();
+  });
+
+  it('refuses a mixed patch from a privileged writer', async () => {
+    await complete(db); await mutate(db);
+    // The whitelist validator runs inside the write path; the record-level
+    // guard also refuses a patch that carries a numeric legacy length next
+    // to a structured measurement, whoever writes it.
+    await db.exec('set session authorization postgres');
+    const passport = (await db.query<{ id: string; user_id: string }>('select id, user_id from public.hair_passports')).rows[0];
+    await expect(db.query(
+      `insert into public.passport_revisions(user_id,passport_id,sequence,base_revision,kind,effective_date,effective_start,effective_end,source,patch)
+       values ($1,$2,2,1,'change','{"precision":"day","value":"2026-02-01"}'::jsonb,'2026-02-01','2026-02-01','user-estimated','{"lengthCm":55,"lengthMeasurement":{"value":30,"unit":"cm"}}'::jsonb)`,
+      [passport.user_id, passport.id],
+    )).rejects.toThrow(/invalid-passport/);
+    expect((await current(db)).revisions).toHaveLength(1);
+  });
+
+  it('keeps an undated legacy length recorded after its retirement', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: null, end: null, precision: 'unknown', value: null });
+    // The first save retires the field, but an earlier entry the record
+    // cannot place in time stays a candidate: the next measurement still
+    // has to retire it again.
+    await mutate(db, {
+      kind: 'change',
+      revision: 2,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    const after = await current(db);
+    expect(after.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    expect(after.projection.ambiguousFields.lengthCm).toBeDefined();
+    await expect(
+      mutate(db, { kind: 'change', revision: 3, patch: { lengthMeasurement: { value: 32, unit: 'cm' } }, date: { precision: 'day', value: '2026-04-01' } }),
+    ).rejects.toThrow(/invalid-passport/);
+    // The stored legacy revision is still exactly as recorded.
+    expect(JSON.stringify((await current(db)).revisions[1].patch)).toBe('{"lengthCm":25}');
+  });
+
+  it('refuses a correction of another entry while a legacy length is live', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2026-02-01', end: '2026-02-01', precision: 'day', value: '2026-02-01' });
+    await mutate(db, { kind: 'change', revision: 2, patch: { goals: ['volume'] }, date: { precision: 'day', value: '2026-02-10' } });
+    const other = (await current(db)).revisions[2];
+    // Correcting an unrelated entry does not remove the legacy length, so a
+    // structured measurement in that correction is still refused.
+    await expect(mutate(db, {
+      kind: 'correction',
+      revision: 3,
+      correctsId: other.id,
+      reason: 'Wrong goal',
+      patch: { goals: ['volume'], lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-02-15' },
+    })).rejects.toThrow(/invalid-passport/);
+    // With the retirement in the same correction it is accepted.
+    await mutate(db, {
+      kind: 'correction',
+      revision: 3,
+      correctsId: other.id,
+      reason: 'Wrong goal',
+      patch: { goals: ['volume'], lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-02-15' },
+    });
+    expect((await current(db)).projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+  });
+
+  it('treats a legacy length dated in the future as recorded', async () => {
+    await complete(db); await mutate(db);
+    // A trusted writer stored a legacy length for a future year. The record
+    // holds it, so a structured measurement has to retire it, and no date
+    // the API accepts can follow a future entry: only correcting that entry
+    // removes it.
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2027-01-01', end: '2027-12-31', precision: 'year', value: '2027' });
+    await expect(
+      mutate(db, { kind: 'change', revision: 2, patch: { lengthMeasurement: { value: 30, unit: 'cm' } }, date: { precision: 'day', value: '2026-03-01' } }),
+    ).rejects.toThrow(/invalid-passport/);
+    await expect(
+      mutate(db, { kind: 'change', revision: 2, patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } }, date: { precision: 'day', value: '2026-03-01' } }),
+    ).rejects.toThrow(/invalid-passport/);
+    // Correcting that entry replaces it, so the measurement is accepted.
+    const legacyRevision = (await current(db)).revisions[1];
+    await mutate(db, {
+      kind: 'correction',
+      revision: 2,
+      correctsId: legacyRevision.id,
+      reason: 'Recorded by mistake',
+      patch: { lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    expect((await current(db)).projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+  });
+
+  it('accepts a month precision retirement that follows the legacy length', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2026-01-01', end: '2026-01-31', precision: 'month', value: '2026-01' });
+    await mutate(db, {
+      kind: 'change',
+      revision: 2,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'month', value: '2026-02' },
+    });
+    const after = await current(db);
+    expect(after.projection.values.lengthCm).toBeNull();
+    expect(after.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    // The retirement followed the earlier entry, so a later measurement
+    // needs no retirement key.
+    await mutate(db, {
+      kind: 'change',
+      revision: 3,
+      patch: { lengthMeasurement: { value: 32, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    expect((await current(db)).projection.values.lengthMeasurement).toEqual({ value: 32, unit: 'cm' });
+  });
+
+  it('refuses a correction of a retirement that would make the earlier length current again', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2026-02-01', end: '2026-02-01', precision: 'day', value: '2026-02-01' });
+    // The owner retires the earlier length and records the new one.
+    await mutate(db, {
+      kind: 'change',
+      revision: 2,
+      patch: { lengthCm: null, lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    const retirement = (await current(db)).revisions[2];
+    // Correcting the retirement supersedes it, so the earlier length would
+    // be current again: the correction needs its own retirement.
+    await expect(mutate(db, {
+      kind: 'correction',
+      revision: 3,
+      correctsId: retirement.id,
+      reason: 'Wrong date for the new length',
+      patch: { lengthMeasurement: { value: 32, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-04-01' },
+    })).rejects.toThrow(/invalid-passport/);
+    // With a retirement that follows the earlier length it is accepted, and
+    // the record holds one current length.
+    await mutate(db, {
+      kind: 'correction',
+      revision: 3,
+      correctsId: retirement.id,
+      reason: 'Wrong date for the new length',
+      patch: { lengthCm: null, lengthMeasurement: { value: 32, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-04-01' },
+    });
+    const after = await current(db);
+    expect(after.projection.values.lengthCm).toBeNull();
+    expect(after.projection.values.lengthMeasurement).toEqual({ value: 32, unit: 'cm' });
+    expect(after.projection.ambiguousFields.lengthCm).toBeUndefined();
+  });
+
+  it('refuses a privileged writer adding a legacy number next to a live measurement', async () => {
+    await complete(db); await mutate(db);
+    await mutate(db, {
+      kind: 'change',
+      revision: 1,
+      patch: { lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-02-01' },
+    });
+    await db.exec('set session authorization postgres');
+    const passport = (await db.query<{ id: string; user_id: string }>('select id, user_id from public.hair_passports')).rows[0];
+    await expect(db.query(
+      `insert into public.passport_revisions(user_id,passport_id,sequence,base_revision,kind,effective_date,effective_start,effective_end,source,patch)
+       values ($1,$2,3,2,'change','{"precision":"day","value":"2026-03-01"}'::jsonb,'2026-03-01','2026-03-01','user-estimated','{"lengthCm":55}'::jsonb)`,
+      [passport.user_id, passport.id],
+    )).rejects.toThrow(/invalid-passport/);
+    expect((await current(db)).revisions).toHaveLength(2);
+  });
+
+  it('does not let a superseded legacy length block a valid measurement', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: '2026-02-01', end: '2026-02-01', precision: 'day', value: '2026-02-01' });
+    const legacyRevision = (await current(db)).revisions[1];
+    // The owner corrects that entry: the legacy length leaves the record.
+    await mutate(db, {
+      kind: 'correction',
+      revision: 2,
+      correctsId: legacyRevision.id,
+      reason: 'Recorded the wrong length',
+      patch: { lengthCm: null },
+      date: { precision: 'day', value: '2026-02-05' },
+    });
+    // No legacy length is recorded any more, so a structured measurement is
+    // accepted without a retirement key.
+    const measured = await mutate(db, {
+      kind: 'change',
+      revision: 3,
+      patch: { lengthMeasurement: { value: 30, unit: 'cm' } },
+      date: { precision: 'day', value: '2026-03-01' },
+    });
+    expect(measured.projection.values.lengthMeasurement).toEqual({ value: 30, unit: 'cm' });
+    // The superseded revision is still exactly as recorded.
+    const after = await current(db);
+    expect(after.projection.supersededRevisionIds).toContain(legacyRevision.id);
+    expect(JSON.stringify(after.revisions[1].patch)).toBe('{"lengthCm":25}');
+  });
+
+  it('keeps another owner unable to influence or inspect the length decision', async () => {
+    await complete(db); await mutate(db);
+    await storeLegacyRevision(db, { lengthCm: 25 }, { start: null, end: null, precision: 'unknown', value: null });
+    const ownerARevision = (await current(db)).revisions[1].id;
+
+    await asUser(db, USER_B);
+    await complete(db, 'user_b');
+    // The second owner sees no part of the first owner's record.
+    expect(await current(db)).toBeNull();
+    const visible = await db.query<{ user_id: string }>('select user_id from public.passport_revisions');
+    expect(visible.rows.every(row => row.user_id === USER_B)).toBe(true);
+    // The second owner's own record is unaffected by the first owner's
+    // legacy length: their measurement is accepted.
+    await mutate(db, { patch: { ...BASELINE, lengthMeasurement: { value: 28, unit: 'cm' } } });
+    expect((await current(db)).projection.values.lengthMeasurement).toEqual({ value: 28, unit: 'cm' });
+    // The second owner cannot correct the first owner's revision either.
+    await expect(mutate(db, {
+      kind: 'correction',
+      revision: 1,
+      correctsId: ownerARevision,
+      reason: 'not mine',
+      patch: { lengthCm: null },
+      date: DAY,
+    })).rejects.toThrow(/correction-target-not-found|revision-conflict/);
+
+    // The first owner's decision is unchanged by the second owner's writes.
+    await asUser(db, USER_A);
+    await expect(
+      mutate(db, { kind: 'change', revision: 2, patch: { lengthMeasurement: { value: 30, unit: 'cm' } }, date: { precision: 'day', value: '2026-03-01' } }),
+    ).rejects.toThrow(/invalid-passport/);
+  });
+
+  it('declares the row lock that serializes appends for one owner', async () => {
+    await complete(db); await mutate(db);
+    // The write path locks the owner's passport row for update before it
+    // appends, so a second append for the same owner waits for the first to
+    // commit and then reads its facts. This is a structural assertion:
+    // PGlite runs a single connection, so a literal two-transaction race
+    // cannot be executed in this harness. The behaviour that depends on the
+    // lock - the second append reading the first append's facts - is
+    // asserted by the retirement cases above.
+    await db.exec('set session authorization postgres');
+    const writePath = (await db.query<{ definition: string }>(
+      `select pg_get_functiondef('strandcue_private.mutate_passport(uuid,integer,text,jsonb,jsonb,uuid,text)'::regprocedure) definition`,
+    )).rows[0].definition;
+    expect(writePath).toMatch(/from public\.hair_passports[\s\S]*?for update/i);
+    await asUser(db, USER_A);
   });
 
   it('answers pathological numeric literals with a data exception at the JSON boundary', async () => {

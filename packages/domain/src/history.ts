@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 import {
   DateOnlySchema,
-  EffectiveDateSchema,
   currentDateOnly,
-  effectiveDateToInterval,
+  effectiveDateToIntervalUnchecked,
+  StoredEffectiveDateSchema,
   type EffectiveDate,
   type EffectiveInterval,
 } from './dates.ts';
@@ -21,7 +21,11 @@ const RevisionBaseSchema = z.object({
   passportId: z.string().uuid(),
   sequence: z.number().int().positive(),
   baseRevision: z.number().int().nonnegative(),
-  effectiveDate: EffectiveDateSchema,
+  // A stored date is read as the record holds it: the write path refuses a date
+  // that is not a real calendar value or that lies in the future, but stored
+  // history can still carry one, and refusing to open the record would lock the
+  // owner out of their own data.
+  effectiveDate: StoredEffectiveDateSchema,
   recordedAt: z.string().datetime({ offset: true }),
   source: z.enum([
     'user-reported',
@@ -281,7 +285,7 @@ function resolveActiveFacts(
 
     return {
       revision: replacement,
-      interval: effectiveDateToInterval(replacement.effectiveDate),
+      interval: effectiveDateToIntervalUnchecked(replacement.effectiveDate),
     };
   });
 }

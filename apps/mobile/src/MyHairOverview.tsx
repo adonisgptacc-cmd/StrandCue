@@ -1,7 +1,7 @@
 import { Text, View } from 'react-native';
 import { Button, styles, fieldLabel, display } from './ui';
 import type { PassportRecord } from './passport-api';
-import { describeLength, goalGaps } from './passport-completeness';
+import { describeLength, goalGaps, legacyLength, legacyLengthNotice } from './passport-completeness';
 
 /** My Hair overview: one screen, two clearly separated layers.
  *
@@ -24,7 +24,11 @@ export function MyHairOverview({record, onRecordChange}: {
 }) {
   const values = record.projection.values;
   const length = describeLength(values);
-  const gaps = goalGaps(values);
+  // A legacy length the projection cannot place in time is still a length
+  // the record holds, so the overview says so instead of showing nothing.
+  const legacy = legacyLength({values, ambiguousFields: record.projection.ambiguousFields});
+  const legacyNotice = legacyLengthNotice(legacy, 'read');
+  const gaps = goalGaps({values, ambiguousFields: record.projection.ambiguousFields});
   const superseded = record.projection.supersededRevisionIds;
   const dated = record.revisions.filter(entry => !superseded.includes(entry.id)).slice().reverse();
   const hasAnyGoal = Array.isArray(values.goals) && values.goals.some(goal => goal !== 'none' && goal !== 'unknown');
@@ -34,8 +38,9 @@ export function MyHairOverview({record, onRecordChange}: {
       <Text accessibilityRole="header" style={styles.heading}>Recorded as of {record.projection.asOf}</Text>
       {length.current !== null && <View accessibilityLabel="Your length"><Text style={styles.label}>{length.legacyNote === null ? 'Length' : 'Latest length'}</Text><Text style={styles.body}>{length.current}</Text></View>}
       {length.legacyNote !== null && <Text accessibilityLabel="Earlier length entry" style={styles.body}>{length.legacyNote}</Text>}
+      {length.current === null && legacyNotice !== null && <Text accessibilityLabel="Earlier length entry" style={styles.body}>{legacyNotice}</Text>}
       {Object.entries(values).filter(([key]) => key !== 'lengthCm' && key !== 'lengthMeasurement').map(([key, value]) => <View key={key} accessibilityLabel={fieldLabel(key)}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>{display(value)}</Text></View>)}
-      {Object.keys(record.projection.ambiguousFields).map(key => <View key={key} style={styles.notice}><Text style={styles.label}>{fieldLabel(key)}</Text><Text style={styles.body}>Dates overlap or are unknown. Review these entries in History to clarify which is current.</Text></View>)}
+      {Object.keys(record.projection.ambiguousFields).map(key => <View key={key} style={styles.notice}><Text style={styles.label}>{key === 'lengthCm' ? 'Length' : fieldLabel(key)}</Text><Text style={styles.body}>Dates overlap or are unknown. Review these entries in History to clarify which is current.</Text></View>)}
       <Button title="Record a change" onPress={onRecordChange}/>
     </View>
     <View style={styles.card}>

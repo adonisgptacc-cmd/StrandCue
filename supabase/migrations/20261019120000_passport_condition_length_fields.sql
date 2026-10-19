@@ -163,23 +163,115 @@ begin
 end $$;
 
 -- Record-level invariants for length writes:
--- 1. the projection of the current record can never hold one structured
---    length while a legacy numeric centimetre value is still recorded,
---    unless the same append explicitly retires the legacy field (jsonb
---    null). A plain validator is immutable and cannot see stored state,
---    so this guard recomputes the would-merge state from all recorded
---    history as of an unbounded date (every recorded fact is definite
---    there, independent of which stored projection snapshot a prepare
---    step left behind).
+-- 1. a structured length may only be recorded while no legacy numeric
+--    centimetre length is still recorded for the owner, unless the same
+--    append retires that legacy field with an explicit jsonb null. The
+--    guard reads the owner's stored length facts directly instead of the
+--    projection's values/ambiguousFields split: a legacy length whose
+--    effective date is unknown, or two legacy lengths that conflict, is
+--    reported as an ambiguous field rather than a current value, yet it is
+--    still a recorded length and still has to be retired. A plain validator
+--    is immutable and cannot see stored state, so the guard carries the
+--    rule.
+--    The retirement has to be one the projection keeps: an explicit null
+--    that follows the earlier entry. A retirement dated before or inside
+--    the earlier entry's own interval leaves that entry as the record's
+--    current length, so the record would hold two current lengths at once
+--    and the guard refuses the append. An earlier entry the record cannot
+--    place in time stays an uncertain entry rather than a current one, so
+--    a retirement of it is accepted and the record keeps reporting that
+--    entry as uncertain until it is corrected.
+--    The guard reads the record as of an unbounded date, the same selection
+--    the projection makes there, but read from the stored facts: every
+--    recorded fact counts, independent of any stored projection snapshot.
 -- 2. a structured measurement is never dated after today, matching the
 --    submission boundary; the immutable whitelist validator cannot
 --    consult a clock, so the trigger carries the rule.
 create function strandcue_private.guard_mixed_passport_length()
 returns trigger language plpgsql security invoker set search_path='' as $$
+
 begin
+  -- The write path already serializes appends for one owner: mutate_passport
+  -- locks the owner's passport row for update before it appends, so a second
+  -- append waits for the first to commit. The insert is a separate statement
+  -- inside a volatile function, so it takes a fresh read-committed snapshot
+  -- that includes the first append's committed facts - that is what makes
+  -- this check safe. It relies on the database running at read committed and
+  -- on the write path staying volatile, and it holds the narrowest lock
+  -- there is: one row, the owner's own passport. The guard takes no lock of
+  -- its own, so it adds no privilege requirement to any insert path.
+  -- A new legacy number may not be written next to a measurement the record
+  -- already holds, whoever writes it: the whitelist validator refuses that
+  -- inside the write path, and the record-level guard refuses it here. The
+  -- stored measurement is read as any stored measurement: the entries no
+  -- correction has replaced.
+  if new.patch ? 'lengthCm' and jsonb_typeof(new.patch->'lengthCm')<>'null' then
+    if exists (
+      select 1
+      from public.passport_revisions m
+      where m.passport_id=new.passport_id
+        and m.user_id=new.user_id
+        and m.id is distinct from new.corrects_id
+        and jsonb_typeof(m.patch->'lengthMeasurement')='object'
+        and not exists (select 1 from public.passport_revisions c where c.corrects_id=m.id)
+    ) then
+      raise exception 'invalid-passport' using errcode='22023';
+    end if;
+  end if;
   if coalesce(jsonb_typeof(new.patch->'lengthMeasurement'),'null')='object' then
-    if jsonb_typeof((select strandcue_private.project_passport(new.passport_id,'infinity'::date)->'values'->'lengthCm'))='number'
-      and jsonb_typeof(new.patch->'lengthCm') is distinct from 'null' then
+    -- The legacy length facts that are still recorded for this owner: the
+    -- unsuperseded revisions that carry a numeric lengthCm, minus the ones
+    -- a later length fact definitely replaces. This is the same selection
+    -- the projection makes at an unbounded date, read from the stored
+    -- facts, so a length the projection would report as ambiguous still
+    -- counts here. A correction of the legacy entry itself replaces that
+    -- entry, so the length it replaces is not recorded any more after this
+    -- append.
+    --
+    -- The append may only add a structured measurement when it retires the
+    -- legacy field in the same save, and the retirement has to be one the
+    -- projection keeps: an explicit null that follows the earlier entry.
+    -- A retirement dated before or inside the earlier entry's own interval
+    -- leaves that entry as the record's current length, which would put two
+    -- current lengths on the record. An earlier entry the record cannot
+    -- place in time stays an uncertain entry rather than a current one, so
+    -- a retirement of it is accepted.
+    -- The append must not carry a new legacy number next to a structured
+    -- measurement, whoever writes it: the whitelist validator refuses that
+    -- inside the write path, and the record-level guard refuses it here.
+    if new.patch ? 'lengthCm' and jsonb_typeof(new.patch->'lengthCm')<>'null' then
+      raise exception 'invalid-passport' using errcode='22023';
+    end if;
+    if exists (
+      select 1
+      from public.passport_revisions r
+      where r.passport_id=new.passport_id
+        and r.user_id=new.user_id
+        and r.id is distinct from new.corrects_id
+        and jsonb_typeof(r.patch->'lengthCm')='number'
+        and not exists (select 1 from public.passport_revisions c where c.corrects_id=r.id)
+        and not exists (
+          select 1
+          from public.passport_revisions later
+          where later.passport_id=new.passport_id
+            and later.user_id=new.user_id
+            and later.id<>r.id
+            -- The append supersedes the entry it corrects, so that entry
+            -- cannot be the fact that replaces the legacy length: after this
+            -- append the earlier length would be current again.
+            and later.id is distinct from new.corrects_id
+            and later.patch ? 'lengthCm'
+            and not exists (select 1 from public.passport_revisions c where c.corrects_id=later.id)
+            and later.effective_end is not null
+            and r.effective_end is not null
+            and r.effective_end<later.effective_start
+        )
+        and not (
+          new.patch ? 'lengthCm'
+          and jsonb_typeof(new.patch->'lengthCm')='null'
+          and (r.effective_end is null or (new.effective_end is not null and new.effective_start is not null and new.effective_start>r.effective_end))
+        )
+    ) then
       raise exception 'invalid-passport' using errcode='22023';
     end if;
     -- The server here runs UTC, while the domain compares against the
