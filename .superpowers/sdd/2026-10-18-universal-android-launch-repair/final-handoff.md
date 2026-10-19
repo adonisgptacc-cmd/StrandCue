@@ -21,15 +21,15 @@ The source receipt, artifact verifier, `zipalign -P 16`, `apksigner`, package/ve
 
 Task 5 remains `blocked_production`: backend project identity and isolation are unproven. No synthetic users or fixture data exist. Task 6 therefore remains **0/9, all BLOCKED**; signup, confirmation, recovery, export/share, deletion, offline, TalkBack, and touch-target journeys are **NOT RUN**. No hosted data was accessed or changed.
 
-The read-only live App Links check returned HOLD because the deployed association does not match the candidate package and alpha certificate. No hosted configuration was changed. The fresh independent review gate was not completed in this Task 7 subtask, and Gitleaks was unavailable for a fresh scanner pass. The final repository gates passed under Node 24.19.0 with 2,294 tests passed, 9 skipped, zero failures, and all configured coverage floors met. Full gate results are in [task-7-report.md](task-7-report.md).
+The read-only live App Links check returned HOLD because the deployed association does not match the candidate package and alpha certificate. No hosted configuration was changed. Fresh whole-plan independent review returned **APPROVED** with no Critical, High, or Medium findings. Gitleaks was unavailable and remains a recorded **Low limitation**; no fresh scanner pass is claimed. The final repository gates passed under Node 24.19.0 with 2,294 tests passed, 9 skipped, zero failures, and all configured coverage floors met. Full gate results are in [task-7-report.md](task-7-report.md).
 
 ## Required next evidence
 
 1. Prove a dedicated disposable backend identity and isolation, then obtain database/security review and approved fixture/cleanup ownership before provisioning.
 2. Run all nine scenarios against resettable synthetic fixtures, bind each result to the exact artifact and device, and record cleanup.
 3. Complete the separate signup, confirmation, recovery, export/share, deletion, offline, accessibility, and touch-target journeys.
-4. Obtain a fresh independent review of the complete plan range and resolve its findings.
-5. Resolve the live App Links package/certificate association through its authorized change process, then rerun the read-only check.
-6. Close the 32-row audit matrix with its named authorities, hosted evidence, risk-owner decisions, and human product-content review.
+4. Resolve the live App Links package/certificate association through its authorized change process, then rerun the read-only check.
+5. Close the 32-row audit matrix with its named authorities, hosted evidence, risk-owner decisions, and human product-content review.
+6. Obtain a fresh Gitleaks scan when the tool is available; the current unavailability remains Low and is not represented as a clean scan.
 
 Until those items are evidenced, Android acceptance and overall launch remain **HOLD**. No production mutation, deployment, publication, push, merge, or paid build is authorized by this handoff.
