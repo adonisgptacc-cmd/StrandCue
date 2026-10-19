@@ -219,7 +219,7 @@ async function loadActivityFacts(
 interface DetailRow {
   readonly id: string;
   readonly revision: number;
-  readonly availability: 'available' | 'out_of_stock' | 'archived';
+  readonly availability: 'available' | 'low' | 'empty' | 'out_of_stock' | 'archived';
   readonly versionId: string | null;
   readonly label: string | null;
 }
@@ -227,7 +227,7 @@ interface DetailRow {
 interface OwnedItemSummary {
   readonly id: string;
   readonly revision: number;
-  readonly availability: 'available' | 'out_of_stock' | 'archived';
+  readonly availability: 'available' | 'low' | 'empty' | 'out_of_stock' | 'archived';
   readonly manualName?: string | null;
   readonly manualModel?: string | null;
 }

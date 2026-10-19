@@ -190,13 +190,13 @@ async function shelfAdd(
   } = {},
 ) {
   const userProductId = options.userProductId ?? crypto.randomUUID();
-  const receipt = (
+  const versionId = options.versionId === undefined ? SHAMPOO_VERSION_ID : options.versionId;
+  const added = (
     await db.query<{ result: any }>(
-      `select public.shelf_add($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) result`,
+      `select public.shelf_add($1,$2,null,$3,$4,$5,$6,$7,$8::jsonb) result`,
       [
         crypto.randomUUID(),
         userProductId,
-        options.versionId === undefined ? SHAMPOO_VERSION_ID : options.versionId,
         'House Brand',
         options.manualName === undefined ? 'Gentle Shampoo' : options.manualName,
         'shampoo',
@@ -204,6 +204,16 @@ async function shelfAdd(
         null,
         JSON.stringify(SHELF_DAY),
       ],
+    )
+  ).rows[0].result;
+  // A catalogue link is only ever made through the confirmed match path:
+  // the boundary refuses a version id when a product is added, because an
+  // unconfirmed link could back a "verified" substitution.
+  if (versionId === null) return { userProductId, receipt: added };
+  const receipt = (
+    await db.query<{ result: any }>(
+      `select public.shelf_match($1,$2,$3,$4,true) result`,
+      [crypto.randomUUID(), userProductId, added.revision, versionId],
     )
   ).rows[0].result;
   return { userProductId, receipt };

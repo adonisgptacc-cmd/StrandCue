@@ -350,9 +350,21 @@ it('rejects unknown keys on every guidance object', () => {
     ).toThrow();
     expect(() =>
       GuidanceSnapshotSchema.parse(
-        snapshot({ products: [sourceItem({ availability: 'low' })], tools: [] }),
+        snapshot({ products: [sourceItem({ availability: 'finished' as never })], tools: [] }),
       ),
     ).toThrow();
+  });
+
+  it('accepts the owner-facing low and empty states a recorded product can hold', () => {
+    // The shelf records `low` and `empty` since Increment 2: they are owner
+    // states, not a missing verdict, and only `available` counts as usable.
+    for (const availability of ['low', 'empty'] as const) {
+      expect(() =>
+        GuidanceSnapshotSchema.parse(
+          snapshot({ products: [sourceItem({ availability })], tools: [] }),
+        ),
+      ).not.toThrow();
+    }
   });
 
   it('freezes parsed output so later mutation cannot alter a snapshot', () => {

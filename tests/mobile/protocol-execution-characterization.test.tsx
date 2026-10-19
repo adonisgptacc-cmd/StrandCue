@@ -407,7 +407,7 @@ describe('protocol execution characterization (Task 17 pre-split pins)', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    await press(renderer, `Use shelf item ${SHELF_ITEM_ID}`);
+    await press(renderer, 'Use Gentle Shampoo (Available)');
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();

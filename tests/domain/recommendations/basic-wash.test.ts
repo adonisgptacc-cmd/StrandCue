@@ -148,6 +148,32 @@ describe('basic wash reviewed rule', () => {
     );
   });
 
+  it('does not let a product the owner marked low qualify', () => {
+    // Only an available product is an available candidate: a product the
+    // owner marked "running low" is listed as unavailable, exactly as an
+    // empty one is, so it never carries a protocol step.
+    const preparation = prepareGuidance({
+      snapshot: basicWashSnapshot([
+        snapshotProduct('owner-cleanser', FIXTURE_CLEANSE_VERSION_ID, 'low'),
+        snapshotProduct('owner-conditioner', FIXTURE_CONDITION_VERSION_ID, 'available'),
+      ]),
+      bundle: gatedFixtureBundle(),
+      goalId: 'basic_wash',
+      requestId: 'request-basic-wash-low',
+      asOf: AS_OF,
+    });
+    expect(preparation.status).toBe('ready');
+    if (preparation.status !== 'ready') return;
+    const cleanser = preparation.context.products.find(entry => entry.productId === 'owner-cleanser');
+    expect(cleanser?.available).toBe(false);
+    const decision = generateProtocol(preparation.context);
+    expect(decision.status).toBe('unsupported');
+    expect(decision.steps).toEqual([]);
+    expect(decision.omissions.join(' ')).toContain(
+      `No verified available candidate provides required capability 'cleanse'`,
+    );
+  });
+
   it('does not let unrelated or unknown capabilities qualify', () => {
     const decision = generateProtocol(
       basicWashContext({

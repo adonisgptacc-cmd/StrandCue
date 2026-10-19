@@ -116,6 +116,23 @@ describe('generateProtocol', () => {
     expect(decision.confidence).toBe('limited');
   });
 
+  it('lists a candidate the owner marked low as unavailable instead of offering it', () => {
+    // The shelf records "running low" as an ordinary state of a product the
+    // owner still owns. It is not an available candidate, so the protocol
+    // never uses it and the decision says why it was left out.
+    const decision = generateProtocol(baseInput({
+      products: [
+        product('product-owned', ['mild-cleanse'], { owned: true }),
+        product('product-low', ['mild-cleanse'], { owned: true, available: false }),
+      ],
+    }));
+    expect(decision.status).toBe('ready');
+    expect(decision.steps.every(step => step.productId !== 'product-low')).toBe(true);
+    expect(decision.omissions.join(' ')).toContain(
+      'Unavailable Fixture product-low (product-low): not currently available',
+    );
+  });
+
   it('reports unsupported when no safe candidate exists', () => {
     const decision = generateProtocol(
       baseInput({

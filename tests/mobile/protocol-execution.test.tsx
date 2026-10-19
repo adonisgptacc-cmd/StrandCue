@@ -417,7 +417,7 @@ describe('protocol execution surface', () => {
     await press(renderer, 'Substitute: Step 1');
     await flushShelf();
     expect(shelfMocks.list).toHaveBeenCalled();
-    await press(renderer, `Use shelf item ${SHELF_ITEM_ID}`);
+    await press(renderer, 'Use Gentle Shampoo (Available)');
     await flushShelf();
     await type(renderer, 'Reason for substituting', 'used what I own');
     await press(renderer, 'Confirm substitution: Step 1');

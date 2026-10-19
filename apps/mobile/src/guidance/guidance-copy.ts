@@ -249,8 +249,16 @@ export const EXECUTION_SHELF_LOAD_FAILED =
   'Your shelf could not be loaded. Check your connection and try again.';
 export const EXECUTION_SHELF_REQUIRED =
   'Choose a product from your shelf so your record stays honest.';
-export const shelfItemOptionLabel = (id: string): string => `Use shelf item ${id}`;
-export const selectedShelfItemLabel = (id: string): string => `Selected shelf item ${id}`;
+export const shelfItemOptionLabel = (name: string, availability: string): string =>
+  `Use ${name} (${availability})`;
+export const selectedShelfItemLabel = (name: string, availability: string): string =>
+  `Selected ${name} (${availability})`;
+/**
+ * The shelf item is chosen but the app cannot name it yet: the shelf is
+ * still loading, or the entry is not in the list. The owner is told that a
+ * product is selected, never shown an internal identifier.
+ */
+export const selectedShelfItemUnknownLabel = 'A product from your shelf is selected';
 export const shelfItemVersionLabel = (versionId: string): string => `Exact version ${versionId}`;
 export const EXECUTION_REASON_ABANDON_LABEL = 'Reason for stopping';
 export const EXECUTION_EMPTY_REASON = 'Add a short reason so your record stays honest.';

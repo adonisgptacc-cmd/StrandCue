@@ -99,15 +99,16 @@ export type ShelfItemReference = z.output<typeof ShelfItemReferenceSchema>;
  * What the server persists for a verified substitution: the shelf item plus
  * the catalogue identities resolved from it at command time. `owned: true`
  * here is verified proof from the owner-shelf lookup, never a
- * carried-through caller claim. `availability` records whether the item was
- * `available` or `out_of_stock`; archived items never reach this shape.
+ * carried-through caller claim. `availability` records the availability the
+ * shelf row actually holds — `available`, `low`, `empty` or the legacy
+ * `out_of_stock`; archived items never reach this shape.
  */
 export const VerifiedSubstituteReplacementSchema = z
   .object({
     shelfItemId: uuidString,
     productId: nonEmptyString,
     productVersionId: nonEmptyString,
-    availability: z.enum(['available', 'out_of_stock']),
+    availability: z.enum(['available', 'low', 'empty', 'out_of_stock']),
     owned: z.literal(true),
   })
   .strict();

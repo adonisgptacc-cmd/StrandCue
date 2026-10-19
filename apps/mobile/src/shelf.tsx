@@ -7,7 +7,7 @@ import {
   readShelfDrafts,
   type ShelfDraft,
 } from './shelf-drafts';
-import { appendShelfPage, availabilityLabel, shelfEditorCopy, shelfView, verificationBadge, type ShelfEditorMode } from './shelf-history';
+import { appendShelfPage, availabilityLabel, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, verificationBadge, type ShelfEditorMode } from './shelf-history';
 import { ShelfEditor } from './shelf-editor';
 import { Button, styles } from './ui';
 
@@ -16,16 +16,23 @@ type Mode = { kind: 'list' } | { kind: 'detail'; detail: ShelfDetail }
 
 function ShelfDetailView({ detail, onEdit, onBack }: {
   detail: ShelfDetail;
-  onEdit: (mode: 'match' | 'archive') => void;
+  onEdit: (mode: 'edit' | 'correct' | 'match' | 'archive') => void;
   onBack: () => void;
 }) {
   const [audit, setAudit] = useState(false);
+  const facts = shelfFactLines(detail);
   return <View style={{ gap: 20 }}>
     <View style={styles.card}>
-      <Text style={styles.heading}>{detail.manualName ?? 'Catalogue-linked product'}</Text>
+      <Text accessibilityRole="header" style={styles.heading}>{detail.manualName ?? 'Catalogue-linked product'}</Text>
       <Text style={styles.body}>{availabilityLabel(detail.availability)}</Text>
       <Text style={styles.body}>{detail.matched ? 'Matched to a catalogue entry (confirmed). Original manual details kept.' : 'Manual entry — not matched to the catalogue.'}</Text>
       <Text style={styles.body}>{verificationBadge('unverified')}</Text>
+      {facts.map((line, index) => <Text key={`${index}-${line}`} style={styles.body}>{line}</Text>)}
+      {detail.notes && <Text style={styles.body}>Notes: {detail.notes}</Text>}
+      {detail.availability !== 'archived' &&
+        <Button title="Edit this product" secondary onPress={() => onEdit('edit')} />}
+      {detail.availability !== 'archived' &&
+        <Button title="Correct this product's details" secondary onPress={() => onEdit('correct')} />}
       {!detail.matched && detail.availability !== 'archived' &&
         <Button title="Match to catalogue entry" secondary onPress={() => onEdit('match')} />}
       {detail.availability !== 'archived' &&
@@ -34,12 +41,13 @@ function ShelfDetailView({ detail, onEdit, onBack }: {
       <Button title="Back to shelf" secondary onPress={onBack} />
     </View>
     {audit && <>
-      <Text style={styles.heading}>Ownership entries and matches</Text>
+      <Text accessibilityRole="header" style={styles.heading}>Ownership entries and matches</Text>
       {detail.revisions.length === 0 && <Text style={styles.body}>No revisions recorded.</Text>}
       {detail.revisions.map(revision => <View key={revision.id} style={styles.card}>
         <Text style={styles.label}>{revision.kind === 'baseline' ? 'Original entry' : revision.kind === 'match' ? 'Catalogue match' : revision.kind === 'archive' ? 'Archive' : revision.kind === 'correction' ? 'Correction' : 'Change'}</Text>
         {revision.correctsId && <Text style={styles.body}>Corrects an earlier entry.</Text>}
         {revision.matchVersionId && <Text style={styles.body}>Linked catalogue version recorded; original manual details preserved.</Text>}
+        {revisionLines(revision.patch).map(line => <Text key={`${revision.id}-${line}`} style={styles.body}>{line}</Text>)}
       </View>)}
     </>}
   </View>;
@@ -133,12 +141,16 @@ function OwnerShelf({ owner }: { owner: string }) {
         <Text style={styles.body}>Pending save {index + 1}: {shelfEditorCopy(draft.mode).title}. Review or retry the same command.</Text>
         <Button title={`Review pending save ${index + 1}`} disabled={loading} onPress={() => startEditor(draft.mode, undefined, draft)} />
       </View>)}
-      {view === 'loading' && <Text style={styles.body}>Loading shelf…</Text>}
-      {view === 'empty' && !error && <View style={styles.card}><Text style={styles.heading}>Your shelf is empty.</Text><Text style={styles.body}>Add a product you own. Unknown brands and catalogue entries are both valid.</Text></View>}
+      {view === 'loading' && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>Loading shelf…</Text>}
+      {view === 'empty' && !error && <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.card}>
+        <Text accessibilityRole="header" style={styles.heading}>Your shelf is empty.</Text>
+        <Text style={styles.body}>Add a product you own. Unknown brands and catalogue entries are both valid.</Text>
+      </View>}
       {items.map(item => <View key={item.id} style={styles.card}>
-        <Text style={styles.heading}>{item.manualName ?? 'Catalogue-linked product'}</Text>
+        <Text accessibilityRole="header" style={styles.heading}>{item.manualName ?? 'Catalogue-linked product'}</Text>
         <Text style={styles.body}>{availabilityLabel(item.availability)}</Text>
-        <Button title="View product entry" secondary disabled={loading} onPress={() => void openProduct(item.id)} />
+        {shelfFactLines(item).map((line, index) => <Text key={`${index}-${line}`} style={styles.body}>{line}</Text>)}
+        <Button title="View product entry" accessibilityLabel={`View product entry: ${item.manualName ?? 'Catalogue-linked product'}`} secondary disabled={loading} onPress={() => void openProduct(item.id)} />
       </View>)}
       {cursor && <Button title={loading ? 'Loading more products…' : 'Load more products'} secondary disabled={loading} onPress={() => void refresh(true)} />}
       <Button title="Reload shelf" secondary disabled={loading} onPress={() => void refresh()} />

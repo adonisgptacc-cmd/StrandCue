@@ -2,12 +2,16 @@ import { z } from 'zod';
 
 import {
   ArchiveUserProductCommandSchema,
+  ChangeUserProductCommandSchema,
+  CorrectUserProductCommandSchema,
   CreateUserProductCommandSchema,
   MatchUserProductCommandSchema,
 } from '../../../packages/domain/src/index';
 
 export const ShelfDraftSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('add'), command: CreateUserProductCommandSchema }).strict(),
+  z.object({ mode: z.literal('edit'), command: ChangeUserProductCommandSchema }).strict(),
+  z.object({ mode: z.literal('correct'), command: CorrectUserProductCommandSchema }).strict(),
   z.object({ mode: z.literal('match'), command: MatchUserProductCommandSchema }).strict(),
   z.object({ mode: z.literal('archive'), command: ArchiveUserProductCommandSchema }).strict(),
 ]);

@@ -362,6 +362,38 @@ describe('capability acquisition', () => {
     expect(result.context.products[0].available).toBe(false);
     expect(result.context.tools[0].available).toBe(false);
   });
+
+  it('treats a product the owner marked low as unavailable, never as a candidate', () => {
+    // Only an available product counts as an available candidate. A
+    // product the owner marked "running low" is an ordinary state of a
+    // product they own, so it is listed as unavailable rather than
+    // offered as one.
+    const low = snapshot({
+      products: [
+        {
+          ownerItemId: 'owner-product-1',
+          versionId: PRODUCT_VERSION,
+          name: 'Running low shampoo',
+          availability: 'low',
+          revision: 3,
+        },
+      ],
+      tools: [
+        {
+          ownerItemId: 'owner-tool-1',
+          versionId: TOOL_VERSION,
+          name: 'Running low diffuser',
+          availability: 'low',
+          revision: 2,
+        },
+      ],
+    });
+    const result = prepare(low);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.context.products[0].available).toBe(false);
+    expect(result.context.tools[0].available).toBe(false);
+  });
 });
 
 describe('setup gaps', () => {

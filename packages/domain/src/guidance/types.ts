@@ -14,7 +14,7 @@ import type { FactValue, RecommendationContext, RecommendationRule } from '../re
 
 export type GuidanceGoalId = 'basic_wash';
 
-export type GuidanceAvailability = 'available' | 'out_of_stock' | 'archived';
+export type GuidanceAvailability = 'available' | 'low' | 'empty' | 'out_of_stock' | 'archived';
 
 export type GuidanceServicePresence = 'present' | 'not-present' | 'unknown';
 

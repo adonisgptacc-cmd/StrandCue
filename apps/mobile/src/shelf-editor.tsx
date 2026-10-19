@@ -3,23 +3,423 @@ import { Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import {
   ArchiveUserProductCommandSchema,
+  ChangeUserProductCommandSchema,
+  CorrectUserProductCommandSchema,
   CreateUserProductCommandSchema,
+  currentDateOnly,
+  DateOnlySchema,
   MatchUserProductCommandSchema,
 } from '../../../packages/domain/src/index';
 import { secureStorage } from './client';
-import { archiveUserProduct, getUserProduct, matchUserProduct, recordUserProduct, type ShelfDetail } from './shelf-api';
+import {
+  archiveUserProduct,
+  changeUserProduct,
+  correctUserProduct,
+  correctionIdentity,
+  correctionTarget,
+  getUserProduct,
+  matchUserProduct,
+  recordUserProduct,
+  type ShelfDetail,
+} from './shelf-api';
 import {
   removeShelfDraft,
   submitShelfDraft,
   type ShelfDraft,
 } from './shelf-drafts';
-import { shelfEditorCopy, type ShelfEditorMode } from './shelf-history';
+import {
+  availabilityLabel,
+  categoryLabel,
+  notAnsweredLabel,
+  quantityBandLabel,
+  repurchaseIntentLabel,
+  shelfCategories,
+  shelfEditorCopy,
+  type ShelfEditorMode,
+} from './shelf-history';
 import { Button, Choice, Field, styles } from './ui';
 
-const categories = ['shampoo', 'clarifier', 'conditioner', 'mask', 'bond/protein treatment', 'leave-in', 'heat protectant', 'anti-humidity', 'styling cream', 'mousse', 'gel', 'serum', 'oil', 'scalp', 'colour', 'other'] as const;
+const categories = shelfCategories;
+const availabilities = ['available', 'low', 'empty', 'archived'] as const;
+/**
+ * The state older rows still carry. It stays readable - the shelf has always
+ * called it "Not currently available" - but the owner cannot newly record
+ * it, so the editor only offers it while the saved entry already holds it.
+ */
+const legacyAvailability = 'out_of_stock';
+/** One vocabulary for the state, wherever it is shown. */
+const availabilityLabels: Record<string, string> = {
+  available: availabilityLabel('available'),
+  low: availabilityLabel('low'),
+  empty: availabilityLabel('empty'),
+  archived: availabilityLabel('archived'),
+  [legacyAvailability]: availabilityLabel(legacyAvailability),
+};
+const quantityBands = ['full', 'about-three-quarters', 'about-half', 'about-quarter', 'nearly-empty', 'unknown'] as const;
+const repurchaseIntents = ['would-rebuy', 'would-not-rebuy', 'unsure', 'unknown'] as const;
+const openedPrecisions = ['day', 'month', 'year', 'unknown'] as const;
+
+/**
+ * The answer that means "the owner cleared this".
+ *
+ * It is a value of its own, so the three states stay apart on the wire: a
+ * group the owner never answered is absent, a group the owner cleared is an
+ * explicit null, and a group the owner answered carries the value. Without
+ * it an owner who picked the wrong answer could never take it back.
+ */
+const cleared = 'not-answered';
+
+const quantityBandChoices = [cleared, ...quantityBands];
+const repurchaseIntentChoices = [cleared, ...repurchaseIntents];
+const openedPrecisionChoices = [cleared, ...openedPrecisions];
+
+const quantityBandOptions: Record<string, string> = {
+  [cleared]: notAnsweredLabel,
+  ...Object.fromEntries(quantityBands.map(band => [band, quantityBandLabel(band)])),
+};
+const repurchaseIntentOptions: Record<string, string> = {
+  [cleared]: notAnsweredLabel,
+  ...Object.fromEntries(repurchaseIntents.map(intent => [intent, repurchaseIntentLabel(intent)])),
+};
+const openedPrecisionOptions: Record<string, string> = {
+  [cleared]: notAnsweredLabel,
+  day: 'A day',
+  month: 'A month',
+  year: 'A year',
+  unknown: 'Not sure',
+};
+const categoryOptions: Record<string, string> = Object.fromEntries(categories.map(category => [category, categoryLabel(category)]));
+/** A bare "no" and "yes" say nothing on their own: the answer reads itself. */
+const archiveConfirmationLabels: Record<string, string> = { no: 'No, keep it on my shelf', yes: 'Yes, archive this product' };
+const matchConfirmationLabels: Record<string, string> = { no: 'No, they are different products', yes: 'Yes, they are the same product' };
+/** Announced when the archive confirmation appears, so it is never silent. */
+const archiveConfirmationNotice = 'Archiving this product needs a confirmation now. Choose "Yes, archive this product" to go ahead, or "No, keep it on my shelf" to keep it.';
+
+type FactsDraft = {
+  manualVariant: string;
+  manualSize: string;
+  manualBarcode: string;
+  openedPrecision: '' | typeof openedPrecisions[number] | typeof cleared;
+  openedValue: string;
+  expiryOn: string;
+  pao: string;
+  quantityBand: '' | typeof quantityBands[number] | typeof cleared;
+  repurchaseIntent: '' | typeof repurchaseIntents[number] | typeof cleared;
+  notes: string;
+};
+
+const emptyFacts: FactsDraft = {
+  manualVariant: '', manualSize: '', manualBarcode: '',
+  openedPrecision: '', openedValue: '', expiryOn: '',
+  pao: '', quantityBand: '', repurchaseIntent: '', notes: '',
+};
+
+function factsFrom(detail: ShelfDetail | null | undefined): FactsDraft {
+  if (!detail) return emptyFacts;
+  const opened = detail.openedOn;
+  return {
+    manualVariant: detail.manualVariant ?? '',
+    manualSize: detail.manualSize ?? '',
+    manualBarcode: detail.manualBarcode ?? '',
+    openedPrecision: opened ? (opened.precision as FactsDraft['openedPrecision']) : '',
+    openedValue: opened && opened.value !== null ? opened.value : '',
+    expiryOn: detail.expiryOn ?? '',
+    pao: detail.pao ?? '',
+    quantityBand: (detail.quantityBand as FactsDraft['quantityBand']) ?? '',
+    repurchaseIntent: (detail.repurchaseIntent as FactsDraft['repurchaseIntent']) ?? '',
+    notes: detail.notes ?? '',
+  };
+}
+
+/** The facts a retained draft already holds, so a review shows what was sent. */
+function factsFromCommand(command: Record<string, unknown>): FactsDraft {
+  const opened = command.openedOn as { precision: string; value: string | null } | null | undefined;
+  const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+  return {
+    manualVariant: text(command.manualVariant),
+    manualSize: text(command.manualSize),
+    manualBarcode: text(command.manualBarcode),
+    openedPrecision: opened ? (opened.precision as FactsDraft['openedPrecision']) : '',
+    openedValue: opened && opened.value !== null ? opened.value : '',
+    expiryOn: text(command.expiryOn),
+    pao: text(command.pao),
+    quantityBand: (typeof command.quantityBand === 'string' ? command.quantityBand : '') as FactsDraft['quantityBand'],
+    repurchaseIntent: (typeof command.repurchaseIntent === 'string' ? command.repurchaseIntent : '') as FactsDraft['repurchaseIntent'],
+    notes: text(command.notes),
+  };
+}
+
+/**
+ * Three states stay distinct on the way to the server: an untouched field
+ * the owner never answered is absent, a field the owner emptied is an
+ * explicit null (cleared), and a field the owner filled carries the value.
+ */
+function recordedValue(draft: string, current: string | null | undefined): string | null | undefined {
+  const trimmed = draft.trim();
+  if (trimmed !== '') return trimmed;
+  if (current === null || current === undefined) return undefined;
+  return null;
+}
+
+/**
+ * The answer of a choice group on the way to the server. A group the owner
+ * never answered stays absent, a group the owner cleared is an explicit
+ * null, and a group the owner answered carries the value.
+ */
+function answerValue(draft: string): string | null | undefined {
+  if (draft === cleared) return null;
+  return draft === '' ? undefined : draft;
+}
+
+/**
+ * The opening date, in the precision the owner knows. "Not answered" clears
+ * a date that was recorded; a date the owner never gave stays absent, so
+ * the three states stay apart on the wire.
+ */
+function openedOnValue(draft: FactsDraft): { precision: string; value: string | null } | null | undefined {
+  if (draft.openedPrecision === cleared) return null;
+  if (draft.openedPrecision === '') return undefined;
+  if (draft.openedPrecision === 'unknown') return { precision: 'unknown', value: null };
+  return { precision: draft.openedPrecision, value: draft.openedValue.trim() };
+}
+
+// --- The problems the owner can act on -----------------------------------
+
+/** Every field the editor can hold a problem for. */
+type EditorField =
+  | 'manualBrand' | 'manualName' | 'reason'
+  | 'manualVariant' | 'manualSize' | 'manualBarcode' | 'openedOn' | 'expiryOn' | 'pao' | 'notes';
+
+/** One problem, tied to the field it belongs to. */
+type EditorProblem = { field: EditorField; label: string; rule: string };
+
+/** The name the owner knows the field by. */
+const fieldLabels: Record<EditorField, string> = {
+  manualBrand: 'Brand',
+  manualName: 'Product name',
+  reason: 'Reason for this correction',
+  manualVariant: 'Variant',
+  manualSize: 'Size',
+  manualBarcode: 'Barcode',
+  openedOn: 'Opening date',
+  expiryOn: 'Expiry date',
+  pao: 'Period after opening',
+  notes: 'Notes',
+};
+
+/** The length the domain holds each owner-entered text to. */
+const textBounds: Partial<Record<EditorField, number>> = {
+  manualBrand: 200, manualName: 200, manualVariant: 200, manualSize: 200,
+  manualBarcode: 100, pao: 200, notes: 2000, reason: 500,
+};
+
+const dayShape = /^\d{4}-\d{2}-\d{2}$/;
+const monthShape = /^\d{4}-\d{2}$/;
+const yearShape = /^\d{4}$/;
+
+/** Whether the typed value has the shape the chosen precision needs. */
+function openedValueComplete(precision: string, value: string): boolean {
+  if (precision === 'day') return dayShape.test(value);
+  if (precision === 'month') return monthShape.test(value);
+  if (precision === 'year') return yearShape.test(value);
+  return false;
+}
+
+/** Whether a complete value is a real date in that precision. */
+function openedValueReal(precision: string, value: string): boolean {
+  if (precision === 'day') return DateOnlySchema.safeParse(value).success;
+  if (precision === 'month') return /^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(value);
+  if (precision === 'year') return /^[1-9]\d{3}$/.test(value);
+  return false;
+}
+
+/** The first day the recorded date covers, the way the domain reads it. */
+function openedIntervalStart(precision: string, value: string): string {
+  if (precision === 'day') return value;
+  if (precision === 'month') return `${value}-01`;
+  return `${value}-01-01`;
+}
+
+/** Whether the owner gave an opening date of a real precision. */
+function openedPrecisionAnswered(draft: FactsDraft): boolean {
+  return draft.openedPrecision !== '' && draft.openedPrecision !== 'unknown' && draft.openedPrecision !== cleared;
+}
+
+/**
+ * The problems in the facts, one per field.
+ *
+ * `live` is the check that runs while the owner types. It only judges a
+ * value that is complete enough to judge - a date that has the shape of the
+ * precision the owner chose, a text longer than the domain holds - so a
+ * half-typed date is never scolded and a missing answer is only mentioned
+ * once the owner asks to save.
+ */
+function factsProblems(draft: FactsDraft, scope: 'live' | 'submit'): EditorProblem[] {
+  const problems: EditorProblem[] = [];
+  const texts: [EditorField, string][] = [
+    ['manualVariant', draft.manualVariant],
+    ['manualSize', draft.manualSize],
+    ['manualBarcode', draft.manualBarcode],
+    ['pao', draft.pao],
+    ['notes', draft.notes],
+  ];
+  for (const [field, value] of texts) {
+    const bound = textBounds[field] ?? 0;
+    if (value.trim().length > bound) {
+      problems.push({ field, label: fieldLabels[field], rule: `Use at most ${bound} characters.` });
+    } else if (scope === 'submit' && value !== '' && value.trim() === '') {
+      problems.push({ field, label: fieldLabels[field], rule: 'This cannot be blank. Clear the field instead if you do not want to record it.' });
+    }
+  }
+  if (openedPrecisionAnswered(draft)) {
+    const value = draft.openedValue.trim();
+    if (value === '') {
+      if (scope === 'submit') {
+        problems.push({ field: 'openedOn', label: fieldLabels.openedOn, rule: 'Enter the date you opened this product, or choose "not sure".' });
+      }
+    } else if (!openedValueComplete(draft.openedPrecision, value)) {
+      if (scope === 'submit') {
+        problems.push({ field: 'openedOn', label: fieldLabels.openedOn, rule: 'That is not a complete date. Use a day (2026-03-01), a month (2026-03) or a year (2026), or choose "not sure".' });
+      }
+    } else if (!openedValueReal(draft.openedPrecision, value)) {
+      problems.push({ field: 'openedOn', label: fieldLabels.openedOn, rule: 'That is not a real date. Use a day (2026-03-01), a month (2026-03) or a year (2026), or choose "not sure".' });
+    } else if (openedIntervalStart(draft.openedPrecision, value) > currentDateOnly()) {
+      problems.push({ field: 'openedOn', label: fieldLabels.openedOn, rule: 'That is in the future. A product cannot be opened after today.' });
+    }
+  }
+  const expiry = draft.expiryOn.trim();
+  if (expiry !== '') {
+    if (!dayShape.test(expiry)) {
+      if (scope === 'submit') {
+        problems.push({ field: 'expiryOn', label: fieldLabels.expiryOn, rule: 'That is not a complete date. Enter a calendar day in YYYY-MM-DD form, or leave it empty.' });
+      }
+    } else if (!DateOnlySchema.safeParse(expiry).success) {
+      problems.push({ field: 'expiryOn', label: fieldLabels.expiryOn, rule: 'Enter a real calendar day in YYYY-MM-DD form, or leave it empty.' });
+    }
+  }
+  return problems;
+}
+
+/**
+ * The problems in the identity the owner types. The brand and the name are
+ * only sent when a product is added or corrected, so an ordinary edit never
+ * asks about them.
+ */
+function identityProblems(brand: string, name: string, scope: 'live' | 'submit', correcting: boolean): EditorProblem[] {
+  const problems: EditorProblem[] = [];
+  const brandBound = textBounds.manualBrand ?? 0;
+  const nameBound = textBounds.manualName ?? 0;
+  if (brand.trim().length > brandBound) {
+    problems.push({ field: 'manualBrand', label: fieldLabels.manualBrand, rule: `Use at most ${brandBound} characters.` });
+  }
+  if (name.trim().length > nameBound) {
+    problems.push({ field: 'manualName', label: fieldLabels.manualName, rule: `Use at most ${nameBound} characters.` });
+  } else if (scope === 'submit' && name.trim() === '') {
+    problems.push({ field: 'manualName', label: fieldLabels.manualName, rule: correcting
+      ? 'Keep a name on this product. Put the name back, or leave it as you recorded it.'
+      : 'Give this product a name so you can recognise it later.' });
+  }
+  return problems;
+}
+
+/**
+ * The problems with the reason a correction carries. A correction without
+ * a reason is refused: the reason is what the owner reads later to see why
+ * the entry changed.
+ */
+function reasonProblems(reason: string, scope: 'live' | 'submit'): EditorProblem[] {
+  if (scope !== 'submit') return [];
+  const bound = textBounds.reason ?? 0;
+  if (reason.trim() === '') {
+    return [{ field: 'reason', label: fieldLabels.reason, rule: 'Say why you are correcting this product. The reason is kept with the correction.' }];
+  }
+  if (reason.trim().length > bound) {
+    return [{ field: 'reason', label: fieldLabels.reason, rule: `Use at most ${bound} characters.` }];
+  }
+  return [];
+}
+
+/**
+ * Every problem the editor holds, for the screen it is showing. The
+ * identity is only sent when a product is added or corrected, so an
+ * ordinary edit never asks about the brand or the name.
+ */
+function editorProblems(
+  mode: ShelfEditorMode, brand: string, name: string, facts: FactsDraft, reason: string, scope: 'live' | 'submit',
+): EditorProblem[] {
+  return [
+    ...(mode === 'add' || mode === 'correct' ? identityProblems(brand, name, scope, mode === 'correct') : []),
+    ...(mode === 'add' || mode === 'edit' ? factsProblems(facts, scope) : []),
+    ...(mode === 'correct' ? reasonProblems(reason, scope) : []),
+  ];
+}
+
+/** The owner-facing name of every field a command can fail on. */
+const commandFieldNames: Record<string, string> = {
+  manualBrand: 'brand',
+  manualName: 'product name',
+  manualCategory: 'category',
+  manualVariant: 'variant',
+  manualSize: 'size',
+  manualBarcode: 'barcode',
+  openedOn: 'opening date',
+  expiryOn: 'expiry date',
+  pao: 'period after opening',
+  quantityBand: 'how much is left',
+  repurchaseIntent: 'whether you would buy it again',
+  notes: 'notes',
+  availability: 'availability',
+  versionId: 'catalogue version ID',
+  confirmed: 'confirmation',
+  expectedRevision: 'saved entry',
+  correctsId: 'the entry being corrected',
+  reason: 'reason for the correction',
+};
+
+type CommandIssue = { code?: string; path?: readonly unknown[]; message?: string; maximum?: number | bigint };
+
+/**
+ * The owner-facing wording for the refusals the domain states without a
+ * field of their own. Anything not named here stays a plain message, never
+ * the internal wording of a schema.
+ */
+const domainRefusals: Record<string, string> = {
+  'Manual entries require a product name': 'Give this product a name before you save it. A manual entry needs a name.',
+};
+
+/**
+ * The message a refused command gets: it names the field that failed and
+ * the rule it broke, and it never mentions matching, keys or internal
+ * wording.
+ */
+export function commandFailureMessage(error: unknown): string {
+  const issues = (error as { issues?: readonly CommandIssue[] })?.issues;
+  if (!Array.isArray(issues)) return 'This product could not be saved. Check the details you entered and try again.';
+  const failures: string[] = [];
+  for (const issue of issues) {
+    const known = domainRefusals[issue.message ?? ''];
+    if (known !== undefined) {
+      failures.push(known);
+      continue;
+    }
+    const path: readonly unknown[] = issue.path ?? [];
+    const field = path.map((part: unknown) => String(part)).find(part => part in commandFieldNames);
+    if (field === undefined) continue;
+    const name = commandFieldNames[field];
+    if (issue.code === 'too_big' && typeof issue.maximum === 'number') {
+      failures.push(`The ${name} is too long. Use at most ${issue.maximum} characters.`);
+      continue;
+    }
+    failures.push(`The ${name} could not be saved. Check it and try again.`);
+  }
+  if (failures.length === 0) return 'This product could not be saved. Check the details you entered and try again.';
+  return [...new Set(failures)].join(' ');
+}
 
 async function sendDraft(draft: ShelfDraft) {
   if (draft.mode === 'add') return recordUserProduct(draft.command);
+  if (draft.mode === 'edit') return changeUserProduct(draft.command);
+  if (draft.mode === 'correct') return correctUserProduct(draft.command);
   if (draft.mode === 'match') return matchUserProduct(draft.command);
   return archiveUserProduct(draft.command);
 }
@@ -46,11 +446,52 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
     operationId: resume?.command.operationId ?? Crypto.randomUUID(),
     userProductId: resume?.command.userProductId ?? userProductId ?? detail?.id ?? Crypto.randomUUID(),
   }));
-  const [manualBrand, setManualBrand] = useState('');
-  const [manualName, setManualName] = useState('');
-  const [manualCategory, setManualCategory] = useState<string>('shampoo');
-  const [availability, setAvailability] = useState('available');
-  const [notes, setNotes] = useState('');
+  /**
+   * The entry as it stands now. It starts as the one the screen handed
+   * over and is replaced by the entry the server really holds - after a
+   * conflict, or when a retained draft is reopened - so a save is always
+   * made against the revision that is really there.
+   */
+  const [current, setCurrent] = useState<ShelfDetail | null>(detail ?? null);
+  const loadStarted = useRef(false);
+  /** Whether the screen handed the editor the entry it is working on. */
+  const entryProvided = useRef(detail !== undefined);
+  /**
+   * The revision a correction replaces, and the identity the correction
+   * starts from. A correction appends, so the entry it corrects stays
+   * readable in the owner's own history.
+   */
+  const target = correctionTarget(current?.revisions);
+  const starting = correctionIdentity(target, current);
+  const resumed = resume?.mode === 'correct' ? resume.command : null;
+  const [manualBrand, setManualBrand] = useState(() => (
+    resumed ? resumed.manualBrand ?? ''
+      : mode === 'correct' ? starting.brand
+        : detail?.manualBrand ?? ''
+  ));
+  const [manualName, setManualName] = useState(() => (
+    resumed ? resumed.manualName ?? ''
+      : mode === 'correct' ? starting.name
+        : detail?.manualName ?? ''
+  ));
+  const [manualCategory, setManualCategory] = useState<string>(() => (
+    resumed ? resumed.manualCategory ?? ''
+      : mode === 'correct' ? starting.category
+        : detail?.manualCategory ?? ''
+  ));
+  const [reason, setReason] = useState(resumed?.reason ?? '');
+  const [facts, setFacts] = useState<FactsDraft>(() => (
+    resume
+      ? factsFromCommand(resume.command as unknown as Record<string, unknown>)
+      : factsFrom(detail)
+  ));
+  const [availability, setAvailability] = useState<string>(() => {
+    const resumedCommand = resume?.command as unknown as Record<string, unknown> | undefined;
+    const resumedAvailability = resumedCommand?.availability;
+    if (typeof resumedAvailability === 'string') return resumedAvailability;
+    return detail?.availability ?? 'available';
+  });
+  const [archiveConfirmed, setArchiveConfirmed] = useState(false);
   const [versionId, setVersionId] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState<ShelfDraft | null>(resume ?? null);
@@ -58,18 +499,101 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
   const [conflict, setConflict] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  // The owner has asked to save: from here on the full check answers them.
+  const [attempted, setAttempted] = useState(false);
+  /**
+   * The guard against a response that belongs to a former owner. It is
+   * armed for the owner the editor was created for and never re-armed for
+   * another one: an owner change invalidates it for good, so a response
+   * that arrives afterwards is never treated as live. The arming happens in
+   * the effect body, so the mount -> cleanup -> effect sequence React
+   * StrictMode runs leaves the guard armed.
+   */
   const alive = useRef(true);
+  const editorOwner = useRef(owner);
   const inFlight = useRef(false);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, [owner]);
+  useEffect(() => {
+    if (editorOwner.current === owner) alive.current = true;
+    return () => { alive.current = false; };
+  }, [owner]);
+  /** Whether an answer that arrives now still belongs to this owner. */
+  const isLive = () => alive.current && editorOwner.current === owner;
+  /**
+   * A retained draft opens without the entry in front of it. The editor
+   * loads it, so the identity it shows and the revision it saves against
+   * are the ones the server holds.
+   */
+  useEffect(() => {
+    // An entry that was handed over is already the one the server holds.
+    if (loadStarted.current || mode === 'add' || entryProvided.current) return;
+    loadStarted.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const entry = await getUserProduct(identity.userProductId, true);
+        if (cancelled || !alive.current || editorOwner.current !== owner) return;
+        setCurrent(entry);
+      } catch {
+        if (!cancelled && alive.current && editorOwner.current === owner) {
+          setMessage('The current entry could not be loaded. Your draft is still here.');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, identity.userProductId, owner]);
   const locked = pending !== null || busy;
   const copy = shelfEditorCopy(mode);
-  const expectedRevision = detail?.revision ?? 1;
+  const expectedRevision = current?.revision ?? 1;
+  /** The entry a correction replaces: the newest one nothing corrects. */
+  const correctsId = resumed?.correctsId ?? target?.id ?? null;
+  const scope = attempted ? 'submit' : 'live';
+  const problems = editorProblems(mode, manualBrand, manualName, facts, reason, scope);
+  /** The problem of one field, rendered where the field is. */
+  const fieldError = (field: EditorField) => {
+    const problem = problems.find(entry => entry.field === field);
+    if (!problem) return null;
+    return <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>{`${problem.label}: ${problem.rule}`}</Text>;
+  };
+  /** The bottom summary: it never repeats the message shown at the field. */
+  const factSummary = attempted && problems.length > 0
+    ? (problems.length === 1
+      ? 'This product was not saved. Check the field marked above and try again.'
+      : 'This product was not saved. Check the fields marked above and try again.')
+    : '';
+  /** The legacy state is only offered while the saved entry already holds it. */
+  const availabilityChoices = availability === legacyAvailability
+    ? [...availabilities, legacyAvailability]
+    : [...availabilities];
+
+  const updateFact = (key: keyof FactsDraft, value: string) => {
+    setFacts(previous => ({ ...previous, [key]: value }));
+  };
 
   const submit = async () => {
     if (inFlight.current) return;
     let draft = pending;
     try {
       if (!draft) {
+        setAttempted(true);
+        // The save is judged by the full check, never by the live one: a
+        // missing answer only counts once the owner asked to save.
+        if (editorProblems(mode, manualBrand, manualName, facts, reason, 'submit').length > 0) {
+          // The message at the field answers this; an older one must not linger.
+          setMessage('');
+          return;
+        }
+        if (mode === 'match' && !confirmed) {
+          setMessage('Confirm that this is the same product before matching it to a catalogue version.');
+          return;
+        }
+        if ((mode === 'add' || mode === 'edit') && availability === 'archived' && !archiveConfirmed) {
+          setMessage('Confirm that you want to archive this product. Its history stays in your record.');
+          return;
+        }
+        if (mode === 'correct' && !correctsId) {
+          setMessage('There is no entry to correct yet. Open the product entry and try again.');
+          return;
+        }
         if (mode === 'add') {
           draft = {
             mode,
@@ -77,15 +601,57 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
               operationId: identity.operationId,
               userProductId: identity.userProductId,
               versionId: null,
-              manualBrand: manualBrand.trim() ? manualBrand : null,
-              manualName: manualName.trim() ? manualName : null,
-              manualCategory,
+              manualBrand: manualBrand.trim() ? manualBrand.trim() : null,
+              manualName: manualName.trim() ? manualName.trim() : null,
+              manualCategory: manualCategory === '' ? null : manualCategory,
+              manualVariant: recordedValue(facts.manualVariant, undefined),
+              manualSize: recordedValue(facts.manualSize, undefined),
+              manualBarcode: recordedValue(facts.manualBarcode, undefined),
+              openedOn: openedOnValue(facts),
+              expiryOn: facts.expiryOn.trim() ? facts.expiryOn.trim() : undefined,
+              pao: recordedValue(facts.pao, undefined),
+              quantityBand: answerValue(facts.quantityBand),
+              repurchaseIntent: answerValue(facts.repurchaseIntent),
+              notes: recordedValue(facts.notes, undefined),
               availability,
-              notes: notes.trim() ? notes : null,
+            }),
+          };
+        } else if (mode === 'edit') {
+          draft = {
+            mode,
+            command: ChangeUserProductCommandSchema.parse({
+              operationId: identity.operationId,
+              userProductId: identity.userProductId,
+              expectedRevision,
+              // The legacy state is not one the owner can record any more: an
+              // unchanged legacy row keeps the state it already holds.
+              ...(availability === legacyAvailability ? {} : { availability }),
+              manualVariant: recordedValue(facts.manualVariant, current?.manualVariant),
+              manualSize: recordedValue(facts.manualSize, current?.manualSize),
+              manualBarcode: recordedValue(facts.manualBarcode, current?.manualBarcode),
+              openedOn: openedOnValue(facts),
+              expiryOn: facts.expiryOn.trim() ? facts.expiryOn.trim() : (current?.expiryOn ? null : undefined),
+              pao: recordedValue(facts.pao, current?.pao),
+              quantityBand: answerValue(facts.quantityBand),
+              repurchaseIntent: answerValue(facts.repurchaseIntent),
+              notes: recordedValue(facts.notes, current?.notes),
+            }),
+          };
+        } else if (mode === 'correct') {
+          draft = {
+            mode,
+            command: CorrectUserProductCommandSchema.parse({
+              operationId: identity.operationId,
+              userProductId: identity.userProductId,
+              expectedRevision,
+              correctsId,
+              reason: reason.trim(),
+              manualBrand: manualBrand.trim() ? manualBrand.trim() : null,
+              manualName: manualName.trim() ? manualName.trim() : null,
+              manualCategory: manualCategory === '' ? null : manualCategory,
             }),
           };
         } else if (mode === 'match') {
-          if (!confirmed) throw new Error('Confirmation required');
           draft = {
             mode,
             command: MatchUserProductCommandSchema.parse({
@@ -97,6 +663,10 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
             }),
           };
         } else {
+          if (!archiveConfirmed) {
+            setMessage('Confirm that you want to archive this product. Its history stays in your record.');
+            return;
+          }
           draft = {
             mode,
             command: ArchiveUserProductCommandSchema.parse({
@@ -107,69 +677,131 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
           };
         }
       }
-    } catch { setMessage('Check the brand, name, category and notes. Matching needs a catalogue version and explicit confirmation.'); return; }
+    } catch (error) { setMessage(commandFailureMessage(error)); return; }
     inFlight.current = true; setBusy(true); setMessage(''); setPending(draft);
     try {
-      await submitShelfDraft(secureStorage, owner, draft, sendDraft, () => alive.current);
-      if (alive.current) onSaved();
+      await submitShelfDraft(secureStorage, owner, draft, sendDraft, () => isLive());
+      if (isLive()) onSaved();
     } catch (error) {
-      if (!alive.current) return;
+      if (!isLive()) return;
       const isConflict = String((error as { message?: string })?.message).includes('revision-conflict');
       setConflict(isConflict);
       if (isConflict) {
         setMessage('This product changed elsewhere. Your submitted facts are retained while the current entry loads.');
         const result = await loadShelfConflict(identity.userProductId, id => getUserProduct(id, true));
-        if (!alive.current) return;
+        if (!isLive()) return;
         setLatest(result.latest);
-        setMessage(result.message || 'The current entry is loaded below. Review it before discarding the failed attempt.');
+        // The entry the server really holds becomes the one this form
+        // saves against, so the save after the conflict can succeed.
+        if (result.latest) setCurrent(result.latest);
+        setMessage(result.latest
+          ? `The current entry, revision ${result.latest.revision}, has been loaded. Your submitted facts stay in the locked form. Discard the failed attempt to save against the current entry.`
+          : (result.message || 'The current entry could not be loaded. Your submitted facts are still here.'));
       } else {
         setMessage('The save was not confirmed. Your command is locked for an identical retry.');
       }
-    } finally { inFlight.current = false; if (alive.current) setBusy(false); }
+    } finally { inFlight.current = false; if (isLive()) setBusy(false); }
   };
 
   const discard = async () => {
     setBusy(true); setMessage('');
     try {
       await removeShelfDraft(secureStorage, owner, identity.userProductId);
-      if (!alive.current) return;
+      if (!isLive()) return;
       if (latest) {
-        setIdentity(current => ({ ...current, operationId: Crypto.randomUUID() }));
+        setIdentity(previous => ({ ...previous, operationId: Crypto.randomUUID() }));
         setPending(null); setConflict(false); setLatest(null);
-        setMessage('The failed attempt was discarded. Review the current entry before saving again.');
+        setMessage(`The failed attempt was discarded. Save again to record your change against revision ${current?.revision ?? expectedRevision}.`);
       } else onCancel();
-    } catch { if (alive.current) setMessage('The device draft could not be removed. Please try again.'); }
-    finally { if (alive.current) setBusy(false); }
+    } catch { if (isLive()) setMessage('The device draft could not be removed. Please try again.'); }
+    finally { if (isLive()) setBusy(false); }
   };
 
   return <View style={styles.card}>
-    <Text style={styles.heading}>{copy.title}</Text>
+    <Text accessibilityRole="header" style={styles.heading}>{copy.title}</Text>
     <Text style={styles.body}>{mode === 'add'
-      ? 'Add a product you own. Manual entries stay private; matching to the catalogue later needs your explicit confirmation.'
-      : mode === 'match'
-        ? 'Link this entry to a catalogue version. Your original manual details are preserved and matching needs explicit confirmation.'
-        : 'Archiving removes this product from the active list. Prior records that used it are preserved.'}</Text>
-    {pending && <Text style={styles.body}>A save is awaiting confirmation. The fields are locked so retrying sends the same command.</Text>}
+      ? 'Add a product you own. You only need what you know: a brand, a name or a catalogue link, and whatever else you want to remember. Nothing here needs a barcode, a photograph or a research record.'
+      : mode === 'edit'
+        ? 'Record what changed about this product. The brand and name you entered are kept as they are; a wrong one is corrected from the product entry, and the original stays readable in your history.'
+        : mode === 'correct'
+          ? 'Correct what you recorded about this product. The correction is added to your history, and the entry it replaces stays readable.'
+          : mode === 'match'
+            ? 'Link this entry to a catalogue version. Your original manual details are preserved and matching needs explicit confirmation.'
+            : 'Archiving removes this product from the active list. Prior records that used it are preserved.'}</Text>
+    {pending && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>A save is awaiting confirmation. The fields are locked so retrying sends the same command.</Text>}
     {mode === 'add' && <>
-      <Field label="Brand (as printed)" value={manualBrand} editable={!locked} maxLength={200} onChangeText={setManualBrand} />
-      <Field label="Product name" value={manualName} editable={!locked} maxLength={200} onChangeText={setManualName} />
-      <Choice label="Category" value={manualCategory} options={[...categories]} disabled={locked} onChange={setManualCategory} />
-      <Choice label="Availability" value={availability} options={['available', 'out_of_stock', 'archived']} disabled={locked} onChange={setAvailability} />
-      <Field label="Short notes (optional, avoid identifying details)" value={notes} editable={!locked} multiline maxLength={2000} onChangeText={setNotes} />
+      <Field label="Brand (as printed)" value={manualBrand} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={200} onChangeText={setManualBrand} />
+      {fieldError('manualBrand')}
+      <Field label="Product name" value={manualName} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={200} onChangeText={setManualName} />
+      {fieldError('manualName')}
+      <Choice label="Category" value={manualCategory} options={[...categories]} labels={categoryOptions} disabled={locked} onChange={setManualCategory} />
+      {manualCategory === '' && <Text style={styles.body}>Category: Not recorded</Text>}
+    </>}
+    {mode === 'edit' && <View style={styles.notice}>
+      <Text style={styles.body}>Brand: {current?.manualBrand ?? 'Not recorded'}</Text>
+      <Text style={styles.body}>Name: {current?.manualName ?? 'Not recorded'}</Text>
+      <Text style={styles.body}>Category: {current?.manualCategory ? categoryLabel(current.manualCategory) : 'Not recorded'}</Text>
+    </View>}
+    {mode === 'correct' && <>
+      <Field label="Brand (as printed)" value={manualBrand} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={200} onChangeText={setManualBrand} />
+      {fieldError('manualBrand')}
+      <Field label="Product name" value={manualName} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={200} onChangeText={setManualName} />
+      {fieldError('manualName')}
+      <Choice label="Category" value={manualCategory} options={[...categories]} labels={categoryOptions} disabled={locked} onChange={setManualCategory} />
+      {manualCategory === '' && <Text style={styles.body}>Category: Not recorded</Text>}
+      <Field label="Reason for this correction" value={reason} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={500} onChangeText={setReason} />
+      {fieldError('reason')}
+    </>}
+    {(mode === 'add' || mode === 'edit') && <>
+      <Field label="Variant (as printed, optional)" value={facts.manualVariant} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={200} onChangeText={value => updateFact('manualVariant', value)} />
+      {fieldError('manualVariant')}
+      <Field label="Size (as printed, optional)" value={facts.manualSize} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={200} onChangeText={value => updateFact('manualSize', value)} />
+      {fieldError('manualSize')}
+      <Field label="Barcode (optional)" value={facts.manualBarcode} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={100} onChangeText={value => updateFact('manualBarcode', value)} />
+      {fieldError('manualBarcode')}
+      <Choice label="Availability" value={availability} options={availabilityChoices} labels={availabilityLabels} disabled={locked} onChange={value => { setAvailability(value); setArchiveConfirmed(false); }} />
+      {availability === legacyAvailability && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>Not currently available is a state some products still carry from an earlier version of the app. Choose the state it is in now to change it.</Text>}
+      {availability === 'archived' && <>
+        <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>{archiveConfirmationNotice}</Text>
+        <Choice label="I confirm this product is archived" value={archiveConfirmed ? 'yes' : 'no'} options={['no', 'yes']} labels={archiveConfirmationLabels} disabled={locked}
+          onChange={value => { setArchiveConfirmed(value === 'yes'); setMessage(''); }} />
+      </>}
+      <Choice label="When did you open it?" value={facts.openedPrecision} options={openedPrecisionChoices} labels={openedPrecisionOptions} disabled={locked}
+        onChange={value => { updateFact('openedPrecision', value); updateFact('openedValue', ''); }} />
+      {openedPrecisionAnswered(facts) && <>
+        <Field
+          label={facts.openedPrecision === 'day' ? 'Date opened (YYYY-MM-DD)' : facts.openedPrecision === 'month' ? 'Month opened (YYYY-MM)' : 'Year opened (YYYY)'}
+          value={facts.openedValue} editable={!locked} accessibilityState={{ disabled: locked }}
+          onChangeText={value => updateFact('openedValue', value)} />
+        {fieldError('openedOn')}
+      </>}
+      <Field label="Expiry date (YYYY-MM-DD, optional)" value={facts.expiryOn} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={10} onChangeText={value => updateFact('expiryOn', value)} />
+      {fieldError('expiryOn')}
+      <Field label="Period after opening (your own words, optional)" value={facts.pao} editable={!locked} accessibilityState={{ disabled: locked }} maxLength={200} onChangeText={value => updateFact('pao', value)} />
+      {fieldError('pao')}
+      <Choice label="How much is left?" value={facts.quantityBand} options={quantityBandChoices} labels={quantityBandOptions} disabled={locked} onChange={value => updateFact('quantityBand', value)} />
+      <Choice label="Would you buy it again?" value={facts.repurchaseIntent} options={repurchaseIntentChoices} labels={repurchaseIntentOptions} disabled={locked} onChange={value => updateFact('repurchaseIntent', value)} />
+      <Field label="Short notes (optional, avoid identifying details)" value={facts.notes} editable={!locked} accessibilityState={{ disabled: locked }} multiline maxLength={2000} onChangeText={value => updateFact('notes', value)} />
+      {fieldError('notes')}
     </>}
     {mode === 'match' && <>
       <Text style={styles.body}>Matching links this entry without rewriting what you originally recorded.</Text>
-      <Field label="Catalogue version ID" value={versionId} editable={!locked} onChangeText={setVersionId} />
-      <Choice label="I confirm this is the same product" value={confirmed ? 'yes' : 'no'} options={['no', 'yes']} disabled={locked}
+      <Field label="Catalogue version ID" value={versionId} editable={!locked} accessibilityState={{ disabled: locked }} onChangeText={setVersionId} />
+      <Choice label="I confirm this is the same product" value={confirmed ? 'yes' : 'no'} options={['no', 'yes']} labels={matchConfirmationLabels} disabled={locked}
         onChange={value => setConfirmed(value === 'yes')} />
     </>}
-    {mode === 'archive' && <Text style={styles.body}>Archived products leave the active list. Their history remains.</Text>}
+    {mode === 'archive' && <>
+      <Text style={styles.body}>Archived products leave the active list. Their history remains.</Text>
+      <Choice label="I confirm this product is archived" value={archiveConfirmed ? 'yes' : 'no'} options={['no', 'yes']} labels={archiveConfirmationLabels} disabled={locked}
+        onChange={value => setArchiveConfirmed(value === 'yes')} />
+    </>}
+    {factSummary !== '' && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>{factSummary}</Text>}
     {latest && <View style={styles.notice}>
-      <Text style={styles.heading}>Current saved entry</Text>
-      <Text style={styles.body}>Revision {latest.revision} · {latest.availability}. Your submitted facts remain in the locked form above.</Text>
+      <Text accessibilityRole="header" style={styles.heading}>Current saved entry</Text>
+      <Text style={styles.body}>Revision {latest.revision} · {availabilityLabel(latest.availability)}. Your submitted facts remain in the locked form above.</Text>
       <Button title="Discard failed attempt and review" disabled={busy} onPress={() => void discard()} />
     </View>}
-    {!!message && <Text accessibilityRole="alert" style={styles.error}>{message}</Text>}
+    {!!message && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>{message}</Text>}
     <Button title={busy ? 'Saving…' : pending ? 'Retry identical save' : copy.submit} disabled={busy || conflict} onPress={() => void submit()} />
     {pending && !latest && <Button title="Discard device draft" secondary disabled={busy} onPress={() => void discard()} />}
     <Button title={pending ? 'Back to shelf (keep draft)' : 'Cancel'} secondary disabled={busy} onPress={onCancel} />

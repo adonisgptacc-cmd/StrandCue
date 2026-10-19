@@ -61,7 +61,13 @@ function uniqueBy<T>(
 
 export const GuidanceGoalIdSchema = z.enum(['basic_wash']);
 
-export const GuidanceAvailabilitySchema = z.enum(['available', 'out_of_stock', 'archived']);
+/**
+ * The owner-facing availability states a recorded item can hold. `low` and
+ * `empty` are ordinary owner states (the shelf records them since Increment
+ * 2); only `available` counts as an available candidate. `out_of_stock` stays
+ * for the tool records that still use it.
+ */
+export const GuidanceAvailabilitySchema = z.enum(['available', 'low', 'empty', 'out_of_stock', 'archived']);
 
 export const GuidanceServicePresenceSchema = z.enum(['present', 'not-present', 'unknown']);
 
