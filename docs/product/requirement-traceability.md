@@ -51,33 +51,33 @@ so draft content may not execute and Today yields `content_pending`.
 | P-10 | Standing | — | — | Not started |
 | P-11 | Standing | — | — | Not started |
 | P-12 | Standing | — | — | Not started |
-| ID-01 | R0 | — | — | Not started |
-| ID-02 | R0 | — | — | Not started |
-| ID-03 | R0 | — | — | Not started |
-| ID-04 | R0 | — | — | Not started |
-| ID-05 | R0 | — | — | Not started |
-| ID-06 | R0 | — | — | Not started |
-| HP-01 | R0 | Temporary check-in collects cosmetic concerns per request only; stored Passport capture not started | tests/mobile/current-condition-state.test.ts, tests/mobile/today-check-in.test.tsx | Not started |
-| HP-02 | R0 | — | — | Not started |
-| HP-03 | R0 | — | — | Not started |
-| HP-04 | R0 | — | — | Not started |
-| HP-05 | R1 | Temporary check-in only; goal-scoped completeness explanation not started | tests/mobile/current-condition-state.test.ts | Not started |
+| ID-01 | R0 | apps/mobile/src/auth.tsx, apps/mobile/src/client.ts (email/password; Supabase UUID is the owner key) | tests/mobile/auth-screen.test.tsx, tests/mobile/component-state.test.ts | Implemented |
+| ID-02 | R0 | apps/mobile/src/settings-api.ts, supabase/migrations/20260924290000_username_change.sql | tests/mobile/settings.test.ts | Implemented |
+| ID-03 | R0 | apps/mobile/src/records.tsx (`finishSetup` adult self-attestation) | tests/mobile/component-state.test.ts | Implemented |
+| ID-04 | R0 | apps/mobile/src/auth.tsx (refresh, logout, recovery callbacks) | tests/mobile/auth-refresh-clear.test.tsx, tests/mobile/auth-recovery.test.ts, tests/mobile/auth-password-change.test.tsx | Implemented |
+| ID-05 | R0 | Owner-keyed draft stores (shelf-drafts, tool-drafts, activity-drafts, service-form) cleared on logout | tests/mobile/shelf.test.ts, tests/mobile/owner-switch.test.tsx | Partial |
+| ID-06 | R0 | supabase/migrations/20261004132028_recent_auth_epoch.sql, 20261015171425_deletion_cancel_recent_auth.sql (recent-auth gate, idempotent operations) | tests/mobile/export*.test.*, tests/mobile/deletion*.test.* | Implemented |
+| HP-01 | R0 | packages/domain/src/passport.ts (pattern, diameter, density, optional porosity, lengthCm, concerns, goals, styling habits/frequency, environment sensitivities, budget, notes); apps/mobile/src/passport-editor.tsx, passport-api.ts (stored Passport). Missing: damage-observation type, heat preference, reactions/avoidances, length unit/precision | tests/domain/passport.test.ts, tests/mobile/passport*.test.tsx, tests/database/passport.test.ts | Partial |
+| HP-02 | R0 | packages/domain/src/services.ts, apps/mobile/src/services.tsx, service-editor.tsx, supabase/migrations/20260912070752_chemical_services.sql (dated service events with precision and zones) | tests/domain/services.test.ts, tests/database/services.test.ts, tests/mobile/services.test.ts | Implemented |
+| HP-03 | R0 | packages/domain/src/history.ts, supabase/migrations/20260924150000_activities_history.sql (current, dated observation, correction, change) | tests/domain/history.test.ts, tests/mobile/history.test.ts, tests/database/passport.test.ts | Implemented |
+| HP-04 | R0 | packages/domain/src/passport.ts (`naturalPattern: 'mixed'`), supabase/migrations/20261004104838_activity_zone_bounds.sql, packages/domain/src/activity.ts (zones) | tests/domain/passport.test.ts, tests/domain/activity-bounds.test.ts | Partial |
+| HP-05 | R1 | Temporary check-in goal capture only; goal-scoped completeness explanation not implemented | tests/mobile/current-condition-state.test.ts | Not started |
 | HP-06 | R1 | apps/mobile/src/TodayCheckIn.tsx, apps/mobile/src/guidance/current-condition-state.ts, apps/mobile/src/TodayGuidance.tsx (temporary session-only per-request check-in; no save flag and nothing here writes to the Passport) | tests/mobile/current-condition-state.test.ts, tests/mobile/today-check-in.test.tsx, tests/mobile/today-guidance.test.tsx | Partial |
 | HP-07 | R1 | — | — | Not started |
-| SH-01 | R0 | — | — | Not started |
-| SH-02 | R0 | — | — | Not started |
-| SH-03 | R0 | — | — | Not started |
-| SH-04 | R0 | — | — | Not started |
-| SH-05 | R0 | — | — | Not started |
+| SH-01 | R0 | packages/domain/src/shelf.ts, apps/mobile/src/shelf.tsx, shelf-editor.tsx, shelf-api.ts (manual product, availability available/low/empty/archived) | tests/domain/shelf.test.ts, tests/mobile/shelf.test.ts, tests/database/shelf.test.ts | Implemented |
+| SH-02 | R0 | MatchUserProductCommandSchema (`confirmed: true`), supabase/migrations/20260924190000_shelf_rpc.sql (explicit user-confirmed catalogue match) | tests/mobile/shelf.test.ts, tests/database/shelf.test.ts | Implemented |
+| SH-03 | R0 | Shelf revision history (baseline/change/match/archive/correction) in shelf RPC and apps/mobile/src/shelf-history.ts | tests/database/shelf.test.ts, tests/mobile/shelf.test.ts | Implemented |
+| SH-04 | R0 | — (opened date/precision, expiry/PAO, quantity band, repurchase intent absent) | — | Not started |
+| SH-05 | R0 | packages/domain/src/catalogue-intake.ts (version lifecycle and published immutability) | tests/domain/catalogue-intake.test.ts, tests/tooling/catalogue-compiler.test.ts | Partial |
 | SH-06 | R0 | — | — | Not started |
-| SH-07 | R0 | — | — | Not started |
-| SH-08 | R0 | — | — | Not started |
-| SH-09 | R4 | — | — | Not started |
-| SH-10 | R4 | — | — | Not started |
-| TL-01 | R0 | — | — | Not started |
-| TL-02 | R0 | — | — | Not started |
-| TL-03 | R0 | — | — | Not started |
-| TL-04 | R0 | — | — | Not started |
+| SH-07 | R0 | packages/domain/src/guidance/reviewed-content.ts and catalogue schemas (directions/order/wait/rinse/frequency/activation/incompatibilities); consumer product-detail surface absent | tests/domain/guidance/reviewed-content.test.ts, tests/mobile/shelf.test.ts | Partial |
+| SH-08 | R0 | packages/domain/src/catalogue-intake.ts (ingredient description only) | tests/domain/catalogue-intake.test.ts | Partial |
+| SH-09 | R0 | packages/domain/src/discovery-backlog.ts (barcode/OCR/label/URL candidates only) | tests/domain/discovery-backlog.test.ts | Partial |
+| SH-10 | R0 | packages/domain/src/discovery-backlog.ts (moderation candidate states) | tests/domain/discovery-backlog.test.ts | Partial |
+| TL-01 | R0 | packages/domain/src/tools.ts, apps/mobile/src/tools.tsx, tool-editor.tsx, tool-api.ts (model, type, settings, units, attachments, condition) | tests/domain/tools.test.ts, tests/mobile/tools.test.ts, tests/database/tools.test.ts | Partial |
+| TL-02 | R0 | packages/domain/src/tools.ts (contactHeat, airHeat, adjustableTemp); hooded/steam/unheated taxonomy partial | tests/domain/tools.test.ts | Partial |
+| TL-03 | R0 | packages/domain/src/tools.ts (unknown temperature never inferred from wattage/model name) | tests/domain/tools.test.ts | Implemented |
+| TL-04 | R0 | packages/domain/src/activity.ts (heat type/setting/passes/duration/zones) | tests/domain/activity.test.ts, tests/domain/activity-bounds.test.ts | Partial |
 | TL-05 | R2 | — | — | Not started |
 | TL-06 | R2 | — | — | Not started |
 | EN-01 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
@@ -168,16 +168,16 @@ so draft content may not execute and Today yields `content_pending`.
 | PR-02 | R5 | — | — | Not started |
 | PR-03 | R5 | — | — | Not started |
 | PR-04 | R5 | — | — | Not started |
-| PV-01 | R0 | — | — | Not started |
-| PV-02 | R0 | — | — | Not started |
-| PV-03 | R0 | — | — | Not started |
-| PV-04 | R0 | — | — | Not started |
-| PV-05 | R0 | — | — | Not started |
-| PV-06 | R5 | — | — | Not started |
-| PV-07 | R5 | — | — | Not started |
+| PV-01 | R0 | apps/mobile/src/consent-api.ts, supabase/migrations/20260924330000_consent.sql, 20260924340000_consent_rpc.sql (required record processing + optional purposes) | tests/mobile/consent.test.ts | Implemented |
+| PV-02 | R0 | supabase/migrations/*, scripts/supabase-owner-isolation.ts (RLS and grants; owner isolation) | tests/database/*.test.ts, tests/tooling/workspace-manifests.test.ts | Implemented |
+| PV-03 | R0 | apps/mobile/src/analytics.ts (no email/username/UUID/notes/photos/URLs/free text) | tests/mobile/analytics.test.ts | Implemented |
+| PV-04 | R0 | apps/mobile/src/export-api.ts, export-delivery.ts, supabase/migrations/20260924320000_export_csv.sql, 20261015181916_export_complete.sql | tests/mobile/export.test.ts, tests/mobile/export-delivery.test.ts, tests/mobile/export-screen.test.tsx | Partial |
+| PV-05 | R0 | apps/mobile/src/deletion-api.ts, workers/account-deletion/ (idempotent, auditable deletion; drafts + records; Storage pending photos) | tests/mobile/deletion.test.ts, tests/tooling/retention-cleanup.test.ts | Implemented |
+| PV-06 | R5 | docs/runbooks/backup-restore-rehearsal.md; operational evidence outstanding | — | Partial |
+| PV-07 | R5 | — (no camera/location permission requested yet) | — | Not started |
 | PV-08 | R5 | — | — | Not started |
 | UX-01 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
 | UX-02 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
 | UX-03 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
 | UX-04 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
-| UX-05 | R5 | — | — | Not started |
+| UX-05 | R5 | Copy tests reject shame/fear language in navigation, shelf and check-in copy | tests/mobile/navigation.test.tsx, tests/mobile/shelf.test.ts, tests/mobile/today-check-in.test.tsx | Partial |
