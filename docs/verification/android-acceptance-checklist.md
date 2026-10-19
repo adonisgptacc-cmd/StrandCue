@@ -8,10 +8,12 @@
 > account-dependent protocol scenario was attempted. No hosted data was
 > accessed or changed, and no hosted writes were authorized. No scenario PASS
 > is claimed. The prior ARM64-only artifact's SoLoader crash is superseded by
-> the universal-artifact launch result. The acceptance run is bound to APK
+> the universal-artifact launch result. The BLOCKED disposition was recorded
+> at 2026-10-18 23:55:18 +02:00; this is the disposition-record time, not an
+> acceptance-run time. Its artifact/device reference is APK
 > SHA-256 `f68053fa3c9b6b78b7298b59a8574e6cceb3174444d16c8a423ec89eb06fd7d9`,
 > signer `b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe`,
-> and AVD `strandcue-universal-api34-x86_64` at 2026-10-18 23:55:18 +02:00.
+> and AVD `strandcue-universal-api34-x86_64` from the Task 4 launch evidence.
 > See `docs/verification/device-evidence.md` and
 > `.superpowers/sdd/2026-10-18-universal-android-launch-repair/task-6-device-acceptance.md`.
 > (Prior build/install history lives in
