@@ -38,6 +38,27 @@ const DensitySchema = z.enum(['low', 'medium', 'high', 'unknown']);
 const PorositySchema = z.enum(['low', 'medium', 'high', 'unknown']);
 const GreyStatusSchema = z.enum(['none', 'some', 'mostly', 'all', 'unknown']);
 
+// Self-reported observation only: never a diagnosis or a measured severity.
+const DamageObservationSchema = z.enum([
+  'none',
+  'mild',
+  'moderate',
+  'significant',
+  'unknown',
+]);
+
+const HeatPreferenceSchema = z.enum([
+  'avoid',
+  'low',
+  'moderate',
+  'high',
+  'unknown',
+]);
+
+const LengthUnitSchema = z.enum(['cm', 'in', 'unknown']);
+const LengthPrecisionSchema = z.enum(['exact', 'approximate', 'unknown']);
+const ReactionSchema = z.string().trim().min(1).max(100);
+
 const ConcernSchema = z.enum([
   'dryness',
   'frizz',
@@ -115,8 +136,14 @@ const PassportObjectSchema = z
     strandDiameter: StrandDiameterSchema,
     density: DensitySchema,
     lengthCm: z.number().finite().nonnegative().nullable().optional(),
+    lengthUnit: LengthUnitSchema.optional(),
+    lengthPrecision: LengthPrecisionSchema.optional(),
+    lengthMeasuredOn: z.iso.date().nullable().optional(),
     greyStatus: GreyStatusSchema.nullable().optional(),
     porosity: PorositySchema.optional(),
+    damageObservation: DamageObservationSchema.optional(),
+    heatPreference: HeatPreferenceSchema.optional(),
+    reactionsAvoidances: z.array(ReactionSchema).min(1).max(50).optional(),
     scalpObservations: z.array(ScalpObservationSchema).min(1).optional(),
     concerns: z.array(ConcernSchema).min(1),
     goals: z.array(GoalSchema).min(1),
@@ -200,8 +227,14 @@ export const PASSPORT_FIELDS = [
   'strandDiameter',
   'density',
   'lengthCm',
+  'lengthUnit',
+  'lengthPrecision',
+  'lengthMeasuredOn',
   'greyStatus',
   'porosity',
+  'damageObservation',
+  'heatPreference',
+  'reactionsAvoidances',
   'scalpObservations',
   'concerns',
   'goals',

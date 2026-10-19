@@ -13,6 +13,9 @@ const options = {
   naturalPattern: ['straight','wavy','curly','coily','mixed','unknown'],
   strandDiameter: ['fine','medium','coarse','unknown'], density: ['low','medium','high','unknown'],
   porosity: ['low','medium','high','unknown'], greyStatus: ['none','some','mostly','all','unknown'],
+  damageObservation: ['none','mild','moderate','significant','unknown'],
+  heatPreference: ['avoid','low','moderate','high','unknown'],
+  lengthUnit: ['cm','in','unknown'], lengthPrecision: ['exact','approximate','unknown'],
   budgetPreference: ['use-owned-first','cheapest-effective','best-value','mid-range','premium','no-preference'],
 } as const;
 export function PassportEditor({owner, record, target, onSaved, onCancel}: {
@@ -36,6 +39,7 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
   const draftKey = `strandcue-draft-${owner}`;
   useEffect(() => {let mounted = true; void secureStorage.getItem(draftKey).then(value => {if (mounted) setPendingDraft(value);}).catch(() => {if(mounted) setMessage('The previous device draft could not be read.');}); return () => {mounted = false;};}, [draftKey]);
   const update = (key: string, value: unknown) => {if (!command.current) setForm(current => ({...current, [key]: value}));};
+  const remove = (key: string) => {if (!command.current) setForm(current => {const next = {...current}; delete next[key]; return next;});};
   const submit = async () => {
     if (submitting.current) return;
     if (!command.current) {
@@ -107,6 +111,9 @@ export function PassportEditor({owner, record, target, onSaved, onCancel}: {
       <MultiChoice label="Goals" value={(form.goals as string[]|undefined) ?? []} options={['shine','length-retention','definition','moisture-retention','reduced-frizz','manageability','volume','none','unknown']} onChange={value => update('goals',value)}/>
       <MultiChoice label="Concerns" value={(form.concerns as string[]|undefined) ?? []} options={['dryness','frizz','tangling','breakage','split-ends','stiffness','dullness','scalp-dryness','scalp-oiliness','shedding-or-thinning','reported-damage','none','unknown']} onChange={value => update('concerns',value)}/>
       <Field label="Maximum budget per product (ZAR, optional)" keyboardType="decimal-pad" value={form.maximumProductBudgetZar == null ? '' : String(form.maximumProductBudgetZar)} onChangeText={value => update('maximumProductBudgetZar',value.trim() === '' ? null : Number(value))}/>
+      <Field label="Length (cm, optional — your own measurement)" keyboardType="decimal-pad" value={form.lengthCm == null ? '' : String(form.lengthCm)} onChangeText={value => update('lengthCm',value.trim() === '' ? null : Number(value))}/>
+      <Field label="Length measured on (YYYY-MM-DD, optional)" value={String(form.lengthMeasuredOn ?? '')} onChangeText={value => value.trim() === '' ? update('lengthMeasuredOn', null) : update('lengthMeasuredOn', value.trim())} placeholder="2026-09-10"/>
+      <Field label="Known reactions or avoidances (comma separated, optional)" value={(form.reactionsAvoidances as string[]|undefined)?.join(', ') ?? ''} onChangeText={value => {const parts = value.split(',').map(part => part.trim()).filter(Boolean); if (parts.length === 0) remove('reactionsAvoidances'); else update('reactionsAvoidances', parts);}}/>
       <Field label="Notes (optional, avoid identifying details)" multiline value={String(form.notes ?? '')} onChangeText={value => update('notes',value)} maxLength={2000}/>
       <Choice label="When did this become true?" value={precision} options={['day','month','year','unknown']} onChange={value => {setPrecision(value as typeof precision);setDate('');}}/>
       {precision !== 'unknown' && <Field label={precision === 'day' ? 'Date (YYYY-MM-DD)' : precision === 'month' ? 'Month (YYYY-MM)' : 'Year (YYYY)'} value={date} onChangeText={setDate} placeholder={precision === 'day' ? '2026-09-10' : precision === 'month' ? '2026-09' : '2026'}/>}

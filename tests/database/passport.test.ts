@@ -246,4 +246,42 @@ describe('PostgreSQL ownership and immutable Passport transactions', () => {
     await mutate(db, { kind: 'change', revision: 1, patch: { notes: '\uFEFF\t note \n\u00a0', stylingHabits: ['\tbraid\n'] }, date: { precision: 'day', value: '2026-02-01' } });
     expect((await current(db)).projection.values).toMatchObject({ notes: 'note', stylingHabits: ['braid'] });
   });
+
+  it('stores condition and length-measurement facts without inventing values', async () => {
+    await complete(db); await mutate(db);
+    const before = (await current(db)).projection.values;
+    expect('damageObservation' in before).toBe(false);
+    expect('heatPreference' in before).toBe(false);
+
+    await mutate(db, {
+      kind: 'change',
+      revision: 1,
+      patch: {
+        damageObservation: 'mild',
+        heatPreference: 'avoid',
+        reactionsAvoidances: ['  fragrance  ', 'sulfates'],
+        lengthCm: 42,
+        lengthUnit: 'in',
+        lengthPrecision: 'approximate',
+        lengthMeasuredOn: '2026-09-01',
+      },
+      date: { precision: 'day', value: '2026-09-02' },
+    });
+    expect((await current(db, '2026-09-03')).projection.values).toMatchObject({
+      damageObservation: 'mild',
+      heatPreference: 'avoid',
+      reactionsAvoidances: ['fragrance', 'sulfates'],
+      lengthCm: 42,
+      lengthUnit: 'in',
+      lengthPrecision: 'approximate',
+      lengthMeasuredOn: '2026-09-01',
+    });
+
+    await expect(mutate(db, { kind: 'change', revision: 2, patch: { damageObservation: 'severe' } })).rejects.toThrow(/invalid-passport/);
+    await expect(mutate(db, { kind: 'change', revision: 2, patch: { heatPreference: 'safe' } })).rejects.toThrow(/invalid-passport/);
+    await expect(mutate(db, { kind: 'change', revision: 2, patch: { lengthUnit: 'metres' } })).rejects.toThrow(/invalid-passport/);
+    await expect(mutate(db, { kind: 'change', revision: 2, patch: { lengthMeasuredOn: '01/09/2026' } })).rejects.toThrow(/invalid-passport/);
+    await expect(mutate(db, { kind: 'change', revision: 2, patch: { reactionsAvoidances: [''] } })).rejects.toThrow(/invalid-passport/);
+    await expect(mutate(db, { kind: 'change', revision: 2, patch: { reactionsAvoidances: Array.from({ length: 51 }, () => 'x') } })).rejects.toThrow(/invalid-passport/);
+  });
 });
