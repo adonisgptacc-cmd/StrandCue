@@ -49,6 +49,7 @@ const trustedMigrationNames = [
   '20261019120000_passport_condition_length_fields.sql',
   '20261020120000_user_product_shelf_facts.sql',
   '20261021120000_catalogue_search.sql',
+  '20261022120000_product_detail_publication.sql',
 ] as const;
 
 const candidateMigrationNames = [

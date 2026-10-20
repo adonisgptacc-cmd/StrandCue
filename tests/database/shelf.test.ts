@@ -197,10 +197,16 @@ describe('shelf catalogue immutable history and RLS', () => {
   it('lets any authenticated user read catalogue rows', async () => {
     await seedCatalogue(db);
     await asUser(db, USER_A);
-    for (const table of CATALOGUE_TABLES) {
-      const rows = await db.query(`select * from public.${table}`);
-      expect(rows.rows.length).toBeGreaterThan(0);
+    // Consumers read identity and lifecycle only: draft claims, sources, verification events and the
+    // non-identity version columns are closed to them (see 20261022120000).
+    for (const table of ['brands', 'products']) {
+      expect((await db.query(`select * from public.${table}`)).rows.length).toBeGreaterThan(0);
     }
+    expect((await db.query('select id, product_id, variant, market, barcode, lifecycle, successor_version_id from public.product_versions')).rows.length).toBeGreaterThan(0);
+    for (const table of ['product_claims', 'product_sources', 'product_verification_events']) {
+      await expect(db.query(`select * from public.${table}`)).rejects.toThrow(/permission denied/i);
+    }
+    await expect(db.query('select * from public.product_versions')).rejects.toThrow(/permission denied/i);
     await asUser(db, USER_B);
     const brands = await db.query<{ name: string }>('select name from public.brands');
     expect(brands.rows).toEqual([{ name: 'House Brand' }]);
@@ -313,8 +319,11 @@ describe('shelf catalogue immutable history and RLS', () => {
     await asUser(db, USER_A);
     await expect(db.query(`select public.verification_record($1, $2, $3)`,
       ['b0000000-0000-4000-8000-000000000003', 'verified', 'self-approved'])).rejects.toThrow(/not-authorized/i);
+    // Consumers cannot read verification events at all; check as the owner of the table.
+    await db.exec('set session authorization postgres');
     const events = await db.query(`select * from public.product_verification_events where reviewer = 'self-approved'`);
     expect(events.rows).toEqual([]);
+    await asUser(db, USER_A);
   });
 
   it.each([0, 101, -1])('rejects shelf page limit %s with invalid-page', async (limit) => {

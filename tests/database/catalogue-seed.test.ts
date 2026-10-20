@@ -117,13 +117,14 @@ describe('catalogue seed isolation (compiler fixture)', () => {
     const baseline = await catalogueBaseline(db);
     await seedFromCompiler(db);
     await asUser(db, USER_A);
-    for (const table of PRODUCT_TABLES) {
-      const rows = await db.query(`select * from public.${table} limit 10`);
-      if (table === 'product_verification_events') {
-        expect(rows.rows).toEqual([]);
-      } else {
-        expect(rows.rows.length).toBeGreaterThan(0);
-      }
+    // Consumers read identity and lifecycle only: draft claims, sources and verification events are closed to
+    // them (20261022120000); the rows exist and are checked as the table owner above.
+    for (const table of ['brands', 'products']) {
+      expect((await db.query(`select * from public.${table} limit 10`)).rows.length).toBeGreaterThan(0);
+    }
+    expect((await db.query('select id, variant, market, barcode, lifecycle from public.product_versions limit 10')).rows.length).toBeGreaterThan(0);
+    for (const table of ['product_claims', 'product_sources', 'product_verification_events']) {
+      await expect(db.query(`select * from public.${table} limit 10`)).rejects.toThrow(/permission denied/i);
     }
     await asUser(db, USER_B);
     const brands = await db.query<{ name: string }>('select name from public.brands');

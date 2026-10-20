@@ -11,11 +11,13 @@ import {
 import { appendShelfPage, availabilityLabel, recordedIdentityWording, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, unreadableHistoryLabel, verificationBadge, type ShelfFormMode } from './shelf-history';
 import { shelfStateBefore } from '../../../packages/domain/src/index';
 import { CatalogueMatch } from './CatalogueMatch';
+import { ProductDetail } from './ProductDetail';
 import { ShelfEditor } from './shelf-editor';
 import { Button, styles } from './ui';
 
 type Mode = { kind: 'list' } | { kind: 'detail'; detail: ShelfDetail }
   | { kind: 'match'; detail: ShelfDetail; resume?: ShelfDraft; session: number }
+  | { kind: 'catalogue-detail'; detail: ShelfDetail; versionId: string }
   | { kind: 'editor'; mode: ShelfFormMode; userProductId?: string; detail?: ShelfDetail; resume?: ShelfFormDraft; session: number };
 
 /** The name of a revision kind, in the words the owner reads. */
@@ -27,12 +29,14 @@ function revisionKindLabel(kind: string): string {
   return 'Change';
 }
 
-function ShelfDetailView({ detail, onEdit, onBack }: {
+function ShelfDetailView({ detail, onEdit, onViewCatalogue, onBack }: {
   detail: ShelfDetail;
   onEdit: (mode: 'edit' | 'correct' | 'match' | 'archive') => void;
+  onViewCatalogue: (versionId: string) => void;
   onBack: () => void;
 }) {
   const [audit, setAudit] = useState(false);
+  const linkedVersion = detail.matched ? detail.versionId : null;
   const facts = shelfFactLines(detail);
   // Every revision, by its own id: a correction says which entry it
   // replaces, and the entry it replaces says what the fact held before.
@@ -45,6 +49,8 @@ function ShelfDetailView({ detail, onEdit, onBack }: {
       <Text style={styles.body}>{verificationBadge('unverified')}</Text>
       {facts.map((line, index) => <Text key={`${index}-${line}`} style={styles.body}>{line}</Text>)}
       {detail.notes && <Text style={styles.body}>Notes: {detail.notes}</Text>}
+      {linkedVersion !== null &&
+        <Button title="View product details" secondary onPress={() => onViewCatalogue(linkedVersion)} />}
       {detail.availability !== 'archived' &&
         <Button title="Edit this product" secondary onPress={() => onEdit('edit')} />}
       {detail.availability !== 'archived' &&
@@ -209,6 +215,11 @@ function OwnerShelf({ owner }: { owner: string }) {
     <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>{`${shelfEditorCopy(mode.mode).title} screen opened.`}</Text>
     <ShelfEditor key={mode.session} owner={owner} mode={mode.mode} userProductId={mode.userProductId} detail={mode.detail} resume={mode.resume} onSaved={back} onCancel={back} />
   </>;
+  if (mode.kind === 'catalogue-detail') {
+    const viewed = mode.detail;
+    return <ProductDetail key={viewed.id} owner={owner} versionId={mode.versionId} userProductId={viewed.id}
+      backLabel="your product" onBack={() => setMode({ kind: 'detail', detail: viewed })} />;
+  }
   if (mode.kind === 'match') {
     const matching = mode.detail;
     return <View style={{ gap: 20 }}>
@@ -223,7 +234,8 @@ function OwnerShelf({ owner }: { owner: string }) {
   return <View style={{ gap: 20 }}>
     {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
     {mode.kind === 'detail' ? <ShelfDetailView key={mode.detail.id} detail={mode.detail}
-      onEdit={editorMode => editorMode === 'match' ? startMatch(mode.detail) : startEditor(editorMode, mode.detail.id, undefined, mode.detail)} onBack={back} /> : <>
+      onEdit={editorMode => editorMode === 'match' ? startMatch(mode.detail) : startEditor(editorMode, mode.detail.id, undefined, mode.detail)}
+      onViewCatalogue={versionId => setMode({ kind: 'catalogue-detail', detail: mode.detail, versionId })} onBack={back} /> : <>
       <Text style={styles.subtitle}>Products you own, with manual details kept private. Catalogue facts show their verification status.</Text>
       <Button title="Add a product" disabled={loading} onPress={() => startEditor('add')} />
       {drafts.map((draft, index) => <View key={draft.command.userProductId} style={styles.notice}>

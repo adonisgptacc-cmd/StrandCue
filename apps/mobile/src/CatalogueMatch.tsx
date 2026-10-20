@@ -24,6 +24,7 @@ import {
   versionReference,
 } from './catalogue-match-copy';
 import { secureStorage } from './client';
+import { ProductDetail } from './ProductDetail';
 import { matchUserProduct, type ShelfDetail } from './shelf-api';
 import { removeShelfDraft, submitShelfDraft, type ShelfDraft } from './shelf-drafts';
 import { Button, Field, styles } from './ui';
@@ -54,11 +55,12 @@ function Lines({ lines }: { lines: readonly string[] }) {
   return <>{lines.map(line => <Text key={line} style={styles.body}>{line}</Text>)}</>;
 }
 
-function CandidateCard({ candidate, siblings, lookAlike, disabled, onChoose }: {
-  candidate: CatalogueCandidate; siblings: number; lookAlike: boolean; disabled: boolean; onChoose: () => void;
+function CandidateCard({ candidate, siblings, lookAlike, disabled, onChoose, onView }: {
+  candidate: CatalogueCandidate; siblings: number; lookAlike: boolean; disabled: boolean; onChoose: () => void; onView: () => void;
 }) {
   const title = candidateTitle(candidate);
-  const label = `Compare with my record: ${title}${candidate.variant ? ` (${candidate.variant})` : ''}${candidate.barcode ? `, barcode ${candidate.barcode}` : ''}${candidate.lifecycle === 'retired' ? ', retired version' : ''}${lookAlike ? `, catalogue code ${candidate.versionId.slice(-8)}` : ''}`;
+  const described = `${title}${candidate.variant ? ` (${candidate.variant})` : ''}${candidate.barcode ? `, barcode ${candidate.barcode}` : ''}${candidate.lifecycle === 'retired' ? ', retired version' : ''}${lookAlike ? `, catalogue code ${candidate.versionId.slice(-8)}` : ''}`;
+  const label = `Compare with my record: ${described}`;
   return <View style={styles.card}>
     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
     <Lines lines={candidateLines(candidate)} />
@@ -66,6 +68,7 @@ function CandidateCard({ candidate, siblings, lookAlike, disabled, onChoose }: {
     <Text style={styles.body}>{versionReference(candidate)}</Text>
     {siblings > 1 && <Text style={styles.body}>{`${siblings} versions of this product are listed. Check the variant and barcode to choose the exact one.`}</Text>}
     <Button title="Compare with my record" accessibilityLabel={label} secondary disabled={disabled} onPress={onChoose} />
+    <Button title="View product details" accessibilityLabel={`View product details: ${described}`} secondary disabled={disabled} onPress={onView} />
   </View>;
 }
 
@@ -85,6 +88,8 @@ export function CatalogueMatch({ owner, detail, resume, onMatched, onCancel, onL
   const [inputProblem, setInputProblem] = useState('');
   const [changedNote, setChangedNote] = useState(false);
   const [selected, setSelected] = useState<CatalogueCandidate | null>(null);
+  // The product detail is read-only and has no owner context: it opens over the results or the comparison and returns to it.
+  const [viewing, setViewing] = useState<{ versionId: string; from: 'results' | 'comparison' } | null>(null);
   const [operationId, setOperationId] = useState(() => resume?.command.operationId ?? Crypto.randomUUID());
   const [pending, setPending] = useState<ShelfDraft | null>(resume ?? null);
   const [blocked, setBlocked] = useState<'conflict' | 'refused' | null>(null);
@@ -204,6 +209,11 @@ export function CatalogueMatch({ owner, detail, resume, onMatched, onCancel, onL
     }
   };
 
+  if (viewing) {
+    return <ProductDetail key={viewing.versionId} owner={owner} versionId={viewing.versionId} userProductId={null}
+      backLabel={viewing.from === 'comparison' ? 'the comparison' : 'search results'} onBack={() => setViewing(null)} />;
+  }
+
   const rematch = detail.versionId !== null;
   const heading = <Text accessibilityRole="header" style={styles.heading}>Match to catalogue</Text>;
   const messageNode = !!message && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>{message}</Text>;
@@ -244,6 +254,8 @@ export function CatalogueMatch({ owner, detail, resume, onMatched, onCancel, onL
         <Text style={styles.body}>Matching only links your entry to this catalogue version. Nothing from the catalogue is copied into your record, and your original details stay in your history.</Text>
         {already && <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.body}>Your entry is already linked to this catalogue version.</Text>}
         {messageNode}
+        <Button title="View product details" accessibilityLabel="View product details for this catalogue version" secondary disabled={busy}
+          onPress={() => setViewing({ versionId: selected.versionId, from: 'comparison' })} />
         {/* One primary button keeps its place from the first tap to the retry, so focus is never lost on the consequential step. */}
         {(pending || (!already && !blocked)) && <Button title={busy ? 'Saving…' : pending ? 'Try saving again' : 'Confirm match'}
           accessibilityLabel={busy ? 'Saving the match' : pending ? 'Try saving the match again' : 'Confirm match to this catalogue version'} disabled={busy} onPress={confirm} />}
@@ -282,7 +294,8 @@ export function CatalogueMatch({ owner, detail, resume, onMatched, onCancel, onL
       <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.body}>{`${plural(result.results.length, 'catalogue version')} found.`}</Text>
       {result.truncated && <Text style={styles.body}>More versions matched than are shown. Add a word to narrow the search.</Text>}
       {result.results.map(candidate => <CandidateCard key={candidate.versionId} candidate={candidate}
-        siblings={versionsOfSameProduct(result.results, candidate)} lookAlike={result.results.some(other => other !== candidate && candidateTitle(other) === candidateTitle(candidate) && other.variant === candidate.variant && other.barcode === candidate.barcode && other.lifecycle === candidate.lifecycle)} disabled={busy} onChoose={() => choose(candidate)} />)}
+        siblings={versionsOfSameProduct(result.results, candidate)} lookAlike={result.results.some(other => other !== candidate && candidateTitle(other) === candidateTitle(candidate) && other.variant === candidate.variant && other.barcode === candidate.barcode && other.lifecycle === candidate.lifecycle)} disabled={busy} onChoose={() => choose(candidate)}
+        onView={() => setViewing({ versionId: candidate.versionId, from: 'results' })} />)}
     </>}
     <Button title="Cancel" accessibilityLabel="Cancel and keep my entry as it is" secondary onPress={onCancel} />
   </View>;

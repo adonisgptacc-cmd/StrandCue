@@ -127,6 +127,23 @@ pass. Hosted owner isolation and real two-session PostgreSQL concurrency stay
 external gates. Full evidence:
 `.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.2-catalogue-search-and-matching.md`.
 
+## Task 2.3 — product details, evidence and the publication boundary (20 October 2026)
+
+Base `95706b0`; Node 24.19.0. The catalogue had no publication state: consumers could read draft claims,
+sources, verification events (with reviewer names) and every version's directions and ingredients directly,
+and the owner export embedded them. The new migration `20261022120000_product_detail_publication.sql` adds
+explicit publication (nothing published), a content-bound two-person review, immutability guards, a
+read-only role behind one allowlisted definer core, and gates the export. The detail screen shows exact
+identity, version status, reviewed directions, claim-scoped evidence, label-only ingredients and the owner's
+private record separately, with a distinct sentence for every reason a section is empty.
+
+Gates: check:runtime PASS; typecheck PASS; lint PASS; test:coverage PASS (151 files passed, 3 skipped;
+2898 tests passed, 11 skipped; 95.8 / 89.98 / 98.65 / 97.83); export:web PASS; audit:control-plane PASS;
+git diff --check clean. **audit:dependencies is a HOLD** (`RUNNER-REVIEW-DRIFT`), not a pass. SH-07 and
+SH-08 stay Partial because no directions, claims, evidence or ingredients are published. The tools export
+still embeds whole tool catalogue rows (follow-up, Task 2.4). Full evidence:
+`.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.3-product-details-and-evidence.md`.
+
 ## Statement
 
 Increment 3 was not started. No push, merge, deploy, hosted migration, content

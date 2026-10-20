@@ -11,6 +11,8 @@ const criticalModules = [
   'apps/mobile/src/shelf-drafts.ts',
   'apps/mobile/src/CatalogueMatch.tsx', 'apps/mobile/src/catalogue-match-copy.ts',
   'apps/mobile/src/catalogue-search-api.ts',
+  'apps/mobile/src/ProductDetail.tsx', 'apps/mobile/src/product-detail-copy.ts',
+  'apps/mobile/src/catalogue-detail-api.ts',
   'apps/mobile/src/guidance/**/*.ts', 'apps/mobile/src/useProtocolExecutionController.ts',
   'apps/mobile/src/ProtocolExecution.tsx', 'apps/mobile/src/TodayGuidance.tsx',
   'scripts/lock-agreement.ts', 'scripts/audit-control-plane.ts', 'scripts/audit-cli.ts',
