@@ -1269,10 +1269,22 @@ describe('protocol executions owner-isolated idempotent persistence', () => {
   it('allows an out_of_stock item while recording its availability', async () => {
     // Ruling: out_of_stock is still owned, so it substitutes with the
     // availability recorded in the deviation. Archived (gone) fails below.
+    //
+    // The write path no longer records the legacy state: the writable
+    // states are available | low | empty | archived. The row below is a
+    // legacy row, written the way the rows written before that contract
+    // still carry it, and the substitution path still reads it.
     await complete(db);
     await recordRun(db);
     await start(db);
-    const { userProductId } = await shelfAdd(db, { availability: 'out_of_stock' });
+    const userProductId = crypto.randomUUID();
+    await db.exec('set session authorization postgres');
+    await db.query(
+      `insert into public.user_products(id, owner, version_id, manual_name, availability, matched, matched_at, match_confirmed, revision)
+       values ($1, $2, $3, 'Gentle Shampoo', 'out_of_stock', true, now(), true, 0)`,
+      [userProductId, USER_A, SHAMPOO_VERSION_ID],
+    );
+    await asUser(db, USER_A);
     const receipt = await transition(db, {
       command: {
         kind: 'substitute-step',

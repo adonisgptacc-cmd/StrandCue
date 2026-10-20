@@ -4,6 +4,7 @@ import {
   ArchiveUserProductCommandSchema,
   ChangeUserProductCommandSchema,
   CorrectUserProductCommandSchema,
+  correctionTargetRevision,
   CreateUserProductCommandSchema,
   MatchUserProductCommandSchema,
   StoredEffectiveDateSchema,
@@ -23,10 +24,10 @@ const StoredAvailabilitySchema = z.enum(['available', 'low', 'empty', 'archived'
 /**
  * One entry of the product's own history.
  *
- * The audit read carries the facts the revision recorded in `patch`; the
- * write receipt does not, so the field is optional here. The patch is a
- * free-form object on the server, so only its presence is checked - the
- * client never invents a fact it did not read.
+ * The audit read carries the facts the revision recorded in `patch` and the
+ * reason a correction gave; the write receipt carries neither, so both are
+ * optional here. The patch is a free-form object on the server, so only its
+ * presence is checked - the client never invents a fact it did not read.
  */
 const ShelfRevisionRecordSchema = z.object({
   id: UserProductIdSchema,
@@ -34,6 +35,9 @@ const ShelfRevisionRecordSchema = z.object({
   correctsId: UserProductIdSchema.nullable(),
   matchVersionId: UserProductIdSchema.nullable(),
   patch: z.record(z.string(), z.unknown()).optional(),
+  // The reason the owner gave for a correction. The server records it with
+  // the revision, so the owner can read it back later.
+  correctionReason: z.string().nullable().optional(),
 }).strict();
 
 const ShelfReceiptSchema = z.object({
@@ -101,7 +105,14 @@ async function callRpc(name: string, parameters: Record<string, unknown>): Promi
   return data;
 }
 
-const todayEffectiveDate = () => ({
+/**
+ * The day the owner acts on.
+ *
+ * It is read once, when the command is built, and it travels with the
+ * command: a retained draft that is retried the next day sends the same
+ * payload, so the retry replays instead of answering `operation-conflict`.
+ */
+export const todayEffectiveDate = () => ({
   precision: 'day',
   value: new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
 });
@@ -141,6 +152,40 @@ export function shelfFactsPatch(command: {
   return facts;
 }
 
+/**
+ * The facts a correction carries: the identity it changes and the facts it
+ * sets or clears.
+ *
+ * The identity is part of the patch, so the three states stay apart for it
+ * too: a key that is absent preserves the answer, an explicit null clears
+ * it, and a value replaces it. The identity never travels as a parameter of
+ * its own.
+ */
+export function correctionFactsPatch(command: {
+  manualBrand?: string | null;
+  manualName?: string | null;
+  manualCategory?: string | null;
+  manualVariant?: string | null;
+  manualSize?: string | null;
+  manualBarcode?: string | null;
+  openedOn?: { precision: string; value: string | null } | null;
+  expiryOn?: string | null;
+  pao?: string | null;
+  quantityBand?: string | null;
+  repurchaseIntent?: string | null;
+  notes?: string | null;
+}): ShelfFactsPatch {
+  const facts: ShelfFactsPatch = {};
+  const record = (key: string, value: unknown): void => {
+    if (value === undefined) return;
+    facts[key] = value;
+  };
+  record('manualBrand', command.manualBrand);
+  record('manualName', command.manualName);
+  record('manualCategory', command.manualCategory);
+  return { ...facts, ...shelfFactsPatch(command) };
+}
+
 export async function recordUserProduct(command: unknown): Promise<ShelfReceipt> {
   const parsed = CreateUserProductCommandSchema.parse(command);
   const data = await callRpc('shelf_add', {
@@ -154,7 +199,9 @@ export async function recordUserProduct(command: unknown): Promise<ShelfReceipt>
     p_manual_category: parsed.manualCategory,
     p_availability: parsed.availability,
     p_notes: null,
-    p_effective_date: todayEffectiveDate(),
+    // The date the command carries, not the day of the call: a retry of a
+    // retained command sends the same payload.
+    p_effective_date: parsed.effectiveDate,
     p_facts: shelfFactsPatch(parsed),
   });
   return ShelfReceiptSchema.parse(data);
@@ -174,7 +221,8 @@ export async function changeUserProduct(command: unknown): Promise<ShelfReceipt>
     p_manual_category: null,
     p_availability: parsed.availability ?? null,
     p_notes: null,
-    p_effective_date: todayEffectiveDate(),
+    // The date the command carries, not the day of the call.
+    p_effective_date: parsed.effectiveDate,
     p_facts: shelfFactsPatch(parsed),
   });
   return ShelfReceiptSchema.parse(data);
@@ -216,35 +264,32 @@ export async function correctUserProduct(command: unknown): Promise<ShelfReceipt
     p_expected_revision: parsed.expectedRevision,
     p_corrects_id: parsed.correctsId,
     p_reason: parsed.reason,
-    p_manual_brand: parsed.manualBrand,
-    p_manual_name: parsed.manualName,
-    p_manual_category: parsed.manualCategory,
-    // The notes travel in the facts patch, so the three states of every
-    // fact stay apart; the parameter itself never carries a second answer.
+    // The identity and the facts travel in the one patch: a key that is
+    // absent preserves the answer, an explicit null clears it and a value
+    // replaces it. The identity never travels as a parameter of its own.
     p_notes: null,
-    p_effective_date: todayEffectiveDate(),
-    p_facts: shelfFactsPatch(parsed),
+    // The date the command carries, not the day of the call: a retry of a
+    // retained correction sends the same payload.
+    p_effective_date: parsed.effectiveDate,
+    p_facts: correctionFactsPatch(parsed),
   });
   return ShelfReceiptSchema.parse(data);
 }
 
 /**
- * The revision a correction replaces: the newest revision that no
- * correction has replaced yet. A revision can only be corrected once, and
- * a correction appends, so the entry it corrects stays readable.
+ * The revision a correction replaces: the one that currently carries the
+ * identity of the record.
+ *
+ * The rule belongs to the domain, so the client and the server never drift
+ * apart: only the last link of a correction chain is still in force, and it
+ * has to be the revision that carries the identity. A match, an archive, an
+ * availability change and a fact-only change are never the target, however
+ * recent they are.
  */
 export function correctionTarget(
   revisions: readonly ShelfRevisionRecord[] | undefined,
 ): ShelfRevisionRecord | null {
-  if (!revisions || revisions.length === 0) return null;
-  const replaced = new Set(
-    revisions.map(revision => revision.correctsId).filter((id): id is string => id !== null),
-  );
-  for (const revision of [...revisions].reverse()) {
-    if (replaced.has(revision.id)) continue;
-    return revision;
-  }
-  return null;
+  return correctionTargetRevision(revisions);
 }
 
 /**
@@ -252,23 +297,49 @@ export function correctionTarget(
  * recorded, and the entry as it stands for the fields the revision left
  * alone. The two never disagree - an ordinary change cannot rewrite an
  * identity - so the form always opens on what the owner really recorded.
+ *
+ * A field the owner took back is not the same as a field the owner never
+ * answered, so the identity says which fields were cleared. A null in the
+ * patch of a correction is an answer the owner took back; a null in the
+ * patch of the first entry is an answer the owner never gave.
  */
+export type ShelfCorrectionIdentity = {
+  brand: string;
+  name: string;
+  category: string;
+  cleared: { brand: boolean; name: boolean; category: boolean };
+};
+
 export function correctionIdentity(
   target: ShelfRevisionRecord | null,
   detail: ShelfDetail | null | undefined,
-): { brand: string; name: string; category: string } {
+): ShelfCorrectionIdentity {
   const patch = target?.patch;
-  const recorded = (key: string): string | null => {
-    const value = patch?.[key];
-    return typeof value === 'string' ? value : null;
+  const recorded = (key: string, fallback: string | null | undefined): string => {
+    if (patch && Object.prototype.hasOwnProperty.call(patch, key)) {
+      const value = patch[key];
+      return typeof value === 'string' ? value : '';
+    }
+    return typeof fallback === 'string' ? fallback : '';
   };
-  const brand = recorded('manualBrand');
-  const name = recorded('manualName');
-  const category = recorded('manualCategory');
+  // A null in the patch of a correction is the owner taking the answer
+  // back. A null in the patch of the first entry is an answer the owner
+  // never gave, so it is not a cleared answer.
+  const cleared = (key: string): boolean => Boolean(
+    patch
+    && Object.prototype.hasOwnProperty.call(patch, key)
+    && patch[key] === null
+    && target?.kind === 'correction',
+  );
   return {
-    brand: brand ?? detail?.manualBrand ?? '',
-    name: name ?? detail?.manualName ?? '',
-    category: category ?? detail?.manualCategory ?? '',
+    brand: recorded('manualBrand', detail?.manualBrand),
+    name: recorded('manualName', detail?.manualName),
+    category: recorded('manualCategory', detail?.manualCategory),
+    cleared: {
+      brand: cleared('manualBrand'),
+      name: cleared('manualName'),
+      category: cleared('manualCategory'),
+    },
   };
 }
 

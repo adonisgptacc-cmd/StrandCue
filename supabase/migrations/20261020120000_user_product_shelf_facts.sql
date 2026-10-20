@@ -63,6 +63,97 @@
 -- The change wrapper carries no version id at all: a change can never link
 -- a catalogue version, so the parameter could only ever answer
 -- `invalid-change`. The core keeps that guard for a direct core call.
+--
+-- --- The four rules this migration settles -------------------------------
+--
+-- 1. THE CORRECTION TARGET (SH-03). A correction may target only the
+--    revision that currently carries the record's identity: the final
+--    replacement in its correction chain (no correction points at it) whose
+--    patch carries an identity field (manualName / manualBrand /
+--    manualCategory). The rule reads the KIND as well as the shape of the
+--    patch, so a history written before this migration - where the old core
+--    wrote the three identity keys on every revision, whatever the kind was
+--    - is read the same way as a history written now: a `match`, an
+--    `archive` and an ordinary `change` never carry the identity, a
+--    `baseline` carries it only when one of the three identity fields holds
+--    a value, and a `correction` carries it when its patch mentions an
+--    identity key. Naming one of the others is refused with
+--    `invalid-correction-target` (22023). A revision another correction
+--    already replaced keeps `already-corrected` (23505), the code that has
+--    always meant "this revision was already corrected". The rule lives in
+--    the private core, so a direct `authenticated` call is guarded exactly
+--    like the public wrapper.
+--
+-- 2. THE CORRECTION'S OWN FIELDS. A correction carries the owner's fields
+--    in the facts patch, not as top-level columns: an absent key preserves
+--    the recorded value, a value replaces it and an explicit null clears
+--    it. The identity keys (manualBrand, manualName, manualCategory) join
+--    the fact keys in the facts allow-list, so an explicit null clears the
+--    identity column and an omitted key preserves it. The COALESCE-based
+--    identity handling is gone from the correction path: a plain column
+--    parameter cannot tell "leave this alone" from "clear this". The
+--    public `shelf_correct` wrapper therefore drops its
+--    p_manual_brand / p_manual_name / p_manual_category parameters, and
+--    a direct core call that still passes the identity as a parameter is
+--    refused with `invalid-identity`. The mutator's UPDATE grant is
+--    unchanged.
+--
+--    A correction also has to CARRY an identity: a patch that mentions
+--    none of the three identity keys is refused with `invalid-correction`
+--    (22023). Without that rule a facts-only correction would consume the
+--    baseline's `corrects_id` and leave the chain ending on a revision that
+--    carries no identity, so the owner's mistyped name could never be
+--    corrected again.
+--
+-- 3. THE AVAILABILITY CONTRACT. The writable states are exactly
+--    available | low | empty | archived. `out_of_stock` is refused on
+--    every write path - the baseline, the change, the correction, the
+--    archive and a direct private-core call - with the stable
+--    `invalid-availability` (22023) that already existed. Rows written
+--    before this contract still carry `out_of_stock`, so the column keeps
+--    allowing it and those rows stay readable. An availability change is an
+--    ordinary change: the correction path refuses an availability on both
+--    routes - the top-level parameter with `invalid-correction` and the
+--    facts patch with `invalid-availability` - and a correction's patch
+--    records no availability at all, so the history never claims an
+--    availability the correction never answered.
+--
+-- 4. OPERATION IDEMPOTENCY. The serializing lock is the owner's own
+--    profile row: `select 1 from public.profiles where user_id = uid and
+--    account_status = 'active' for update`. Every write of one owner
+--    queues behind that row lock, so the owner's own writes are strictly
+--    serialized. The operation lookup is REPEATED after the lock is
+--    acquired: two concurrent retries of one operation id both pass the
+--    fast path (the lookup before the lock), the loser of the lock wakes
+--    up and re-reads the stored operation, and replays the stored result
+--    for a matching payload or answers `operation-conflict` (23505) for a
+--    differing one. It never answers `revision-conflict` and never raises a
+--    raw unique violation on strandcue_private.shelf_operations.
+--
+--    The payload the core compares carries the effective date the CALLER
+--    sent, never the one the server substituted: a match and an archive
+--    are dated by the server clock, so a caller that retries the same
+--    operation on another day still sends the same payload and the retry
+--    replays instead of answering `operation-conflict`.
+--
+--    The snapshot behaviour: under READ COMMITTED (the default, and the
+--    isolation every Supabase connection uses) each statement takes a new
+--    snapshot, so the repeated lookup sees the operation the winner
+--    committed while this transaction waited for the lock. Under a
+--    stronger isolation (REPEATABLE READ or SERIALIZABLE) the snapshot is
+--    fixed at the start of the transaction, so the repeated lookup cannot
+--    see the winner's row. The write that follows then fails on its own
+--    terms: for a product that already exists, the row lock on the
+--    product raises a serialization failure, which is retriable and still
+--    never writes a second revision; on the baseline path there is no
+--    product row to lock, so the insert collides and the collision is
+--    answered with the stable `not-found` the core already uses.
+--
+-- Security properties are unchanged: the owner is derived only from
+-- strandcue_private.request_uid(), no PUBLIC or anon execute grant is
+-- added, RLS stays enabled AND forced, the history stays append-only, the
+-- grants stay minimal and every refusal answers with a stable code that
+-- discloses nothing about another owner's rows.
 
 grant strandcue_mutator to current_user with set true;
 grant create on schema strandcue_private to strandcue_mutator;
@@ -205,6 +296,22 @@ begin
   today := greatest(current_date::text, (current_timestamp at time zone 'Africa/Johannesburg')::date::text);
   for k, v in select * from jsonb_each(p_facts) loop
     case k
+      -- The identity keys join the fact keys: a correction carries the
+      -- owner's identity in the same patch as the owner's facts, so the
+      -- patch can tell "not answered" from "cleared" for a brand, a name
+      -- and a category exactly as it can for a fact.
+      when 'manualBrand' then
+        if v <> 'null'::jsonb and (jsonb_typeof(v) <> 'string'
+          or strandcue_private.js_length(strandcue_private.trim_text(v#>>'{}')) not between 1 and 200) then
+          raise exception 'invalid-brand' using errcode = '22023'; end if;
+      when 'manualName' then
+        if v <> 'null'::jsonb and (jsonb_typeof(v) <> 'string'
+          or strandcue_private.js_length(strandcue_private.trim_text(v#>>'{}')) not between 1 and 200) then
+          raise exception 'invalid-name' using errcode = '22023'; end if;
+      when 'manualCategory' then
+        if v <> 'null'::jsonb and (jsonb_typeof(v) <> 'string'
+          or v#>>'{}' not in ('shampoo','clarifier','conditioner','mask','bond/protein treatment','leave-in','heat protectant','anti-humidity','styling cream','mousse','gel','serum','oil','scalp','colour','other')) then
+          raise exception 'invalid-category' using errcode = '22023'; end if;
       when 'manualVariant' then
         if v <> 'null'::jsonb and (jsonb_typeof(v) <> 'string'
           or strandcue_private.js_length(strandcue_private.trim_text(v#>>'{}')) not between 1 and 200) then
@@ -302,6 +409,7 @@ declare
   payload jsonb;
   prev strandcue_private.shelf_operations%rowtype;
   row public.user_products%rowtype;
+  target public.user_product_revisions%rowtype;
   rev_id uuid := gen_random_uuid();
   eff record;
   patch jsonb;
@@ -319,6 +427,24 @@ declare
   -- before the date, so the recorded kind and the recorded date can never
   -- disagree.
   recorded_kind text := p_kind;
+  -- The identity the write lands. The facts patch wins over the legacy
+  -- top-level parameters, exactly as it does for the notes fact: an absent
+  -- key keeps the parameter, an explicit null clears the column and a
+  -- value replaces it.
+  eff_brand text;
+  eff_name text;
+  eff_category text;
+  -- The name the row carries after the write. A correction that clears the
+  -- only name a manual product has would leave a row that identifies
+  -- nothing, so the guard below refuses it with a stable code instead of
+  -- letting a table constraint answer.
+  resulting_name text;
+  -- Whether the revision a correction names carries the identity of the
+  -- record. The rule reads the kind as well as the shape of the patch, so
+  -- a history written before this migration - where the old core wrote the
+  -- three identity keys on every revision, whatever the kind was - is read
+  -- the same way as a history written now.
+  target_carries_identity boolean;
 begin
   if uid is null then raise exception 'authentication-required' using errcode = '42501'; end if;
   if p_operation_id is null or p_user_product_id is null or p_expected_revision is null then raise exception 'invalid-operation' using errcode = '22023'; end if;
@@ -330,15 +456,35 @@ begin
   payload := jsonb_build_object('op', p_operation_id, 'userProductId', p_user_product_id, 'expectedRevision', p_expected_revision,
     'kind', p_kind, 'versionId', p_version_id, 'manualBrand', p_manual_brand, 'manualName', p_manual_name,
     'manualCategory', p_manual_category, 'availability', p_availability, 'notes', p_notes,
-    'effectiveDate', eff_date, 'correctsId', p_corrects_id, 'reason', p_reason, 'confirmed', p_confirmed,
+    -- The effective date the CALLER sent, never the one the server
+    -- substituted: a match and an archive are dated by the server clock, so
+    -- a caller that retries the same operation on another day still sends
+    -- the same payload and the retry replays.
+    'effectiveDate', p_effective_date, 'correctsId', p_corrects_id, 'reason', p_reason, 'confirmed', p_confirmed,
     'facts', facts);
+  -- The fast path: an operation that already ran replays its stored result
+  -- without taking the serializing lock.
   select * into prev from strandcue_private.shelf_operations where user_id = uid and operation_id = p_operation_id;
   if found then
     if prev.payload <> payload then raise exception 'operation-conflict' using errcode = '23505'; end if;
     return prev.result;
   end if;
+  -- The serializing lock: the owner's own profile row. Every write of one
+  -- owner queues behind it, so the owner's own writes are strictly
+  -- serialized and the lookup below runs with a settled view of them.
   perform 1 from public.profiles where user_id = uid and account_status = 'active' for update;
   if not found then raise exception 'account-not-active' using errcode = '42501'; end if;
+  -- The operation lookup is REPEATED after the lock: two concurrent
+  -- retries of one operation id both pass the fast path above, and the
+  -- loser of the lock re-reads the stored operation here. A matching
+  -- payload replays the stored result; a differing one answers
+  -- `operation-conflict`. It never answers `revision-conflict` and never
+  -- raises a raw unique violation on the operations table.
+  select * into prev from strandcue_private.shelf_operations where user_id = uid and operation_id = p_operation_id;
+  if found then
+    if prev.payload <> payload then raise exception 'operation-conflict' using errcode = '23505'; end if;
+    return prev.result;
+  end if;
   select * into row from public.user_products where id = p_user_product_id for update;
   -- FOUND is captured once: any later SQL statement (even one inside an IF
   -- condition) may set it again, and the insert below must not depend on it.
@@ -354,14 +500,71 @@ begin
   -- callers get revision-conflict / not-found, mirroring the Passport core.
   -- It runs before the row is written, so a refused value answers with its
   -- own stable error instead of a constraint violation.
-  if p_availability is not null and p_availability not in ('available','low','empty','out_of_stock','archived') then raise exception 'invalid-availability' using errcode = '22023'; end if;
+  --
+  -- The writable availability states are exactly available | low | empty |
+  -- archived. `out_of_stock` is refused on every write path - the baseline,
+  -- the change, the correction, the archive and a direct core call - with
+  -- the stable `invalid-availability`. Rows written before this contract
+  -- still carry the legacy state, so the column keeps allowing it and
+  -- those rows stay readable.
+  if p_availability is not null and p_availability not in ('available','low','empty','archived') then raise exception 'invalid-availability' using errcode = '22023'; end if;
+  -- An availability change is an ordinary change, never a correction. The
+  -- correction path refuses it on both routes, so a direct core call cannot
+  -- change the availability through a correction either, and the public
+  -- wrapper - which never offers the parameter - cannot be made to differ.
+  if p_kind = 'correction' and p_availability is not null then
+    raise exception 'invalid-correction' using errcode = '22023';
+  end if;
+  if p_kind = 'correction' and facts ? 'availability' then
+    raise exception 'invalid-availability' using errcode = '22023';
+  end if;
   if p_notes is not null and length(p_notes) > 2000 then raise exception 'invalid-notes' using errcode = '22023'; end if;
   perform strandcue_private.validate_shelf_facts(facts);
+  -- The identity the write lands. The facts patch wins over the legacy
+  -- top-level parameters, exactly as it does for the notes fact: an absent
+  -- key keeps the parameter, an explicit null clears the column and a
+  -- value replaces it.
+  eff_brand := case when facts ? 'manualBrand' then strandcue_private.shelf_fact_text(facts, 'manualBrand')
+    else nullif(btrim(coalesce(p_manual_brand, '')), '') end;
+  eff_name := case when facts ? 'manualName' then strandcue_private.shelf_fact_text(facts, 'manualName')
+    else nullif(btrim(coalesce(p_manual_name, '')), '') end;
+  eff_category := case when facts ? 'manualCategory' then strandcue_private.shelf_fact_text(facts, 'manualCategory')
+    else p_manual_category end;
   -- An ordinary change never rewrites the identity the owner entered: a
   -- wrong brand, name or category is corrected through the append-only
-  -- correction path, so the original wording stays readable.
-  if p_kind = 'change' and (p_manual_brand is not null or p_manual_name is not null or p_manual_category is not null) then
+  -- correction path, so the original wording stays readable. The identity
+  -- is refused inside the facts patch too, so the patch cannot become a
+  -- back door around that rule.
+  if p_kind = 'change' and (p_manual_brand is not null or p_manual_name is not null or p_manual_category is not null
+      or facts ?| array['manualBrand','manualName','manualCategory']) then
     raise exception 'invalid-identity' using errcode = '22023';
+  end if;
+  -- A correction carries its own fields in the facts patch only. A core
+  -- call that still passes the identity as a parameter is refused rather
+  -- than silently honoured, so the facts patch stays the one place the
+  -- correction's identity travels.
+  if p_kind = 'correction' and (p_manual_brand is not null or p_manual_name is not null or p_manual_category is not null) then
+    raise exception 'invalid-identity' using errcode = '22023';
+  end if;
+  -- The baseline is the one path where the identity still travels as a
+  -- top-level parameter, so the core holds it to the same length and the
+  -- same category list the facts path holds. Without that, a direct
+  -- `authenticated` core call could write a ten-thousand-character brand
+  -- or a category the domain does not know, and the row would answer a
+  -- table constraint instead of a stable code.
+  if p_kind = 'baseline' then
+    if p_manual_brand is not null and btrim(p_manual_brand) <> ''
+      and strandcue_private.js_length(strandcue_private.trim_text(p_manual_brand)) not between 1 and 200 then
+      raise exception 'invalid-brand' using errcode = '22023';
+    end if;
+    if p_manual_name is not null and btrim(p_manual_name) <> ''
+      and strandcue_private.js_length(strandcue_private.trim_text(p_manual_name)) not between 1 and 200 then
+      raise exception 'invalid-name' using errcode = '22023';
+    end if;
+    if p_manual_category is not null and p_manual_category not in
+      ('shampoo','clarifier','conditioner','mask','bond/protein treatment','leave-in','heat protectant','anti-humidity','styling cream','mousse','gel','serum','oil','scalp','colour','other') then
+      raise exception 'invalid-category' using errcode = '22023';
+    end if;
   end if;
   -- A catalogue link is a confirmed match, never a side effect of another
   -- kind. A baseline, a change, a correction or an archive that carried a
@@ -379,12 +582,19 @@ begin
     if p_kind = 'archive' then raise exception 'invalid-archive' using errcode = '22023'; end if;
   end if;
   -- The resulting row must still identify a product: a catalogue version or
-  -- a name the owner recorded. This is read from the row that already
-  -- exists, so an edit of a manual product is never refused for not
-  -- repeating the name.
+  -- a name the owner recorded. The name is the one the write lands, so a
+  -- correction that clears the only name a manual product has is refused
+  -- here with a stable code instead of a table constraint answering it.
+  -- This is read from the row that already exists, so an edit of a manual
+  -- product is never refused for not repeating the name.
+  resulting_name := case
+    when p_kind = 'baseline' then eff_name
+    when p_kind = 'change' then row.manual_name
+    else case when facts ? 'manualName' then strandcue_private.shelf_fact_text(facts, 'manualName') else row.manual_name end
+  end;
   if p_kind in ('baseline','change','correction') then
     if coalesce(p_version_id, row.version_id) is null
-      and nullif(btrim(coalesce(p_manual_name, row.manual_name, '')), '') is null then
+      and nullif(btrim(coalesce(resulting_name, '')), '') is null then
       raise exception 'invalid-product' using errcode = '22023';
     end if;
   end if;
@@ -401,7 +611,7 @@ begin
       insert into public.user_products(id, owner, version_id, manual_brand, manual_name, manual_category, availability, matched, matched_at, match_confirmed, revision, notes,
         manual_variant, manual_size, manual_barcode, opened_on, expiry_on, pao, quantity_band, repurchase_intent)
         values (p_user_product_id, uid, null, -- a baseline never links a version: the refusal above answers that
-          nullif(btrim(coalesce(p_manual_brand, '')), ''), nullif(btrim(coalesce(p_manual_name, '')), ''), p_manual_category,
+          eff_brand, eff_name, eff_category,
           coalesce(p_availability, 'available'), false, null, false, 0,
           -- The same expression the update path uses: an explicit null in
           -- the facts patch always wins, an absent key keeps the legacy
@@ -423,11 +633,56 @@ begin
   select * into eff from strandcue_private.date_interval(eff_date);
   if p_kind = 'correction' then
     if p_corrects_id is null or p_reason is null or length(btrim(p_reason)) not between 1 and 500 then raise exception 'invalid-correction' using errcode = '22023'; end if;
-    if not exists(select 1 from public.user_product_revisions where id = p_corrects_id and user_product_id = p_user_product_id and owner = uid) then raise exception 'correction-target-not-found' using errcode = '22023'; end if;
-    if exists(select 1 from public.user_product_revisions where corrects_id = p_corrects_id) then raise exception 'already-corrected' using errcode = '23505'; end if;
+    -- The target must be a revision of this product that belongs to the
+    -- owner: a foreign or unknown revision is never disclosed.
+    select * into target from public.user_product_revisions
+      where id = p_corrects_id and user_product_id = p_user_product_id and owner = uid;
+    if not found then raise exception 'correction-target-not-found' using errcode = '22023'; end if;
     -- A correction replaces the wording the owner recorded; it never links a
     -- catalogue version. The link belongs to the confirmed `match` kind, and
     -- the refusal above answers a version id with `invalid-correction`.
+    --
+    -- The target must be the revision that currently carries the record's
+    -- identity: the final replacement in its correction chain (no
+    -- correction points at it) whose patch carries an identity field.
+    --
+    -- The rule reads the KIND as well as the shape of the patch, exactly
+    -- like the domain does. A history written before this migration carries
+    -- the three identity keys on every revision, whatever the kind was, so
+    -- a shape-only rule would let an availability-only change, an archive
+    -- or a match be targeted there. A `match`, an `archive` and an
+    -- ordinary `change` never carry the identity; a `baseline` carries it
+    -- only when one of the three identity fields holds a value; a
+    -- `correction` carries it when its patch mentions an identity key.
+    -- Naming one of the others is refused with `invalid-correction-target`.
+    -- A revision another correction already replaced keeps
+    -- `already-corrected`, the code that has always meant "this revision
+    -- was already corrected".
+    if exists (select 1 from public.user_product_revisions r
+                where r.corrects_id = p_corrects_id and r.user_product_id = p_user_product_id and r.owner = uid) then
+      raise exception 'already-corrected' using errcode = '23505';
+    end if;
+    target_carries_identity := case
+      when target.kind in ('match','archive','change') then false
+      when target.kind = 'correction' then (target.patch ?| array['manualBrand','manualName','manualCategory'])
+      else exists (
+        select 1 from jsonb_each(coalesce(target.patch, '{}'::jsonb)) as f(key, value)
+         where f.key in ('manualBrand','manualName','manualCategory')
+           and jsonb_typeof(f.value) = 'string'
+           -- The same trim the domain uses: a patch whose only identity is
+           -- whitespace carries no identity here either.
+           and strandcue_private.trim_text(f.value #>> '{}') <> '')
+    end;
+    if not target_carries_identity then
+      raise exception 'invalid-correction-target' using errcode = '22023';
+    end if;
+    -- A correction has to CARRY an identity: a patch that mentions none of
+    -- the three identity keys would consume the target's `corrects_id` and
+    -- leave the chain ending on a revision that carries no identity, so the
+    -- owner's mistyped name could never be corrected again.
+    if not (facts ?| array['manualBrand','manualName','manualCategory']) then
+      raise exception 'invalid-correction' using errcode = '22023';
+    end if;
   elsif p_kind = 'match' then
     -- P1-SHELF-02: matching requires explicit confirmation; it never happens silently.
     if p_confirmed is distinct from true then raise exception 'confirmation-required' using errcode = '22023'; end if;
@@ -448,14 +703,30 @@ begin
     if p_corrects_id is not null or p_reason is not null then raise exception 'invalid-correction' using errcode = '22023'; end if;
     if p_confirmed is not null then raise exception 'invalid-operation' using errcode = '22023'; end if;
   end if;
-  -- The revision patch records the facts the owner actually sent, so the
-  -- history shows the recorded value and never an invented one. A match
-  -- writes no availability and an archive writes the archived state, so
-  -- the patch can never disagree with the row the core writes.
-  patch := jsonb_build_object('versionId', p_version_id, 'manualBrand', p_manual_brand, 'manualName', p_manual_name,
-    'manualCategory', p_manual_category,
-    'availability', case when p_kind = 'archive' then 'archived' when p_kind = 'match' then null else p_availability end,
-    'notes', p_notes) || facts;
+  -- The revision patch records what the owner actually answered: a key the
+  -- owner never answered stays absent from the history, so the history
+  -- never claims that a field was cleared while the row kept it.
+  --
+  -- The identity keys are the ones the correction-target rule reads: a
+  -- revision that answers no identity at all carries no identity key and
+  -- can therefore never be the target of a correction. A baseline records
+  -- the identity the row was created with; a change, a match and an
+  -- archive never answer the identity at all; a correction answers only
+  -- what its facts patch answers.
+  if p_kind = 'baseline' then
+    patch := jsonb_build_object('manualBrand', eff_brand, 'manualName', eff_name, 'manualCategory', eff_category,
+      'availability', coalesce(p_availability, 'available'))
+      || jsonb_strip_nulls(jsonb_build_object('versionId', p_version_id, 'notes', p_notes)) || facts;
+  elsif p_kind = 'correction' then
+    -- A correction records no availability: an availability change is an
+    -- ordinary change, so a correction that never answered one must not
+    -- claim one in the history.
+    patch := jsonb_strip_nulls(jsonb_build_object('notes', p_notes)) || facts;
+  else
+    patch := jsonb_strip_nulls(jsonb_build_object('versionId', p_version_id,
+      'availability', case when recorded_kind = 'archive' then 'archived' when p_kind = 'match' then null else p_availability end,
+      'notes', p_notes)) || facts;
+  end if;
   insert into public.user_product_revisions(id, owner, user_product_id, sequence, base_revision, kind, effective_date, effective_start, effective_end, recorded_at, source, patch, corrects_id, correction_reason, match_version_id)
     values (rev_id, uid, p_user_product_id, row.revision + 1, row.revision, recorded_kind, eff_date, eff.start_date, eff.end_date, now(), 'user-reported',
       patch, p_corrects_id, case when p_kind = 'correction' then btrim(p_reason) end,
@@ -470,11 +741,17 @@ begin
     -- A baseline, a change and a correction may not carry a version id at
     -- all, so this line never links a version behind the confirmed-match
     -- gate: it only keeps the link a confirmed match already made.
+    --
+    -- The identity travels in the facts patch, so an absent key preserves
+    -- the column, a value replaces it and an explicit null clears it. The
+    -- COALESCE-based handling is gone: a plain column parameter cannot tell
+    -- "leave this alone" from "clear this", and the correction path has to
+    -- be able to clear the identity the owner got wrong.
     update public.user_products set revision = revision + 1,
       version_id = coalesce(p_version_id, version_id),
-      manual_brand = coalesce(nullif(btrim(coalesce(p_manual_brand, '')), ''), manual_brand),
-      manual_name = coalesce(nullif(btrim(coalesce(p_manual_name, '')), ''), manual_name),
-      manual_category = coalesce(p_manual_category, manual_category),
+      manual_brand = case when facts ? 'manualBrand' then strandcue_private.shelf_fact_text(facts, 'manualBrand') else manual_brand end,
+      manual_name = case when facts ? 'manualName' then strandcue_private.shelf_fact_text(facts, 'manualName') else manual_name end,
+      manual_category = case when facts ? 'manualCategory' then strandcue_private.shelf_fact_text(facts, 'manualCategory') else manual_category end,
       availability = coalesce(p_availability, availability),
       notes = case when facts ? 'notes' then strandcue_private.shelf_fact_text(facts, 'notes') else coalesce(p_notes, notes) end,
       manual_variant = case when facts ? 'manualVariant' then strandcue_private.shelf_fact_text(facts, 'manualVariant') else manual_variant end,
@@ -489,9 +766,20 @@ begin
       where id = p_user_product_id;
   end if;
   select jsonb_build_object('userProductId', p_user_product_id, 'revision', row.revision + 1,
-    'revisions', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'kind', r.kind, 'correctsId', r.corrects_id, 'matchVersionId', r.match_version_id) order by r.sequence), '[]'::jsonb)
+    'revisions', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'kind', r.kind, 'correctsId', r.corrects_id, 'correctionReason', r.correction_reason, 'matchVersionId', r.match_version_id) order by r.sequence), '[]'::jsonb)
       from public.user_product_revisions r where r.user_product_id = p_user_product_id)) into result;
-  insert into strandcue_private.shelf_operations(user_id, operation_id, payload, result) values (uid, p_operation_id, payload, result);
+  -- The stored operation is written last, and a raw unique violation on it
+  -- is never the answer: the operation lookup above already replays or
+  -- refuses, and this guard keeps the last word stable for the writer that
+  -- slipped past it. The write has already happened when the insert
+  -- collides, so another operation's stored result can never be returned
+  -- here: the caller answers a stable conflict instead, and the whole
+  -- write is rolled back with it.
+  begin
+    insert into strandcue_private.shelf_operations(user_id, operation_id, payload, result) values (uid, p_operation_id, payload, result);
+  exception when unique_violation then
+    raise exception 'operation-conflict' using errcode = '23505';
+  end;
   return result;
 end;
 $$;
@@ -508,7 +796,7 @@ begin
   if uid is null then raise exception 'authentication-required' using errcode = '42501'; end if;
   select * into row from public.user_products where id = p_user_product_id and owner = uid;
   if not found then raise exception 'not-found' using errcode = '42501'; end if;
-  select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'kind', r.kind, 'correctsId', r.corrects_id, 'matchVersionId', r.match_version_id, 'patch', r.patch) order by r.sequence), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'kind', r.kind, 'correctsId', r.corrects_id, 'correctionReason', r.correction_reason, 'matchVersionId', r.match_version_id, 'patch', r.patch) order by r.sequence), '[]'::jsonb)
     into revs from public.user_product_revisions r where r.user_product_id = p_user_product_id and owner = uid;
   return jsonb_build_object('id', row.id, 'revision', row.revision, 'availability', row.availability,
     'matched', row.matched, 'matchConfirmed', row.match_confirmed, 'manualName', row.manual_name,
@@ -594,12 +882,18 @@ begin
 end;
 $$;
 
+-- The correction wrapper carries no identity parameter: the correction's own
+-- fields travel in the facts patch, so the wrapper cannot be asked to write
+-- an identity outside that patch. The wrapper is dropped and recreated, so
+-- the signature change costs nothing and the legacy overloads go away with
+-- it.
 drop function if exists public.shelf_correct(uuid, uuid, integer, uuid, text, text, text, jsonb);
-create function public.shelf_correct(p_operation_id uuid, p_user_product_id uuid, p_expected_revision integer, p_corrects_id uuid, p_reason text, p_manual_name text, p_notes text, p_effective_date jsonb, p_manual_brand text default null, p_manual_category text default null, p_facts jsonb default '{}'::jsonb)
+drop function if exists public.shelf_correct(uuid, uuid, integer, uuid, text, text, text, jsonb, text, text, jsonb);
+create function public.shelf_correct(p_operation_id uuid, p_user_product_id uuid, p_expected_revision integer, p_corrects_id uuid, p_reason text, p_notes text, p_effective_date jsonb, p_facts jsonb default '{}'::jsonb)
 returns jsonb language plpgsql security invoker set search_path = '' as $$
 begin
   if strandcue_private.request_uid() is null then raise exception 'authentication-required' using errcode = '42501'; end if;
-  return strandcue_private.mutate_user_product(p_operation_id, p_user_product_id, p_expected_revision, 'correction', null, p_manual_brand, p_manual_name, p_manual_category, null, p_notes, p_effective_date, p_corrects_id, p_reason, null, p_facts);
+  return strandcue_private.mutate_user_product(p_operation_id, p_user_product_id, p_expected_revision, 'correction', null, null, null, null, null, p_notes, p_effective_date, p_corrects_id, p_reason, null, p_facts);
 end;
 $$;
 
@@ -875,11 +1169,11 @@ revoke all on function strandcue_private.mutate_user_product(uuid, uuid, integer
 grant execute on function strandcue_private.mutate_user_product(uuid, uuid, integer, text, uuid, text, text, text, text, text, jsonb, uuid, text, boolean, jsonb) to authenticated, strandcue_mutator;
 revoke all on function public.shelf_add(uuid, uuid, uuid, text, text, text, text, text, jsonb, jsonb),
   public.shelf_change(uuid, uuid, integer, text, text, text, text, text, jsonb, jsonb),
-  public.shelf_correct(uuid, uuid, integer, uuid, text, text, text, jsonb, text, text, jsonb)
+  public.shelf_correct(uuid, uuid, integer, uuid, text, text, jsonb, jsonb)
   from public, anon, authenticated;
 grant execute on function public.shelf_add(uuid, uuid, uuid, text, text, text, text, text, jsonb, jsonb),
   public.shelf_change(uuid, uuid, integer, text, text, text, text, text, jsonb, jsonb),
-  public.shelf_correct(uuid, uuid, integer, uuid, text, text, text, jsonb, text, text, jsonb)
+  public.shelf_correct(uuid, uuid, integer, uuid, text, text, jsonb, jsonb)
   to authenticated;
 grant execute on function strandcue_private.request_uid() to authenticated;
 

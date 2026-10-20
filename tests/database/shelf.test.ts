@@ -62,6 +62,65 @@ async function coreMutate(db: PGlite, args: {
   )).rows[0].result;
 }
 
+// The baseline path of the private core: the identity travels as the
+// top-level parameters there, so the core has to hold them to the same
+// length and the same category list the facts path holds.
+async function coreBaseline(db: PGlite, args: {
+  operationId?: string; userProductId: string; manualBrand?: string | null;
+  manualName?: string | null; manualCategory?: string | null; facts?: unknown;
+}) {
+  return (await db.query<{ result: any }>(
+    `select strandcue_private.mutate_user_product($1, $2, 0, 'baseline', null, $3, $4, $5, 'available', null, $6::jsonb, null, null, null, $7::jsonb) result`,
+    [args.operationId ?? crypto.randomUUID(), args.userProductId,
+      args.manualBrand ?? null, args.manualName ?? null, args.manualCategory ?? null,
+      JSON.stringify(DAY), JSON.stringify(args.facts ?? {})],
+  )).rows[0].result;
+}
+
+// The correction path carries the owner's own fields in the facts patch, so
+// the public wrapper advertises no identity parameter at all: a missing key
+// preserves, a value replaces and an explicit null clears.
+async function shelfCorrect(db: PGlite, opts: {
+  operationId?: string; userProductId: string; expectedRevision: number;
+  correctsId: string; reason?: string | null; notes?: string | null; facts?: unknown;
+}) {
+  return (await db.query<{ result: any }>(
+    `select public.shelf_correct($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb) result`,
+    [opts.operationId ?? crypto.randomUUID(), opts.userProductId, opts.expectedRevision,
+      opts.correctsId, opts.reason === undefined ? 'wrong wording' : opts.reason,
+      opts.notes ?? null, JSON.stringify(DAY), JSON.stringify(opts.facts ?? {})],
+  )).rows[0].result;
+}
+
+// The private core is callable by `authenticated` directly, so the
+// correction rules are guarded in the core, not only in the wrapper.
+async function coreCorrect(db: PGlite, opts: {
+  operationId?: string; userProductId: string; expectedRevision: number;
+  correctsId: string; reason?: string | null; manualBrand?: string | null;
+  manualName?: string | null; manualCategory?: string | null; availability?: string | null;
+  notes?: string | null; facts?: unknown;
+}) {
+  return (await db.query<{ result: any }>(
+    `select strandcue_private.mutate_user_product($1, $2, $3, 'correction', null, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, null, $12::jsonb) result`,
+    [opts.operationId ?? crypto.randomUUID(), opts.userProductId, opts.expectedRevision,
+      opts.manualBrand ?? null, opts.manualName ?? null, opts.manualCategory ?? null,
+      opts.availability ?? null, opts.notes ?? null, JSON.stringify(DAY),
+      opts.correctsId, opts.reason === undefined ? 'wrong wording' : opts.reason,
+      JSON.stringify(opts.facts ?? {})],
+  )).rows[0].result;
+}
+
+async function revisionsOf(db: PGlite, userProductId: string) {
+  return (await db.query<{
+    id: string; kind: string; sequence: number; corrects_id: string | null;
+    correction_reason: string | null; patch: Record<string, unknown>;
+  }>(
+    `select id, kind, sequence, corrects_id, correction_reason, patch
+       from public.user_product_revisions where user_product_id = $1 order by sequence`,
+    [userProductId],
+  )).rows;
+}
+
 /** The server's own day, read the way the core reads it. */
 async function serverDay(db: PGlite) {
   return (await db.query<{ today: string }>(
@@ -823,5 +882,936 @@ describe('the owned-product shelf facts', () => {
       [helpers],
     );
     expect(consumer.rows).toEqual([]);
+  });
+});
+
+describe('the shelf correction target rule', () => {
+  let db: PGlite;
+  const CATALOGUE_VERSION_ID = 'e0000000-0000-4000-8000-000000000003';
+  beforeAll(async () => {
+    db = await database();
+    // One catalogue version: the match path needs a real product_versions row.
+    await db.exec('set session authorization postgres');
+    await db.exec(`insert into public.brands(id, name) values ('e0000000-0000-4000-8000-000000000001', 'House Brand')`);
+    await db.exec(`insert into public.products(id, brand_id, name, category, market) values ('e0000000-0000-4000-8000-000000000002', 'e0000000-0000-4000-8000-000000000001', 'Gentle Shampoo', 'shampoo', 'ZA')`);
+    await db.exec(`insert into public.product_versions(id, product_id, market, structured_directions, lifecycle) values ('${CATALOGUE_VERSION_ID}', 'e0000000-0000-4000-8000-000000000002', 'ZA', '{}', 'active')`);
+  }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  it('refuses a catalogue match as a correction target and corrects the identity-bearing revision', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    await db.query(`select public.shelf_match($1, $2, 1, $3, true)`,
+      [crypto.randomUUID(), receipt.userProductId, CATALOGUE_VERSION_ID]);
+    const rows = await revisionsOf(db, receipt.userProductId);
+    const matchId = rows[1].id;
+    // A match carries a catalogue link, never an identity, so it is not the
+    // revision that carries the record's identity.
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: matchId,
+    })).rejects.toThrow(/invalid-correction-target/i);
+    // The baseline still carries the identity, so it is the valid target.
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(corrected.revision).toBe(3);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Correct Shampoo');
+    // The confirmed catalogue link survives the correction.
+    expect(detail.matched).toBe(true);
+    expect(detail.versionId).toBe(CATALOGUE_VERSION_ID);
+    // The history records which revision was replaced, and why.
+    const history = await revisionsOf(db, receipt.userProductId);
+    expect(history[2].kind).toBe('correction');
+    expect(history[2].corrects_id).toBe(baselineId);
+    expect(history[2].correction_reason).toBe('wrong wording');
+  });
+
+  it('refuses an availability change as a correction target and corrects the identity-bearing revision', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    await shelfChangeFacts(db, { userProductId: receipt.userProductId, expectedRevision: 1, availability: 'low' });
+    const rows = await revisionsOf(db, receipt.userProductId);
+    const changeId = rows[1].id;
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: changeId,
+    })).rejects.toThrow(/invalid-correction-target/i);
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: baselineId,
+      facts: { manualBrand: 'Real Brand' },
+    });
+    expect(corrected.revision).toBe(3);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    // The correction changed the identity and nothing else.
+    expect(detail.manualBrand).toBe('Real Brand');
+    expect(detail.manualName).toBe('Gentle Shampoo');
+    expect(detail.availability).toBe('low');
+  });
+
+  it('refuses an archive as a correction target and corrects the identity-bearing revision', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    await db.query(`select public.shelf_archive($1, $2, 1)`, [crypto.randomUUID(), receipt.userProductId]);
+    const rows = await revisionsOf(db, receipt.userProductId);
+    const archiveId = rows[1].id;
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: archiveId,
+    })).rejects.toThrow(/invalid-correction-target/i);
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(corrected.revision).toBe(3);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Correct Shampoo');
+    // The archive is still an archive: the correction never revives it.
+    expect(detail.availability).toBe('archived');
+  });
+
+  it('refuses a fact-only change as a correction target and corrects the identity-bearing revision', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    await shelfChangeFacts(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1,
+      facts: { pao: '12 months after opening' },
+    });
+    const rows = await revisionsOf(db, receipt.userProductId);
+    const factChangeId = rows[1].id;
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: factChangeId,
+    })).rejects.toThrow(/invalid-correction-target/i);
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(corrected.revision).toBe(3);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Correct Shampoo');
+    // The fact the change recorded is untouched by the correction.
+    expect(detail.pao).toBe('12 months after opening');
+  });
+
+  it('corrects the earlier identity correction and refuses the revision it replaced', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    const first = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: 'Second Wording' },
+    });
+    expect(first.revision).toBe(2);
+    const rows = await revisionsOf(db, receipt.userProductId);
+    const firstCorrectionId = rows[1].id;
+    expect(rows[1].corrects_id).toBe(baselineId);
+    // The revision that already carries a correction is superseded: it keeps
+    // its own stable code and is never the target of a second correction.
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: baselineId,
+    })).rejects.toThrow(/already-corrected/i);
+    // The currently effective identity-bearing revision is the correction
+    // itself, so it is the valid target.
+    const second = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: firstCorrectionId,
+      facts: { manualName: 'Third Wording' },
+    });
+    expect(second.revision).toBe(3);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Third Wording');
+    const history = await revisionsOf(db, receipt.userProductId);
+    expect(history[2].corrects_id).toBe(firstCorrectionId);
+  });
+
+  it('guards the same target rule on a direct authenticated core call', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    await shelfChangeFacts(db, { userProductId: receipt.userProductId, expectedRevision: 1, availability: 'low' });
+    const rows = await revisionsOf(db, receipt.userProductId);
+    const changeId = rows[1].id;
+    // The core is callable by `authenticated`, so the rule lives in the core.
+    await expect(coreCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: changeId,
+    })).rejects.toThrow(/invalid-correction-target/i);
+    const corrected = await coreCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(corrected.revision).toBe(3);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Correct Shampoo');
+  });
+
+  it('refuses a correction target that belongs to another product or owner', async () => {
+    await complete(db);
+    const first = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const second = await shelfAddFacts(db, { manualName: 'Other Shampoo' });
+    await expect(shelfCorrect(db, {
+      userProductId: first.userProductId, expectedRevision: 1, correctsId: second.revisions[0].id,
+    })).rejects.toThrow(/correction-target-not-found/i);
+    await asUser(db, USER_B);
+    await complete(db, 'user_b');
+    await expect(shelfCorrect(db, {
+      userProductId: first.userProductId, expectedRevision: 1, correctsId: first.revisions[0].id,
+    })).rejects.toThrow(/not-found|revision-conflict/i);
+  });
+
+  it('returns the correction reason in the revision payload', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: receipt.revisions[0].id,
+      reason: '  the owner typed the brand wrong  ',
+      facts: { manualBrand: 'Real Brand' },
+    });
+    // The write receipt carries the reason too, so the owner can read why a
+    // revision replaced another without a second call.
+    const written = (corrected.revisions as { kind: string; correctionReason: string | null }[])
+      .find((revision) => revision.kind === 'correction');
+    expect(written?.correctionReason).toBe('the owner typed the brand wrong');
+    const detail = await shelfDetail(db, receipt.userProductId);
+    const revisions = detail.revisions as { kind: string; correctionReason: string | null }[];
+    const correction = revisions.find((revision) => revision.kind === 'correction');
+    expect(correction?.correctionReason).toBe('the owner typed the brand wrong');
+    // A revision that is not a correction carries no reason.
+    expect(revisions.find((revision) => revision.kind === 'baseline')?.correctionReason).toBeNull();
+    // The reason is validated: an empty or oversized reason is refused.
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2,
+      correctsId: receipt.revisions[0].id, reason: '   ',
+    })).rejects.toThrow(/invalid-correction/i);
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2,
+      correctsId: receipt.revisions[0].id, reason: 'r'.repeat(501),
+    })).rejects.toThrow(/invalid-correction/i);
+  });
+
+  it('carries no identity parameter on the correction wrapper', async () => {
+    await complete(db);
+    const signature = await db.query<{ arguments: string }>(
+      `select pg_get_function_arguments(p.oid) arguments from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'shelf_correct'`,
+    );
+    expect(signature.rows).toHaveLength(1);
+    // The correction's own fields travel in the facts patch, so the wrapper
+    // advertises no manual brand, name or category parameter.
+    expect(signature.rows[0].arguments).not.toMatch(/manual_brand|manual_name|manual_category/i);
+    expect(signature.rows[0].arguments).toMatch(/p_facts/);
+  });
+
+  // A legacy-shaped history: the old core wrote the three identity keys on
+  // every revision, whatever the kind was. The rule reads the kind, not only
+  // the shape of the patch, so an availability-only change, an archive and a
+  // match stay uncorrectable however their patch looks.
+  async function legacyRevision(productId: string, sequence: number, kind: string, patch: unknown, matchVersionId: string | null = null): Promise<string> {
+    await db.exec('set session authorization postgres');
+    const id = crypto.randomUUID();
+    await db.query(
+      `insert into public.user_product_revisions(id, owner, user_product_id, sequence, base_revision, kind, effective_date, effective_start, effective_end, recorded_at, source, patch, match_version_id)
+       values ($1,$2,$3,$4,$5,$6,$7::jsonb,'2024-01-15','2024-01-15',now(),'user-reported',$8::jsonb,$9)`,
+      [id, USER_A, productId, sequence, sequence - 1, kind, JSON.stringify(DAY), JSON.stringify(patch), matchVersionId]);
+    // The product's revision follows the history it holds, so the next
+    // correction appends after the legacy revisions.
+    await db.query(`update public.user_products set revision = $2 where id = $1`, [productId, sequence]);
+    await asUser(db, USER_A);
+    return id;
+  }
+
+  it('refuses a legacy-shaped change, archive and match as a correction target', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    // Every one of these patches carries the three identity keys, exactly
+    // as the old core wrote them on every revision.
+    const legacyPatch = { manualBrand: 'House Brand', manualName: 'Gentle Shampoo', manualCategory: 'shampoo', availability: 'low' };
+    const changeId = await legacyRevision(receipt.userProductId, 2, 'change', legacyPatch);
+    const archiveId = await legacyRevision(receipt.userProductId, 3, 'archive', legacyPatch);
+    const matchId = await legacyRevision(receipt.userProductId, 4, 'match', legacyPatch, CATALOGUE_VERSION_ID);
+    for (const target of [changeId, archiveId, matchId]) {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 4, correctsId: target,
+        facts: { manualName: 'Correct Shampoo' },
+      })).rejects.toThrow(/invalid-correction-target/i);
+    }
+    // The identity-bearing entry is still the valid target, and the chain
+    // is still correctable.
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 4, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(corrected.revision).toBe(5);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Correct Shampoo');
+  });
+
+  it('refuses a legacy-shaped baseline that recorded no identity as a correction target', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    // The old core wrote the three identity keys with a null for every
+    // answer the owner never gave. A baseline that holds no answer carries
+    // no identity, so it is never the target of a correction.
+    await db.exec('set session authorization postgres');
+    await db.query(
+      `update public.user_product_revisions set patch = '{"manualBrand":null,"manualName":null,"manualCategory":null,"availability":"available"}'::jsonb where id = $1`,
+      [baselineId]);
+    await asUser(db, USER_A);
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    })).rejects.toThrow(/invalid-correction-target/i);
+  });
+
+  it('refuses a baseline whose only identity is whitespace as a correction target', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    // The domain trims the way JavaScript does, so a tab is no answer at
+    // all: a baseline whose only identity is a tab carries no identity.
+    // The database has to read the whitespace the same way, or the two
+    // sides disagree about which revision may be corrected.
+    await db.exec('set session authorization postgres');
+    await db.query(
+      `update public.user_product_revisions
+          set patch = jsonb_build_object('manualBrand', E'\\t', 'manualName', null, 'manualCategory', null, 'availability', 'available')
+        where id = $1`,
+      [baselineId]);
+    await asUser(db, USER_A);
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    })).rejects.toThrow(/invalid-correction-target/i);
+  });
+
+  it('refuses a correction that carries no identity field and keeps the chain correctable', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    // A facts-only correction carries no identity, so the chain would end on
+    // a revision that can never be corrected again: the owner's mistyped
+    // name would be past fixing for good.
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { notes: 'typo' },
+    })).rejects.toThrow(/invalid-correction(?!-target)/i);
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: {},
+    })).rejects.toThrow(/invalid-correction(?!-target)/i);
+    // The core refuses it the same way, so a direct call cannot slip past.
+    await expect(coreCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { notes: 'typo' },
+    })).rejects.toThrow(/invalid-correction(?!-target)/i);
+    // Nothing was written, so the chain is still correctable.
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.revision).toBe(1);
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(corrected.revision).toBe(2);
+    expect((await shelfDetail(db, receipt.userProductId)).manualName).toBe('Correct Shampoo');
+  });
+
+  it('refuses an availability on the correction path and records none', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    // An availability change is an ordinary change, never a correction.
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo', availability: 'low' },
+    })).rejects.toThrow(/invalid-availability/i);
+    // A direct core call cannot change the availability through a correction
+    // either, even though the public wrapper never offers the parameter.
+    await expect(coreCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      availability: 'low', facts: { manualName: 'Correct Shampoo' },
+    })).rejects.toThrow(/invalid-correction(?!-target)/i);
+    // The correction records no availability at all, and the row keeps the
+    // state it had.
+    const corrected = await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(corrected.revision).toBe(2);
+    const history = await revisionsOf(db, receipt.userProductId);
+    expect(history[1].patch).not.toHaveProperty('availability');
+    expect((await shelfDetail(db, receipt.userProductId)).availability).toBe('available');
+  });
+});
+
+describe('the correction facts preserve, set and clear every correctable field', () => {
+  let db: PGlite;
+  const CATALOGUE_VERSION_ID = 'f0000000-0000-4000-8000-000000000003';
+  beforeAll(async () => {
+    db = await database();
+    await db.exec('set session authorization postgres');
+    await db.exec(`insert into public.brands(id, name) values ('f0000000-0000-4000-8000-000000000001', 'House Brand')`);
+    await db.exec(`insert into public.products(id, brand_id, name, category, market) values ('f0000000-0000-4000-8000-000000000002', 'f0000000-0000-4000-8000-000000000001', 'Gentle Shampoo', 'shampoo', 'ZA')`);
+    await db.exec(`insert into public.product_versions(id, product_id, market, structured_directions, lifecycle) values ('${CATALOGUE_VERSION_ID}', 'f0000000-0000-4000-8000-000000000002', 'ZA', '{}', 'active')`);
+  }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  const FIELDS = [
+    { key: 'manualBrand', column: 'manual_brand', value: 'Real Brand', next: 'Another Brand' },
+    { key: 'manualCategory', column: 'manual_category', value: 'conditioner', next: 'mask' },
+    { key: 'manualVariant', column: 'manual_variant', value: 'Fragrance free', next: 'Sensitive skin' },
+    { key: 'manualSize', column: 'manual_size', value: '400 ml', next: '200 ml' },
+    { key: 'manualBarcode', column: 'manual_barcode', value: '6001234567890', next: '6001234567891' },
+    { key: 'openedOn', column: 'opened_on', value: { precision: 'day', value: '2024-02-01' }, next: { precision: 'day', value: '2024-03-01' } },
+    { key: 'expiryOn', column: 'expiry_on::text', value: '2027-06-30', next: '2028-06-30' },
+    { key: 'pao', column: 'pao', value: '12 months after opening', next: '6 months after opening' },
+    { key: 'quantityBand', column: 'quantity_band', value: 'about-half', next: 'about-quarter' },
+    { key: 'repurchaseIntent', column: 'repurchase_intent', value: 'would-rebuy', next: 'unsure' },
+    { key: 'notes', column: 'notes', value: 'a note the owner wrote', next: 'a different note' },
+  ] as const;
+
+  it.each(FIELDS)('sets, preserves and clears $key through a correction', async (field) => {
+    await complete(db);
+    // Every correction answers an identity key, so the chain always ends on
+    // a revision that can carry the next correction.
+    const carrier = field.key === 'manualBrand'
+      ? { manualCategory: 'conditioner' }
+      : { manualBrand: 'Another Brand' };
+    const receipt = await shelfAddFacts(db, {
+      manualName: 'Gentle Shampoo',
+      facts: { [field.key]: field.value },
+    });
+    const baselineId = receipt.revisions[0].id;
+    const stored = async () => (await db.query<{ value: unknown }>(
+      `select ${field.column} value from public.user_products where id = $1`, [receipt.userProductId],
+    )).rows[0].value;
+
+    // Set: a value in the facts patch replaces the recorded value.
+    await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { [field.key]: field.next, ...carrier },
+    });
+    let detail = await shelfDetail(db, receipt.userProductId);
+    expect(await stored()).toEqual(field.next);
+    expect(detail[field.key]).toEqual(field.next);
+    let history = await revisionsOf(db, receipt.userProductId);
+    expect(history[1].patch[field.key]).toEqual(field.next);
+
+    // Preserve: an absent key keeps the recorded value.
+    await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: history[1].id,
+      facts: { ...carrier },
+    });
+    detail = await shelfDetail(db, receipt.userProductId);
+    expect(await stored()).toEqual(field.next);
+    expect(detail[field.key]).toEqual(field.next);
+    history = await revisionsOf(db, receipt.userProductId);
+    expect(history[2].patch[field.key]).toBeUndefined();
+
+    // Clear: an explicit null in the facts patch clears the recorded value.
+    await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 3, correctsId: history[2].id,
+      facts: { [field.key]: null, ...carrier },
+    });
+    detail = await shelfDetail(db, receipt.userProductId);
+    expect(await stored()).toBeNull();
+    expect(detail[field.key]).toBeNull();
+    history = await revisionsOf(db, receipt.userProductId);
+    expect(history[3].patch[field.key]).toBeNull();
+  });
+
+  it('sets and clears the manual name through a correction', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: 'Correct Shampoo' },
+    });
+    let detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Correct Shampoo');
+    const stored = await db.query<{ manual_name: string | null }>(
+      `select manual_name from public.user_products where id = $1`, [receipt.userProductId]);
+    expect(stored.rows[0].manual_name).toBe('Correct Shampoo');
+    const history = await revisionsOf(db, receipt.userProductId);
+    expect(history[1].patch.manualName).toBe('Correct Shampoo');
+    expect(detail.manualBrand).toBe('House Brand');
+  });
+
+  it('clears the manual name of a catalogue-linked product', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    // A catalogue link identifies the product, so the manual name can go.
+    await db.query(`select public.shelf_match($1, $2, 1, $3, true)`,
+      [crypto.randomUUID(), receipt.userProductId, CATALOGUE_VERSION_ID]);
+    await shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 2, correctsId: baselineId,
+      facts: { manualName: null },
+    });
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBeNull();
+    const stored = await db.query<{ manual_name: string | null }>(
+      `select manual_name from public.user_products where id = $1`, [receipt.userProductId]);
+    expect(stored.rows[0].manual_name).toBeNull();
+    const history = await revisionsOf(db, receipt.userProductId);
+    expect(history[2].patch.manualName).toBeNull();
+  });
+
+  it('refuses to clear the only identity a manual product has', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const baselineId = receipt.revisions[0].id;
+    // A manual product with neither a name nor a catalogue link is not a
+    // product, so the refusal is stable and leaves the row untouched.
+    await expect(shelfCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+      facts: { manualName: null },
+    })).rejects.toThrow(/invalid-product/i);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Gentle Shampoo');
+    expect(detail.revision).toBe(1);
+  });
+
+  it('refuses a correction that carries a top-level identity parameter', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    // The identity travels in the facts patch only: a core call that still
+    // passes it as a parameter is refused rather than silently honoured.
+    await expect(coreCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1,
+      correctsId: receipt.revisions[0].id, manualName: 'Sneaky Name',
+    })).rejects.toThrow(/invalid-identity/i);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Gentle Shampoo');
+  });
+
+  it('refuses an ordinary change that carries the identity in its facts patch', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    await expect(shelfChangeFacts(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1,
+      facts: { manualName: 'Sneaky Name' },
+    })).rejects.toThrow(/invalid-identity/i);
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Gentle Shampoo');
+  });
+});
+
+describe('the shelf availability contract', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  it('refuses out_of_stock on every write path', async () => {
+    await complete(db);
+    // The baseline.
+    await expect(shelfAddFacts(db, { availability: 'out_of_stock' }))
+      .rejects.toThrow(/invalid-availability/i);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    // The change, with the current revision, so the availability refusal is
+    // the answer and not a stale-revision refusal.
+    await expect(shelfChangeFacts(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1, availability: 'out_of_stock',
+    })).rejects.toThrow(/invalid-availability/i);
+    // The correction, through the public wrapper's own core.
+    await expect(coreCorrect(db, {
+      userProductId: receipt.userProductId, expectedRevision: 1,
+      correctsId: receipt.revisions[0].id, availability: 'out_of_stock',
+    })).rejects.toThrow(/invalid-availability/i);
+    // The archive.
+    await expect(db.query(
+      `select strandcue_private.mutate_user_product($1, $2, $3, 'archive', null, null, null, null, 'out_of_stock', null, $4::jsonb, null, null, null, '{}'::jsonb)`,
+      [crypto.randomUUID(), receipt.userProductId, 1, JSON.stringify(DAY)],
+    )).rejects.toThrow(/invalid-availability/i);
+    // Nothing was written: the product still carries its original state.
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.availability).toBe('available');
+    expect(detail.revision).toBe(1);
+    expect((await revisionsOf(db, receipt.userProductId)).map((row) => row.kind)).toEqual(['baseline']);
+  });
+
+  it('refuses out_of_stock on a direct authenticated core call', async () => {
+    await complete(db);
+    await expect(db.query(
+      `select strandcue_private.mutate_user_product($1, $2, 0, 'baseline', null, 'House Brand', 'Gentle Shampoo', 'shampoo', 'out_of_stock', null, $3::jsonb, null, null, null, '{}'::jsonb)`,
+      [crypto.randomUUID(), crypto.randomUUID(), JSON.stringify(DAY)],
+    )).rejects.toThrow(/invalid-availability/i);
+    const list = await shelfList(db, 25);
+    expect(list.items).toEqual([]);
+  });
+
+  it('keeps a legacy out_of_stock row readable', async () => {
+    await complete(db);
+    const productId = crypto.randomUUID();
+    await db.exec('set session authorization postgres');
+    // A row written before the contract still carries the legacy state.
+    await db.query(
+      `insert into public.user_products(id, owner, manual_name, availability, revision) values ($1, $2, 'Gentle Shampoo', 'out_of_stock', 0)`,
+      [productId, USER_A]);
+    await asUser(db, USER_A);
+    const detail = await shelfDetail(db, productId);
+    expect(detail.availability).toBe('out_of_stock');
+    const list = await shelfList(db, 25);
+    expect((list.items as { id: string }[]).some((item) => item.id === productId)).toBe(true);
+  });
+});
+
+describe('the shelf security properties', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  it('gives no shelf routine to anon or to PUBLIC', async () => {
+    const anon = await db.query<{ signature: string }>(
+      `select p.oid::regprocedure::text signature from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname in ('public','strandcue_private')
+          and has_function_privilege('anon', p.oid, 'EXECUTE')`,
+    );
+    expect(anon.rows).toEqual([]);
+    // The PUBLIC grant is the one with an empty grantee in the access
+    // control list; no shelf routine may carry it.
+    const publicGrant = await db.query<{ signature: string }>(
+      `select p.oid::regprocedure::text signature from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname in ('public','strandcue_private')
+          and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                       where a.grantee = 0 and a.privilege_type = 'EXECUTE')`,
+    );
+    expect(publicGrant.rows).toEqual([]);
+  });
+
+  it('derives the owner only from request_uid', async () => {
+    const core = await db.query<{ arguments: string; definition: string }>(
+      `select pg_get_function_arguments(p.oid) arguments, pg_get_functiondef(p.oid) definition
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'strandcue_private' and p.proname = 'mutate_user_product'`,
+    );
+    expect(core.rows).toHaveLength(1);
+    // No owner argument exists: the owner is never accepted from a caller.
+    expect(core.rows[0].arguments).not.toMatch(/owner|user_id/i);
+    expect(core.rows[0].definition).toContain('strandcue_private.request_uid()');
+    // The read cores are the same.
+    for (const name of ['get_user_product_core', 'list_user_products_core']) {
+      const read = await db.query<{ arguments: string; definition: string }>(
+        `select pg_get_function_arguments(p.oid) arguments, pg_get_functiondef(p.oid) definition
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'strandcue_private' and p.proname = $1`,
+        [name],
+      );
+      expect(read.rows[0].arguments).not.toMatch(/owner|user_id/i);
+      expect(read.rows[0].definition).toContain('strandcue_private.request_uid()');
+    }
+  });
+
+  it('forces row level security on the shelf tables', async () => {
+    const unprotected = await db.query(
+      `select relname from pg_class where relname in ('user_products','user_product_revisions') and (not relrowsecurity or not relforcerowsecurity)`,
+    );
+    expect(unprotected.rows).toEqual([]);
+    const operations = await db.query(
+      `select relname from pg_class where relname = 'shelf_operations' and (not relrowsecurity or not relforcerowsecurity)`,
+    );
+    expect(operations.rows).toEqual([]);
+  });
+
+  it('keeps the mutator grants minimal and column scoped', async () => {
+    // The mutator may write the shelf row and the eight owner-entered fact
+    // columns, and nothing else.
+    const columns = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'user_products' order by ordinal_position`,
+    );
+    const writable = await db.query<{ column_name: string }>(
+      `select a.attname column_name from pg_attribute a
+         join pg_class c on c.oid = a.attrelid
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = 'user_products'
+          and a.attnum > 0 and not a.attisdropped
+          and has_column_privilege('strandcue_mutator', 'public.user_products', a.attname, 'UPDATE')`,
+    );
+    const expected = [
+      'revision', 'availability', 'matched', 'matched_at', 'match_confirmed', 'version_id',
+      'manual_brand', 'manual_name', 'manual_category', 'notes', 'updated_at',
+      'manual_variant', 'manual_size', 'manual_barcode', 'opened_on', 'expiry_on', 'pao',
+      'quantity_band', 'repurchase_intent',
+    ];
+    expect(writable.rows.map((row) => row.column_name).sort()).toEqual([...expected].sort());
+    // No consumer write path on the shelf tables at all.
+    const consumer = await db.query<{ column_name: string }>(
+      `select a.attname column_name from pg_attribute a
+         join pg_class c on c.oid = a.attrelid
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = 'user_products'
+          and a.attnum > 0 and not a.attisdropped
+          and has_column_privilege('authenticated', 'public.user_products', a.attname, 'UPDATE')`,
+    );
+    expect(consumer.rows).toEqual([]);
+    expect(columns.rows.length).toBeGreaterThan(0);
+  });
+
+  it('exports every owner field of the shelf', async () => {
+    await complete(db);
+    await shelfAddFacts(db, { facts: { pao: '12 months after opening', quantityBand: 'about-half' } });
+    await freshAuth(db, USER_A);
+    const exported = await db.query<{ result: any }>(`select public.export_request($1, 'csv') result`, [crypto.randomUUID()]);
+    const download = await db.query<{ result: any }>(`select public.export_download($1) result`, [exported.rows[0].result.jobId]);
+    const files = download.rows[0].result.document.files;
+    const columns = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'user_products' order by ordinal_position`,
+    );
+    const header = files['user_products.csv'].split('\n')[0];
+    // Every owner field of the shelf is in the CSV. The owner's own id and
+    // the row's update timestamp are deliberately not part of the CSV
+    // contract; the export inventory in tests/database/export.test.ts pins
+    // the full per-table registry.
+    for (const column of columns.rows) {
+      if (['owner', 'updated_at'].includes(column.column_name)) continue;
+      expect(header).toContain(column.column_name);
+    }
+    // The revision history carries the correction link and its reason.
+    const revisionHeader = files['user_product_revisions.csv'].split('\n')[0];
+    expect(revisionHeader).toContain('corrects_id');
+    expect(revisionHeader).toContain('correction_reason');
+  });
+});
+
+describe('the shelf operation idempotency', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  it('replays a repeated operation id with the same payload and refuses a differing one', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    const operationId = crypto.randomUUID();
+    const first = await shelfCorrect(db, {
+      operationId, userProductId: receipt.userProductId, expectedRevision: 1,
+      correctsId: receipt.revisions[0].id, facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(first.revision).toBe(2);
+    // The same operation id and the same payload replay the stored result.
+    const replay = await shelfCorrect(db, {
+      operationId, userProductId: receipt.userProductId, expectedRevision: 1,
+      correctsId: receipt.revisions[0].id, facts: { manualName: 'Correct Shampoo' },
+    });
+    expect(replay).toEqual(first);
+    // The replay wrote no second revision.
+    expect((await revisionsOf(db, receipt.userProductId)).map((row) => row.kind)).toEqual(['baseline', 'correction']);
+    // A differing payload is an operation conflict, never a revision
+    // conflict and never a raw unique violation.
+    const failure = await shelfCorrect(db, {
+      operationId, userProductId: receipt.userProductId, expectedRevision: 1,
+      correctsId: receipt.revisions[0].id, facts: { manualName: 'Another Wording' },
+    }).catch((error: Error) => error);
+    expect(failure.message).toMatch(/operation-conflict/i);
+    expect(failure.message).not.toMatch(/revision-conflict/i);
+    expect(failure.message).not.toMatch(/duplicate key|unique constraint|shelf_operations_pkey/i);
+    // The stored product is the one the first operation wrote.
+    const detail = await shelfDetail(db, receipt.userProductId);
+    expect(detail.manualName).toBe('Correct Shampoo');
+    expect(detail.revision).toBe(2);
+  });
+
+  it('replays a repeated operation id on the baseline path', async () => {
+    await complete(db);
+    const operationId = crypto.randomUUID();
+    const productId = crypto.randomUUID();
+    const add = async (name: string) => (await db.query<{ result: any }>(
+      `select public.shelf_add($1, $2, null, 'House Brand', $3, 'shampoo', 'available', null, $4::jsonb, '{}'::jsonb) result`,
+      [operationId, productId, name, JSON.stringify(DAY)],
+    )).rows[0].result;
+    const first = await add('Gentle Shampoo');
+    expect(first.revision).toBe(1);
+    expect(await add('Gentle Shampoo')).toEqual(first);
+    const failure = await add('Another Name').catch((error: Error) => error);
+    expect(failure.message).toMatch(/operation-conflict/i);
+    expect(failure.message).not.toMatch(/revision-conflict/i);
+    expect(failure.message).not.toMatch(/duplicate key|unique constraint/i);
+  });
+});
+
+describe('the identity the baseline path holds', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  it('refuses an over-long or unknown identity with a stable code', async () => {
+    await complete(db);
+    // The table would refuse these rows too, but a constraint violation is
+    // not a stable code: the core answers with one before the write.
+    await expect(coreBaseline(db, {
+      userProductId: crypto.randomUUID(), manualName: 'Gentle Shampoo',
+      manualBrand: 'B'.repeat(10000),
+    })).rejects.toThrow(/invalid-brand/i);
+    await expect(coreBaseline(db, {
+      userProductId: crypto.randomUUID(), manualName: 'Gentle Shampoo',
+      manualBrand: 'B'.repeat(201),
+    })).rejects.toThrow(/invalid-brand/i);
+    await expect(coreBaseline(db, {
+      userProductId: crypto.randomUUID(), manualName: 'N'.repeat(201),
+    })).rejects.toThrow(/invalid-name/i);
+    await expect(coreBaseline(db, {
+      userProductId: crypto.randomUUID(), manualName: 'Gentle Shampoo',
+      manualCategory: 'not-a-category',
+    })).rejects.toThrow(/invalid-category/i);
+    // The length the facts path holds is the length the core holds.
+    const receipt = await coreBaseline(db, {
+      userProductId: crypto.randomUUID(), manualName: 'Gentle Shampoo',
+      manualBrand: 'B'.repeat(200), manualCategory: 'shampoo',
+    });
+    expect(receipt.revision).toBe(1);
+    const stored = await db.query<{ manual_brand: string }>(
+      `select manual_brand from public.user_products where id = $1`, [receipt.userProductId]);
+    expect(stored.rows[0].manual_brand.length).toBe(200);
+  });
+});
+
+describe('the payload the core compares', () => {
+  let db: PGlite;
+  const CATALOGUE_VERSION_ID = 'e1000000-0000-4000-8000-000000000003';
+  beforeAll(async () => {
+    db = await database();
+    await db.exec('set session authorization postgres');
+    await db.exec(`insert into public.brands(id, name) values ('e1000000-0000-4000-8000-000000000001', 'House Brand')`);
+    await db.exec(`insert into public.products(id, brand_id, name, category, market) values ('e1000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', 'Gentle Shampoo', 'shampoo', 'ZA')`);
+    await db.exec(`insert into public.product_versions(id, product_id, market, structured_directions, lifecycle) values ('${CATALOGUE_VERSION_ID}', 'e1000000-0000-4000-8000-000000000002', 'ZA', '{}', 'active')`);
+  }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  async function storedPayload(operationId: string): Promise<Record<string, unknown>> {
+    // The operations table is private to the mutator, so the test reads it
+    // as the owner of the table.
+    await db.exec('set session authorization postgres');
+    const stored = await db.query<{ payload: Record<string, unknown> }>(
+      `select payload from strandcue_private.shelf_operations where operation_id = $1`, [operationId]);
+    await asUser(db, USER_A);
+    return stored.rows[0].payload;
+  }
+
+  it('compares the effective date the caller sent, never the one the server substituted', async () => {
+    await complete(db);
+    const receipt = await shelfAddFacts(db, { manualName: 'Gentle Shampoo' });
+    // A correction compares the date the caller sent, so a retry on another
+    // day with the same command is the same command.
+    const correctionOperation = crypto.randomUUID();
+    await shelfCorrect(db, {
+      operationId: correctionOperation, userProductId: receipt.userProductId, expectedRevision: 1,
+      correctsId: receipt.revisions[0].id, facts: { manualName: 'Correct Shampoo' },
+    });
+    expect((await storedPayload(correctionOperation)).effectiveDate).toEqual(DAY);
+    // A match is dated by the server, but the payload the core compares is
+    // the one the caller sent: a match carries no effective date at all, so
+    // a retry on another day still replays.
+    const matchOperation = crypto.randomUUID();
+    await db.query(`select public.shelf_match($1, $2, 2, $3, true)`, [matchOperation, receipt.userProductId, CATALOGUE_VERSION_ID]);
+    expect((await storedPayload(matchOperation)).effectiveDate).toBeNull();
+    // The revision itself is still dated by the server day.
+    const dated = await db.query<{ effective_date: { value: string } }>(
+      `select effective_date from public.user_product_revisions where user_product_id = $1 order by sequence`,
+      [receipt.userProductId]);
+    expect(dated.rows[2].effective_date.value).toBe(await serverDay(db));
+  });
+
+  it('answers a duplicate operation row with a stable conflict and writes no second revision', async () => {
+    await complete(db);
+    const operationId = crypto.randomUUID();
+    const first = await shelfAddFacts(db, { operationId, manualName: 'Gentle Shampoo' });
+    expect(first.revision).toBe(1);
+    // The operations table now holds a row for this operation id, so the
+    // next call with the same id is the duplicate-operation path: the
+    // write must be refused, and it must be refused in a way the caller
+    // can read.
+    const otherProductId = crypto.randomUUID();
+    const failure = await shelfAddFacts(db, {
+      operationId, userProductId: otherProductId, manualName: 'Another Shampoo',
+    }).catch((error: Error) => error);
+    // The answer is a stable code of its own: never a raw unique
+    // violation that names the constraint, never a revision conflict, and
+    // never another operation's stored result handed back as a success.
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toMatch(/operation-conflict/i);
+    expect(failure.message).not.toMatch(/revision-conflict/i);
+    expect(failure.message).not.toMatch(/duplicate key|unique constraint|shelf_operations_pkey/i);
+    // The refused write left nothing behind: the first product keeps the
+    // one revision it had, and the second product was never created.
+    expect((await revisionsOf(db, first.userProductId)).map((row) => row.kind)).toEqual(['baseline']);
+    expect((await shelfDetail(db, first.userProductId)).revision).toBe(1);
+    const created = await db.query<{ id: string }>(
+      `select id from public.user_products where id = $1`, [otherProductId]);
+    expect(created.rows).toEqual([]);
+  });
+
+  it('answers a duplicate operation row the owner never wrote with the same stable conflict', async () => {
+    await complete(db);
+    const operationId = crypto.randomUUID();
+    // A row for this operation id that no call of this owner wrote: the
+    // operations table already holds the operation, so the write is the
+    // duplicate-operation path from the very first moment.
+    await db.exec('set session authorization postgres');
+    await db.query(
+      `insert into strandcue_private.shelf_operations(user_id, operation_id, payload, result)
+       values ($1, $2, '{"op":"another-operation"}'::jsonb, '{"userProductId":"someone-else"}'::jsonb)`,
+      [USER_A, operationId]);
+    await asUser(db, USER_A);
+    const failure = await shelfAddFacts(db, { operationId, manualName: 'Gentle Shampoo' })
+      .catch((error: Error) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toMatch(/operation-conflict/i);
+    expect(failure.message).not.toMatch(/revision-conflict/i);
+    expect(failure.message).not.toMatch(/duplicate key|unique constraint|shelf_operations_pkey/i);
+    // Nothing was written: the product was never created and no revision
+    // was appended.
+    const products = await db.query<{ id: string }>(`select id from public.user_products`);
+    expect(products.rows).toEqual([]);
+    const revisions = await db.query<{ id: string }>(`select id from public.user_product_revisions`);
+    expect(revisions.rows).toEqual([]);
   });
 });

@@ -135,7 +135,14 @@ const notesSchema = z.string().trim().min(1).max(2000).nullable().optional();
 export const CreateUserProductCommandSchema = z.object({
   operationId: z.string().uuid(),
   userProductId: z.string().uuid(),
-  versionId: z.string().uuid().nullable(),
+  // The date the change takes effect. It belongs to the command, so the
+  // command that is retried later is the same command: a retained draft
+  // replays instead of answering `operation-conflict`.
+  effectiveDate: EffectiveDateSchema,
+  // A catalogue link is a confirmed match, never a side effect of recording a
+  // product: the server refuses a version id here, so the domain refuses it
+  // too. The link belongs to the match command, and only to that one.
+  versionId: z.literal(null, { error: 'A catalogue link belongs to the confirmed match command' }),
   manualBrand: z.string().trim().min(1).max(200).nullable(),
   manualName: z.string().trim().min(1).max(200).nullable(),
   manualCategory: ShelfCategorySchema.nullable(),
@@ -153,8 +160,8 @@ export const CreateUserProductCommandSchema = z.object({
   repurchaseIntent: RepurchaseIntentSchema.nullable().optional(),
   notes: notesSchema,
 }).strict().superRefine((command, context) => {
-  // P1-SHELF-02: manual entries stand alone; catalogue links may omit manual fields —
-  // but an entry with neither is not a product.
+  // P1-SHELF-02: manual entries stand alone; a catalogue link may omit manual
+  // fields - but an entry with neither is not a product.
   if (command.versionId === null && command.manualName === null) {
     context.addIssue({ code: 'custom', message: 'Manual entries require a product name' });
   }
@@ -164,6 +171,9 @@ export const ChangeUserProductCommandSchema = z.object({
   operationId: z.string().uuid(),
   userProductId: z.string().uuid(),
   expectedRevision: z.number().int().positive(),
+  // The date the change takes effect, part of the command so a retry is the
+  // same command.
+  effectiveDate: EffectiveDateSchema,
   availability: ShelfAvailabilitySchema.optional(),
   manualVariant: manualVariantSchema,
   manualSize: manualSizeSchema,
@@ -199,16 +209,36 @@ export const ArchiveUserProductCommandSchema = z.object({
  * identity is replaced. It never rewrites the original entry — it appends a
  * correction that points at the entry it replaces, so the earlier wording
  * stays readable in the owner's own history.
+ *
+ * The correction's fields travel in one patch, and the three states stay
+ * apart: a key that is absent preserves the answer, an explicit null clears
+ * it, and a value replaces it. The identity is part of that patch, so a
+ * correction always says something about the identity the owner recorded.
  */
+/**
+ * The owner-facing rule a correction has to meet.
+ *
+ * A correction is an identity correction: it always carries at least one
+ * identity field, so the record it replaces keeps an identity to correct.
+ * The wording lives here, so the domain, the editor and the intro the owner
+ * reads all say the same thing.
+ */
+export const CORRECTION_IDENTITY_RULE = 'A correction has to change the brand, the name or the category.';
+
 export const CorrectUserProductCommandSchema = z.object({
   operationId: z.string().uuid(),
   userProductId: z.string().uuid(),
   expectedRevision: z.number().int().positive(),
   correctsId: z.string().uuid(),
   reason: z.string().trim().min(1).max(500),
-  manualBrand: z.string().trim().min(1).max(200).nullable(),
-  manualName: z.string().trim().min(1).max(200).nullable(),
-  manualCategory: ShelfCategorySchema.nullable(),
+  // The date the correction takes effect, part of the command so a retry is
+  // the same command.
+  effectiveDate: EffectiveDateSchema,
+  // The identity the correction carries. A key that is absent is preserved,
+  // an explicit null clears it and a value replaces it.
+  manualBrand: z.string().trim().min(1).max(200).nullable().optional(),
+  manualName: z.string().trim().min(1).max(200).nullable().optional(),
+  manualCategory: ShelfCategorySchema.nullable().optional(),
   manualVariant: manualVariantSchema,
   manualSize: manualSizeSchema,
   manualBarcode: manualBarcodeSchema,
@@ -218,7 +248,82 @@ export const CorrectUserProductCommandSchema = z.object({
   quantityBand: QuantityBandSchema.nullable().optional(),
   repurchaseIntent: RepurchaseIntentSchema.nullable().optional(),
   notes: notesSchema,
-}).strict();
+}).strict().superRefine((command, context) => {
+  // A correction is an identity correction: it always carries at least one
+  // identity field, so the record it replaces keeps an identity to correct.
+  if (command.manualBrand === undefined && command.manualName === undefined && command.manualCategory === undefined) {
+    context.addIssue({ code: 'custom', message: CORRECTION_IDENTITY_RULE });
+  }
+});
+
+// --- The revision a correction may replace ---------------------------------
+
+/** The identity an owner-entered product carries. */
+export const ShelfIdentityFields = ['manualBrand', 'manualName', 'manualCategory'] as const;
+export type ShelfIdentityField = (typeof ShelfIdentityFields)[number];
+
+/** The kinds of revision a product's own history holds. */
+export type ShelfRevisionKind = 'baseline' | 'change' | 'correction' | 'match' | 'archive';
+
+/**
+ * One revision of a product's own history.
+ *
+ * A revision's `correctsId` points at the revision it replaces, so the
+ * corrections of one record form a chain: the entry, then the correction
+ * that replaced it, then the correction that replaced that one.
+ */
+export type ShelfRevision = {
+  id: string;
+  kind: ShelfRevisionKind;
+  correctsId: string | null;
+  patch?: Record<string, unknown> | null;
+};
+
+const isRecordedText = (value: unknown): boolean => typeof value === 'string' && value.trim() !== '';
+
+/**
+ * Whether a revision carries the identity of the record.
+ *
+ * A match, an archive and an ordinary change never carry it: they link a
+ * catalogue entry, they end the record, or they change a fact. The entry the
+ * owner recorded and a correction both carry it - a correction carries it
+ * whether it names the identity again or clears part of it, because a clear
+ * is an answer about the identity too.
+ */
+export function revisionCarriesIdentity(revision: ShelfRevision): boolean {
+  if (revision.kind === 'match' || revision.kind === 'archive' || revision.kind === 'change') return false;
+  const patch = revision.patch;
+  if (!patch) return false;
+  const mentions = ShelfIdentityFields.some(field => Object.prototype.hasOwnProperty.call(patch, field));
+  if (!mentions) return false;
+  if (revision.kind === 'correction') return true;
+  return ShelfIdentityFields.some(field => isRecordedText(patch[field]));
+}
+
+/**
+ * The revision a correction may replace: the one that currently carries the
+ * identity of the record.
+ *
+ * The corrections of a record form a chain, and only the last link of that
+ * chain is still in force: a revision that a correction already replaced is
+ * never the target again. Of the revisions nothing corrects, the target is
+ * the one that carries the identity - a match, an archive, a change that
+ * only moved the availability and a change that only touched a fact are
+ * never the target, however recent they are.
+ *
+ * There is no target when no revision carries an identity: the server
+ * answers such a correction with `invalid-correction-target`.
+ */
+export function correctionTargetRevision<T extends ShelfRevision>(revisions: readonly T[] | null | undefined): T | null {
+  if (!revisions || revisions.length === 0) return null;
+  const corrected = new Set(
+    revisions
+      .map(revision => revision.correctsId)
+      .filter((id): id is string => typeof id === 'string' && id !== ''),
+  );
+  const candidates = revisions.filter(revision => !corrected.has(revision.id) && revisionCarriesIdentity(revision));
+  return candidates.length === 0 ? null : candidates[candidates.length - 1];
+}
 
 export type CreateUserProductCommand = z.output<typeof CreateUserProductCommandSchema>;
 export type ChangeUserProductCommand = z.output<typeof ChangeUserProductCommandSchema>;

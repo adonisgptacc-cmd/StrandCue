@@ -6,10 +6,12 @@ import {
   archiveUserProduct,
   changeUserProduct,
   correctUserProduct,
+  correctionTarget,
   getUserProduct,
   listUserProducts,
   matchUserProduct,
   recordUserProduct,
+  type ShelfRevisionRecord,
 } from '../../apps/mobile/src/shelf-api';
 import {
   shelfDraftIndexKey,
@@ -25,6 +27,8 @@ import {
 import {
   availabilityLabel,
   openedOnLabel,
+  recordedIdentityWording,
+  revisionLines,
   shelfEditorCopy,
   shelfFactLines,
   shelfView,
@@ -33,7 +37,7 @@ import {
 import { ShelfEditor, commandFailureMessage } from '../../apps/mobile/src/shelf-editor';
 import { Shelf } from '../../apps/mobile/src/shelf';
 import { styles } from '../../apps/mobile/src/ui';
-import { CreateUserProductCommandSchema } from '../../packages/domain/src/shelf.ts';
+import { ChangeUserProductCommandSchema, CorrectUserProductCommandSchema, CORRECTION_IDENTITY_RULE, correctionTargetRevision, CreateUserProductCommandSchema } from '../../packages/domain/src/shelf.ts';
 
 vi.mock('react-native', () => {
   const host = (tag: string) => {
@@ -77,6 +81,9 @@ const ownerB = 'b0000000-0000-4000-8000-000000000002';
 const createCommand = {
   operationId,
   userProductId,
+  // The date the command takes effect. It is part of the command, so a
+  // retained draft that is retried later sends the same payload.
+  effectiveDate: { precision: 'day', value: '2026-03-01' } as const,
   versionId: null,
   manualBrand: 'House brand',
   manualName: 'Gentle shampoo',
@@ -178,6 +185,7 @@ describe('shelf mobile boundary', () => {
       expectedRevision: 1,
       correctsId: 'c0000000-0000-4000-8000-000000000001',
       reason: 'The name was wrong',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       manualBrand: 'House brand',
       manualName: 'Gentle shampoo bar',
       manualCategory: 'shampoo',
@@ -189,15 +197,17 @@ describe('shelf mobile boundary', () => {
       p_expected_revision: 1,
       p_corrects_id: 'c0000000-0000-4000-8000-000000000001',
       p_reason: 'The name was wrong',
-      p_manual_name: 'Gentle shampoo bar',
-      p_manual_brand: 'House brand',
-      p_manual_category: 'shampoo',
-      p_facts: { quantityBand: 'about-half' },
+      // The identity travels in the facts patch, not beside it.
+      p_facts: { manualBrand: 'House brand', manualName: 'Gentle shampoo bar', manualCategory: 'shampoo', quantityBand: 'about-half' },
     }));
     const parameters = rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>;
     // A correction never carries an owner field.
     expect(parameters).not.toHaveProperty('user_id');
     expect(parameters).not.toHaveProperty('owner');
+    // The identity is never a parameter of its own.
+    expect(parameters).not.toHaveProperty('p_manual_brand');
+    expect(parameters).not.toHaveProperty('p_manual_name');
+    expect(parameters).not.toHaveProperty('p_manual_category');
   });
 
   it('refuses a correction without a reason before it reaches the server', async () => {
@@ -207,6 +217,7 @@ describe('shelf mobile boundary', () => {
       expectedRevision: 1,
       correctsId: 'c0000000-0000-4000-8000-000000000001',
       reason: '   ',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       manualBrand: null,
       manualName: 'Gentle shampoo bar',
       manualCategory: null,
@@ -386,6 +397,28 @@ function labelsOf(renderer: ReactTestRenderer): string[] {
   return found;
 }
 
+/** Every string a node speaks, including the ones below it. */
+function spokenText(node: ReactTestInstance): string {
+  const parts: string[] = [];
+  const collect = (current: ReactTestInstance) => {
+    for (const child of current.children) {
+      if (typeof child === 'string') parts.push(child);
+      else if (typeof child === 'object' && child !== null) collect(child as ReactTestInstance);
+    }
+  };
+  collect(node);
+  return parts.join(' ');
+}
+
+/** The text of every announced node on the screen. */
+function announcedTexts(renderer: ReactTestRenderer): string[] {
+  const texts: string[] = [];
+  walk(renderer.root, (node) => {
+    if (node.props?.accessibilityRole === 'alert') texts.push(spokenText(node));
+  });
+  return texts;
+}
+
 /** Every radio that is the selected one in its group. */
 function selectedRadios(renderer: ReactTestRenderer): ReactTestInstance[] {
   return renderer.root.findAll(node => (
@@ -517,7 +550,7 @@ describe('the shelf editor', () => {
       }));
     });
     type(renderer, 'Product name', 'Gentle shampoo bar');
-    type(renderer, 'Reason for this correction', 'The name was wrong');
+    type(renderer, 'Reason for this correction (required)', 'The name was wrong');
     press(renderer, 'Save correction');
     await flush();
     const [name, parameters] = rpc.mock.calls.at(-1) as [string, Record<string, unknown>];
@@ -525,8 +558,53 @@ describe('the shelf editor', () => {
     // The correction appends: it points at the entry it replaces.
     expect(parameters.p_corrects_id).toBe('c0000000-0000-4000-8000-000000000001');
     expect(parameters.p_reason).toBe('The name was wrong');
-    expect(parameters.p_manual_name).toBe('Gentle shampoo bar');
+    // The identity travels in the facts patch, with the three states apart.
+    expect(parameters.p_facts).toMatchObject({ manualName: 'Gentle shampoo bar' });
+    expect(parameters.p_facts).not.toHaveProperty('manualBrand');
     expect(parameters.p_expected_revision).toBe(1);
+  });
+
+  it('clears the name of a catalogue-linked product, because the link identifies it', async () => {
+    rpc.mockResolvedValue({ data: { userProductId, revision: 3, revisions: [] }, error: null });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        // The product is linked to a catalogue version, so something else
+        // identifies it: the manual name can go, and the server takes it.
+        detail: shelfDetail({ versionId, matched: true, matchConfirmed: true, revisions: [shelfRevision()] }) as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    type(renderer, 'Product name', '');
+    type(renderer, 'Reason for this correction (required)', 'The name was typed wrong');
+    press(renderer, 'Save correction');
+    await flush();
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [name, parameters] = rpc.mock.calls.at(-1) as [string, Record<string, unknown>];
+    expect(name).toBe('shelf_correct');
+    // The name is cleared, not replaced and not left as it was.
+    expect(parameters.p_facts).toMatchObject({ manualName: null });
+    expect(renderedText(renderer)).not.toContain('Keep a name on this product');
+  });
+
+  it('refuses to clear the only name a manual product has', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        // Nothing else identifies this product, so a cleared name would
+        // leave a row that identifies nothing: the editor refuses it.
+        detail: shelfDetail({ revisions: [shelfRevision()] }) as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    type(renderer, 'Product name', '');
+    type(renderer, 'Reason for this correction (required)', 'The name was typed wrong');
+    press(renderer, 'Save correction');
+    await flush();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(renderedText(renderer)).toContain('Keep a name on this product');
   });
 
   it('refuses a correction without a reason', async () => {
@@ -573,13 +651,17 @@ describe('the shelf editor', () => {
         onSaved: () => undefined, onCancel: () => undefined,
       }));
     });
-    // Every group that takes an answer offers the way back.
-    expect(labelsOf(renderer)).toContain('How much is left?: Not answered');
-    expect(labelsOf(renderer)).toContain('Would you buy it again?: Not answered');
-    expect(labelsOf(renderer)).toContain('When did you open it?: Not answered');
-    choose(renderer, 'How much is left?', 'Not answered');
-    choose(renderer, 'Would you buy it again?', 'Not answered');
-    choose(renderer, 'When did you open it?', 'Not answered');
+    // Every group that takes an answer offers the way back, and it says so
+    // in the same words the history uses.
+    expect(labelsOf(renderer)).toContain('How much is left?: Cleared');
+    expect(labelsOf(renderer)).toContain('Would you buy it again?: Cleared');
+    expect(labelsOf(renderer)).toContain('When did you open it?: Cleared');
+    // The clearing option never calls itself "Not answered": that is the
+    // state of a fact the owner never answered.
+    expect(labelsOf(renderer)).not.toContain('How much is left?: Not answered');
+    choose(renderer, 'How much is left?', 'Cleared');
+    choose(renderer, 'Would you buy it again?', 'Cleared');
+    choose(renderer, 'When did you open it?', 'Cleared');
     press(renderer, 'Save changes');
     await flush();
     const [, parameters] = rpc.mock.calls.at(-1) as [string, Record<string, unknown>];
@@ -664,7 +746,7 @@ describe('the shelf editor', () => {
     });
     const draft: ShelfDraft = {
       mode: 'edit',
-      command: { operationId, userProductId, expectedRevision: 1, availability: 'low' },
+      command: { operationId, userProductId, expectedRevision: 1, effectiveDate: { precision: 'day', value: '2026-03-01' }, availability: 'low' },
     };
     let renderer!: ReactTestRenderer;
     await act(async () => {
@@ -858,7 +940,7 @@ describe('the shelf list', () => {
     expect(text).toContain('Running low');
     expect(text).toContain('Variant: Fragrance free');
     expect(text).toContain('Size: 400 ml');
-    expect(text).toContain('Opened in 2026-03');
+    expect(text).toContain('Opened date: March 2026');
     expect(text).toContain('Expiry date: 2027-06-30');
     expect(text).toContain('12 months after opening');
     expect(text).not.toContain('Period after opening: 12 months after opening');
@@ -972,6 +1054,7 @@ describe('the recorded shelf facts', () => {
     expect(shelfFactLines({ quantityBand: 'unknown' })).toEqual(['How much is left: Not sure']);
     expect(openedOnLabel(null)).toBeNull();
     expect(openedOnLabel({ precision: 'unknown', value: null })).toBe('Not sure when it was opened');
+    expect(shelfFactLines({ openedOn: { precision: 'unknown', value: null } })).toEqual(['Opened date: Not sure when it was opened']);
   });
 
   it('labels every verification and availability state it can meet', () => {
@@ -979,9 +1062,9 @@ describe('the recorded shelf facts', () => {
     expect(verificationBadge('pending_verification')).toContain('Verification pending');
     expect(availabilityLabel('out_of_stock')).toBe('Not currently available');
     expect(availabilityLabel('something else')).toBe('Availability unknown');
-    expect(openedOnLabel({ precision: 'day', value: '2026-03-01' })).toBe('Opened on 2026-03-01');
-    expect(openedOnLabel({ precision: 'month', value: '2026-03' })).toBe('Opened in 2026-03');
-    expect(openedOnLabel({ precision: 'year', value: '2026' })).toBe('Opened in 2026');
+    expect(openedOnLabel({ precision: 'day', value: '2026-03-01' })).toBe('1 March 2026');
+    expect(openedOnLabel({ precision: 'month', value: '2026-03' })).toBe('March 2026');
+    expect(openedOnLabel({ precision: 'year', value: '2026' })).toBe('2026');
   });
 });
 
@@ -993,7 +1076,11 @@ describe('the shelf boundary failures', () => {
 
   it('sends a change without an availability when the owner only changed a fact', async () => {
     rpc.mockResolvedValueOnce({ data: { userProductId, revision: 2, revisions: [] }, error: null });
-    await changeUserProduct({ operationId, userProductId, expectedRevision: 1, quantityBand: 'about-half' });
+    await changeUserProduct({
+      operationId, userProductId, expectedRevision: 1,
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
+      quantityBand: 'about-half',
+    });
     const [, parameters] = rpc.mock.calls.at(-1) as [string, Record<string, unknown>];
     expect(parameters.p_availability).toBeNull();
     expect(parameters.p_facts).toMatchObject({ quantityBand: 'about-half' });
@@ -1279,9 +1366,9 @@ describe('the shelf editor journeys', () => {
       }));
     });
     const text = renderedText(renderer);
-    expect(text).toContain('Brand: Not recorded');
-    expect(text).toContain('Name: Not recorded');
-    expect(text).toContain('Category: Not recorded');
+    expect(text).toContain('Brand: Not answered');
+    expect(text).toContain('Name: Not answered');
+    expect(text).toContain('Category: Not answered');
     expect(text).toContain('Month opened (YYYY-MM)');
   });
 });
@@ -1327,7 +1414,8 @@ describe('the shelf entry journeys', () => {
     // The correction opens on the entry the owner recorded.
     expect(renderedText(renderer)).toContain('Correct this product');
     expect(inputValue(renderer, 'Product name')).toBe('Gentle shampoo');
-    type(renderer, 'Reason for this correction', 'The brand was wrong');
+    type(renderer, 'Product name', 'Gentle shampoo bar');
+    type(renderer, 'Reason for this correction (required)', 'The brand was wrong');
     press(renderer, 'Save correction');
     await flush();
     const correction = rpc.mock.calls.find(call => call[0] === 'shelf_correct');
@@ -1375,7 +1463,7 @@ describe('the shelf entry journeys', () => {
     expect(text).toContain('Correction');
     expect(text).toContain('Catalogue match');
     expect(text).toContain('Archive');
-    expect(text).toContain('Corrects an earlier entry.');
+    expect(text).toContain('Replaces the earlier entry that recorded the name Gentle shampoo.');
     expect(text).toContain('Linked catalogue version recorded');
   });
 
@@ -1466,28 +1554,6 @@ describe('the shelf entry journeys', () => {
 // --- The accessibility contract of the shelf ------------------------------
 
 describe('the shelf accessibility contract', () => {
-  /** Every string a node speaks, including the ones below it. */
-  function spokenText(node: ReactTestInstance): string {
-    const parts: string[] = [];
-    const collect = (current: ReactTestInstance) => {
-      for (const child of current.children) {
-        if (typeof child === 'string') parts.push(child);
-        else if (typeof child === 'object' && child !== null) collect(child as ReactTestInstance);
-      }
-    };
-    collect(node);
-    return parts.join(' ');
-  }
-
-  /** The text of every announced node on the screen. */
-  function announcedTexts(renderer: ReactTestRenderer): string[] {
-    const texts: string[] = [];
-    walk(renderer.root, (node) => {
-      if (node.props?.accessibilityRole === 'alert') texts.push(spokenText(node));
-    });
-    return texts;
-  }
-
   async function openEditor(mode: 'add' | 'edit', detail: Record<string, unknown> = {}): Promise<ReactTestRenderer> {
     let renderer!: ReactTestRenderer;
     await act(async () => {
@@ -1658,5 +1724,781 @@ describe('the shelf accessibility contract', () => {
     const bounded = commandFailureMessage(tooLong.success ? null : tooLong.error);
     expect(bounded).toContain('product name');
     expect(bounded).toContain('200');
+  });
+});
+
+// --- The revision a correction may replace ---------------------------------
+
+const baselineId = 'c0000000-0000-4000-8000-000000000001';
+const changeId = 'c0000000-0000-4000-8000-000000000002';
+const correctionId = 'c0000000-0000-4000-8000-000000000003';
+const matchId = 'c0000000-0000-4000-8000-000000000004';
+const archiveId = 'c0000000-0000-4000-8000-000000000005';
+
+/** The entry the owner recorded: it carries the identity. */
+const identityEntry = (): ShelfRevisionRecord => shelfRevision({
+  id: baselineId,
+  kind: 'baseline',
+  // The size is an answer the owner gave, and the notes are an answer the
+  // owner never gave: the server records both keys, one with a value and
+  // one as a null.
+  patch: { manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo', manualSize: '400 ml', availability: 'available', notes: null },
+}) as ShelfRevisionRecord;
+
+/** A revision that recorded no identity at all. */
+const withoutIdentity = (overrides: Record<string, unknown> = {}): ShelfRevisionRecord => shelfRevision({
+  patch: { versionId: null, manualBrand: null, manualName: null, manualCategory: null, availability: null, notes: null },
+  ...overrides,
+}) as ShelfRevisionRecord;
+
+/**
+ * A legacy-shaped revision: the old core wrote the three identity keys on
+ * every revision, whatever the kind was, so the patch of a change, a match
+ * or an archive can carry an identity that was never answered there.
+ */
+const legacyShaped = (overrides: Record<string, unknown> = {}): ShelfRevisionRecord => shelfRevision({
+  patch: { manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo', availability: 'low', notes: null },
+  ...overrides,
+}) as ShelfRevisionRecord;
+
+/** One revision of the history, in the shape the client reads. */
+const revision = (overrides: Record<string, unknown> = {}): ShelfRevisionRecord =>
+  shelfRevision(overrides) as ShelfRevisionRecord;
+
+describe('the revision a correction may replace', () => {
+  it('targets the identity-bearing entry after the product was matched to the catalogue', () => {
+    const revisions = [
+      identityEntry(),
+      withoutIdentity({ id: matchId, kind: 'match', matchVersionId: versionId }),
+    ];
+    expect(correctionTarget(revisions)?.id).toBe(baselineId);
+  });
+
+  it('targets the identity-bearing entry after an availability change', () => {
+    const revisions = [
+      identityEntry(),
+      withoutIdentity({ id: changeId, kind: 'change', patch: { manualBrand: null, manualName: null, manualCategory: null, availability: 'low', notes: null } }),
+    ];
+    expect(correctionTarget(revisions)?.id).toBe(baselineId);
+  });
+
+  it('targets the identity-bearing entry after the product was archived', () => {
+    const revisions = [
+      identityEntry(),
+      withoutIdentity({ id: archiveId, kind: 'archive' }),
+    ];
+    expect(correctionTarget(revisions)?.id).toBe(baselineId);
+  });
+
+  it('targets the identity-bearing entry after a fact-only change', () => {
+    const revisions = [
+      identityEntry(),
+      withoutIdentity({ id: changeId, kind: 'change', patch: { manualBrand: null, manualName: null, manualCategory: null, availability: 'available', notes: null, quantityBand: 'about-half' } }),
+    ];
+    expect(correctionTarget(revisions)?.id).toBe(baselineId);
+  });
+
+  it('targets the correction itself after an earlier identity correction', () => {
+    const revisions = [
+      identityEntry(),
+      revision({
+        id: correctionId,
+        kind: 'correction',
+        correctsId: baselineId,
+        patch: { manualBrand: 'House brand', manualName: 'Gentle shampoo bar', manualCategory: 'shampoo', availability: 'available', notes: null },
+      }),
+    ];
+    // The correction replaced the entry, so the entry is no longer the target.
+    expect(correctionTarget(revisions)?.id).toBe(correctionId);
+  });
+
+  it('refuses a legacy-shaped change, match and archive, whatever their patch holds', () => {
+    // A history written before the contract carries the three identity keys
+    // on every revision, whatever the kind was. The rule reads the kind as
+    // well as the shape of the patch, so a shape-only rule would let an
+    // availability-only change, an archive and a match be targeted.
+    const revisions = [
+      identityEntry(),
+      legacyShaped({ id: changeId, kind: 'change' }),
+      legacyShaped({ id: matchId, kind: 'match', matchVersionId: versionId }),
+      legacyShaped({ id: archiveId, kind: 'archive' }),
+    ];
+    // The entry that carries the identity is still the target.
+    expect(correctionTarget(revisions)?.id).toBe(baselineId);
+    // And none of the legacy-shaped revisions is a target on its own.
+    for (const kind of ['change', 'match', 'archive'] as const) {
+      expect(correctionTarget([legacyShaped({ id: changeId, kind })])).toBeNull();
+    }
+    // The domain says the same thing, so the client cannot drift away.
+    expect(correctionTargetRevision(revisions)?.id).toBe(baselineId);
+  });
+
+  it('has no target when no revision carries an identity', () => {
+    expect(correctionTarget([withoutIdentity({ id: matchId, kind: 'match' })])).toBeNull();
+    expect(correctionTarget([])).toBeNull();
+    expect(correctionTarget(undefined)).toBeNull();
+  });
+
+  it('is the same rule the domain states, and the mobile selector reuses it', () => {
+    const revisions = [
+      identityEntry(),
+      withoutIdentity({ id: changeId, kind: 'change' }),
+      revision({
+        id: correctionId,
+        kind: 'correction',
+        correctsId: baselineId,
+        patch: { manualBrand: 'House brand', manualName: 'Gentle shampoo bar', manualCategory: 'shampoo' },
+      }),
+    ];
+    // The domain owns the rule...
+    expect(correctionTargetRevision(revisions)?.id).toBe(correctionId);
+    // ...and the mobile selector is that rule, not a second one.
+    expect(correctionTarget(revisions)).toBe(correctionTargetRevision(revisions));
+  });
+});
+
+describe('the shelf command boundary', () => {
+  it('refuses a create command that carries a catalogue version id', () => {
+    // A catalogue link belongs to the confirmed match command, never to the
+    // command that records a product for the first time.
+    const refused = CreateUserProductCommandSchema.safeParse({ ...createCommand, versionId });
+    expect(refused.success).toBe(false);
+  });
+
+  it('accepts a correction that clears the brand the owner recorded', () => {
+    const cleared = CorrectUserProductCommandSchema.safeParse({
+      operationId,
+      userProductId,
+      expectedRevision: 1,
+      correctsId: baselineId,
+      reason: 'The brand was wrong',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
+      manualBrand: null,
+      manualName: 'Gentle shampoo',
+    });
+    expect(cleared.success).toBe(true);
+  });
+
+  it('refuses a correction that carries no identity field at all', () => {
+    const refused = CorrectUserProductCommandSchema.safeParse({
+      operationId,
+      userProductId,
+      expectedRevision: 1,
+      correctsId: baselineId,
+      reason: 'The variant was wrong',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
+      manualVariant: 'Fragrance free',
+    });
+    expect(refused.success).toBe(false);
+  });
+});
+
+// --- The correction history the owner reads --------------------------------
+
+describe('the correction history', () => {
+  it('reads the reason the database returns with a revision', async () => {
+    rpc.mockResolvedValueOnce({
+      data: shelfDetail({
+        revisions: [shelfRevision({ correctionReason: 'The brand was wrong' })],
+      }),
+      error: null,
+    });
+    const detail = await getUserProduct(userProductId, true);
+    expect(detail?.revisions[0]?.correctionReason).toBe('The brand was wrong');
+  });
+
+  it('refuses a revision whose reason is not text', async () => {
+    rpc.mockResolvedValueOnce({
+      data: shelfDetail({ revisions: [shelfRevision({ correctionReason: 42 })] }),
+      error: null,
+    });
+    await expect(getUserProduct(userProductId, true)).rejects.toThrow();
+  });
+
+  it('shows the reason and every fact a correction changed, cleared or left alone', async () => {
+    rpc.mockImplementation((name: string) => {
+      if (name === 'shelf_list') return Promise.resolve({ data: { items: [shelfItem()], nextCursor: null }, error: null });
+      if (name === 'shelf_history') {
+        return Promise.resolve({
+          data: shelfDetail({
+            manualBrand: 'New brand',
+            manualName: 'Gentle shampoo bar',
+            revisions: [
+              identityEntry(),
+              revision({
+                id: correctionId,
+                kind: 'correction',
+                correctsId: baselineId,
+                correctionReason: 'The brand was wrong',
+                patch: {
+                  manualBrand: 'New brand',
+                  manualName: 'Gentle shampoo bar',
+                  manualCategory: 'shampoo',
+                  manualVariant: null,
+                  quantityBand: 'unknown',
+                  notes: null,
+                },
+              }),
+            ],
+          }),
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(Shelf, { owner: ownerA }));
+    });
+    await flush();
+    press(renderer, 'View product entry: Gentle shampoo');
+    await flush();
+    press(renderer, 'Show product audit');
+    await flush();
+    const text = renderedText(renderer);
+    // The reason the owner gave stays readable.
+    expect(text).toContain('Reason: The brand was wrong');
+    // A fact the correction changed is shown as it was changed.
+    expect(text).toContain('Brand: New brand');
+    expect(text).toContain('Name: Gentle shampoo bar');
+    // A fact the owner cleared reads as cleared, never as blank.
+    expect(text).toContain('Variant: Cleared');
+    expect(text).toContain('Notes: Cleared');
+    // An explicit unknown answer is not the same as an answer that was never given.
+    expect(text).toContain('How much is left: Not sure');
+    // A fact the earlier entry never recorded at all is an answer the owner
+    // never gave, so it reads as never answered.
+    expect(text).toContain('Expiry date: Not answered');
+    // A fact the earlier entry recorded with a value is an answer the owner
+    // gave, so the correction kept it.
+    expect(text).toContain('Size: Kept');
+    // A correction never clears the availability: that is an ordinary
+    // change, so the correction kept it.
+    expect(text).toContain('Availability: Kept');
+    expect(text).not.toContain('Availability: Cleared');
+    // The reason and the facts stay readable after the product is read again.
+    press(renderer, 'Back to shelf');
+    await flush();
+    press(renderer, 'View product entry: Gentle shampoo');
+    await flush();
+    press(renderer, 'Show product audit');
+    await flush();
+    const reloaded = renderedText(renderer);
+    expect(reloaded).toContain('Reason: The brand was wrong');
+    expect(reloaded).toContain('Brand: New brand');
+    expect(reloaded).toContain('Variant: Cleared');
+    expect(reloaded).toContain('How much is left: Not sure');
+  });
+});
+
+// --- What a correction preserves, sets and clears ---------------------------
+
+describe('the facts a correction carries', () => {
+  it('sends the identity and the facts in one patch, and leaves the rest out', async () => {
+    rpc.mockResolvedValueOnce({ data: { userProductId, revision: 2, revisions: [] }, error: null });
+    await correctUserProduct({
+      operationId,
+      userProductId,
+      expectedRevision: 1,
+      correctsId: baselineId,
+      reason: 'The brand and the variant were wrong',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
+      // The brand is cleared, the name is replaced, the category is kept.
+      manualBrand: null,
+      manualName: 'Gentle shampoo bar',
+      manualVariant: null,
+      manualSize: '400 ml',
+    });
+    const parameters = rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    // A key the owner did not change is left out, so the answer is preserved.
+    expect(parameters.p_facts).toEqual({
+      manualBrand: null,
+      manualName: 'Gentle shampoo bar',
+      manualVariant: null,
+      manualSize: '400 ml',
+    });
+    expect(parameters.p_facts).not.toHaveProperty('manualCategory');
+    expect(parameters.p_facts).not.toHaveProperty('quantityBand');
+    expect(parameters.p_facts).not.toHaveProperty('notes');
+  });
+
+  it('clears the fact the owner empties and leaves the other facts alone', async () => {
+    rpc.mockResolvedValue({ data: { userProductId, revision: 3, revisions: [] }, error: null });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        detail: shelfDetail({
+          manualVariant: 'Fragrance free',
+          pao: '12 months after opening',
+          quantityBand: 'about-half',
+          revisions: [shelfRevision()],
+        }) as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    type(renderer, 'Product name', 'Gentle shampoo bar');
+    type(renderer, 'Period after opening (your own words, optional)', '');
+    type(renderer, 'Reason for this correction (required)', 'The name and the period were wrong');
+    press(renderer, 'Save correction');
+    await flush();
+    const [name, parameters] = rpc.mock.calls.at(-1) as [string, Record<string, unknown>];
+    expect(name).toBe('shelf_correct');
+    const facts = parameters.p_facts as Record<string, unknown>;
+    // The name is replaced…
+    expect(facts.manualName).toBe('Gentle shampoo bar');
+    // …the period after opening is cleared…
+    expect(facts.pao).toBeNull();
+    // …and the facts the owner left alone are preserved, not resent.
+    expect(facts).not.toHaveProperty('manualVariant');
+    expect(facts).not.toHaveProperty('quantityBand');
+    // The identity the owner did not change is preserved as well.
+    expect(facts).not.toHaveProperty('manualBrand');
+    expect(facts).not.toHaveProperty('manualCategory');
+  });
+
+  it('clears the brand the owner takes back in a correction', async () => {
+    rpc.mockResolvedValue({ data: { userProductId, revision: 3, revisions: [] }, error: null });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        detail: shelfDetail({ manualBrand: 'House brand', revisions: [shelfRevision()] }) as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    type(renderer, 'Brand (as printed)', '');
+    type(renderer, 'Reason for this correction (required)', 'The brand was wrong');
+    press(renderer, 'Save correction');
+    await flush();
+    expect(rpc).toHaveBeenCalled();
+    const facts = (rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>).p_facts as Record<string, unknown>;
+    // An explicit null clears the brand; the name is left alone.
+    expect(facts.manualBrand).toBeNull();
+    expect(facts).not.toHaveProperty('manualName');
+  });
+
+  it('refuses a correction that changes none of the identity', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        detail: shelfDetail({ revisions: [shelfRevision()] }) as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    type(renderer, 'Reason for this correction (required)', 'I want to say something about this product');
+    press(renderer, 'Save correction');
+    await flush();
+    // A correction is an identity correction: it has to change the brand,
+    // the name or the category.
+    expect(rpc).not.toHaveBeenCalled();
+    expect(renderedText(renderer)).toContain('A correction has to change the brand, the name or the category');
+  });
+});
+
+// --- The availability the owner can record ---------------------------------
+
+describe('the availability the owner can record', () => {
+  it('refuses the legacy availability state on every write path', () => {
+    expect(CreateUserProductCommandSchema.safeParse({ ...createCommand, availability: 'out_of_stock' }).success).toBe(false);
+    expect(ChangeUserProductCommandSchema.safeParse({
+      operationId, userProductId, expectedRevision: 1, availability: 'out_of_stock',
+    }).success).toBe(false);
+  });
+
+  it('never offers the legacy state for a product that does not already hold it', async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'add', onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    expect(labelsOf(renderer)).not.toContain('Availability: Not currently available');
+    expect(labelsOf(renderer)).toContain('Availability: Available');
+  });
+
+  it('never sends the legacy state as a new value', async () => {
+    rpc.mockResolvedValue({ data: { userProductId, revision: 2, revisions: [] }, error: null });
+    // A row that already holds the legacy state keeps it: the client never
+    // writes it as a new value.
+    await expect(changeUserProduct({
+      operationId, userProductId, expectedRevision: 1, availability: 'out_of_stock',
+    })).rejects.toThrow();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+// --- What the owner reads and hears on the correction screen ---------------
+
+describe('the correction screen and the history the owner reads', () => {
+  const history = () => shelfDetail({
+    manualBrand: 'New brand',
+    manualName: 'Gentle shampoo bar',
+    manualCategory: 'shampoo',
+    manualVariant: 'Fragrance free',
+    openedOn: { precision: 'day', value: '2026-03-01' },
+    revisions: [
+      identityEntry(),
+      revision({
+        id: correctionId,
+        kind: 'correction',
+        correctsId: baselineId,
+        correctionReason: 'The brand was wrong',
+        patch: {
+          manualBrand: 'New brand',
+          manualName: 'Gentle shampoo bar',
+          manualCategory: 'shampoo',
+          manualVariant: null,
+          quantityBand: 'unknown',
+          openedOn: { precision: 'day', value: '2026-03-01' },
+        },
+      }),
+    ],
+  });
+
+  async function openHistory(): Promise<ReactTestRenderer> {
+    rpc.mockImplementation((name: string) => {
+      if (name === 'shelf_list') return Promise.resolve({ data: { items: [shelfItem()], nextCursor: null }, error: null });
+      if (name === 'shelf_history') return Promise.resolve({ data: history(), error: null });
+      return Promise.resolve({ data: null, error: null });
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Shelf, { owner: ownerA })); });
+    await flush();
+    press(renderer, 'View product entry: Gentle shampoo');
+    await flush();
+    press(renderer, 'Show product audit');
+    await flush();
+    return renderer;
+  }
+
+  async function openCorrection(detail: Record<string, unknown> = {}): Promise<ReactTestRenderer> {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        detail: shelfDetail({ revisions: [identityEntry()], ...detail }) as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    return renderer;
+  }
+
+  it('says the four answers in four different ways, so they are tellable apart by sound', async () => {
+    const renderer = await openHistory();
+    const text = renderedText(renderer);
+    // The answers are announced, not only drawn.
+    const announced = announcedTexts(renderer).join(' | ');
+    // A fact the owner answered.
+    expect(text).toContain('Brand: New brand');
+    expect(announced).toContain('Brand: New brand');
+    // A fact the owner took back.
+    expect(text).toContain('Variant: Cleared');
+    expect(announced).toContain('Variant: Cleared');
+    // A fact the owner never answered: the earlier entry recorded the key,
+    // but never with an answer.
+    expect(text).toContain('Notes: Not answered');
+    expect(announced).toContain('Notes: Not answered');
+    // A fact the correction left alone: the record still holds it.
+    expect(text).toContain('Size: Kept');
+    expect(announced).toContain('Size: Kept');
+    // An explicit unknown answer keeps its own words.
+    expect(text).toContain('How much is left: Not sure');
+    expect(announced).toContain('How much is left: Not sure');
+    // The four states are four different words.
+    const states = ['Cleared', 'Not answered', 'Kept', 'Not sure'];
+    expect(new Set(states).size).toBe(4);
+  });
+
+  it('reads a fact the owner never answered as never answered, not as kept', () => {
+    // The server records the identity keys of the first entry as nulls, so
+    // a product added without a brand carries the key with a null value.
+    const baseline = revision({
+      id: baselineId,
+      kind: 'baseline',
+      patch: { manualBrand: null, manualName: 'Gentle shampoo', manualCategory: null, availability: 'available', notes: null },
+    });
+    const correction = revision({
+      id: correctionId,
+      kind: 'correction',
+      correctsId: baselineId,
+      patch: { manualName: 'Gentle shampoo bar' },
+    });
+    const lines = revisionLines(correction.patch, correction.kind, baseline.patch);
+    // The owner never answered either, so neither reads as kept.
+    expect(lines).toContain('Brand: Not answered');
+    expect(lines).toContain('Category: Not answered');
+    expect(lines).not.toContain('Brand: Kept');
+    expect(lines).not.toContain('Category: Kept');
+  });
+
+  it('uses the same word for the clearing action in the editor and in the history', async () => {
+    const renderer = await openCorrection();
+    // The editor's way back is "Cleared", never "Not answered": that is the
+    // state of a fact the owner never answered.
+    expect(labelsOf(renderer)).toContain('How much is left?: Cleared');
+    expect(labelsOf(renderer)).not.toContain('How much is left?: Not answered');
+    // And the history calls that same state "Cleared".
+    const historyRenderer = await openHistory();
+    expect(renderedText(historyRenderer)).toContain('Variant: Cleared');
+  });
+
+  it('says a cleared category as cleared in the editor, the way the audit says it', async () => {
+    // The entry the correction replaces took the category back.
+    const clearedCategory = shelfDetail({
+      manualCategory: null,
+      revisions: [
+        identityEntry(),
+        revision({
+          id: correctionId,
+          kind: 'correction',
+          correctsId: baselineId,
+          patch: { manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: null },
+        }),
+      ],
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        detail: clearedCategory as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    const text = renderedText(renderer);
+    // The editor and the audit use the same word for a cleared field.
+    expect(text).toContain('Category: Cleared');
+    expect(text).not.toContain('Category: Not answered');
+    // The category group offers the way back, like the other groups do.
+    expect(labelsOf(renderer)).toContain('Category: Cleared');
+  });
+
+  it('takes a category back when the owner chooses the way back', async () => {
+    rpc.mockResolvedValue({ data: { userProductId, revision: 2, revisions: [] }, error: null });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, {
+        owner: ownerA, mode: 'correct', userProductId,
+        detail: shelfDetail({ revisions: [identityEntry()] }) as never,
+        onSaved: () => undefined, onCancel: () => undefined,
+      }));
+    });
+    choose(renderer, 'Category', 'Cleared');
+    type(renderer, 'Product name', 'Gentle shampoo bar');
+    type(renderer, 'Reason for this correction (required)', 'The category was wrong');
+    press(renderer, 'Save correction');
+    await flush();
+    const facts = (rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>).p_facts as Record<string, unknown>;
+    // The category the owner took back is cleared, not left as it was.
+    expect(facts.manualCategory).toBeNull();
+  });
+
+  it('gives every revision in the history a heading, so the owner can navigate them', async () => {
+    const renderer = await openHistory();
+    const headings = renderer.root
+      .findAll(node => node.props?.accessibilityRole === 'header')
+      .map(node => textOf(node));
+    expect(headings).toContain('Original entry');
+    expect(headings).toContain('Correction');
+  });
+
+  it('names the entry a correction replaces and dates it in words', async () => {
+    const renderer = await openHistory();
+    const text = renderedText(renderer);
+    // A correction says which entry it replaces, by the wording it recorded.
+    expect(text).toContain('Replaces the earlier entry that recorded the name Gentle shampoo.');
+    // The opened date reads in words, and the line carries its label like
+    // its siblings do.
+    expect(text).toContain('Opened date: 1 March 2026');
+    expect(text).not.toContain('2026-03-01');
+  });
+
+  it('reads the opened date the same way on every screen', async () => {
+    const renderer = await openHistory();
+    const text = renderedText(renderer);
+    // The audit says the date once, with the label its siblings carry.
+    expect(text).toContain('Opened date: 1 March 2026');
+    expect(text).not.toContain('Opened date: Opened on');
+    // The entry screen reads the date the same way.
+    expect(text).not.toContain('Opened on 1 March 2026');
+  });
+
+  it('announces the screen the owner moves into', async () => {
+    rpc.mockImplementation((name: string) => {
+      if (name === 'shelf_list') return Promise.resolve({ data: { items: [shelfItem()], nextCursor: null }, error: null });
+      if (name === 'shelf_history') return Promise.resolve({ data: history(), error: null });
+      return Promise.resolve({ data: null, error: null });
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Shelf, { owner: ownerA })); });
+    await flush();
+    press(renderer, 'View product entry: Gentle shampoo');
+    await flush();
+    press(renderer, "Correct this product's details");
+    await flush();
+    // The tree is swapped for a new screen, so the new screen says so.
+    expect(announcedTexts(renderer).some(text => text.includes('Correct this product'))).toBe(true);
+  });
+
+  it('states the rule a correction has to meet, next to the reason', async () => {
+    const renderer = await openCorrection();
+    const text = renderedText(renderer);
+    expect(text).toContain(CORRECTION_IDENTITY_RULE);
+    // The rule is next to the reason it belongs to.
+    expect(text.indexOf(CORRECTION_IDENTITY_RULE)).toBeLessThan(text.indexOf('Reason for this correction'));
+  });
+
+  it('marks every refused field as invalid, not only the reason', async () => {
+    const renderer = await openCorrection();
+    // The owner empties the name and saves: the name and the reason are
+    // both refused.
+    type(renderer, 'Product name', '');
+    press(renderer, 'Save correction');
+    await flush();
+    const nameInput = renderer.root.findAll(node => node.props?.accessibilityLabel === 'Product name');
+    expect(nameInput[0].props.accessibilityState).toMatchObject({ invalid: true });
+    const reasonInput = renderer.root.findAll(node => node.props?.accessibilityLabel === 'Reason for this correction (required)');
+    expect(reasonInput[0].props.accessibilityState).toMatchObject({ invalid: true });
+  });
+
+  it('marks a refused opening date as invalid on its own input', async () => {
+    const renderer = await openCorrection();
+    type(renderer, 'Reason for this correction (required)', 'The name was wrong');
+    choose(renderer, 'When did you open it?', 'A day');
+    type(renderer, 'Date opened (YYYY-MM-DD)', '2026-02-30');
+    press(renderer, 'Save correction');
+    await flush();
+    // The date the owner typed is not a real date, so its own input says so.
+    const input = renderer.root.findAll(node => node.props?.accessibilityLabel === 'Date opened (YYYY-MM-DD)');
+    expect(input[0].props.accessibilityState).toMatchObject({ invalid: true });
+  });
+
+  it('says in the visible label that the reason is required', async () => {
+    const renderer = await openCorrection();
+    // The visible label says the reason is required, not only the hint.
+    expect(renderedText(renderer)).toContain('Reason for this correction (required)');
+    // And the input carries the same name, so the screen reader hears it too.
+    expect(labelsOf(renderer)).toContain('Reason for this correction (required)');
+  });
+
+  it('names the entry the correction replaces, before the owner corrects it', async () => {
+    const renderer = await openCorrection();
+    const text = renderedText(renderer);
+    // The owner knows which entry is being corrected, by the wording it
+    // recorded - the same wording the audit uses.
+    expect(text).toContain('the entry that recorded the name Gentle shampoo');
+    // And it is announced, not only drawn.
+    expect(announcedTexts(renderer).some(announced => announced.includes('the entry that recorded the name Gentle shampoo'))).toBe(true);
+  });
+
+  it('groups the correction screen under headings, so heading navigation gives structure', async () => {
+    const renderer = await openCorrection();
+    const headings = renderer.root
+      .findAll(node => node.props?.accessibilityRole === 'header')
+      .map(node => textOf(node));
+    expect(headings).toContain('The details being corrected');
+    expect(headings).toContain('Why you are correcting it');
+    expect(headings).toContain('The other details that can change');
+  });
+
+  it('announces the refused reason and marks the input as invalid', async () => {
+    const renderer = await openCorrection();
+    type(renderer, 'Brand (as printed)', 'New brand');
+    press(renderer, 'Save correction');
+    await flush();
+    // The refusal is announced, not only drawn.
+    expect(announcedTexts(renderer).some(text => text.includes('Reason for this correction'))).toBe(true);
+    // And the input itself says that its answer was refused.
+    const input = renderer.root.findAll(node => node.props?.accessibilityLabel === 'Reason for this correction (required)');
+    expect(input[0].props.accessibilityState).toMatchObject({ invalid: true });
+  });
+
+  it('announces the identity rule the correction refuses', async () => {
+    const renderer = await openCorrection();
+    type(renderer, 'Reason for this correction (required)', 'I want to say something about this product');
+    press(renderer, 'Save correction');
+    await flush();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(announcedTexts(renderer).some(text => text.includes(CORRECTION_IDENTITY_RULE))).toBe(true);
+  });
+
+  it('sends a correction that carries the identity the owner answered, even when the answer did not change', async () => {
+    rpc.mockResolvedValue({ data: { userProductId, revision: 2, revisions: [] }, error: null });
+    const renderer = await openCorrection();
+    // The owner answers the brand again with the answer the record holds.
+    type(renderer, 'Brand (as printed)', 'House brand');
+    type(renderer, 'Reason for this correction (required)', 'I want to be sure of the brand');
+    press(renderer, 'Save correction');
+    await flush();
+    const facts = (rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>).p_facts as Record<string, unknown>;
+    // The correction carries the identity, so the record it replaces keeps
+    // an identity to correct: the domain and the server accept it too.
+    expect(facts.manualBrand).toBe('House brand');
+    expect(CorrectUserProductCommandSchema.safeParse({
+      operationId, userProductId, expectedRevision: 1, correctsId: baselineId,
+      reason: 'I want to be sure of the brand',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
+      manualBrand: 'House brand',
+    }).success).toBe(true);
+  });
+
+  it('sends the same payload when a retained draft is retried later', async () => {
+    rpc.mockRejectedValue(new Error('offline'));
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(ShelfEditor, { owner: ownerA, mode: 'add', onSaved: () => undefined, onCancel: () => undefined }));
+    });
+    type(renderer, 'Product name', 'Gentle shampoo');
+    press(renderer, 'Save product');
+    await flush();
+    const first = rpc.mock.calls[0]?.[1] as Record<string, unknown>;
+    // The date the command carries is the date it was built with, and the
+    // device keeps it with the draft.
+    const drafts = await readShelfDrafts(deviceDraftStorage, ownerA);
+    expect(drafts).toHaveLength(1);
+    expect((drafts[0].command as { effectiveDate: unknown }).effectiveDate).toEqual(first.p_effective_date);
+    // The retry sends the very same payload, so the server replays it.
+    press(renderer, 'Retry identical save');
+    await flush();
+    const second = rpc.mock.calls[1]?.[1] as Record<string, unknown>;
+    expect(second).toEqual(first);
+  });
+});
+// --- The wording the history reads in --------------------------------------
+
+describe('the wording the history reads in', () => {
+  it('reads the opened date in words, in every precision', () => {
+    expect(openedOnLabel({ precision: 'day', value: '2026-03-01' })).toBe('1 March 2026');
+    expect(openedOnLabel({ precision: 'month', value: '2026-03' })).toBe('March 2026');
+    expect(openedOnLabel({ precision: 'year', value: '2026' })).toBe('2026');
+    expect(openedOnLabel({ precision: 'unknown', value: null })).toBe('Not sure when it was opened');
+    expect(openedOnLabel(null)).toBeNull();
+    // A date the record cannot read is still readable: the owner sees what
+    // the record holds, not an exception.
+    expect(openedOnLabel({ precision: 'day', value: 'not-a-day' })).toBe('not-a-day');
+    expect(openedOnLabel({ precision: 'month', value: '2026-13' })).toBe('2026-13');
+    expect(openedOnLabel({ precision: 'day', value: null })).toBe('Not sure when it was opened');
+  });
+
+  it('names the entry a correction replaces by the wording it recorded', () => {
+    expect(recordedIdentityWording({ manualName: 'Gentle shampoo' })).toBe('the name Gentle shampoo');
+    expect(recordedIdentityWording({ manualBrand: 'House brand' })).toBe('the brand House brand');
+    expect(recordedIdentityWording({ manualCategory: 'shampoo' })).toBe('the category Shampoo');
+    expect(recordedIdentityWording({})).toBe('no name');
+    expect(recordedIdentityWording(null)).toBe('no name');
+  });
+
+  it('reads a blank answer, a period after opening and a cleared date', () => {
+    // A blank answer is no answer at all.
+    expect(revisionLines({ manualVariant: '   ' }, 'correction')).toContain('Variant: Not answered');
+    // The period after opening keeps the owner's own wording.
+    expect(revisionLines({ pao: '12 months after opening' }, 'correction')).toContain('12 months after opening');
+    expect(revisionLines({ pao: 'a year' }, 'correction')).toContain('Period after opening: a year');
+    // An opened date the correction cleared, and one it set.
+    expect(revisionLines({ openedOn: null }, 'correction')).toContain('Opened date: Cleared');
+    expect(revisionLines({ openedOn: { precision: 'day', value: '2026-03-01' } }, 'correction')).toContain('Opened date: 1 March 2026');
+    // A revision that recorded no patch at all.
+    expect(revisionLines(undefined, 'correction')).toEqual([]);
   });
 });

@@ -7,12 +7,21 @@ import {
   readShelfDrafts,
   type ShelfDraft,
 } from './shelf-drafts';
-import { appendShelfPage, availabilityLabel, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, verificationBadge, type ShelfEditorMode } from './shelf-history';
+import { appendShelfPage, availabilityLabel, recordedIdentityWording, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, verificationBadge, type ShelfEditorMode } from './shelf-history';
 import { ShelfEditor } from './shelf-editor';
 import { Button, styles } from './ui';
 
 type Mode = { kind: 'list' } | { kind: 'detail'; detail: ShelfDetail }
   | { kind: 'editor'; mode: ShelfEditorMode; userProductId?: string; detail?: ShelfDetail; resume?: ShelfDraft; session: number };
+
+/** The name of a revision kind, in the words the owner reads. */
+function revisionKindLabel(kind: string): string {
+  if (kind === 'baseline') return 'Original entry';
+  if (kind === 'match') return 'Catalogue match';
+  if (kind === 'archive') return 'Archive';
+  if (kind === 'correction') return 'Correction';
+  return 'Change';
+}
 
 function ShelfDetailView({ detail, onEdit, onBack }: {
   detail: ShelfDetail;
@@ -21,6 +30,9 @@ function ShelfDetailView({ detail, onEdit, onBack }: {
 }) {
   const [audit, setAudit] = useState(false);
   const facts = shelfFactLines(detail);
+  // Every revision, by its own id: a correction says which entry it
+  // replaces, and the entry it replaces says what the fact held before.
+  const byId = new Map(detail.revisions.map(revision => [revision.id, revision]));
   return <View style={{ gap: 20 }}>
     <View style={styles.card}>
       <Text accessibilityRole="header" style={styles.heading}>{detail.manualName ?? 'Catalogue-linked product'}</Text>
@@ -43,12 +55,24 @@ function ShelfDetailView({ detail, onEdit, onBack }: {
     {audit && <>
       <Text accessibilityRole="header" style={styles.heading}>Ownership entries and matches</Text>
       {detail.revisions.length === 0 && <Text style={styles.body}>No revisions recorded.</Text>}
-      {detail.revisions.map(revision => <View key={revision.id} style={styles.card}>
-        <Text style={styles.label}>{revision.kind === 'baseline' ? 'Original entry' : revision.kind === 'match' ? 'Catalogue match' : revision.kind === 'archive' ? 'Archive' : revision.kind === 'correction' ? 'Correction' : 'Change'}</Text>
-        {revision.correctsId && <Text style={styles.body}>Corrects an earlier entry.</Text>}
-        {revision.matchVersionId && <Text style={styles.body}>Linked catalogue version recorded; original manual details preserved.</Text>}
-        {revisionLines(revision.patch).map(line => <Text key={`${revision.id}-${line}`} style={styles.body}>{line}</Text>)}
-      </View>)}
+      {detail.revisions.map(revision => {
+        const replaced = revision.correctsId ? byId.get(revision.correctsId) : undefined;
+        const lines = revisionLines(revision.patch, revision.kind, replaced?.patch);
+        return <View key={revision.id} style={styles.card}>
+          <Text accessibilityRole="header" style={styles.label}>{revisionKindLabel(revision.kind)}</Text>
+          {revision.correctsId && <Text style={styles.body}>{`Replaces the earlier entry that recorded ${recordedIdentityWording(replaced?.patch)}.`}</Text>}
+          {revision.matchVersionId && <Text style={styles.body}>Linked catalogue version recorded; original manual details preserved.</Text>}
+          {revision.correctionReason && <Text style={styles.body}>Reason: {revision.correctionReason}</Text>}
+          {/*
+            * The facts of a revision are announced when the audit opens: the
+            * owner asked to read the history, so the history speaks - and
+            * the four answers stay apart by sound, not only on the screen.
+            */}
+          <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+            {lines.map(line => <Text key={`${revision.id}-${line}`} style={styles.body}>{line}</Text>)}
+          </View>
+        </View>;
+      })}
     </>}
   </View>;
 }
@@ -131,7 +155,11 @@ function OwnerShelf({ owner }: { owner: string }) {
   };
   const view = shelfView(loading, items, mode.kind === 'detail' ? mode.detail : null);
 
-  if (mode.kind === 'editor') return <ShelfEditor key={mode.session} owner={owner} mode={mode.mode} userProductId={mode.userProductId} detail={mode.detail} resume={mode.resume} onSaved={back} onCancel={back} />;
+  if (mode.kind === 'editor') return <>
+    {/* The tree is swapped for a new screen, so the new screen says so. */}
+    <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>{`${shelfEditorCopy(mode.mode).title} screen opened.`}</Text>
+    <ShelfEditor key={mode.session} owner={owner} mode={mode.mode} userProductId={mode.userProductId} detail={mode.detail} resume={mode.resume} onSaved={back} onCancel={back} />
+  </>;
   return <View style={{ gap: 20 }}>
     {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
     {mode.kind === 'detail' ? <ShelfDetailView key={mode.detail.id} detail={mode.detail} onEdit={editorMode => startEditor(editorMode, mode.detail.id, undefined, mode.detail)} onBack={back} /> : <>

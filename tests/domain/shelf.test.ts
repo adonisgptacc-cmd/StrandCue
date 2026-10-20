@@ -4,6 +4,8 @@ import {
   ArchiveUserProductCommandSchema,
   ChangeUserProductCommandSchema,
   CorrectUserProductCommandSchema,
+  CORRECTION_IDENTITY_RULE,
+  correctionTargetRevision,
   CreateUserProductCommandSchema,
   LifecycleSchema,
   MatchUserProductCommandSchema,
@@ -12,6 +14,7 @@ import {
   QuantityBandSchema,
   RepurchaseIntentSchema,
   ShelfAvailabilitySchema,
+  ShelfRevision,
   TrustTierSchema,
   VerificationEventSchema,
   VerificationStatusSchema,
@@ -105,10 +108,13 @@ describe('shelf verification and provenance domain', () => {
     expect(() => VerificationEventSchema.parse({ ...event, reason: 'a'.repeat(501) })).toThrow();
   });
 
-  it('accepts manual-only products and catalogue links, but not empty entries', () => {
+  it('accepts a manual product, refuses a catalogue link and refuses an empty entry', () => {
     const manual = {
       operationId: '90000000-0000-4000-8000-000000000020',
       userProductId: '90000000-0000-4000-8000-000000000021',
+      // The date the command takes effect: it is part of the command, so a
+      // command that is retried later is the same command.
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       versionId: null,
       manualBrand: 'House brand',
       manualName: 'Gentle shampoo',
@@ -117,8 +123,10 @@ describe('shelf verification and provenance domain', () => {
       notes: null,
     };
     expect(() => CreateUserProductCommandSchema.parse(manual)).not.toThrow();
-    const linked = { ...manual, versionId: '90000000-0000-4000-8000-000000000022', manualBrand: null, manualName: null, manualCategory: null };
-    expect(() => CreateUserProductCommandSchema.parse(linked)).not.toThrow();
+    // A catalogue link is a confirmed match, so the command that records a
+    // product for the first time never carries one.
+    const linked = { ...manual, versionId: '90000000-0000-4000-8000-000000000022' };
+    expect(() => CreateUserProductCommandSchema.parse(linked)).toThrow();
     expect(() => CreateUserProductCommandSchema.parse({ ...manual, manualName: null })).toThrow();
   });
 
@@ -140,6 +148,7 @@ describe('shelf verification and provenance domain', () => {
       operationId: '90000000-0000-4000-8000-000000000040',
       userProductId: '90000000-0000-4000-8000-000000000021',
       expectedRevision: 1,
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       availability: 'low',
       notes: 'Finished the bottle',
     })).not.toThrow();
@@ -147,6 +156,7 @@ describe('shelf verification and provenance domain', () => {
       operationId: '90000000-0000-4000-8000-000000000040',
       userProductId: '90000000-0000-4000-8000-000000000021',
       expectedRevision: 0,
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       availability: 'available',
       notes: null,
     })).toThrow();
@@ -161,6 +171,7 @@ describe('shelf verification and provenance domain', () => {
     expect(() => CreateUserProductCommandSchema.parse({
       operationId: '90000000-0000-4000-8000-000000000020',
       userProductId: '90000000-0000-4000-8000-000000000021',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       versionId: null,
       manualBrand: 'House brand',
       manualName: 'Gentle shampoo',
@@ -175,6 +186,9 @@ describe('the owned-product Shelf contract', () => {
   const base = {
     operationId: '90000000-0000-4000-8000-000000000061',
     userProductId: '90000000-0000-4000-8000-000000000062',
+    // The date the command takes effect: it is part of the command, so a
+    // command that is retried later is the same command.
+    effectiveDate: { precision: 'day', value: '2026-03-01' },
     versionId: null,
     manualBrand: 'House brand',
     manualName: 'Gentle shampoo',
@@ -264,6 +278,7 @@ describe('the owned-product Shelf contract', () => {
       operationId: '90000000-0000-4000-8000-000000000063',
       userProductId: '90000000-0000-4000-8000-000000000062',
       expectedRevision: 2,
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       availability: 'low',
       openedOn: { precision: 'month', value: '2026-02' },
       quantityBand: 'about-half',
@@ -297,6 +312,7 @@ describe('the owned-product Shelf contract', () => {
       expectedRevision: 2,
       correctsId: '90000000-0000-4000-8000-000000000065',
       reason: 'The name was typed wrong.',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       manualBrand: 'House brand',
       manualName: 'Gentle shampoo (fragrance free)',
       manualCategory: 'shampoo',
@@ -316,5 +332,115 @@ describe('the owned-product Shelf contract', () => {
     expect(RepurchaseIntentSchema.options).toContain('unsure');
     expect(() => QuantityBandSchema.parse('most')).toThrow();
     expect(() => RepurchaseIntentSchema.parse('maybe')).toThrow();
+  });
+});
+
+describe('the revision a correction may replace', () => {
+  const identityPatch = { manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo' };
+  const emptyPatch = { manualBrand: null, manualName: null, manualCategory: null };
+
+  const entry = (overrides: Partial<ShelfRevision> = {}): ShelfRevision => ({
+    id: '90000000-0000-4000-8000-000000000070',
+    kind: 'baseline',
+    correctsId: null,
+    patch: identityPatch,
+    ...overrides,
+  });
+
+  it('targets the revision that carries the identity, whatever came after it', () => {
+    // A catalogue match, an availability change, an archive and a fact-only
+    // change never carry the identity, so none of them is the target.
+    const after = [
+      entry(),
+      entry({ id: '90000000-0000-4000-8000-000000000071', kind: 'match', patch: { ...emptyPatch, matchVersionId: '90000000-0000-4000-8000-000000000072' } }),
+      entry({ id: '90000000-0000-4000-8000-000000000073', kind: 'change', patch: { ...emptyPatch, availability: 'low' } }),
+      entry({ id: '90000000-0000-4000-8000-000000000074', kind: 'change', patch: { ...emptyPatch, quantityBand: 'about-half' } }),
+      entry({ id: '90000000-0000-4000-8000-000000000075', kind: 'archive', patch: { ...emptyPatch, availability: 'archived' } }),
+    ];
+    expect(correctionTargetRevision(after)?.id).toBe('90000000-0000-4000-8000-000000000070');
+  });
+
+  it('targets the correction itself once the entry it replaced has one', () => {
+    const chain = [
+      entry(),
+      entry({
+        id: '90000000-0000-4000-8000-000000000076',
+        kind: 'correction',
+        correctsId: '90000000-0000-4000-8000-000000000070',
+        patch: { ...identityPatch, manualName: 'Gentle shampoo bar' },
+      }),
+    ];
+    expect(correctionTargetRevision(chain)?.id).toBe('90000000-0000-4000-8000-000000000076');
+  });
+
+  it('refuses a legacy-shaped change, match and archive, whatever their patch holds', () => {
+    // A history written before the contract carries the three identity keys
+    // on every revision, whatever the kind was. The rule reads the kind as
+    // well as the shape of the patch, so a shape-only rule would let an
+    // availability-only change, an archive and a match be targeted.
+    const legacyPatch = { ...identityPatch, availability: 'low' };
+    const revisions = [
+      entry(),
+      entry({ id: '90000000-0000-4000-8000-000000000080', kind: 'change', patch: legacyPatch }),
+      entry({ id: '90000000-0000-4000-8000-000000000081', kind: 'match', patch: legacyPatch }),
+      entry({ id: '90000000-0000-4000-8000-000000000082', kind: 'archive', patch: legacyPatch }),
+    ];
+    // The entry that carries the identity is still the target.
+    expect(correctionTargetRevision(revisions)?.id).toBe('90000000-0000-4000-8000-000000000070');
+    // And none of the legacy-shaped revisions is a target on its own.
+    for (const kind of ['change', 'match', 'archive'] as const) {
+      expect(correctionTargetRevision([
+        entry({ id: '90000000-0000-4000-8000-000000000083', kind, patch: legacyPatch }),
+      ])).toBeNull();
+    }
+  });
+
+  it('has no target when no revision carries an identity', () => {
+    expect(correctionTargetRevision([entry({ kind: 'match', patch: emptyPatch })])).toBeNull();
+    expect(correctionTargetRevision([])).toBeNull();
+    expect(correctionTargetRevision(undefined)).toBeNull();
+  });
+
+  it('requires a correction to carry at least one identity field', () => {
+    const correction = {
+      operationId: '90000000-0000-4000-8000-000000000064',
+      userProductId: '90000000-0000-4000-8000-000000000062',
+      expectedRevision: 2,
+      correctsId: '90000000-0000-4000-8000-000000000065',
+      reason: 'The name was typed wrong.',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
+    };
+    // A correction without an identity is not an identity correction.
+    expect(() => CorrectUserProductCommandSchema.parse({ ...correction, manualVariant: 'Fragrance free' })).toThrow();
+    // A correction that clears the brand still carries the identity.
+    expect(CorrectUserProductCommandSchema.parse({ ...correction, manualBrand: null }).manualBrand).toBeNull();
+    expect(CorrectUserProductCommandSchema.parse({ ...correction, manualName: 'Gentle shampoo bar' }).manualName).toBe('Gentle shampoo bar');
+    // The wording is the owner's own, and the editor and the intro use it
+    // too, so the rule the owner is refused by is the rule they were told.
+    expect(CORRECTION_IDENTITY_RULE).toBe('A correction has to change the brand, the name or the category.');
+  });
+
+  it('carries the effective date in the command, so a retry is the same command', () => {
+    const command = CorrectUserProductCommandSchema.parse({
+      operationId: '90000000-0000-4000-8000-000000000064',
+      userProductId: '90000000-0000-4000-8000-000000000062',
+      expectedRevision: 2,
+      correctsId: '90000000-0000-4000-8000-000000000065',
+      reason: 'The name was typed wrong.',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
+      manualName: 'Gentle shampoo bar',
+    });
+    // The date the command carries is the date it was built with: a command
+    // that is retried later sends the same payload.
+    expect(command.effectiveDate).toEqual({ precision: 'day', value: '2026-03-01' });
+    // A command without a date has no date to replay.
+    expect(() => CorrectUserProductCommandSchema.parse({
+      operationId: '90000000-0000-4000-8000-000000000064',
+      userProductId: '90000000-0000-4000-8000-000000000062',
+      expectedRevision: 2,
+      correctsId: '90000000-0000-4000-8000-000000000065',
+      reason: 'The name was typed wrong.',
+      manualName: 'Gentle shampoo bar',
+    })).toThrow();
   });
 });
