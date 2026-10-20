@@ -7,7 +7,8 @@ import {
   readShelfDrafts,
   type ShelfDraft,
 } from './shelf-drafts';
-import { appendShelfPage, availabilityLabel, recordedIdentityWording, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, verificationBadge, type ShelfEditorMode } from './shelf-history';
+import { appendShelfPage, availabilityLabel, recordedIdentityWording, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, unreadableHistoryLabel, verificationBadge, type ShelfEditorMode } from './shelf-history';
+import { shelfStateBefore } from '../../../packages/domain/src/index';
 import { ShelfEditor } from './shelf-editor';
 import { Button, styles } from './ui';
 
@@ -57,19 +58,38 @@ function ShelfDetailView({ detail, onEdit, onBack }: {
       {detail.revisions.length === 0 && <Text style={styles.body}>No revisions recorded.</Text>}
       {detail.revisions.map(revision => {
         const replaced = revision.correctsId ? byId.get(revision.correctsId) : undefined;
-        const lines = revisionLines(revision.patch, revision.kind, replaced?.patch);
+        /*
+         * The state of the record immediately before this correction: the
+         * whole history up to the entry the correction replaces, replayed.
+         * The entry it replaces alone does not say what the record held, so
+         * a fact an earlier entry recorded would read as never answered.
+         */
+        const before = revision.kind === 'correction'
+          ? shelfStateBefore(detail.revisions, revision.correctsId ?? null)
+          : undefined;
+        // A history that cannot be walked is never guessed at: a correction
+        // that names no entry, or one whose chain is broken, is answered
+        // with the wording that says so.
+        const unreadable = revision.kind === 'correction' && before === null;
+        const lines = unreadable ? [] : revisionLines(revision.patch, revision.kind, before);
         return <View key={revision.id} style={styles.card}>
           <Text accessibilityRole="header" style={styles.label}>{revisionKindLabel(revision.kind)}</Text>
-          {revision.correctsId && <Text style={styles.body}>{`Replaces the earlier entry that recorded ${recordedIdentityWording(replaced?.patch)}.`}</Text>}
+          {revision.correctsId && <Text style={styles.body}>{replaced
+            ? `Replaces the earlier entry that recorded ${recordedIdentityWording(replaced.patch)}.`
+            : 'Replaces an earlier entry that could not be read.'}</Text>}
           {revision.matchVersionId && <Text style={styles.body}>Linked catalogue version recorded; original manual details preserved.</Text>}
           {revision.correctionReason && <Text style={styles.body}>Reason: {revision.correctionReason}</Text>}
           {/*
             * The facts of a revision are announced when the audit opens: the
             * owner asked to read the history, so the history speaks - and
             * the four answers stay apart by sound, not only on the screen.
+            * A history that cannot be read is announced in the same region,
+            * so the owner hears why the audit says nothing.
             */}
           <View accessibilityRole="alert" accessibilityLiveRegion="polite">
-            {lines.map(line => <Text key={`${revision.id}-${line}`} style={styles.body}>{line}</Text>)}
+            {unreadable
+              ? <Text style={styles.body}>{unreadableHistoryLabel}</Text>
+              : lines.map(line => <Text key={`${revision.id}-${line}`} style={styles.body}>{line}</Text>)}
           </View>
         </View>;
       })}

@@ -5,11 +5,15 @@ import {
   ArchiveUserProductCommandSchema,
   ChangeUserProductCommandSchema,
   CorrectUserProductCommandSchema,
+  CORRECTION_IDENTITY_CHANGE_RULE,
   CORRECTION_IDENTITY_RULE,
+  correctionChangesIdentity,
   CreateUserProductCommandSchema,
   currentDateOnly,
   DateOnlySchema,
   MatchUserProductCommandSchema,
+  shelfIdentity,
+  type ShelfIdentity,
 } from '../../../packages/domain/src/index';
 import { secureStorage } from './client';
 import {
@@ -319,7 +323,7 @@ export function correctedFacts(start: FactsDraft, current: FactsDraft): Record<s
 
 /** Every field the editor can hold a problem for. */
 type EditorField =
-  | 'manualBrand' | 'manualName' | 'reason'
+  | 'manualBrand' | 'manualName' | 'identity' | 'reason'
   | 'manualVariant' | 'manualSize' | 'manualBarcode' | 'openedOn' | 'expiryOn' | 'pao' | 'notes';
 
 /** One problem, tied to the field it belongs to. */
@@ -329,6 +333,7 @@ type EditorProblem = { field: EditorField; label: string; rule: string };
 const fieldLabels: Record<EditorField, string> = {
   manualBrand: 'Brand',
   manualName: 'Product name',
+  identity: 'Brand, product name and category',
   reason: 'Reason for this correction',
   manualVariant: 'Variant',
   manualSize: 'Size',
@@ -484,6 +489,39 @@ function reasonProblems(reason: string, scope: 'live' | 'submit'): EditorProblem
 }
 
 /**
+ * The problems with the identity a correction carries.
+ *
+ * A correction replaces the brand, the product name or the category. Two
+ * corrections are refused before they reach the server, which refuses them
+ * too: one that carries no identity at all, and one that re-answers the
+ * identity with the same words - or that changes only a related fact, so it
+ * corrects nothing.
+ *
+ * The rule is judged when the owner asks to save, not while they type: a
+ * half-typed correction is never scolded.
+ */
+export function correctionIdentityProblems(
+  mode: ShelfEditorMode,
+  start: { brand: string; name: string; category: string },
+  current: { brand: string; name: string; category: string },
+  touched: { brand: boolean; name: boolean; category: boolean },
+  record: ShelfIdentity | null | undefined,
+  scope: 'live' | 'submit',
+): EditorProblem[] {
+  if (mode !== 'correct' || scope !== 'submit') return [];
+  const changes = correctedIdentity(start, current, touched);
+  const carries = changes.manualBrand !== undefined
+    || changes.manualName !== undefined
+    || changes.manualCategory !== undefined;
+  const problem = (rule: string): EditorProblem[] => [
+    { field: 'identity', label: fieldLabels.identity, rule },
+  ];
+  if (!carries) return problem(CORRECTION_IDENTITY_RULE);
+  if (!correctionChangesIdentity(record, changes)) return problem(CORRECTION_IDENTITY_CHANGE_RULE);
+  return [];
+}
+
+/**
  * Every problem the editor holds, for the screen it is showing. The
  * identity is only sent when a product is added or corrected, so an
  * ordinary edit never asks about the brand or the name.
@@ -537,12 +575,32 @@ const domainRefusals: Record<string, string> = {
 };
 
 /**
+ * The wording for a refusal the server states.
+ *
+ * The server refuses a correction that changes nothing about the identity,
+ * and it says so with a code of its own. The owner is told the rule in the
+ * same words the editor uses, instead of being told to retry a command
+ * that would be refused again.
+ */
+export function serverRefusal(error: unknown): string | null {
+  const message = String((error as { message?: string })?.message ?? '');
+  if (message.includes('invalid-correction-noop')) return CORRECTION_IDENTITY_CHANGE_RULE;
+  if (message.includes('invalid-correction-target')) {
+    return 'That entry cannot be corrected. Open the product entry and start the correction again.';
+  }
+  if (message.includes('invalid-correction')) return CORRECTION_IDENTITY_RULE;
+  if (message.includes('invalid-availability')) {
+    return 'An availability change is an ordinary change. Use "Edit this product" to change it.';
+  }
+  return null;
+}
+
+/**
  * The message a refused command gets: it names the field that failed and
  * the rule it broke, and it never mentions matching, keys or internal
  * wording.
  */
-export function commandFailureMessage(error: unknown): string {
-  const issues = (error as { issues?: readonly CommandIssue[] })?.issues;
+export function commandFailureMessage(error: unknown): string {  const issues = (error as { issues?: readonly CommandIssue[] })?.issues;
   if (!Array.isArray(issues)) return 'This product could not be saved. Check the details you entered and try again.';
   const failures: string[] = [];
   for (const issue of issues) {
@@ -733,7 +791,31 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
   /** The entry a correction replaces: the newest one nothing corrects. */
   const correctsId = resumed?.correctsId ?? target?.id ?? null;
   const scope = attempted ? 'submit' : 'live';
-  const problems = editorProblems(mode, manualBrand, manualName, facts, reason, scope, catalogueLinked);
+  /**
+   * The identity the record holds, as the domain reads it. The entry the
+   * server holds wins over the values the form opened on, because that is
+   * what a correction is compared against.
+   */
+  const recordIdentity = shelfIdentity(current, {
+    brand: startIdentity.brand,
+    name: startIdentity.name,
+    category: startIdentity.category === clearedSentinel ? null : startIdentity.category,
+  });
+  /**
+   * Every problem of the screen, for the scope being judged.
+   */
+  const problemsFor = (judged: 'live' | 'submit'): EditorProblem[] => [
+    ...editorProblems(mode, manualBrand, manualName, facts, reason, judged, catalogueLinked),
+    ...correctionIdentityProblems(
+      mode,
+      startIdentity,
+      { brand: manualBrand, name: manualName, category: manualCategory },
+      touched,
+      recordIdentity,
+      judged,
+    ),
+  ];
+  const problems = problemsFor(scope);
   /**
    * Whether a field was refused, so its own input says so.
    *
@@ -782,7 +864,7 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
         setAttempted(true);
         // The save is judged by the full check, never by the live one: a
         // missing answer only counts once the owner asked to save.
-        if (editorProblems(mode, manualBrand, manualName, facts, reason, 'submit', catalogueLinked).length > 0) {
+        if (problemsFor('submit').length > 0) {
           // The message at the field answers this; an older one must not linger.
           setMessage('');
           return;
@@ -859,15 +941,6 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
             name: manualName,
             category: manualCategory,
           }, touched);
-          const carriesIdentity = identityChanges.manualBrand !== undefined
-            || identityChanges.manualName !== undefined
-            || identityChanges.manualCategory !== undefined;
-          if (!carriesIdentity) {
-            // The wording is the domain's wording, so the rule the owner
-            // is refused by is the rule they were told about.
-            setMessage(CORRECTION_IDENTITY_RULE);
-            return;
-          }
           const command: Record<string, unknown> = {
             operationId: identity.operationId,
             userProductId: identity.userProductId,
@@ -932,7 +1005,11 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
           ? `The current entry, revision ${result.latest.revision}, has been loaded. Your submitted facts stay in the locked form. Discard the failed attempt to save against the current entry.`
           : (result.message || 'The current entry could not be loaded. Your submitted facts are still here.'));
       } else {
-        setMessage('The save was not confirmed. Your command is locked for an identical retry.');
+        // A refusal the server states is a rule, not a failed connection:
+        // the owner is told the rule, and the command is not locked for a
+        // retry that would be refused again.
+        const refusal = serverRefusal(error);
+        setMessage(refusal ?? 'The save was not confirmed. Your command is locked for an identical retry.');
       }
     } finally { inFlight.current = false; if (isLive()) setBusy(false); }
   };
@@ -979,12 +1056,12 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
     {mode === 'correct' && <>
       {target && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>{`You are correcting the entry that recorded ${recordedIdentityWording(target.patch)}.`}</Text>}
       <Text accessibilityRole="header" style={styles.heading}>The details being corrected</Text>
-      <Field label="Brand (as printed)" value={manualBrand} editable={!locked} accessibilityState={inputState(locked, refused('manualBrand'))} maxLength={200}
+      <Field label="Brand (as printed)" value={manualBrand} editable={!locked} accessibilityState={inputState(locked, refused('manualBrand') || refused('identity'))} maxLength={200}
         onChangeText={value => { setManualBrand(value); setTouched(previous => ({ ...previous, brand: true })); }} />
       {fieldError('manualBrand')}
       {identityCleared('brand') && <Text style={styles.body}>{`Brand: ${clearedLabel}`}</Text>}
       {!identityCleared('brand') && manualBrand.trim() === '' && <Text style={styles.body}>{`Brand: ${notAnsweredLabel}`}</Text>}
-      <Field label="Product name" value={manualName} editable={!locked} accessibilityState={inputState(locked, refused('manualName'))} maxLength={200}
+      <Field label="Product name" value={manualName} editable={!locked} accessibilityState={inputState(locked, refused('manualName') || refused('identity'))} maxLength={200}
         onChangeText={value => { setManualName(value); setTouched(previous => ({ ...previous, name: true })); }} />
       {fieldError('manualName')}
       {identityCleared('name') && <Text style={styles.body}>{`Name: ${clearedLabel}`}</Text>}
@@ -993,6 +1070,12 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
         onChange={value => { setManualCategory(value); setTouched(previous => ({ ...previous, category: true })); }} />
       {manualCategory === clearedSentinel && <Text style={styles.body}>{`Category: ${clearedLabel}`}</Text>}
       {manualCategory === '' && <Text style={styles.body}>{`Category: ${notAnsweredLabel}`}</Text>}
+      {/*
+        * The rule the correction has to meet is shown where the owner can
+        * act on it: next to the three fields it is about, and the fields
+        * themselves say that their answer was refused.
+        */}
+      {fieldError('identity')}
       <Text accessibilityRole="header" style={styles.heading}>Why you are correcting it</Text>
       <Field label="Reason for this correction (required)" value={reason} editable={!locked}
         accessibilityHint="Required. Say why you are correcting this product. The reason is kept with the correction."

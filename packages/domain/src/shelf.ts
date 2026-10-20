@@ -223,7 +223,101 @@ export const ArchiveUserProductCommandSchema = z.object({
  * The wording lives here, so the domain, the editor and the intro the owner
  * reads all say the same thing.
  */
-export const CORRECTION_IDENTITY_RULE = 'A correction has to change the brand, the name or the category.';
+export const CORRECTION_IDENTITY_RULE = 'A correction has to change the brand, the product name or the category.';
+
+/**
+ * The wording of a refused identity correction.
+ *
+ * A correction that re-answers the identity with the same words corrects
+ * nothing, so it is refused before it reaches the server. The wording lives
+ * here, so the editor, the domain and the server all say the same thing.
+ */
+export const CORRECTION_IDENTITY_CHANGE_RULE =
+  'Change the brand, product name or category to record an identity correction.';
+
+/**
+ * The identity a record carries.
+ *
+ * A field the record never answered is absent or null; both read as "no
+ * answer", because the difference between "never answered" and "cleared" is
+ * a difference in the history, not in the record.
+ */
+export type ShelfIdentity = {
+  manualBrand?: string | null;
+  manualName?: string | null;
+  manualCategory?: string | null;
+};
+
+/** The words of an identity value, trimmed the way the server trims them. */
+function identityWords(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
+/**
+ * The identity of a record, as the domain reads it.
+ *
+ * A field the owner never answered reads as null, and a field the owner took
+ * back reads as null too: the difference between the two lives in the
+ * history, not in the record. The entry the server holds wins over the
+ * values a form opened on, because that is what a correction is compared
+ * against.
+ */
+export function shelfIdentity(
+  record: { manualBrand?: string | null; manualName?: string | null; manualCategory?: string | null } | null | undefined,
+  fallback?: { brand?: string | null; name?: string | null; category?: string | null } | null,
+): ShelfIdentity {
+  const text = (value: string | null | undefined): string | null => {
+    if (value === null || value === undefined) return null;
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+  };
+  const pick = (value: string | null | undefined, other: string | null | undefined): string | null =>
+    (value === undefined ? text(other) : value);
+  return {
+    manualBrand: pick(record?.manualBrand, fallback?.brand),
+    manualName: pick(record?.manualName, fallback?.name),
+    manualCategory: pick(record?.manualCategory, fallback?.category),
+  };
+}
+
+/**
+ * Whether a correction materially changes the identity of a record.
+ *
+ * A correction has to change the brand, the name or the category: re-typing
+ * the same words corrects nothing, and a correction that only changes a
+ * related fact - a variant, a size, a barcode, a note - does not correct
+ * the identity either.
+ *
+ * The comparison reads the identity the write would land: a key the patch
+ * names replaces the recorded answer, an explicit null clears it, and a key
+ * the patch leaves out keeps it. So an explicit null over a recorded value
+ * is a real change, while an explicit null over a value that was never
+ * recorded changes nothing.
+ *
+ * The words are trimmed on both sides, so stray spaces are not a change. The
+ * case is never folded: a different spelling is a different answer, and the
+ * server compares the same way.
+ *
+ * The comparison needs the record the correction answers, so it is a
+ * function and not a rule inside the command schema: the schema refuses a
+ * correction that carries no identity at all, and this refuses one that
+ * changes nothing about the identity the record holds. The server refuses
+ * both, so the rule is never only in the app.
+ */
+export function correctionChangesIdentity(
+  current: ShelfIdentity | null | undefined,
+  patch: Record<string, unknown> | null | undefined,
+): boolean {
+  const before = current ?? {};
+  const facts = patch ?? {};
+  return ShelfIdentityFields.some(field => {
+    const lands = Object.prototype.hasOwnProperty.call(facts, field)
+      ? identityWords(facts[field])
+      : identityWords(before[field]);
+    return lands !== identityWords(before[field]);
+  });
+}
 
 export const CorrectUserProductCommandSchema = z.object({
   operationId: z.string().uuid(),
@@ -312,7 +406,9 @@ export function revisionCarriesIdentity(revision: ShelfRevision): boolean {
  * never the target, however recent they are.
  *
  * There is no target when no revision carries an identity: the server
- * answers such a correction with `invalid-correction-target`.
+ * answers such a correction with `invalid-correction-target`. A correction
+ * that names a valid target but changes nothing about the identity is a
+ * different refusal, and the server answers it with `invalid-correction-noop`.
  */
 export function correctionTargetRevision<T extends ShelfRevision>(revisions: readonly T[] | null | undefined): T | null {
   if (!revisions || revisions.length === 0) return null;
@@ -323,6 +419,91 @@ export function correctionTargetRevision<T extends ShelfRevision>(revisions: rea
   );
   const candidates = revisions.filter(revision => !corrected.has(revision.id) && revisionCarriesIdentity(revision));
   return candidates.length === 0 ? null : candidates[candidates.length - 1];
+}
+
+/**
+ * The state of a record immediately before a correction.
+ *
+ * What a correction leaves alone depends on the whole history, not on the
+ * entry it replaces alone: an entry can leave out a fact an earlier entry
+ * recorded, and the entry it replaces says nothing about that fact. So the
+ * state is reconstructed by replaying the history - every entry the owner
+ * recorded, every ordinary change and every correction - up to the entry the
+ * correction names.
+ *
+ * The revisions must be in the order they were recorded: the server reads
+ * them back that way, and the state of the record is the order the writes
+ * happened in. An ordinary change writes the record too, so the fact it
+ * recorded is part of the state the correction found.
+ *
+ * A key that holds a value is the answer the record carried; a key that was
+ * answered and then taken back is absent, because there is no answer to
+ * keep; a key that was never answered is absent too.
+ *
+ * The replay fails closed: when the history cannot be read - the entry is
+ * unknown, or the chain it belongs to is broken - it answers null, so the
+ * caller never guesses what the record held.
+ */
+export function shelfStateBefore(
+  revisions: readonly ShelfRevision[] | null | undefined,
+  targetId: string | null | undefined,
+): Record<string, unknown> | null {
+  if (!revisions || revisions.length === 0) return null;
+  if (typeof targetId !== 'string' || targetId === '') return null;
+  const byId = new Map<string, ShelfRevision>();
+  const positions = new Map<string, number>();
+  for (const [index, revision] of revisions.entries()) {
+    // Duplicate identities make both lookup and replay order ambiguous.
+    if (byId.has(revision.id)) return null;
+    byId.set(revision.id, revision);
+    positions.set(revision.id, index);
+  }
+  const target = byId.get(targetId);
+  if (!target) return null;
+  const targetPosition = positions.get(targetId);
+  if (targetPosition === undefined) return null;
+
+  // Replay uses every entry through the target. Validate that whole prefix,
+  // not only the target's ancestry, so an unrelated malformed entry cannot
+  // influence the reconstructed state.
+  for (const [index, revision] of revisions.entries()) {
+    if (index > targetPosition) break;
+    const parentId = revision.correctsId;
+    if (parentId === null || parentId === undefined || parentId === '') continue;
+    if (revision.kind !== 'correction') return null;
+    const parentPosition = positions.get(parentId);
+    if (parentPosition === undefined || parentPosition >= index) return null;
+  }
+  // The chain the target belongs to must be whole: an entry that points at
+  // an entry nobody holds cannot be read, and nothing is guessed at.
+  const seen = new Set<string>();
+  let cursor: ShelfRevision | undefined = target;
+  while (cursor) {
+    if (seen.has(cursor.id)) return null;
+    seen.add(cursor.id);
+    const parentId = cursor.correctsId;
+    if (parentId === null || parentId === undefined || parentId === '') break;
+    const parent: ShelfRevision | undefined = byId.get(parentId);
+    if (!parent) return null;
+    const parentPosition = positions.get(parentId);
+    const cursorPosition = positions.get(cursor.id);
+    if (parentPosition === undefined || cursorPosition === undefined || parentPosition >= cursorPosition) return null;
+    cursor = parent;
+  }
+  const state: Record<string, unknown> = {};
+  for (const revision of revisions) {
+    const patch = revision.patch;
+    if (patch) {
+      for (const [key, value] of Object.entries(patch)) {
+        // An explicit null is the owner taking an answer back: there is no
+        // answer left to keep.
+        if (value === null) delete state[key];
+        else state[key] = value;
+      }
+    }
+    if (revision.id === targetId) break;
+  }
+  return state;
 }
 
 export type CreateUserProductCommand = z.output<typeof CreateUserProductCommandSchema>;

@@ -22,12 +22,13 @@ async function shelfAdd(db: PGlite, opts: { operationId?: string; userProductId?
 // The owner-recorded facts travel in one jsonb patch, so an absent key
 // ("never answered"), an explicit null ("cleared") and a value ("recorded")
 // stay three different answers at the boundary.
-async function shelfAddFacts(db: PGlite, opts: { operationId?: string; userProductId?: string; manualName?: string | null; manualBrand?: string | null; availability?: string; notes?: string | null; facts?: unknown } = {}) {
+async function shelfAddFacts(db: PGlite, opts: { operationId?: string; userProductId?: string; manualName?: string | null; manualBrand?: string | null; manualCategory?: string | null; availability?: string; notes?: string | null; facts?: unknown } = {}) {
   return (await db.query<{ result: any }>(
-    `select public.shelf_add($1, $2, null, $3, $4, 'shampoo', $5, $6, $7::jsonb, $8::jsonb) result`,
+    `select public.shelf_add($1, $2, null, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb) result`,
     [opts.operationId ?? crypto.randomUUID(), opts.userProductId ?? crypto.randomUUID(),
       opts.manualBrand === undefined ? 'House Brand' : opts.manualBrand,
       opts.manualName === undefined ? 'Gentle Shampoo' : opts.manualName,
+      opts.manualCategory === undefined ? 'shampoo' : opts.manualCategory,
       opts.availability ?? 'available', opts.notes ?? null,
       JSON.stringify(DAY), JSON.stringify(opts.facts ?? {})],
   )).rows[0].result;
@@ -1288,10 +1289,12 @@ describe('the correction facts preserve, set and clear every correctable field',
   it.each(FIELDS)('sets, preserves and clears $key through a correction', async (field) => {
     await complete(db);
     // Every correction answers an identity key, so the chain always ends on
-    // a revision that can carry the next correction.
-    const carrier = field.key === 'manualBrand'
-      ? { manualCategory: 'conditioner' }
-      : { manualBrand: 'Another Brand' };
+    // a revision that can carry the next correction. The carrier answers a
+    // DIFFERENT identity at every step: a correction that re-answers the
+    // identity with the same words corrects nothing and is refused.
+    const carriers = field.key === 'manualBrand'
+      ? [{ manualCategory: 'conditioner' }, { manualCategory: 'mask' }, { manualCategory: 'leave-in' }]
+      : [{ manualBrand: 'Another Brand' }, { manualBrand: 'Third Brand' }, { manualBrand: 'Fourth Brand' }];
     const receipt = await shelfAddFacts(db, {
       manualName: 'Gentle Shampoo',
       facts: { [field.key]: field.value },
@@ -1304,7 +1307,7 @@ describe('the correction facts preserve, set and clear every correctable field',
     // Set: a value in the facts patch replaces the recorded value.
     await shelfCorrect(db, {
       userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
-      facts: { [field.key]: field.next, ...carrier },
+      facts: { [field.key]: field.next, ...carriers[0] },
     });
     let detail = await shelfDetail(db, receipt.userProductId);
     expect(await stored()).toEqual(field.next);
@@ -1315,7 +1318,7 @@ describe('the correction facts preserve, set and clear every correctable field',
     // Preserve: an absent key keeps the recorded value.
     await shelfCorrect(db, {
       userProductId: receipt.userProductId, expectedRevision: 2, correctsId: history[1].id,
-      facts: { ...carrier },
+      facts: { ...carriers[1] },
     });
     detail = await shelfDetail(db, receipt.userProductId);
     expect(await stored()).toEqual(field.next);
@@ -1326,7 +1329,7 @@ describe('the correction facts preserve, set and clear every correctable field',
     // Clear: an explicit null in the facts patch clears the recorded value.
     await shelfCorrect(db, {
       userProductId: receipt.userProductId, expectedRevision: 3, correctsId: history[2].id,
-      facts: { [field.key]: null, ...carrier },
+      facts: { [field.key]: null, ...carriers[2] },
     });
     detail = await shelfDetail(db, receipt.userProductId);
     expect(await stored()).toBeNull();
@@ -1410,6 +1413,324 @@ describe('the correction facts preserve, set and clear every correctable field',
     })).rejects.toThrow(/invalid-identity/i);
     const detail = await shelfDetail(db, receipt.userProductId);
     expect(detail.manualName).toBe('Gentle Shampoo');
+  });
+
+  describe('rejects a correction that changes nothing about the identity', () => {
+    let receipt: { userProductId: string; revision: number; revisions: any[] };
+    beforeAll(async () => { db = await database(); });
+    beforeEach(async () => {
+      await complete(db);
+      receipt = await shelfAddFacts(db, { manualBrand: 'House brand', manualName: 'Gentle Shampoo', manualCategory: 'shampoo' });
+    });
+    afterEach(async () => {
+      await db.exec('set session authorization postgres');
+      await db.exec('truncate public.profiles cascade');
+    });
+
+    it('rejects a correction that resubmits the same name unchanged', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(1);
+    });
+
+    it('rejects a correction that resubmits the same brand unchanged', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualBrand: 'House brand' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+    });
+
+    it('rejects a correction that resubmits the same category unchanged', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualCategory: 'shampoo' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+    });
+
+    it('rejects a correction that resubmits the same brand with surrounding whitespace', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualBrand: '  House brand  ' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+    });
+
+    it('rejects an explicit null clearing an identity value that was never recorded', async () => {
+      // A value that was never recorded cannot be cleared: the correction
+      // changes nothing at all, so it is refused as the no-op it is.
+      const blank = await coreBaseline(db, {
+        userProductId: crypto.randomUUID(),
+        manualBrand: 'House brand', manualName: 'Gentle Shampoo', manualCategory: null,
+      });
+      await expect(shelfCorrect(db, {
+        userProductId: blank.userProductId, expectedRevision: 1,
+        correctsId: blank.revisions[0].id,
+        facts: { manualCategory: null },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+      const detail = await shelfDetail(db, blank.userProductId);
+      expect(detail.revision).toBe(1);
+      expect(detail.manualCategory).toBeNull();
+    });
+
+    it('rejects a correction that changes nothing about the identity, only notes', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo', notes: 'just a note' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+    });
+
+    it('rejects a correction that changes nothing about the identity, only variant', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo', manualVariant: 'fragrance free' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+    });
+
+    it('rejects a correction that changes nothing about the identity, only size', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo', manualSize: '400 ml' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+    });
+
+    it('rejects a correction that changes nothing about the identity, only barcode', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo', manualBarcode: '6001234567890' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+    });
+
+    it('rejects a correction that changes nothing about the identity, only availability', async () => {
+      // An availability is an ordinary change, never a correction, so it is
+      // answered as the availability it is - and never as a correction that
+      // changed nothing.
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo', availability: 'low' },
+      })).rejects.toThrow(/invalid-availability/i);
+    });
+
+    it('accepts a correction that genuinely changes the identity along with related facts', async () => {
+      await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Corrected Shampoo', notes: 'typo fixed' },
+      });
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(2);
+      expect(detail.manualName).toBe('Corrected Shampoo');
+      expect(detail.notes).toBe('typo fixed');
+    });
+
+    it('accepts a correction that clears a recorded identity value with explicit null', async () => {
+      await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualCategory: null },
+      });
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(2);
+      expect(detail.manualCategory).toBeNull();
+      // The name still identifies the product, so the row survives.
+      expect(detail.manualName).toBe('Gentle Shampoo');
+    });
+
+    it('accepts a correction that replaces a cleared value with a new one', async () => {
+      const cleared = await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualCategory: null },
+      });
+      await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 2,
+        correctsId: cleared.revisions[1].id,
+        facts: { manualCategory: 'conditioner' },
+      });
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(3);
+      expect(detail.manualCategory).toBe('conditioner');
+    });
+
+    it('leaves identity fields untouched when omitted from a correction', async () => {
+      await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Corrected Shampoo', notes: 'just notes' },
+      });
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(2);
+      expect(detail.manualName).toBe('Corrected Shampoo');
+      // The identity fields the correction did not answer keep their values.
+      expect(detail.manualBrand).toBe('House brand');
+      expect(detail.manualCategory).toBe('shampoo');
+    });
+
+    it('rejects a no-op identity correction at the public RPC boundary', async () => {
+      await expect(db.query(
+        `select public.shelf_correct($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb) result`,
+        [crypto.randomUUID(), receipt.userProductId, 1, receipt.revisions[0].id,
+          'same name', null, JSON.stringify(DAY),
+          JSON.stringify({ manualName: 'Gentle Shampoo' })],
+      )).rejects.toThrow(/invalid-correction-noop/i);
+      expect((await shelfDetail(db, receipt.userProductId)).revision).toBe(1);
+    });
+
+    it('rejects a no-op identity correction at the direct private-core boundary', async () => {
+      await expect(coreCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+      expect((await shelfDetail(db, receipt.userProductId)).revision).toBe(1);
+    });
+
+    it('leaves the row, revision, revision count and correction chain untouched by a refused no-op correction', async () => {
+      const before = await shelfDetail(db, receipt.userProductId);
+      const historyBefore = await revisionsOf(db, receipt.userProductId);
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+      const after = await shelfDetail(db, receipt.userProductId);
+      const historyAfter = await revisionsOf(db, receipt.userProductId);
+      expect(after.revision).toBe(before.revision);
+      expect(after.manualName).toBe(before.manualName);
+      expect(after.manualBrand).toBe(before.manualBrand);
+      expect(after.manualCategory).toBe(before.manualCategory);
+      expect(after.availability).toBe(before.availability);
+      expect(historyAfter).toHaveLength(historyBefore.length);
+      expect(historyAfter.map(r => r.id)).toEqual(historyBefore.map(r => r.id));
+      expect(historyAfter.map(r => r.corrects_id)).toEqual(historyBefore.map(r => r.corrects_id));
+      expect(historyAfter.map(r => r.patch)).toEqual(historyBefore.map(r => r.patch));
+    });
+
+    it('allows a real correction of the same target after a refused no-op attempt', async () => {
+      await expect(shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+      await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Really Corrected Name' },
+      });
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(2);
+      expect(detail.manualName).toBe('Really Corrected Name');
+    });
+
+    it('does not consume the operation id of a refused no-op, so the owner can retry with the right wording', async () => {
+      const operationId = crypto.randomUUID();
+      await expect(shelfCorrect(db, {
+        operationId, userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle Shampoo' },
+      })).rejects.toThrow(/invalid-correction-noop/i);
+      // A refusal writes nothing at all - not even the operation ledger - so
+      // the operation id was never bound to the refused payload and the owner
+      // can correct the wording and use the same id again.
+      const result = await shelfCorrect(db, {
+        operationId, userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Different Name' },
+      });
+      expect(result.revision).toBe(2);
+      expect((await shelfDetail(db, receipt.userProductId)).manualName).toBe('Different Name');
+      // Now the id IS bound to the payload that was accepted, so a third
+      // call with the same id and another payload is the stable conflict.
+      await expect(shelfCorrect(db, {
+        operationId, userProductId: receipt.userProductId, expectedRevision: 2,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Yet Another Name' },
+      })).rejects.toThrow(/operation-conflict/i);
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(2);
+    });
+  });
+
+  describe('the chain of corrections the audit reads', () => {
+    beforeEach(async () => {
+      await asUser(db, USER_A);
+      await complete(db);
+    });
+    afterEach(async () => {
+      await db.exec('set session authorization postgres');
+      await db.exec('truncate public.profiles cascade');
+    });
+
+    it('records every correction so the audit can say what each one changed', async () => {
+      const receipt = await shelfAddFacts(db, {
+        manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo',
+        facts: { manualSize: '400 ml', quantityBand: 'unknown' },
+      });
+      const baselineId = receipt.revisions[0].id;
+      // The first correction fixes the name and leaves every fact alone.
+      const first = await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1, correctsId: baselineId,
+        facts: { manualName: 'Gentle shampoo bar' },
+      });
+      // The second correction fixes the brand and takes the size back. The
+      // name is left alone, and the name was recorded by the first
+      // correction - not by the entry the owner recorded - so the audit can
+      // only say the name was kept by replaying the whole chain.
+      await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 2, correctsId: first.revisions[1].id,
+        facts: { manualBrand: 'Another brand', manualSize: null },
+      });
+      // The record holds what the owner last said.
+      const detail = await shelfDetail(db, receipt.userProductId);
+      expect(detail.revision).toBe(3);
+      expect(detail.manualName).toBe('Gentle shampoo bar');
+      expect(detail.manualBrand).toBe('Another brand');
+      expect(detail.manualSize).toBeNull();
+      // An explicit unknown answer is an answer the owner gave, so it is
+      // kept and never read as never answered.
+      expect(detail.quantityBand).toBe('unknown');
+      // The history is append-only and every entry says what it recorded.
+      const history = await revisionsOf(db, receipt.userProductId);
+      expect(history.map(r => r.kind)).toEqual(['baseline', 'correction', 'correction']);
+      expect(history[1].patch.manualName).toBe('Gentle shampoo bar');
+      expect(history[1].patch.manualBrand).toBeUndefined();
+      expect(history[1].patch.manualSize).toBeUndefined();
+      expect(history[2].patch.manualBrand).toBe('Another brand');
+      expect(history[2].patch.manualSize).toBeNull();
+      // The name is not in the second correction: it was kept, and the entry
+      // that recorded it is the first correction.
+      expect(history[2].patch.manualName).toBeUndefined();
+      // The chain names the entry each correction replaced.
+      expect(history.map(r => r.corrects_id)).toEqual([null, baselineId, history[1].id]);
+      // The reason the owner gave is kept with every correction.
+      expect(history.map(r => r.correction_reason)).toEqual([null, 'wrong wording', 'wrong wording']);
+    });
+
+    it('never lets one owner read the audit of another owner', async () => {
+      const receipt = await shelfAddFacts(db, { manualName: 'Gentle shampoo' });
+      await shelfCorrect(db, {
+        userProductId: receipt.userProductId, expectedRevision: 1,
+        correctsId: receipt.revisions[0].id,
+        facts: { manualName: 'Gentle shampoo bar' },
+      });
+      await asUser(db, USER_B);
+      await complete(db, 'user_b');
+      // The audit of another owner is never disclosed: the answer says the
+      // entry is not there, and nothing about what it holds.
+      await expect(db.query<{ result: unknown }>(
+        `select public.shelf_history($1, true) result`, [receipt.userProductId],
+      )).rejects.toThrow(/not-found/i);
+    });
   });
 });
 

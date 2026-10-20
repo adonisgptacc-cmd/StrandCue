@@ -4,7 +4,9 @@ import {
   ArchiveUserProductCommandSchema,
   ChangeUserProductCommandSchema,
   CorrectUserProductCommandSchema,
+  CORRECTION_IDENTITY_CHANGE_RULE,
   CORRECTION_IDENTITY_RULE,
+  correctionChangesIdentity,
   correctionTargetRevision,
   CreateUserProductCommandSchema,
   LifecycleSchema,
@@ -20,6 +22,7 @@ import {
   VerificationStatusSchema,
   compareTrustTiers,
   isEvidenceTier,
+  shelfStateBefore,
 } from '../../packages/domain/src/shelf.ts';
 
 describe('shelf verification and provenance domain', () => {
@@ -417,7 +420,141 @@ describe('the revision a correction may replace', () => {
     expect(CorrectUserProductCommandSchema.parse({ ...correction, manualName: 'Gentle shampoo bar' }).manualName).toBe('Gentle shampoo bar');
     // The wording is the owner's own, and the editor and the intro use it
     // too, so the rule the owner is refused by is the rule they were told.
-    expect(CORRECTION_IDENTITY_RULE).toBe('A correction has to change the brand, the name or the category.');
+    expect(CORRECTION_IDENTITY_RULE).toBe('A correction has to change the brand, the product name or the category.');
+  });
+
+  describe('the material change a correction has to make', () => {
+    const current = { manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo' };
+
+    it('refuses a correction that re-answers the identity with the same words', () => {
+      expect(correctionChangesIdentity(current, { manualName: 'Gentle shampoo' })).toBe(false);
+      expect(correctionChangesIdentity(current, { manualBrand: 'House brand' })).toBe(false);
+      expect(correctionChangesIdentity(current, { manualCategory: 'shampoo' })).toBe(false);
+      // The words are trimmed before they are compared, so stray spaces are
+      // not a change.
+      expect(correctionChangesIdentity(current, { manualBrand: '  House brand  ' })).toBe(false);
+    });
+
+    it('accepts a correction that changes one of the three', () => {
+      expect(correctionChangesIdentity(current, { manualName: 'Gentle shampoo bar' })).toBe(true);
+      expect(correctionChangesIdentity(current, { manualBrand: 'Another brand' })).toBe(true);
+      expect(correctionChangesIdentity(current, { manualCategory: 'conditioner' })).toBe(true);
+      // A different spelling is a different answer: the case is never folded.
+      expect(correctionChangesIdentity(current, { manualName: 'gentle shampoo' })).toBe(true);
+    });
+
+    it('reads an explicit null over a recorded answer as a change, and over nothing as no change', () => {
+      // Taking back an answer the owner gave changes the record.
+      expect(correctionChangesIdentity(current, { manualName: null })).toBe(true);
+      // Taking back an answer that was never given changes nothing.
+      expect(correctionChangesIdentity({ ...current, manualCategory: null }, { manualCategory: null })).toBe(false);
+    });
+
+    it('never lets a related fact make a correction valid by itself', () => {
+      expect(correctionChangesIdentity(current, { manualSize: '400 ml' })).toBe(false);
+      expect(correctionChangesIdentity(current, { manualVariant: 'Fragrance free' })).toBe(false);
+      expect(correctionChangesIdentity(current, { notes: 'a note the owner wrote' })).toBe(false);
+      expect(correctionChangesIdentity(current, { quantityBand: 'about-half' })).toBe(false);
+      // The identity is what has to change; the facts may come with it.
+      expect(correctionChangesIdentity(current, { manualName: 'Gentle shampoo bar', manualSize: '400 ml' })).toBe(true);
+    });
+
+    it('reads a key the correction leaves out as preserved', () => {
+      expect(correctionChangesIdentity(current, {})).toBe(false);
+      expect(correctionChangesIdentity(current, { manualVariant: 'Fragrance free' })).toBe(false);
+    });
+
+    it('says the same thing the editor says', () => {
+      expect(CORRECTION_IDENTITY_CHANGE_RULE).toBe('Change the brand, product name or category to record an identity correction.');
+    });
+  });
+
+  describe('the state of a record before a correction', () => {
+    const baseline = entry({
+      patch: {
+        manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo',
+        manualSize: '400 ml', availability: 'available',
+      },
+    });
+    const firstCorrection = entry({
+      id: '90000000-0000-4000-8000-000000000071',
+      kind: 'correction',
+      correctsId: '90000000-0000-4000-8000-000000000070',
+      patch: { manualName: 'Gentle shampoo bar' },
+    });
+    const secondCorrection = entry({
+      id: '90000000-0000-4000-8000-000000000072',
+      kind: 'correction',
+      correctsId: '90000000-0000-4000-8000-000000000071',
+      patch: { manualBrand: 'Another brand' },
+    });
+
+    it('replays the whole lineage, not only the entry the correction replaces', () => {
+      // The entry the second correction replaces never mentions the size, so
+      // reading that entry alone would say the owner never answered it.
+      const state = shelfStateBefore([baseline, firstCorrection, secondCorrection], firstCorrection.id);
+      expect(state?.manualSize).toBe('400 ml');
+      expect(state?.manualName).toBe('Gentle shampoo bar');
+      expect(state?.manualBrand).toBe('House brand');
+    });
+
+    it('answers the state the owner recorded before the first correction', () => {
+      // The first correction replaces the entry the owner recorded, so the
+      // state before it is the state that entry left behind.
+      const state = shelfStateBefore([baseline, firstCorrection], baseline.id);
+      expect(state?.manualName).toBe('Gentle shampoo');
+      expect(state?.manualSize).toBe('400 ml');
+    });
+
+    it('forgets an answer the owner took back', () => {
+      const cleared = entry({
+        id: '90000000-0000-4000-8000-000000000073',
+        kind: 'correction',
+        correctsId: '90000000-0000-4000-8000-000000000070',
+        patch: { manualSize: null },
+      });
+      const state = shelfStateBefore([baseline, cleared], cleared.id);
+      expect(state?.manualSize).toBeUndefined();
+      expect(state?.manualName).toBe('Gentle shampoo');
+    });
+
+    it('fails closed when the lineage cannot be walked', () => {
+      expect(shelfStateBefore([baseline, firstCorrection], '90000000-0000-4000-8000-0000000000ff')).toBeNull();
+      expect(shelfStateBefore([baseline], null)).toBeNull();
+      expect(shelfStateBefore([], '90000000-0000-4000-8000-000000000070')).toBeNull();
+      expect(shelfStateBefore(undefined, '90000000-0000-4000-8000-000000000070')).toBeNull();
+      // A chain that points at an entry nobody holds is never guessed at.
+      const broken = entry({
+        id: '90000000-0000-4000-8000-000000000074',
+        kind: 'correction',
+        correctsId: '90000000-0000-4000-8000-0000000000fe',
+        patch: { manualName: 'Gentle shampoo bar' },
+      });
+      expect(shelfStateBefore([baseline, broken], broken.id)).toBeNull();
+
+      // A map must never silently choose one of two entries with the same
+      // identity. That would make the answer depend on array order.
+      const duplicate = entry({
+        id: baseline.id,
+        patch: { manualName: 'A different product' },
+      });
+      expect(shelfStateBefore([baseline, duplicate], baseline.id)).toBeNull();
+
+      // A correction can only replace an entry already recorded. A forward
+      // reference is malformed history even when the referenced ID appears
+      // later in the response.
+      expect(shelfStateBefore([firstCorrection, baseline], firstCorrection.id)).toBeNull();
+
+      // Every entry applied during replay must be readable, even when it is
+      // not part of the selected target's own correction chain.
+      const unrelatedBroken = entry({
+        id: '90000000-0000-4000-8000-000000000075',
+        kind: 'correction',
+        correctsId: '90000000-0000-4000-8000-0000000000fd',
+        patch: { manualSize: null },
+      });
+      expect(shelfStateBefore([baseline, unrelatedBroken, firstCorrection], firstCorrection.id)).toBeNull();
+    });
   });
 
   it('carries the effective date in the command, so a retry is the same command', () => {

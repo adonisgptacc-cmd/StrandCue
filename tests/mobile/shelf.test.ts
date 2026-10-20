@@ -32,12 +32,13 @@ import {
   shelfEditorCopy,
   shelfFactLines,
   shelfView,
+  unreadableHistoryLabel,
   verificationBadge,
 } from '../../apps/mobile/src/shelf-history';
 import { ShelfEditor, commandFailureMessage } from '../../apps/mobile/src/shelf-editor';
 import { Shelf } from '../../apps/mobile/src/shelf';
 import { styles } from '../../apps/mobile/src/ui';
-import { ChangeUserProductCommandSchema, CorrectUserProductCommandSchema, CORRECTION_IDENTITY_RULE, correctionTargetRevision, CreateUserProductCommandSchema } from '../../packages/domain/src/shelf.ts';
+import { ChangeUserProductCommandSchema, CorrectUserProductCommandSchema, CORRECTION_IDENTITY_CHANGE_RULE, CORRECTION_IDENTITY_RULE, correctionTargetRevision, CreateUserProductCommandSchema } from '../../packages/domain/src/shelf.ts';
 
 vi.mock('react-native', () => {
   const host = (tag: string) => {
@@ -1736,13 +1737,16 @@ const matchId = 'c0000000-0000-4000-8000-000000000004';
 const archiveId = 'c0000000-0000-4000-8000-000000000005';
 
 /** The entry the owner recorded: it carries the identity. */
-const identityEntry = (): ShelfRevisionRecord => shelfRevision({
+const identityEntry = (patchOverrides: Record<string, unknown> = {}): ShelfRevisionRecord => shelfRevision({
   id: baselineId,
   kind: 'baseline',
   // The size is an answer the owner gave, and the notes are an answer the
   // owner never gave: the server records both keys, one with a value and
   // one as a null.
-  patch: { manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo', manualSize: '400 ml', availability: 'available', notes: null },
+  patch: {
+    manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo',
+    manualSize: '400 ml', availability: 'available', notes: null, ...patchOverrides,
+  },
 }) as ShelfRevisionRecord;
 
 /** A revision that recorded no identity at all. */
@@ -1924,7 +1928,7 @@ describe('the correction history', () => {
             manualBrand: 'New brand',
             manualName: 'Gentle shampoo bar',
             revisions: [
-              identityEntry(),
+              identityEntry({ manualVariant: 'Original variant', notes: 'Original note' }),
               revision({
                 id: correctionId,
                 kind: 'correction',
@@ -1962,8 +1966,8 @@ describe('the correction history', () => {
     expect(text).toContain('Brand: New brand');
     expect(text).toContain('Name: Gentle shampoo bar');
     // A fact the owner cleared reads as cleared, never as blank.
-    expect(text).toContain('Variant: Cleared');
-    expect(text).toContain('Notes: Cleared');
+    expect(text).toContain('Variant: Removed saved answer');
+    expect(text).toContain('Notes: Removed saved answer');
     // An explicit unknown answer is not the same as an answer that was never given.
     expect(text).toContain('How much is left: Not sure');
     // A fact the earlier entry never recorded at all is an answer the owner
@@ -1986,7 +1990,7 @@ describe('the correction history', () => {
     const reloaded = renderedText(renderer);
     expect(reloaded).toContain('Reason: The brand was wrong');
     expect(reloaded).toContain('Brand: New brand');
-    expect(reloaded).toContain('Variant: Cleared');
+    expect(reloaded).toContain('Variant: Removed saved answer');
     expect(reloaded).toContain('How much is left: Not sure');
   });
 });
@@ -2093,7 +2097,7 @@ describe('the facts a correction carries', () => {
     // A correction is an identity correction: it has to change the brand,
     // the name or the category.
     expect(rpc).not.toHaveBeenCalled();
-    expect(renderedText(renderer)).toContain('A correction has to change the brand, the name or the category');
+    expect(renderedText(renderer)).toContain('A correction has to change the brand, the product name or the category');
   });
 });
 
@@ -2139,7 +2143,7 @@ describe('the correction screen and the history the owner reads', () => {
     manualVariant: 'Fragrance free',
     openedOn: { precision: 'day', value: '2026-03-01' },
     revisions: [
-      identityEntry(),
+      identityEntry({ manualVariant: 'Fragrance free' }),
       revision({
         id: correctionId,
         kind: 'correction',
@@ -2185,6 +2189,86 @@ describe('the correction screen and the history the owner reads', () => {
     return renderer;
   }
 
+  it('reads a fact the earlier entry recorded as kept, even when the entry it replaces left it out', async () => {
+    // The size was answered by the entry the owner recorded. The correction
+    // that replaced it never mentions the size, so reading that entry alone
+    // would say the owner never answered it. The whole lineage says the
+    // answer is still there.
+    const secondCorrectionId = 'c0000000-0000-4000-8000-00000000000a';
+    rpc.mockImplementation((name: string) => {
+      if (name === 'shelf_list') return Promise.resolve({ data: { items: [shelfItem()], nextCursor: null }, error: null });
+      if (name === 'shelf_history') return Promise.resolve({ data: shelfDetail({
+        manualBrand: 'House brand',
+        manualName: 'Gentle shampoo bar',
+        manualCategory: 'shampoo',
+        manualSize: '400 ml',
+        revisions: [
+          identityEntry(),
+          revision({
+            id: correctionId,
+            kind: 'correction',
+            correctsId: baselineId,
+            correctionReason: 'The name was wrong',
+            patch: { manualName: 'Gentle shampoo bar' },
+          }),
+          revision({
+            id: secondCorrectionId,
+            kind: 'correction',
+            correctsId: correctionId,
+            correctionReason: 'The name was still wrong',
+            patch: { manualBrand: 'House brand' },
+          }),
+        ],
+      }), error: null });
+      return Promise.resolve({ data: null, error: null });
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Shelf, { owner: ownerA })); });
+    await flush();
+    press(renderer, 'View product entry: Gentle shampoo');
+    await flush();
+    press(renderer, 'Show product audit');
+    await flush();
+    const text = renderedText(renderer);
+    // The second correction left the size alone, and the record still holds
+    // the answer the first entry gave.
+    expect(text).toContain('Size: Kept');
+    expect(text).not.toContain('Size: Not answered');
+  });
+
+  it('says the earlier entries could not be read when the history is broken', async () => {
+    // A correction that points at an entry nobody holds cannot be read, so
+    // the audit says so rather than guessing what the record held.
+    rpc.mockImplementation((name: string) => {
+      if (name === 'shelf_list') return Promise.resolve({ data: { items: [shelfItem()], nextCursor: null }, error: null });
+      if (name === 'shelf_history') return Promise.resolve({ data: shelfDetail({
+        manualBrand: 'House brand',
+        manualName: 'Gentle shampoo bar',
+        manualCategory: 'shampoo',
+        revisions: [
+          identityEntry(),
+          revision({
+            id: correctionId,
+            kind: 'correction',
+            correctsId: 'c0000000-0000-4000-8000-0000000000ff',
+            correctionReason: 'The name was wrong',
+            patch: { manualName: 'Gentle shampoo bar' },
+          }),
+        ],
+      }), error: null });
+      return Promise.resolve({ data: null, error: null });
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Shelf, { owner: ownerA })); });
+    await flush();
+    press(renderer, 'View product entry: Gentle shampoo');
+    await flush();
+    press(renderer, 'Show product audit');
+    await flush();
+    const text = renderedText(renderer);
+    expect(text).toContain(unreadableHistoryLabel);
+  });
+
   it('says the four answers in four different ways, so they are tellable apart by sound', async () => {
     const renderer = await openHistory();
     const text = renderedText(renderer);
@@ -2194,8 +2278,8 @@ describe('the correction screen and the history the owner reads', () => {
     expect(text).toContain('Brand: New brand');
     expect(announced).toContain('Brand: New brand');
     // A fact the owner took back.
-    expect(text).toContain('Variant: Cleared');
-    expect(announced).toContain('Variant: Cleared');
+    expect(text).toContain('Variant: Removed saved answer');
+    expect(announced).toContain('Variant: Removed saved answer');
     // A fact the owner never answered: the earlier entry recorded the key,
     // but never with an answer.
     expect(text).toContain('Notes: Not answered');
@@ -2227,21 +2311,22 @@ describe('the correction screen and the history the owner reads', () => {
     });
     const lines = revisionLines(correction.patch, correction.kind, baseline.patch);
     // The owner never answered either, so neither reads as kept.
-    expect(lines).toContain('Brand: Not answered');
-    expect(lines).toContain('Category: Not answered');
+    expect(lines).toContain('Brand: Not answered in this entry');
+    expect(lines).toContain('Category: Not answered in this entry');
     expect(lines).not.toContain('Brand: Kept');
     expect(lines).not.toContain('Category: Kept');
   });
 
-  it('uses the same word for the clearing action in the editor and in the history', async () => {
+  it('distinguishes the editor clearing action from the recorded audit result', async () => {
     const renderer = await openCorrection();
     // The editor's way back is "Cleared", never "Not answered": that is the
     // state of a fact the owner never answered.
     expect(labelsOf(renderer)).toContain('How much is left?: Cleared');
     expect(labelsOf(renderer)).not.toContain('How much is left?: Not answered');
-    // And the history calls that same state "Cleared".
+    // The audit describes the recorded result rather than repeating the
+    // editor action label.
     const historyRenderer = await openHistory();
-    expect(renderedText(historyRenderer)).toContain('Variant: Cleared');
+    expect(renderedText(historyRenderer)).toContain('Variant: Removed saved answer');
   });
 
   it('says a cleared category as cleared in the editor, the way the audit says it', async () => {
@@ -2423,24 +2508,31 @@ describe('the correction screen and the history the owner reads', () => {
     expect(announcedTexts(renderer).some(text => text.includes(CORRECTION_IDENTITY_RULE))).toBe(true);
   });
 
-  it('sends a correction that carries the identity the owner answered, even when the answer did not change', async () => {
+  it('refuses a correction that re-answers the identity with the same words', async () => {
     rpc.mockResolvedValue({ data: { userProductId, revision: 2, revisions: [] }, error: null });
     const renderer = await openCorrection();
     // The owner answers the brand again with the answer the record holds.
+    // A correction that changes nothing about the identity corrects nothing,
+    // so it is refused here and by the server.
     type(renderer, 'Brand (as printed)', 'House brand');
     type(renderer, 'Reason for this correction (required)', 'I want to be sure of the brand');
     press(renderer, 'Save correction');
     await flush();
+    expect(rpc).not.toHaveBeenCalled();
+    expect(announcedTexts(renderer).some(text => text.includes(CORRECTION_IDENTITY_CHANGE_RULE))).toBe(true);
+  });
+
+  it('sends a correction that changes the identity the owner answered', async () => {
+    rpc.mockResolvedValue({ data: { userProductId, revision: 2, revisions: [] }, error: null });
+    const renderer = await openCorrection();
+    // The owner answers the brand with a different answer: that is a
+    // correction, so it is sent.
+    type(renderer, 'Brand (as printed)', 'Another brand');
+    type(renderer, 'Reason for this correction (required)', 'the brand was wrong');
+    press(renderer, 'Save correction');
+    await flush();
     const facts = (rpc.mock.calls.at(-1)?.[1] as Record<string, unknown>).p_facts as Record<string, unknown>;
-    // The correction carries the identity, so the record it replaces keeps
-    // an identity to correct: the domain and the server accept it too.
-    expect(facts.manualBrand).toBe('House brand');
-    expect(CorrectUserProductCommandSchema.safeParse({
-      operationId, userProductId, expectedRevision: 1, correctsId: baselineId,
-      reason: 'I want to be sure of the brand',
-      effectiveDate: { precision: 'day', value: '2026-03-01' },
-      manualBrand: 'House brand',
-    }).success).toBe(true);
+    expect(facts.manualBrand).toBe('Another brand');
   });
 
   it('sends the same payload when a retained draft is retried later', async () => {
@@ -2491,12 +2583,14 @@ describe('the wording the history reads in', () => {
 
   it('reads a blank answer, a period after opening and a cleared date', () => {
     // A blank answer is no answer at all.
-    expect(revisionLines({ manualVariant: '   ' }, 'correction')).toContain('Variant: Not answered');
+    expect(revisionLines({ manualVariant: '   ' }, 'correction', {})).toContain('Variant: Not answered in this entry');
     // The period after opening keeps the owner's own wording.
     expect(revisionLines({ pao: '12 months after opening' }, 'correction')).toContain('12 months after opening');
     expect(revisionLines({ pao: 'a year' }, 'correction')).toContain('Period after opening: a year');
     // An opened date the correction cleared, and one it set.
-    expect(revisionLines({ openedOn: null }, 'correction')).toContain('Opened date: Cleared');
+    expect(revisionLines({ openedOn: null }, 'correction', {
+      openedOn: { precision: 'day', value: '2026-02-01' },
+    })).toContain('Opened date: Removed saved answer');
     expect(revisionLines({ openedOn: { precision: 'day', value: '2026-03-01' } }, 'correction')).toContain('Opened date: 1 March 2026');
     // A revision that recorded no patch at all.
     expect(revisionLines(undefined, 'correction')).toEqual([]);

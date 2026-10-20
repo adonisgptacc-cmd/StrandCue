@@ -44,6 +44,10 @@ export const notAnsweredLabel = 'Not answered';
  */
 export const clearedLabel = 'Cleared';
 
+/** Audit wording is deliberately different from the editor action. */
+const auditNotAnsweredLabel = 'Not answered in this entry';
+const auditClearedLabel = 'Removed saved answer';
+
 /**
  * The wording of an answer a correction left alone.
  *
@@ -228,28 +232,57 @@ export const correctionFacts = new Set([
 ]);
 
 /**
+ * The wording of a correction whose earlier entries cannot be read.
+ *
+ * A history that cannot be walked is not guessed at: the owner is told the
+ * earlier entries could not be read, so no field is described as answered
+ * when it may never have been answered at all.
+ */
+export const unreadableHistoryLabel = 'The earlier entries of this product could not be read.';
+
+/**
+ * Whether the record held an answer for a fact before a correction.
+ *
+ * A key the state does not hold was never answered, and a key it holds as
+ * null was answered and then taken back: neither is an answer the record
+ * carries now. A blank answer is no answer at all, so it never counts.
+ */
+function answeredState(key: string, before: Record<string, unknown> | null | undefined): boolean {
+  if (!before || !Object.prototype.hasOwnProperty.call(before, key)) return false;
+  const value = before[key];
+  if (value === null || value === undefined) return false;
+  return typeof value === 'string' ? value.trim() !== '' : true;
+}
+
+/**
  * The state of a fact the correction did not touch.
  *
  * A correction that left a fact alone kept the answer the record holds, so
  * it reads "Kept". A fact the owner never answered at all reads "Not
- * answered". The revision the correction replaces says which of the two it
- * is: it carries the key when the fact was answered before.
+ * answered". The state of the record before the correction says which of
+ * the two it is: it holds the key when the fact was answered before.
  *
- * A key the earlier revision recorded with a value is an answer the owner
- * gave, so the correction kept it. A key the earlier revision recorded as a
- * null is an answer the owner never gave - the server records the keys of
- * the first entry as nulls - so it reads as never answered.
+ * The state is the whole lineage of the record up to the entry the
+ * correction replaces, not that entry alone: an entry can leave out a fact
+ * an earlier entry recorded.
  */
 function untouchedState(key: string, before: Record<string, unknown> | null | undefined): string {
-  if (before && Object.prototype.hasOwnProperty.call(before, key)) {
-    const value = before[key];
-    if (value !== null && value !== undefined) {
-      // A blank answer is no answer at all, so it never counts as kept.
-      const answered = typeof value === 'string' ? value.trim() !== '' : true;
-      if (answered) return keptLabel;
-    }
-  }
-  return notAnsweredLabel;
+  return answeredState(key, before) ? keptLabel : auditNotAnsweredLabel;
+}
+
+/**
+ * The state of a fact the correction took back.
+ *
+ * An explicit null is the owner taking an answer back. The audit describes
+ * that result as "Removed saved answer", distinct from the editor action.
+ * It uses that wording only when the state of the record before the
+ * correction is known and held an answer to take back: a null over a value
+ * that was never recorded answers nothing at all. When the state is not
+ * known at all, the entry says what it did and reads "Removed saved answer".
+ */
+function removedState(key: string, before: Record<string, unknown> | null | undefined): string {
+  if (before === undefined || before === null) return auditClearedLabel;
+  return answeredState(key, before) ? auditClearedLabel : auditNotAnsweredLabel;
 }
 
 /**
@@ -304,8 +337,8 @@ export function revisionLines(
       continue;
     }
     if (raw === null || raw === undefined) {
-      // An explicit null is a clear: the owner took the answer back.
-      if (correcting) recorded(fact.label, clearedLabel);
+      // An explicit null takes the answer back: the owner cleared it.
+      if (correcting) recorded(fact.label, removedState(fact.key, before));
       continue;
     }
     if (correcting && !correctionFacts.has(fact.key)) {
@@ -317,7 +350,7 @@ export function revisionLines(
     const text = typeof raw === 'string' ? raw.trim() : '';
     if (text === '') {
       // A blank answer is no answer at all: it was never recorded.
-      if (correcting) recorded(fact.label, notAnsweredLabel);
+      if (correcting) recorded(fact.label, auditNotAnsweredLabel);
       continue;
     }
     if (fact.key === 'pao') {
@@ -333,7 +366,7 @@ export function revisionLines(
   if (!openedPresent) {
     if (correcting) recorded(openedDateLabel, untouchedState('openedOn', before));
   } else if (patch.openedOn === null || patch.openedOn === undefined) {
-    if (correcting) recorded(openedDateLabel, clearedLabel);
+    if (correcting) recorded(openedDateLabel, removedState('openedOn', before));
   } else {
     recorded(openedDateLabel, openedOnWords(patch.openedOn as { precision: string; value: string | null }));
   }

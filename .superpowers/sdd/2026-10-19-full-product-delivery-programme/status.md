@@ -87,6 +87,28 @@ working tree → clean
 - Banana Human A/B review outstanding; production reviewed bundle draft.
 - Hosted migrations not applied; no hosted mutation attempted.
 
+## Increment 2 — Task 2.1 correction round
+
+Task 2.1 is implemented locally and verified on 20 October 2026. The repeated
+failure was caused by three separate faults being handled as one: the SQL core
+referenced an unresolved `manual_category`, the correction contract did not
+refuse identity no-ops consistently, and UI fixtures described a value as
+cleared even though their baseline never recorded it. The final boundary now:
+
+- refuses an identity correction that changes only related facts;
+- reconstructs the effective state by replaying the complete earlier history;
+- fails closed on missing, cyclic, duplicate and forward-pointing history;
+- distinguishes the editor action `Cleared` from the audit result
+  `Removed saved answer`, and distinguishes that result from
+  `Not answered in this entry`;
+- maps stable database refusal codes to plain mobile copy; and
+- preserves owner isolation and append-only revision history.
+
+Verification: focused domain/mobile/accessibility/PGlite suites 278/278; full
+coverage 2678 passed, 11 skipped, with 95.75/89.81/98.42/97.71 coverage;
+typecheck, lint, web export and control-plane audit pass. The dependency audit
+remains HOLD on `RUNNER-REVIEW-DRIFT`; it is not reported as a pass.
+
 ## Statement
 
 Increment 3 was not started. No push, merge, deploy, hosted migration, content

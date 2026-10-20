@@ -86,7 +86,10 @@ const identityEntry = {
   id: baselineId, kind: 'baseline' as const, correctsId: null, matchVersionId: null,
   // The size is an answer the owner gave and the notes are an answer the
   // owner never gave: the server records both keys.
-  patch: { manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo', manualSize: '400 ml', availability: 'available', notes: null },
+  patch: {
+    manualBrand: 'House brand', manualName: 'Gentle shampoo', manualCategory: 'shampoo',
+    manualVariant: 'Fragrance free', manualSize: '400 ml', availability: 'available', notes: null,
+  },
 };
 
 const correction = {
@@ -232,7 +235,7 @@ describe('the correction flow and the product history', () => {
     press(renderer, 'Save correction');
     await flush();
     expect(rpc).not.toHaveBeenCalled();
-    expect(announcedTexts(renderer).some(text => text.includes('A correction has to change the brand, the name or the category.'))).toBe(true);
+    expect(announcedTexts(renderer).some(text => text.includes('A correction has to change the brand, the product name or the category.'))).toBe(true);
   });
 
   it('gives every revision of the history a heading', async () => {
@@ -250,14 +253,14 @@ describe('the correction flow and the product history', () => {
     // A fact the owner answered, a fact they took back, a fact they never
     // answered and a fact the correction left alone.
     expect(announced).toContain('Brand: New brand');
-    expect(announced).toContain('Variant: Cleared');
-    expect(announced).toContain('Notes: Not answered');
+    expect(announced).toContain('Variant: Removed saved answer');
+    expect(announced).toContain('Notes: Not answered in this entry');
     expect(announced).toContain('Size: Kept');
     // An explicit unknown answer keeps its own words.
     expect(announced).toContain('How much is left: Not sure');
     // The four answers are four different words, so they are tellable apart
     // by sound alone.
-    const states = ['Cleared', 'Not answered', 'Kept', 'Not sure'];
+    const states = ['Removed saved answer', 'Not answered in this entry', 'Kept', 'Not sure'];
     expect(new Set(states).size).toBe(4);
     for (const state of states) expect(announced).toContain(state);
   });
