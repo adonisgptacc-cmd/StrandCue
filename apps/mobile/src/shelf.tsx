@@ -6,14 +6,17 @@ import {
   clearShelfDrafts,
   readShelfDrafts,
   type ShelfDraft,
+  type ShelfFormDraft,
 } from './shelf-drafts';
-import { appendShelfPage, availabilityLabel, recordedIdentityWording, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, unreadableHistoryLabel, verificationBadge, type ShelfEditorMode } from './shelf-history';
+import { appendShelfPage, availabilityLabel, recordedIdentityWording, revisionLines, shelfEditorCopy, shelfFactLines, shelfView, unreadableHistoryLabel, verificationBadge, type ShelfFormMode } from './shelf-history';
 import { shelfStateBefore } from '../../../packages/domain/src/index';
+import { CatalogueMatch } from './CatalogueMatch';
 import { ShelfEditor } from './shelf-editor';
 import { Button, styles } from './ui';
 
 type Mode = { kind: 'list' } | { kind: 'detail'; detail: ShelfDetail }
-  | { kind: 'editor'; mode: ShelfEditorMode; userProductId?: string; detail?: ShelfDetail; resume?: ShelfDraft; session: number };
+  | { kind: 'match'; detail: ShelfDetail; resume?: ShelfDraft; session: number }
+  | { kind: 'editor'; mode: ShelfFormMode; userProductId?: string; detail?: ShelfDetail; resume?: ShelfFormDraft; session: number };
 
 /** The name of a revision kind, in the words the owner reads. */
 function revisionKindLabel(kind: string): string {
@@ -46,8 +49,8 @@ function ShelfDetailView({ detail, onEdit, onBack }: {
         <Button title="Edit this product" secondary onPress={() => onEdit('edit')} />}
       {detail.availability !== 'archived' &&
         <Button title="Correct this product's details" secondary onPress={() => onEdit('correct')} />}
-      {!detail.matched && detail.availability !== 'archived' &&
-        <Button title="Match to catalogue entry" secondary onPress={() => onEdit('match')} />}
+      {detail.availability !== 'archived' &&
+        <Button title={detail.matched ? 'Choose a different catalogue match' : 'Match to catalogue'} secondary onPress={() => onEdit('match')} />}
       {detail.availability !== 'archived' &&
         <Button title="Archive this product" secondary onPress={() => onEdit('archive')} />}
       <Button title={audit ? 'Hide product audit' : 'Show product audit'} secondary onPress={() => setAudit(value => !value)} />
@@ -155,22 +158,48 @@ function OwnerShelf({ owner }: { owner: string }) {
     return invalidate;
   }, [load, invalidate]);
 
-  const openProduct = async (userProductId: string) => {
+  /**
+   * Read one product with its audit and show it. `next` decides what a loaded
+   * entry opens: the product detail, or the pending-match screen. `fallback`
+   * is the screen shown when the entry cannot be read after a save.
+   */
+  const openProduct = async (
+    userProductId: string,
+    next: (detail: ShelfDetail) => Mode = detail => ({ kind: 'detail', detail }),
+    fallback?: string,
+  ) => {
     if (busy.current) return;
     busy.current = true;
     const request = ++generation.current;
     setLoading(true); setError('');
+    const failed = (message: string) => {
+      setError(fallback ?? message);
+      if (fallback) setMode({ kind: 'list' });
+    };
     try {
       const detail = await getUserProduct(userProductId, true);
       if (mounted.current && request === generation.current) {
-        if (!detail) setError('This product could not be found. Reload the list to check your saved entries.');
-        else setMode({ kind: 'detail', detail });
+        if (!detail) failed('This product could not be found. Reload the list to check your saved entries.');
+        else setMode(next(detail));
       }
-    } catch { if (mounted.current && request === generation.current) setError('This product could not be loaded. Please try again.'); }
+    } catch { if (mounted.current && request === generation.current) failed('This product could not be loaded. Please try again.'); }
     finally { busy.current = false; if (mounted.current && request === generation.current) setLoading(false); }
   };
   const back = () => { setMode({ kind: 'list' }); void refresh(); };
-  const startEditor = (editorMode: ShelfEditorMode, userProductId?: string, resume?: ShelfDraft, detail?: ShelfDetail) => {
+  const startMatch = (detail: ShelfDetail) => {
+    // A product holds one saved command at a time: a saved match resumes, and any other saved command is never overwritten.
+    const saved = drafts.find(draft => draft.command.userProductId === detail.id);
+    if (saved && saved.mode !== 'match') {
+      setError('This product has an unsent change saved on your device. Review it from the pending saves on your shelf before matching.');
+      return;
+    }
+    setMode({ kind: 'match', detail, resume: saved, session: ++session.current });
+  };
+  const reviewDraft = (draft: ShelfDraft) => {
+    if (draft.mode === 'match') void openProduct(draft.command.userProductId, detail => ({ kind: 'match', detail, resume: draft, session: ++session.current }));
+    else startEditor(draft.mode, undefined, draft);
+  };
+  const startEditor = (editorMode: ShelfFormMode, userProductId?: string, resume?: ShelfFormDraft, detail?: ShelfDetail) => {
     setMode({ kind: 'editor', mode: resume?.mode ?? editorMode, userProductId: userProductId ?? resume?.command.userProductId, detail, resume, session: ++session.current });
   };
   const view = shelfView(loading, items, mode.kind === 'detail' ? mode.detail : null);
@@ -180,14 +209,26 @@ function OwnerShelf({ owner }: { owner: string }) {
     <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>{`${shelfEditorCopy(mode.mode).title} screen opened.`}</Text>
     <ShelfEditor key={mode.session} owner={owner} mode={mode.mode} userProductId={mode.userProductId} detail={mode.detail} resume={mode.resume} onSaved={back} onCancel={back} />
   </>;
+  if (mode.kind === 'match') {
+    const matching = mode.detail;
+    return <View style={{ gap: 20 }}>
+      {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+      <CatalogueMatch key={`${matching.id}-${mode.session}`} owner={owner} detail={matching} resume={mode.resume}
+        onMatched={() => void openProduct(matching.id, undefined, 'The match was saved, but the product could not be reloaded. Open it from your shelf to see it.')}
+        onCancel={() => setMode({ kind: 'detail', detail: matching })}
+        onLeaveWithDraft={back}
+        onStale={() => void openProduct(matching.id)} />
+    </View>;
+  }
   return <View style={{ gap: 20 }}>
     {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-    {mode.kind === 'detail' ? <ShelfDetailView key={mode.detail.id} detail={mode.detail} onEdit={editorMode => startEditor(editorMode, mode.detail.id, undefined, mode.detail)} onBack={back} /> : <>
+    {mode.kind === 'detail' ? <ShelfDetailView key={mode.detail.id} detail={mode.detail}
+      onEdit={editorMode => editorMode === 'match' ? startMatch(mode.detail) : startEditor(editorMode, mode.detail.id, undefined, mode.detail)} onBack={back} /> : <>
       <Text style={styles.subtitle}>Products you own, with manual details kept private. Catalogue facts show their verification status.</Text>
       <Button title="Add a product" disabled={loading} onPress={() => startEditor('add')} />
       {drafts.map((draft, index) => <View key={draft.command.userProductId} style={styles.notice}>
         <Text style={styles.body}>Pending save {index + 1}: {shelfEditorCopy(draft.mode).title}. Review or retry the same command.</Text>
-        <Button title={`Review pending save ${index + 1}`} disabled={loading} onPress={() => startEditor(draft.mode, undefined, draft)} />
+        <Button title={`Review pending save ${index + 1}`} disabled={loading} onPress={() => reviewDraft(draft)} />
       </View>)}
       {view === 'loading' && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>Loading shelf…</Text>}
       {view === 'empty' && !error && <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.card}>

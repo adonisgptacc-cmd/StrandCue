@@ -11,7 +11,6 @@ import {
   CreateUserProductCommandSchema,
   currentDateOnly,
   DateOnlySchema,
-  MatchUserProductCommandSchema,
   shelfIdentity,
   type ShelfIdentity,
 } from '../../../packages/domain/src/index';
@@ -23,7 +22,6 @@ import {
   correctionIdentity,
   correctionTarget,
   getUserProduct,
-  matchUserProduct,
   recordUserProduct,
   todayEffectiveDate,
   type ShelfDetail,
@@ -32,6 +30,7 @@ import {
   removeShelfDraft,
   submitShelfDraft,
   type ShelfDraft,
+  type ShelfFormDraft,
 } from './shelf-drafts';
 import {
   availabilityLabel,
@@ -44,6 +43,7 @@ import {
   shelfCategories,
   shelfEditorCopy,
   type ShelfEditorMode,
+  type ShelfFormMode,
 } from './shelf-history';
 import { Button, Choice, Field, styles } from './ui';
 
@@ -109,7 +109,6 @@ const correctionCategoryChoices = [clearedSentinel, ...categories];
 const correctionCategoryOptions: Record<string, string> = { [clearedSentinel]: clearedLabel, ...categoryOptions };
 /** A bare "no" and "yes" say nothing on their own: the answer reads itself. */
 const archiveConfirmationLabels: Record<string, string> = { no: 'No, keep it on my shelf', yes: 'Yes, archive this product' };
-const matchConfirmationLabels: Record<string, string> = { no: 'No, they are different products', yes: 'Yes, they are the same product' };
 /** Announced when the archive confirmation appears, so it is never silent. */
 const archiveConfirmationNotice = 'Archiving this product needs a confirmation now. Choose "Yes, archive this product" to go ahead, or "No, keep it on my shelf" to keep it.';
 
@@ -623,11 +622,10 @@ export function commandFailureMessage(error: unknown): string {  const issues = 
   return [...new Set(failures)].join(' ');
 }
 
-async function sendDraft(draft: ShelfDraft) {
+async function sendDraft(draft: ShelfFormDraft) {
   if (draft.mode === 'add') return recordUserProduct(draft.command);
   if (draft.mode === 'edit') return changeUserProduct(draft.command);
   if (draft.mode === 'correct') return correctUserProduct(draft.command);
-  if (draft.mode === 'match') return matchUserProduct(draft.command);
   return archiveUserProduct(draft.command);
 }
 
@@ -646,7 +644,7 @@ export async function loadShelfConflict(
 }
 
 export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSaved, onCancel }: {
-  owner: string; mode: ShelfEditorMode; userProductId?: string; detail?: ShelfDetail; resume?: ShelfDraft;
+  owner: string; mode: ShelfFormMode; userProductId?: string; detail?: ShelfDetail; resume?: ShelfFormDraft;
   onSaved: () => void; onCancel: () => void;
 }) {
   const [identity, setIdentity] = useState(() => ({
@@ -728,8 +726,6 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
     return detail?.availability ?? 'available';
   });
   const [archiveConfirmed, setArchiveConfirmed] = useState(false);
-  const [versionId, setVersionId] = useState('');
-  const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState<ShelfDraft | null>(resume ?? null);
   const [latest, setLatest] = useState<ShelfDetail | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -869,10 +865,6 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
           setMessage('');
           return;
         }
-        if (mode === 'match' && !confirmed) {
-          setMessage('Confirm that this is the same product before matching it to a catalogue version.');
-          return;
-        }
         if ((mode === 'add' || mode === 'edit') && availability === 'archived' && !archiveConfirmed) {
           setMessage('Confirm that you want to archive this product. Its history stays in your record.');
           return;
@@ -958,17 +950,6 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
             command[key] = value;
           }
           draft = { mode, command: CorrectUserProductCommandSchema.parse(command) };
-        } else if (mode === 'match') {
-          draft = {
-            mode,
-            command: MatchUserProductCommandSchema.parse({
-              operationId: identity.operationId,
-              userProductId: identity.userProductId,
-              expectedRevision,
-              versionId,
-              confirmed: true,
-            }),
-          };
         } else {
           if (!archiveConfirmed) {
             setMessage('Confirm that you want to archive this product. Its history stays in your record.');
@@ -987,7 +968,8 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
     } catch (error) { setMessage(commandFailureMessage(error)); return; }
     inFlight.current = true; setBusy(true); setMessage(''); setPending(draft);
     try {
-      await submitShelfDraft(secureStorage, owner, draft, sendDraft, () => isLive());
+      // The form editor only ever builds form drafts: a match is sent from its own screen.
+      await submitShelfDraft(secureStorage, owner, draft, saved => sendDraft(saved as ShelfFormDraft), () => isLive());
       if (isLive()) onSaved();
     } catch (error) {
       if (!isLive()) return;
@@ -1036,9 +1018,7 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
         ? 'Record what changed about this product. The brand and name you entered are kept as they are; a wrong one is corrected from the product entry, and the original stays readable in your history.'
         : mode === 'correct'
           ? `Correct what you recorded about this product. The correction is added to your history, and the entry it replaces stays readable. Only what you answer here is sent: everything else stays as you recorded it. ${CORRECTION_IDENTITY_RULE} To change only the other details, use "Edit this product".`
-          : mode === 'match'
-            ? 'Link this entry to a catalogue version. Your original manual details are preserved and matching needs explicit confirmation.'
-            : 'Archiving removes this product from the active list. Prior records that used it are preserved.'}</Text>
+          : 'Archiving removes this product from the active list. Prior records that used it are preserved.'}</Text>
     {pending && <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.body}>A save is awaiting confirmation. The fields are locked so retrying sends the same command.</Text>}
     {mode === 'add' && <>
       <Field label="Brand (as printed)" value={manualBrand} editable={!locked} accessibilityState={inputState(locked, refused('manualBrand'))} maxLength={200} onChangeText={setManualBrand} />
@@ -1116,12 +1096,6 @@ export function ShelfEditor({ owner, mode, userProductId, detail, resume, onSave
       <Choice label="Would you buy it again?" value={facts.repurchaseIntent} options={repurchaseIntentChoices} labels={repurchaseIntentOptions} disabled={locked} onChange={value => updateFact('repurchaseIntent', value)} />
       <Field label="Short notes (optional, avoid identifying details)" value={facts.notes} editable={!locked} accessibilityState={inputState(locked, refused('notes'))} multiline maxLength={2000} onChangeText={value => updateFact('notes', value)} />
       {fieldError('notes')}
-    </>}
-    {mode === 'match' && <>
-      <Text style={styles.body}>Matching links this entry without rewriting what you originally recorded.</Text>
-      <Field label="Catalogue version ID" value={versionId} editable={!locked} accessibilityState={{ disabled: locked }} onChangeText={setVersionId} />
-      <Choice label="I confirm this is the same product" value={confirmed ? 'yes' : 'no'} options={['no', 'yes']} labels={matchConfirmationLabels} disabled={locked}
-        onChange={value => setConfirmed(value === 'yes')} />
     </>}
     {mode === 'archive' && <>
       <Text style={styles.body}>Archived products leave the active list. Their history remains.</Text>

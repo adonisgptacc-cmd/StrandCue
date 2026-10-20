@@ -23,6 +23,7 @@ import {
   submitShelfDraft,
   type ShelfDraft,
   type ShelfDraftStorage,
+  type ShelfFormDraft,
 } from '../../apps/mobile/src/shelf-drafts';
 import {
   availabilityLabel,
@@ -101,7 +102,7 @@ function memoryStorage(): ShelfDraftStorage {
     removeItem: async (key: string) => { values = Object.fromEntries(Object.entries(values).filter(([name]) => name !== key)); },
   };
 }
-const createDraft = (): ShelfDraft => ({ mode: 'add', command: { ...createCommand } });
+const createDraft = (): ShelfFormDraft => ({ mode: 'add', command: { ...createCommand } });
 
 // The device storage the mocked secureStorage uses, in the draft shape.
 const deviceDraftStorage: ShelfDraftStorage = {
@@ -1210,28 +1211,6 @@ describe('the shelf list journeys', () => {
 });
 
 describe('the shelf editor journeys', () => {
-  it('requires an explicit confirmation before matching a catalogue entry', async () => {
-    rpc.mockResolvedValue({ data: { userProductId, revision: 2, revisions: [] }, error: null });
-    let renderer!: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(createElement(ShelfEditor, {
-        owner: ownerA, mode: 'match', userProductId, detail: shelfDetail() as never,
-        onSaved: () => undefined, onCancel: () => undefined,
-      }));
-    });
-    press(renderer, 'Confirm match');
-    await flush();
-    expect(rpc).not.toHaveBeenCalled();
-    type(renderer, 'Catalogue version ID', versionId);
-    choose(renderer, 'I confirm this is the same product', 'Yes, they are the same product');
-    press(renderer, 'Confirm match');
-    await flush();
-    const [name, parameters] = rpc.mock.calls.at(-1) as [string, Record<string, unknown>];
-    expect(name).toBe('shelf_match');
-    expect(parameters.p_version_id).toBe(versionId);
-    expect(parameters.p_confirmed).toBe(true);
-  });
-
   it('confirms before archiving from the archive screen', async () => {
     rpc.mockResolvedValue({ data: { userProductId, revision: 2, revisions: [] }, error: null });
     let renderer!: ReactTestRenderer;
@@ -1389,7 +1368,7 @@ describe('the shelf entry journeys', () => {
     press(renderer, 'View product entry: Gentle shampoo');
     await flush();
     expect(labelsOf(renderer)).toContain('Edit this product');
-    expect(labelsOf(renderer)).toContain('Match to catalogue entry');
+    expect(labelsOf(renderer)).toContain('Match to catalogue');
     expect(labelsOf(renderer)).toContain('Archive this product');
     press(renderer, 'Edit this product');
     await flush();

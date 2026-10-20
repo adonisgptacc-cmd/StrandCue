@@ -16,6 +16,8 @@ export const ShelfDraftSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('archive'), command: ArchiveUserProductCommandSchema }).strict(),
 ]);
 export type ShelfDraft = z.output<typeof ShelfDraftSchema>;
+/** A saved command the form editor can resume; a saved match resumes on the match screen. */
+export type ShelfFormDraft = Exclude<ShelfDraft, { mode: 'match' }>;
 
 export type ShelfDraftStorage = {
   getItem: (key: string) => Promise<string | null>;

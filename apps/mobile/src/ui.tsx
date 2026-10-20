@@ -2,7 +2,7 @@ import type { PropsWithChildren } from 'react';
 import { toggleSelection } from './contracts';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
-export const colors = { paper: '#F7F5EF', white: '#FFFFFF', ink: '#253A30', quiet: '#627268', line: '#DCE2D8', sage: '#E8EDDF', accent: '#667D49', error: '#8C3B30' };
+export const colors = { paper: '#F7F5EF', white: '#FFFFFF', ink: '#253A30', quiet: '#627268', line: '#DCE2D8', sage: '#E8EDDF', accent: '#667D49', error: '#8C3B30', edge: '#6F7C72' };
 export const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.paper },
   content: { width: '100%', maxWidth: 680, alignSelf: 'center', padding: 24, paddingBottom: 40, gap: 20 },
@@ -15,7 +15,7 @@ export const styles = StyleSheet.create({
   heading: { fontSize: 20, fontWeight: '600', color: colors.ink },
   body: { fontSize: 15, lineHeight: 22, color: colors.ink },
   label: { fontSize: 13, fontWeight: '600', color: colors.ink, marginBottom: 8 },
-  input: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 14, fontSize: 16, minHeight: 48, color: colors.ink, backgroundColor: colors.paper },
+  input: { borderWidth: 1, borderColor: colors.edge, borderRadius: 12, padding: 14, fontSize: 16, minHeight: 48, color: colors.ink, backgroundColor: colors.paper },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   button: { minHeight: 48, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
   buttonText: { color: colors.white, fontSize: 15, fontWeight: '600' },

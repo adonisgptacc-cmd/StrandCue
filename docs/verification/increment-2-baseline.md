@@ -115,6 +115,24 @@ silently skipped.
   the distinct heat methods.
 - **2.5** Two-owner isolation harness extension and the device journey.
 
+## Task 2.2 — catalogue search and explicit matching (20 October 2026)
+
+Starting HEAD `c9006e9`; Node 24.19.0. SH-02 now has a consumer surface:
+a read-only, bounded, deterministic identity-and-lifecycle search
+(`catalogue_search`, migration `20261021120000_catalogue_search.sql`), exact
+version candidates with unknown facts named, a side-by-side comparison with the
+owner's record, an explicit confirmation through the unchanged `shelf_match`
+command, and rematch through append-only history. Retired versions remain
+matchable and are labelled retired.
+
+Gates: check:runtime PASS; typecheck PASS; lint PASS; test:coverage PASS
+(146 files passed, 3 skipped; 2781 tests passed, 11 skipped; 95.69 / 89.81 /
+98.58 / 97.78); export:web PASS; audit:control-plane PASS; git diff --check
+clean. **audit:dependencies is a HOLD** (`RUNNER-REVIEW-DRIFT`, exit 1), not a
+pass. Hosted owner isolation and real two-session PostgreSQL concurrency stay
+external gates. Full evidence:
+`.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.2-catalogue-search-and-matching.md`.
+
 ## Environmental HOLDs (recorded, never presented as passes)
 
 - `audit:dependencies` cannot reach the npm registry in this environment —

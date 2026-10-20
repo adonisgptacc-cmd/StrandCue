@@ -1,5 +1,8 @@
 export type ShelfEditorMode = 'add' | 'edit' | 'correct' | 'match' | 'archive';
 
+/** The modes the form editor handles. A match has its own search-and-compare screen. */
+export type ShelfFormMode = Exclude<ShelfEditorMode, 'match'>;
+
 export function shelfEditorCopy(mode: ShelfEditorMode) {
   return {
     add: { title: 'Add a product', submit: 'Save product' },
