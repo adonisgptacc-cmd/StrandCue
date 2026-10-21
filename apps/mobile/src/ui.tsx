@@ -48,10 +48,13 @@ export function Choice({label, value, options, onChange, disabled = false, label
     </Pressable>;
   })}</View></View>;
 }
-export function MultiChoice({label, value, options, onChange}: {label: string; value: string[]; options: readonly string[]; onChange: (value: string[]) => void}) {
-  return <View><Text style={styles.label}>{label} (choose all that apply)</Text><View accessibilityLabel={label} style={styles.row}>{options.map(option => <Pressable key={option} accessibilityRole="checkbox" accessibilityLabel={`${label}: ${option.replaceAll('-', ' ')}`} accessibilityState={{checked: value.includes(option)}} onPress={() => onChange(toggleSelection(value, option))} style={[styles.pill, value.includes(option) && styles.selected]}>
-    <Text style={[styles.body, value.includes(option) && {color: colors.white}]}>{option.replaceAll('-', ' ')}</Text>
-  </Pressable>)}</View></View>;
+export function MultiChoice({label, value, options, onChange, labels: shown = {}, disabled = false, toggle = toggleSelection}: {label: string; value: string[]; options: readonly string[]; onChange: (value: string[]) => void; labels?: Readonly<Record<string, string>>; disabled?: boolean; toggle?: (value: string[], option: string) => string[]}) {
+  return <View><Text style={styles.label}>{label} (choose all that apply)</Text><View accessibilityLabel={label} style={styles.row}>{options.map(option => {
+    const shownText = shown[option] ?? option.replaceAll('-', ' ');
+    return <Pressable key={option} accessibilityRole="checkbox" accessibilityLabel={`${label}: ${shownText}`} accessibilityState={{checked: value.includes(option), disabled}} disabled={disabled} onPress={() => onChange(toggle(value, option))} style={[styles.pill, value.includes(option) && styles.selected]}>
+      <Text style={[styles.body, value.includes(option) && {color: colors.white}]}>{shownText}</Text>
+    </Pressable>;
+  })}</View></View>;
 }
 
 /** Human display for a stored fact value, shared by every My Hair view. */

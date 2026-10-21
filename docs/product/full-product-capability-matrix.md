@@ -69,8 +69,8 @@ matrix promotes draft content, fills reviewer identities or publishes facts.
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| TL-01 Tool/model/type/settings/units/attachments/condition | Partial | `packages/domain/src/tools.ts`, `apps/mobile/src/tools.tsx`, `tool-editor.tsx`; `tests/domain/tools.test.ts`, `tests/mobile/tools.test.ts`, `tests/database/tools.test.ts` |
-| TL-02 Distinguish heat methods | Partial | `ToolCapabilitiesSchema` (contactHeat/airHeat/adjustableTemp/temperatureMaxCelsius); hood/steam/unheated taxonomy partial |
+| TL-01 Tool/model/type/settings/units/attachments/condition | Implemented | Task 2.4: owner facts with three states, settings with units, attachments, condition (`packages/domain/src/tools.ts`, `supabase/migrations/20261023120000_tool_owner_facts.sql`, `apps/mobile/src/tools.tsx`, `tool-editor.tsx`, `tool-form.ts`, `tool-api.ts`); `tests/domain/tools-owner.test.ts`, `tests/database/tools-owner.test.ts`, `tests/mobile/tool-editor.test.tsx`, `tests/mobile/tools-integration.test.tsx`. Device acceptance and hosted owner isolation remain external gates |
+| TL-02 Distinguish heat methods | Implemented | Task 2.4: direct-contact, heated-air, hooded, steam and unheated are distinct and explicit-unknown is separate; a diffuser is an attachment, unheated refuses any heated method, temperature and adjustable-yes (`packages/domain/src/tools.ts`, SQL core, `tool-form.ts`); `tests/domain/tools-owner.test.ts`, `tests/database/tools-owner.test.ts`, `tests/mobile/tool-form.test.ts` |
 | TL-03 Unknown temperature not inferred | Implemented | `tools.ts` + `tests/domain/tools.test.ts` (wattage never implies temperature) |
 | TL-04 Actual temperature/passes/duration/zones | Partial | `activity.ts` heat fields; not yet a Heat Coach |
 | TL-05 Heat Coach | Not started | — |

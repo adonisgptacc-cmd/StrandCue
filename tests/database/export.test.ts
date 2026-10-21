@@ -302,7 +302,7 @@ const EXPORTED_OWNER_COLUMNS: Record<string, string[]> = {
   'public.user_product_revisions': ['id', 'owner', 'user_product_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason', 'match_version_id'],
   'public.user_products': ['id', 'owner', 'version_id', 'manual_brand', 'manual_name', 'manual_category', 'availability', 'matched', 'matched_at', 'match_confirmed', 'revision', 'notes', 'created_at', 'updated_at', 'manual_variant', 'manual_size', 'manual_barcode', 'opened_on', 'expiry_on', 'pao', 'quantity_band', 'repurchase_intent'],
   'public.user_tool_revisions': ['id', 'owner', 'user_tool_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason', 'match_version_id'],
-  'public.user_tools': ['id', 'owner', 'version_id', 'manual_brand', 'manual_model', 'tool_type', 'availability', 'matched', 'matched_at', 'match_confirmed', 'revision', 'notes', 'created_at', 'updated_at'],
+  'public.user_tools': ['id', 'owner', 'version_id', 'manual_brand', 'manual_model', 'tool_type', 'availability', 'matched', 'matched_at', 'match_confirmed', 'revision', 'notes', 'created_at', 'updated_at', 'wattage_watts', 'adjustable_temp', 'settings', 'attachments', 'condition', 'heat_methods'],
 };
 
 async function listOwnerTables(db: PGlite): Promise<string[]> {
@@ -348,7 +348,7 @@ describe('export completeness (consent and guidance history)', () => {
     const times = document.consentRecords.map((row: any) => new Date(row.recorded_at).getTime());
     expect([...times].sort((a, b) => a - b)).toEqual(times);
     expect(document.schemaVersions).toMatchObject({
-      export: 3, consentRecords: 1, recommendationRuns: 1,
+      export: 4, consentRecords: 1, recommendationRuns: 1,
       protocolExecutions: 2, protocolExecutionEvents: 1,
     });
   });
@@ -409,7 +409,7 @@ describe('export completeness (consent and guidance history)', () => {
     expect(csv.files['schema_versions.csv'].split('\n')[0]).toBe('family,version');
     const csvVersions = Object.fromEntries(
       csv.files['schema_versions.csv'].split('\n').slice(1).map((line: string) => line.split(',')));
-    expect(csvVersions).toEqual({ export: '3', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '2', protocolExecutionEvents: '1' });
+    expect(csvVersions).toEqual({ export: '4', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '2', protocolExecutionEvents: '1' });
     expect(csvVersions).toEqual(Object.fromEntries(Object.entries(json.schemaVersions).map(([family, version]) => [family, String(version)])));
   });
 

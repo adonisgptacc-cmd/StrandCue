@@ -150,6 +150,21 @@ SH-08 stay Partial because no directions, claims, evidence or ingredients are pu
 still embeds whole tool catalogue rows (follow-up, Task 2.4). Full evidence:
 `.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.3-product-details-and-evidence.md`.
 
+## Task 2.4 — My Tools and the tool catalogue publication boundary (21 October 2026)
+
+Base `50f6311`; Node 24.19.0. Owner facts (three-state: never answered, taken back, recorded or explicit
+unknown), settings with units, attachments, condition and distinct heat methods; an append-only trusted write
+boundary with idempotent operations, corrections that must change the identity, and explicit confirmed matches;
+a publication boundary for the tool catalogue (nothing published, two-person content-bound review, immutability
+guards, a read-only role behind one allowlisted core); export v4 with no raw catalogue rows. Migrations
+`20261023120000_tool_owner_facts.sql` and `20261023130000_tool_catalogue_publication.sql` are new and no
+existing migration was edited.
+
+Gates: check:runtime PASS; typecheck PASS; lint PASS; test:coverage PASS (163 files passed, 3 skipped; 3137 tests
+passed, 11 skipped; 95.89 / 90.4 / 98.46 / 97.9); export:web PASS; audit:control-plane PASS; git diff --check
+clean. **audit:dependencies is a HOLD** (`ADVISORY-UNEXCEPTED`, `RUNNER-REVIEW-DRIFT`), not a pass. Full evidence:
+`.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.4-my-tools-and-publication.md`.
+
 ## Environmental HOLDs (recorded, never presented as passes)
 
 - `audit:dependencies` cannot reach the npm registry in this environment —

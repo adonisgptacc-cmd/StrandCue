@@ -252,7 +252,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectDestination}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
     {destination === 'journey' && <View style={styles.row}>{(['History','Activities'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
-    {destinationTitle !== '' && <Text style={styles.title}>{destinationTitle}</Text>}
+    {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}
     {!!error && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button title="Retry loading" secondary onPress={() => void refresh()}/></View>}
     {destination === 'my_hair' && hairView === 'Services' && <Services owner={user.id} />}
     {destination === 'journey' && journeyView === 'Activities' && <Activities owner={user.id} />}

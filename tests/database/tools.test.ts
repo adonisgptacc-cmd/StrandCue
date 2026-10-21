@@ -8,13 +8,11 @@ async function toolList(db: PGlite, limit: number | null, cursor: unknown = null
   return (await db.query<{ result: any }>(`select public.tool_list($1, $2::jsonb) result`,
     [limit, cursor === null ? null : JSON.stringify(cursor)])).rows[0].result;
 }
-async function toolAdd(db: PGlite, opts: { operationId?: string; userToolId?: string; versionId?: string | null; manualModel?: string | null } = {}) {
+async function toolAdd(db: PGlite, opts: { operationId?: string; userToolId?: string; manualModel?: string | null } = {}) {
   return (await db.query<{ result: any }>(
-    `select public.tool_add($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) result`,
-    [opts.operationId ?? crypto.randomUUID(), opts.userToolId ?? crypto.randomUUID(),
-      opts.versionId === undefined ? null : opts.versionId,
-      'Salon Brand', opts.manualModel === undefined ? 'Pro Dryer' : opts.manualModel,
-      'dryer', 'available', null, JSON.stringify(DAY)],
+    `select public.tool_add($1, $2, 'available', $3::jsonb, $4::jsonb) result`,
+    [opts.operationId ?? crypto.randomUUID(), opts.userToolId ?? crypto.randomUUID(), JSON.stringify(DAY),
+      JSON.stringify({ manualBrand: 'Salon Brand', manualModel: opts.manualModel === undefined ? 'Pro Dryer' : opts.manualModel, toolType: 'dryer' })],
   )).rows[0].result;
 }
 
@@ -71,10 +69,12 @@ describe('tools catalogue immutable history and RLS', () => {
   it('lets any authenticated user read catalogue rows', async () => {
     await seedToolCatalogue(db);
     await asUser(db, USER_A);
-    for (const table of ['tool_brands', 'tools', 'tool_versions']) {
-      const rows = await db.query(`select * from public.${table}`);
-      expect(rows.rows.length).toBeGreaterThan(0);
+    // Identity and lifecycle only: capability columns, claims, sources and events are closed to consumers (20261023130000).
+    for (const table of ['tool_brands', 'tools']) {
+      expect((await db.query(`select * from public.${table}`)).rows.length).toBeGreaterThan(0);
     }
+    expect((await db.query('select id, tool_id, version_label, market, lifecycle from public.tool_versions')).rows.length).toBeGreaterThan(0);
+    await expect(db.query('select * from public.tool_versions')).rejects.toThrow(/permission denied/i);
     await asUser(db, USER_B);
     const brands = await db.query<{ name: string }>('select name from public.tool_brands');
     expect(brands.rows).toEqual([{ name: 'Salon Brand' }]);
@@ -122,12 +122,14 @@ describe('tools catalogue immutable history and RLS', () => {
 
   it('keeps wattage and temperature as independent unknowns', async () => {
     await seedToolCatalogue(db);
-    await asUser(db, USER_A);
-    // 2200W known, temperature unknown — the unknown must round-trip as null, never inferred.
+    // 2200W known, temperature unknown — the unknown must round-trip as null, never inferred. The capability
+    // columns are catalogue content: they are read here as the table owner, and consumers see them only once published.
+    await db.exec('set session authorization postgres');
     const rows = await db.query<{ wattage_watts: number; temperature_max_celsius: null; adjustable_temp: string }>(
       `select wattage_watts, temperature_max_celsius, adjustable_temp from public.tool_versions where id = 'd0000000-0000-4000-8000-000000000003'`,
     );
     expect(rows.rows).toEqual([{ wattage_watts: 2200, temperature_max_celsius: null, adjustable_temp: 'unknown' }]);
+    await asUser(db, USER_A);
   });
 
   it('is idempotent on same operation key and payload, and rejects same key different payload', async () => {
@@ -143,7 +145,7 @@ describe('tools catalogue immutable history and RLS', () => {
   it('rejects stale expected_revision with revision-conflict', async () => {
     await complete(db);
     const rec = await toolAdd(db, {});
-    await expect(db.query(`select public.tool_change($1, $2, 0, null, null, null, null, 'out_of_stock', null, $3::jsonb)`,
+    await expect(db.query(`select public.tool_change($1, $2, 0, 'out_of_stock', $3::jsonb, '{}'::jsonb)`,
       [crypto.randomUUID(), rec.userToolId, JSON.stringify(DAY)])).rejects.toThrow(/revision-conflict/i);
   });
 
@@ -153,7 +155,7 @@ describe('tools catalogue immutable history and RLS', () => {
     await asUser(db, USER_B);
     await complete(db, 'user_b');
     // RLS hides the foreign row; either denial preserves privacy.
-    await expect(db.query(`select public.tool_change($1, $2, 1, null, null, null, null, 'out_of_stock', null, $3::jsonb)`,
+    await expect(db.query(`select public.tool_change($1, $2, 1, 'out_of_stock', $3::jsonb, '{}'::jsonb)`,
       [crypto.randomUUID(), rec.userToolId, JSON.stringify(DAY)])).rejects.toThrow(/not-found|revision-conflict/i);
   });
 

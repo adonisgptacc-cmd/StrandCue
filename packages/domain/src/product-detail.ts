@@ -17,7 +17,7 @@ export const DETAIL_MAX_EVIDENCE_PER_CLAIM = 20;
  * say different things to the owner: nothing has been published, a review is
  * under way, or content was published and later withdrawn.
  */
-function publicationSection<C extends z.ZodType>(content: C) {
+export function publicationSection<C extends z.ZodType>(content: C) {
   return z.discriminatedUnion('state', [
     z.object({ state: z.literal('published'), content }).strict(),
     z.object({ state: z.literal('under_review') }).strict(),
@@ -176,6 +176,16 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+/** The freezer the detail schemas use, shared with the tool detail. */
+export const freezeDetail = deepFreeze;
+
+/** Published claims, each with its own evidence, in a stable order. Shared by the product and the tool detail. */
+export const DetailClaimsContentSchema = z.object({
+  items: z.array(DetailClaimSchema).min(1).max(DETAIL_MAX_CLAIMS)
+    .refine(items => isSorted(items, claimOrder), 'Claims must be in their stable order')
+    .refine(items => items.every(item => isSorted(item.evidence, evidenceOrder)), 'Evidence must be in its stable order'),
+}).strict();
+
 /**
  * Everything the consumer may read about one exact catalogue version.
  *
@@ -194,11 +204,7 @@ export const ProductDetailSchema = z.object({
   )),
   // Ingredients are label text only; no member can hold an interpretation.
   ingredients: publicationSection(z.object({ text: text(4000) }).strict()),
-  claims: publicationSection(z.object({
-    items: z.array(DetailClaimSchema).min(1).max(DETAIL_MAX_CLAIMS)
-      .refine(items => isSorted(items, claimOrder), 'Claims must be in their stable order')
-      .refine(items => items.every(item => isSorted(item.evidence, evidenceOrder)), 'Evidence must be in its stable order'),
-  }).strict()),
+  claims: publicationSection(DetailClaimsContentSchema),
   owner: DetailOwnerFactsSchema.nullable(),
 }).strict().superRefine((detail, context) => {
   const { lifecycle, identity } = detail;

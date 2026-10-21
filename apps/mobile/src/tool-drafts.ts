@@ -2,16 +2,22 @@ import { z } from 'zod';
 
 import {
   ArchiveUserToolCommandSchema,
+  ChangeUserToolCommandSchema,
+  CorrectUserToolCommandSchema,
   CreateUserToolCommandSchema,
   MatchUserToolCommandSchema,
 } from '../../../packages/domain/src/index';
 
 export const ToolDraftSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('add'), command: CreateUserToolCommandSchema }).strict(),
+  z.object({ mode: z.literal('edit'), command: ChangeUserToolCommandSchema }).strict(),
+  z.object({ mode: z.literal('correct'), command: CorrectUserToolCommandSchema }).strict(),
   z.object({ mode: z.literal('match'), command: MatchUserToolCommandSchema }).strict(),
   z.object({ mode: z.literal('archive'), command: ArchiveUserToolCommandSchema }).strict(),
 ]);
 export type ToolDraft = z.output<typeof ToolDraftSchema>;
+/** A saved command the form editor can resume; a saved match resumes on the match screen. */
+export type ToolFormDraft = Exclude<ToolDraft, { mode: 'match' }>;
 
 export type ToolDraftStorage = {
   getItem: (key: string) => Promise<string | null>;
@@ -65,7 +71,8 @@ export async function removeToolDraft(storage: ToolDraftStorage, owner: string, 
 }
 
 export async function clearToolDrafts(storage: ToolDraftStorage, owner: string): Promise<void> {
-  const keys = await draftIndex(storage, owner);
+  // A damaged index cannot be followed, but it must still be clearable or the owner's drafts stay unreadable for good.
+  const keys = await draftIndex(storage, owner).catch(() => [] as string[]);
   for (const key of keys) await storage.removeItem(key);
   await storage.removeItem(toolDraftIndexKey(owner));
 }
@@ -79,5 +86,7 @@ export async function submitToolDraft(
   await saveToolDraft(storage, owner, draft);
   if (!isActive()) throw new Error('Editor is no longer active');
   await dispatch(draft);
-  await removeToolDraft(storage, owner, draft.command.userToolId);
+  // The change has landed. Tidying the device copy must not turn that into a reported failure: a copy left behind is
+  // the same command, so a later retry is a replay and records nothing twice.
+  try { await removeToolDraft(storage, owner, draft.command.userToolId); } catch { /* the saved copy stays and can be discarded */ }
 }

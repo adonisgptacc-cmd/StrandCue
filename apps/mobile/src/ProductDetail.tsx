@@ -47,14 +47,14 @@ function focusOn(ref: RefObject<unknown>): void {
   } catch { /* the platform has no focus control: the announcement still carries the change */ }
 }
 
-function Section({ title, children }: PropsWithChildren<{ title: string }>) {
+export function Section({ title, children }: PropsWithChildren<{ title: string }>) {
   return <View style={styles.card}>
     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
     {children}
   </View>;
 }
 
-function Lines({ lines }: { lines: readonly string[] }) {
+export function Lines({ lines }: { lines: readonly string[] }) {
   return <>{lines.map((line, index) => <Text key={`${index}-${line}`} style={styles.body}>{line}</Text>)}</>;
 }
 
@@ -90,14 +90,14 @@ function EvidenceCard({ evidence, onProblem }: { evidence: DetailEvidence; onPro
   </View>;
 }
 
-function ClaimsSection({ detail, onProblem }: { detail: ProductDetailData; onProblem: () => void }) {
+/** The reviewed claims of a version and the evidence behind each. The catalogue's wording only, closed until asked. */
+export function ClaimsSection({ claims, onProblem }: { claims: ProductDetailData['claims']; onProblem: () => void }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = (claimId: string) => setExpanded(previous => {
     const next = new Set(previous);
     if (next.has(claimId)) next.delete(claimId); else next.add(claimId);
     return next;
   });
-  const { claims } = detail;
   return <Section title="Claims and evidence">
     {claims.state === 'published'
       ? claims.content.items.map((claim, index) => <Claim key={claim.claimId} claim={claim} position={index + 1} expanded={expanded.has(claim.claimId)}
@@ -126,7 +126,7 @@ function Body({ detail, onProblem }: { detail: ProductDetailData; onProblem: () 
         ? <Lines lines={directionLines(directions.content)} />
         : <Text style={styles.body}>{sectionNotice('directions', directions.state)}</Text>}
     </Section>
-    <ClaimsSection detail={detail} onProblem={onProblem} />
+    <ClaimsSection claims={detail.claims} onProblem={onProblem} />
     <Section title="Ingredients">
       {ingredients.state === 'published'
         ? <>

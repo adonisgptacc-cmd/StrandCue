@@ -55,6 +55,7 @@ describe('tools capability and ownership domain', () => {
     const manual = {
       operationId: 'c0000000-0000-4000-8000-000000000020',
       userToolId: 'c0000000-0000-4000-8000-000000000021',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       versionId: null,
       manualBrand: 'Salon brand',
       manualModel: 'Pro dryer',
@@ -63,8 +64,9 @@ describe('tools capability and ownership domain', () => {
       notes: null,
     };
     expect(() => CreateUserToolCommandSchema.parse(manual)).not.toThrow();
+    // A catalogue link belongs to the confirmed match command, never to recording a tool.
     const linked = { ...manual, versionId: 'c0000000-0000-4000-8000-000000000022', manualBrand: null, manualModel: null, toolType: null };
-    expect(() => CreateUserToolCommandSchema.parse(linked)).not.toThrow();
+    expect(() => CreateUserToolCommandSchema.parse(linked)).toThrow();
     expect(() => CreateUserToolCommandSchema.parse({ ...manual, manualModel: null })).toThrow();
   });
 
@@ -86,6 +88,7 @@ describe('tools capability and ownership domain', () => {
       operationId: 'c0000000-0000-4000-8000-000000000040',
       userToolId: 'c0000000-0000-4000-8000-000000000021',
       expectedRevision: 1,
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       availability: 'out_of_stock',
       notes: 'Lent to a friend',
     })).not.toThrow();
@@ -93,6 +96,7 @@ describe('tools capability and ownership domain', () => {
       operationId: 'c0000000-0000-4000-8000-000000000040',
       userToolId: 'c0000000-0000-4000-8000-000000000021',
       expectedRevision: 0,
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       availability: 'available',
       notes: null,
     })).toThrow();
@@ -107,6 +111,7 @@ describe('tools capability and ownership domain', () => {
     expect(() => CreateUserToolCommandSchema.parse({
       operationId: 'c0000000-0000-4000-8000-000000000020',
       userToolId: 'c0000000-0000-4000-8000-000000000021',
+      effectiveDate: { precision: 'day', value: '2026-03-01' },
       versionId: null,
       manualBrand: 'Salon brand',
       manualModel: 'Pro dryer',

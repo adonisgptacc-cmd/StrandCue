@@ -141,8 +141,25 @@ Gates: check:runtime PASS; typecheck PASS; lint PASS; test:coverage PASS (151 fi
 2898 tests passed, 11 skipped; 95.8 / 89.98 / 98.65 / 97.83); export:web PASS; audit:control-plane PASS;
 git diff --check clean. **audit:dependencies is a HOLD** (`RUNNER-REVIEW-DRIFT`), not a pass. SH-07 and
 SH-08 stay Partial because no directions, claims, evidence or ingredients are published. The tools export
-still embeds whole tool catalogue rows (follow-up, Task 2.4). Full evidence:
+still embedded whole tool catalogue rows then; Task 2.4 closed that. Full evidence:
 `.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.3-product-details-and-evidence.md`.
+
+## Task 2.4 — My Tools and the tool catalogue publication boundary (21 October 2026)
+
+Base `50f6311`; Node 24.19.0. The tool catalogue had the same exposure Task 2.3 closed for products: consumers
+could read draft capabilities, claims, sources and verification events (with reviewer names), and the owner
+export embedded whole tool rows. Migration `20261023120000_tool_owner_facts.sql` adds the owner facts, the
+append-only trusted write boundary (corrections, explicit confirmed matches, archive, idempotent operations);
+`20261023130000_tool_catalogue_publication.sql` adds explicit publication (nothing published), a content-bound
+two-person review, immutability guards, a read-only role behind one allowlisted definer core, and export v4
+without raw catalogue rows. The mobile journey covers list, add, edit, correct, catalogue search, comparison,
+explicit match, secured catalogue detail, immutable history and archive.
+
+Gates: check:runtime PASS; typecheck PASS; lint PASS; test:coverage PASS (163 files passed, 3 skipped; 3137
+tests passed, 11 skipped; 95.89 / 90.4 / 98.46 / 97.9); export:web PASS; audit:control-plane PASS;
+git diff --check clean. **audit:dependencies is a HOLD** (`ADVISORY-UNEXCEPTED`, `RUNNER-REVIEW-DRIFT`), not a
+pass; no manifest changed. TL-01 and TL-02 are now Implemented; device acceptance and hosted owner isolation stay
+external gates. Full evidence: `.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.4-my-tools-and-publication.md`.
 
 ## Statement
 

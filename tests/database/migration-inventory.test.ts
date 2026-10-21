@@ -50,6 +50,8 @@ const trustedMigrationNames = [
   '20261020120000_user_product_shelf_facts.sql',
   '20261021120000_catalogue_search.sql',
   '20261022120000_product_detail_publication.sql',
+  '20261023120000_tool_owner_facts.sql',
+  '20261023130000_tool_catalogue_publication.sql',
 ] as const;
 
 const candidateMigrationNames = [
