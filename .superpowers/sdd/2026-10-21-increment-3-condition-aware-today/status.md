@@ -9,7 +9,7 @@ Date: 21 October 2026.
 |---|---|---|
 | 3.1 One deterministic prepared guidance input | Done (earlier increment) | `e282ae9` and its ancestors |
 | 3.2 Targeted questions and setup recovery | **Done** | `5a4deb2`, `1ae6070`, `99d92cd` |
-| 3.3 Protocol-preview redesign | **Not started** | - |
+| 3.3 Protocol-preview redesign | **Done** | Task 3.3 commits on `codex/full-product-integration` |
 
 ### Task 3.2 - targeted questions and setup recovery
 
@@ -40,19 +40,29 @@ Date: 21 October 2026.
 npm run check:runtime        -> NODE-RUNTIME-PASS v24.19.0
 npm run typecheck            -> 0 errors
 npm run lint                 -> 0 errors, 0 warnings
-npm run test:coverage        -> 3388 passed, 18 skipped; per-file floors met
+npm run test:coverage        -> 3429 passed, 18 skipped; per-file floors met
+                             (protocol-preview-model.ts branches 88.52%)
 npm run export:web           -> export succeeded
 npm run audit:control-plane  -> pass
-npm run audit:dependencies   -> HOLD (4 findings, unchanged from the baseline)
+npm run audit:dependencies   -> HOLD (1 finding, RUNNER-REVIEW-DRIFT on
+                             tools/eas-runner; root PASS, pre-existing)
 git diff --check             -> 0
 ```
 
 ## What is still open
 
-- **Task 3.3** (protocol-preview redesign) has not been started. The engine's
-  own wording inside the decision view - step reasons that carry a rule
-  reference, and the omission sentences - is left exactly as it was, because
-  that surface is Task 3.3's.
+- **TD-04 remains Partial** until reviewed production content exists; the
+  preview mechanism is complete but Today yields `content_pending` until the
+  production reviewed bundle is two-person reviewed and published.
+- **HP-06, TD-02 and TD-03 remain Partial.** The check-in still has no
+  photos, no weather and no Cue Check; the resolver still cannot produce a
+  plan, because the production reviewed bundle is still draft.
+- **The dependency audit is a HOLD**, not a pass. Nothing in this task
+  changed it, and nothing may call it a pass.
+- The production reviewed bundle (`today-core-guidance` v2) is unchanged:
+  `draft`, with empty capabilities and a withdrawn placeholder rule. No
+  reviewer field was filled, no capability mapping was created, and no
+  content was published.
 - **HP-06, TD-02 and TD-03 remain Partial.** The check-in still has no
   photos, no weather and no Cue Check; the resolver still cannot produce a
   plan, because the production reviewed bundle is still draft.
