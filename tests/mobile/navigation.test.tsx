@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAllCheckInDrafts } from '../../apps/mobile/src/guidance/current-condition-state';
 import type { User } from '@supabase/supabase-js';
 
 import {
@@ -149,6 +150,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  clearAllCheckInDrafts();
   vi.clearAllMocks();
   navigationMocks.storage.getItem.mockResolvedValue(null);
   navigationMocks.storage.removeItem.mockResolvedValue(undefined);

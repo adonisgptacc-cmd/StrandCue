@@ -77,13 +77,22 @@ export interface GuidanceProvenance {
   readonly prepared: PreparedGuidanceInput;
 }
 
+/**
+ * Owner setup that does not block a plan. It never changes a decision and it
+ * is never persisted: it is the owner's own next step, offered because they
+ * asked for a plan.
+ */
+export interface GuidanceSetupGaps {
+  readonly setup?: readonly GuidanceGap[];
+}
+
 export type TodayGuidanceResult =
-  | { readonly status: 'needs_setup'; readonly missing: readonly GuidanceGap[] }
+  | ({ readonly status: 'needs_setup'; readonly missing: readonly GuidanceGap[] } & GuidanceSetupGaps)
   | { readonly status: 'content_pending' }
-  | ({ readonly status: 'ready'; readonly decision: ProtocolDecision } & GuidanceProvenance)
-  | ({ readonly status: 'needs_input'; readonly decision: ProtocolDecision } & GuidanceProvenance)
-  | ({ readonly status: 'rule_conflict'; readonly decision: ProtocolDecision } & GuidanceProvenance)
-  | ({ readonly status: 'unsupported'; readonly decision: ProtocolDecision } & GuidanceProvenance)
+  | ({ readonly status: 'ready'; readonly decision: ProtocolDecision } & GuidanceProvenance & GuidanceSetupGaps)
+  | ({ readonly status: 'needs_input'; readonly decision: ProtocolDecision } & GuidanceProvenance & GuidanceSetupGaps)
+  | ({ readonly status: 'rule_conflict'; readonly decision: ProtocolDecision } & GuidanceProvenance & GuidanceSetupGaps)
+  | ({ readonly status: 'unsupported'; readonly decision: ProtocolDecision } & GuidanceProvenance & GuidanceSetupGaps)
   | {
       readonly status: 'source_error';
       readonly detail: string;
@@ -199,12 +208,17 @@ export async function generateTodayGuidance(
   });
 
   if (preparation.status === 'unavailable') {
+    // A goal the reviewed bundle does not define is a content limitation, not
+    // a broken record: the owner read their information, and reviewed
+    // guidance for their situation is not published. It is never reported as
+    // a failed read, and it never sends the owner to change their records.
+    if (preparation.reason === 'no_supported_goal') return { status: 'content_pending' };
     return preparation.incompleteSources === undefined
       ? { status: 'source_error', detail: SOURCE_ERROR }
       : { status: 'source_error', detail: SOURCE_ERROR, incompleteSources: preparation.incompleteSources };
   }
   if (preparation.status === 'needs_setup') {
-    return { status: 'needs_setup', missing: preparation.missing };
+    return { status: 'needs_setup', missing: preparation.missing, setup: preparation.setup };
   }
 
   let decision: ProtocolDecision;
@@ -230,12 +244,12 @@ export async function generateTodayGuidance(
 
   switch (decision.status) {
     case 'ready':
-      return { status: 'ready', decision, ...provenance };
+      return { status: 'ready', decision, ...provenance, setup: preparation.setup };
     case 'needs_input':
-      return { status: 'needs_input', decision, ...provenance };
+      return { status: 'needs_input', decision, ...provenance, setup: preparation.setup };
     case 'rule_conflict':
-      return { status: 'rule_conflict', decision, ...provenance };
+      return { status: 'rule_conflict', decision, ...provenance, setup: preparation.setup };
     default:
-      return { status: 'unsupported', decision, ...provenance };
+      return { status: 'unsupported', decision, ...provenance, setup: preparation.setup };
   }
 }

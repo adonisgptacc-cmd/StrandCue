@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAllCheckInDrafts } from '../../apps/mobile/src/guidance/current-condition-state';
 
 import type { GuidanceGap, ProtocolDecision } from '../../packages/domain/src/index';
 import { normalizeCurrentCondition } from '../../packages/domain/src/index';
@@ -9,8 +10,6 @@ import {
   CHECK_IN_CONTINUE_LABEL,
   CHECK_IN_START_LABEL,
   CHECK_IN_SUMMARY_HEADING,
-  CONCERNS_LABEL,
-  REVIEW_CHECK_IN_LABEL,
   START_OVER_LABEL,
   TIME_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
@@ -211,15 +210,26 @@ async function press(renderer: ReactTestRenderer, label: string): Promise<void> 
   });
 }
 
-/** Drives the check-in form through to the ready-to-generate summary. */
+/**
+ * Drives the check-in form through to the ready-to-generate summary.
+ *
+ * The form may already be open: a check-in that survived a trip to another
+ * screen is restored when the owner comes back, and its answers are already
+ * ticked. The helper therefore only presses what is not already there.
+ */
 async function completeCheckIn(
   renderer: ReactTestRenderer,
   concerns: string[] = ['Dryness'],
   minutes: string = '20',
 ): Promise<void> {
-  await press(renderer, CHECK_IN_START_LABEL);
+  if (hasButton(renderer, CHECK_IN_START_LABEL)) {
+    await press(renderer, CHECK_IN_START_LABEL);
+  }
   for (const concern of concerns) {
-    await press(renderer, `${CONCERNS_LABEL}: ${concern}`);
+    const control = button(renderer, concern);
+    if (control.props.accessibilityState?.checked !== true) {
+      await press(renderer, concern);
+    }
   }
   const time = renderer.root.find(
     node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
@@ -254,6 +264,7 @@ beforeAll(() => {
 afterAll(() => { consoleErrorSpy.mockRestore(); });
 
 beforeEach(() => {
+  clearAllCheckInDrafts();
   vi.clearAllMocks();
   mocks.uuidCounter.value = 0;
   mocks.generate.mockResolvedValue({ status: 'content_pending' });
@@ -304,8 +315,8 @@ describe('today guidance states', () => {
     const renderer = await render(OWNER, onNavigate);
     await generate(renderer);
     expect(text(renderer)).toContain('naturalpattern');
-    expect(hasButton(renderer, 'Go to My Hair')).toBe(true);
-    await press(renderer, 'Go to My Hair');
+    expect(hasButton(renderer, 'Add this in My Hair')).toBe(true);
+    await press(renderer, 'Add this in My Hair');
     expect(onNavigate).toHaveBeenCalledWith('my_hair');
     await act(async () => { renderer.unmount(); });
   });
@@ -322,8 +333,8 @@ describe('today guidance states', () => {
     const onNavigate = vi.fn();
     const renderer = await render(OWNER, onNavigate);
     await generate(renderer);
-    expect(hasButton(renderer, 'Go to My Shelf')).toBe(true);
-    expect(hasButton(renderer, 'Go to My Tools')).toBe(true);
+    expect(hasButton(renderer, 'Review My Shelf')).toBe(true);
+    expect(hasButton(renderer, 'Review My Tools')).toBe(true);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -342,9 +353,9 @@ describe('today guidance states', () => {
     expect(rendered).toContain('not covered yet');
     expect(rendered).toContain('not answered yet');
     expect(rendered).toContain('these answers do not agree');
-    expect(hasButton(renderer, 'Go to My Hair')).toBe(true);
+    expect(hasButton(renderer, 'Add this in My Hair')).toBe(true);
     expect(hasButton(renderer, 'Review check-in answers')).toBe(true);
-    expect(hasButton(renderer, 'Go to My Shelf')).toBe(false);
+    expect(hasButton(renderer, 'Review My Shelf')).toBe(false);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -356,7 +367,10 @@ describe('today guidance states', () => {
     });
     const renderer = await render();
     await generate(renderer);
-    expect(text(renderer)).toContain('could not be read completely: my shelf, my tools. try again.');
+    const rendered = text(renderer);
+    expect(rendered).toContain('we could not read my shelf');
+    expect(rendered).toContain('we could not read my tools');
+    expect(hasButton(renderer, 'Try again')).toBe(true);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -364,7 +378,13 @@ describe('today guidance states', () => {
     mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Your records could not be read completely.' });
     const renderer = await render();
     await generate(renderer);
-    expect(text(renderer)).not.toContain('try again.');
+    const rendered = text(renderer);
+    // It says the read failed without naming an area it does not know, and
+    // it still offers exactly one way forward.
+    expect(rendered).toContain('we could not read your records');
+    expect(rendered).not.toContain('my shelf');
+    expect(rendered).not.toContain('my tools');
+    expect(hasButton(renderer, 'Try again')).toBe(true);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -425,10 +445,10 @@ describe('today guidance states', () => {
     const renderer = await render();
     await generate(renderer);
     expect(text(renderer)).toContain('could not read records');
-    expect(hasButton(renderer, 'Retry')).toBe(true);
+    expect(hasButton(renderer, 'Try again')).toBe(true);
     expect(text(renderer)).toContain('basic wash');
     mocks.generate.mockResolvedValue(readyResult());
-    await press(renderer, 'Retry');
+    await press(renderer, 'Try again');
     expect(text(renderer)).toContain('step 1');
     await act(async () => { renderer.unmount(); });
   });
@@ -566,7 +586,7 @@ describe('today guidance states', () => {
   it('labels controls for screen readers and meets minimum target size', async () => {
     const renderer = await render();
     await press(renderer, CHECK_IN_START_LABEL);
-    const dryness = button(renderer, `${CONCERNS_LABEL}: Dryness`);
+    const dryness = button(renderer, 'Dryness');
     expect(dryness.props.accessibilityRole).toBe('checkbox');
     const style = dryness.props.style as Record<string, unknown>[];
     const base = style[0] as { minHeight?: number };
@@ -640,7 +660,7 @@ describe('task 6 integration: honest states without purchase pressure', () => {
     mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
     renderer = await render();
     await generate(renderer);
-    expect(hasButton(renderer, 'Retry')).toBe(true);
+    expect(hasButton(renderer, 'Try again')).toBe(true);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -789,16 +809,16 @@ describe('task 5 preflight: condition-aware generation', () => {
   it('clears an in-progress check-in when the owner changes', async () => {
     const renderer = await render();
     await press(renderer, CHECK_IN_START_LABEL);
-    await press(renderer, `${CONCERNS_LABEL}: Dryness`);
+    await press(renderer, 'Dryness');
     expect(
-      button(renderer, `${CONCERNS_LABEL}: Dryness`).props.accessibilityState,
+      button(renderer, 'Dryness').props.accessibilityState,
     ).toMatchObject({ checked: true });
     await act(async () => {
       renderer.update(createElement(TodayGuidance, { ownerId: 'owner-2', onNavigate: vi.fn() }));
       await Promise.resolve();
     });
     expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
-    expect(hasButton(renderer, `${CONCERNS_LABEL}: Dryness`)).toBe(false);
+    expect(hasButton(renderer, 'Dryness')).toBe(false);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -818,11 +838,11 @@ describe('task 5 preflight: condition-aware generation', () => {
   it('returns check-in validation failures to the form with its draft intact', async () => {
     const renderer = await render();
     await press(renderer, CHECK_IN_START_LABEL);
-    await press(renderer, `${CONCERNS_LABEL}: Dryness`);
+    await press(renderer, 'Dryness');
     await press(renderer, CHECK_IN_CONTINUE_LABEL);
     expect(text(renderer)).toContain('time you have available');
     expect(
-      button(renderer, `${CONCERNS_LABEL}: Dryness`).props.accessibilityState,
+      button(renderer, 'Dryness').props.accessibilityState,
     ).toMatchObject({ checked: true });
     await act(async () => { renderer.unmount(); });
   });
@@ -842,11 +862,11 @@ describe('task 5 preflight: condition-aware generation', () => {
     });
     const renderer = await render();
     await generate(renderer, ['Dryness'], '20');
-    expect(hasButton(renderer, REVIEW_CHECK_IN_LABEL)).toBe(true);
-    expect(hasButton(renderer, 'Go to My Hair')).toBe(false);
-    await press(renderer, REVIEW_CHECK_IN_LABEL);
+    expect(hasButton(renderer, 'Review check-in answers')).toBe(true);
+    expect(hasButton(renderer, 'Add this in My Hair')).toBe(false);
+    await press(renderer, 'Review check-in answers');
     expect(
-      button(renderer, `${CONCERNS_LABEL}: Dryness`).props.accessibilityState,
+      button(renderer, 'Dryness').props.accessibilityState,
     ).toMatchObject({ checked: true });
     await act(async () => { renderer.unmount(); });
   });
@@ -856,7 +876,7 @@ describe('task 5 preflight: condition-aware generation', () => {
     const renderer = await render();
     await generate(renderer, ['Frizz'], '30');
     const first = mocks.generate.mock.calls[0][0].currentCondition;
-    await press(renderer, 'Retry');
+    await press(renderer, 'Try again');
     expect(mocks.generate).toHaveBeenCalledTimes(2);
     expect(mocks.generate.mock.calls[1][0].currentCondition).toEqual(first);
     await act(async () => { renderer.unmount(); });

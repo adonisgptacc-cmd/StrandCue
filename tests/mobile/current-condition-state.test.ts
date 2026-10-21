@@ -3,8 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { CurrentConditionConcernSchema } from '../../packages/domain/src/index';
 import {
   CHECK_IN_CONCERNS,
+  clearAllCheckInDrafts,
+  clearCheckInDraft,
   initialPreflight,
+  loadCheckInDraft,
+  loadResolverFocus,
   preflightReducer,
+  saveCheckInDraft,
+  saveResolverFocus,
   validateCheckIn,
   type CheckInDraft,
   type PreflightState,
@@ -21,6 +27,8 @@ function draft(overrides: Partial<CheckInDraft> = {}): CheckInDraft {
     goal: 'basic_wash',
     availableMinutes: 20,
     observedAt: OBSERVED,
+    zones: [],
+    zoneConcerns: [],
     ...overrides,
   };
 }
@@ -408,5 +416,137 @@ describe('Task 3.1: the check-in offers the complete cosmetic vocabulary', () =>
     }
     expect(CONCERN_LABELS['chemical-processing-concern']).toMatch(/worried|concern/i);
     expect(CONCERN_LABELS['heat-concern']).toMatch(/worried|concern/i);
+  });
+});
+
+/**
+ * Task 3.2: the zone step and the owner-scoped check-in session.
+ *
+ * Pure reducer work: a zone can only be in the list once, the order is
+ * fixed, and a concern can only be attached to a zone and a concern the
+ * owner actually reported.
+ */
+describe('task 3.2: zones in the check-in', () => {
+  const ZONE = { region: 'crown' as const, segment: 'roots' as const };
+  const OTHER_ZONE = { region: 'nape' as const, segment: 'ends' as const };
+
+  it('adds a zone once and keeps the order canonical', () => {
+    const state = preflightReducer(
+      { ...initialPreflight(OWNER), phase: 'checking_in', checkIn: draft({ concerns: ['dryness'] }) },
+      { type: 'toggle_zone', region: 'crown', segment: 'roots' },
+    );
+    expect(state.checkIn.zones).toEqual([ZONE]);
+    const second = preflightReducer(
+      state,
+      { type: 'toggle_zone', region: 'nape', segment: 'ends' },
+    );
+    expect(second.checkIn.zones).toEqual([ZONE, OTHER_ZONE]);
+  });
+
+  it('removes a zone that is already there, with the concerns attached to it', () => {
+    const state = preflightReducer(
+      {
+        ...initialPreflight(OWNER),
+        phase: 'checking_in',
+        checkIn: draft({
+          concerns: ['dryness'],
+          zones: [ZONE],
+          zoneConcerns: [{ zone: ZONE, concerns: ['dryness'] }],
+        }),
+      },
+      { type: 'toggle_zone', region: 'crown', segment: 'roots' },
+    );
+    expect(state.checkIn.zones).toEqual([]);
+    expect(state.checkIn.zoneConcerns).toEqual([]);
+  });
+
+  it('attaches a concern to a zone and takes it off again', () => {
+    const base = {
+      ...initialPreflight(OWNER),
+      phase: 'checking_in' as const,
+      checkIn: draft({ concerns: ['dryness'], zones: [ZONE] }),
+    };
+    const attached = preflightReducer(base, {
+      type: 'toggle_zone_concern',
+      zone: ZONE,
+      concern: 'dryness',
+    });
+    expect(attached.checkIn.zoneConcerns).toEqual([{ zone: ZONE, concerns: ['dryness'] }]);
+    const detached = preflightReducer(attached, {
+      type: 'toggle_zone_concern',
+      zone: ZONE,
+      concern: 'dryness',
+    });
+    expect(detached.checkIn.zoneConcerns).toEqual([]);
+  });
+
+  it('refuses to attach a concern to a zone or an answer the owner never gave', () => {
+    const base = {
+      ...initialPreflight(OWNER),
+      phase: 'checking_in' as const,
+      checkIn: draft({ concerns: ['dryness'] }),
+    };
+    const noZone = preflightReducer(base, {
+      type: 'toggle_zone_concern',
+      zone: ZONE,
+      concern: 'dryness',
+    });
+    expect(noZone.checkIn.zoneConcerns).toEqual([]);
+    const withZone = { ...base, checkIn: draft({ concerns: ['dryness'], zones: [ZONE] }) };
+    const notReported = preflightReducer(withZone, {
+      type: 'toggle_zone_concern',
+      zone: ZONE,
+      concern: 'frizz',
+    });
+    expect(notReported.checkIn.zoneConcerns).toEqual([]);
+    const exclusive = preflightReducer(
+      { ...withZone, checkIn: draft({ concerns: ['none'], zones: [ZONE] }) },
+      { type: 'toggle_zone_concern', zone: ZONE, concern: 'none' },
+    );
+    expect(exclusive.checkIn.zoneConcerns).toEqual([]);
+  });
+
+  it('asks for the missing answer when a zone was named but nothing was noticed there', () => {
+    expect(validateCheckIn(draft({ zones: [ZONE] }), NOW)).toContain('zone_concerns_required');
+    expect(
+      validateCheckIn(draft({ zones: [ZONE], zoneConcerns: [{ zone: ZONE, concerns: ['dryness'] }] }), NOW),
+    ).not.toContain('zone_concerns_required');
+    // No zone at all is a complete answer: zone detail is optional.
+    expect(validateCheckIn(draft(), NOW)).not.toContain('zone_concerns_required');
+  });
+});
+
+describe('task 3.2: the owner-scoped check-in session', () => {
+  it('keeps a draft for its owner and clears it on request', () => {
+    clearAllCheckInDrafts();
+    expect(loadCheckInDraft(OWNER)).toBeNull();
+    saveCheckInDraft(OWNER, draft({ concerns: ['dryness'] }));
+    expect(loadCheckInDraft(OWNER)?.concerns).toEqual(['dryness']);
+    expect(loadCheckInDraft('owner-2')).toBeNull();
+    clearCheckInDraft(OWNER);
+    expect(loadCheckInDraft(OWNER)).toBeNull();
+  });
+
+  it('keeps the gap the owner was resolving, and forgets it with the session', () => {
+    clearAllCheckInDrafts();
+    expect(loadResolverFocus(OWNER)).toBeNull();
+    saveResolverFocus(OWNER, 'gap:hair_profile:passport_fact_missing:abcd');
+    expect(loadResolverFocus(OWNER)).toBe('gap:hair_profile:passport_fact_missing:abcd');
+    clearAllCheckInDrafts();
+    expect(loadResolverFocus(OWNER)).toBeNull();
+  });
+
+  it('restores a saved draft only into an idle check-in', () => {
+    const idle = preflightReducer(initialPreflight(OWNER), {
+      type: 'restore_check_in',
+      draft: draft({ concerns: ['dryness'] }),
+    });
+    expect(idle.phase).toBe('checking_in');
+    expect(idle.checkIn.concerns).toEqual(['dryness']);
+    const busy = preflightReducer(
+      { ...idle, phase: 'ready_to_generate' },
+      { type: 'restore_check_in', draft: draft({ concerns: ['frizz'] }) },
+    );
+    expect(busy.checkIn.concerns).toEqual(['dryness']);
   });
 });

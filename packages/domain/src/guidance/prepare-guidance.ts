@@ -13,6 +13,7 @@ import {
 import { buildPreparedInput } from './prepared-input.ts';
 import type {
   GuidanceGap,
+  GuidanceGapReason,
   GuidanceGapState,
   GuidanceGoal,
   GuidanceGoalId,
@@ -20,6 +21,7 @@ import type {
   GuidancePreparation,
   GuidanceSnapshot,
   PreparedGuidanceInput,
+  GuidanceServiceFact,
   GuidanceSourceItem,
   GuidanceSourceName,
   ReviewedCapabilityEntry,
@@ -103,7 +105,10 @@ function incompleteSources(snapshot: GuidanceSnapshot): GuidanceIncompleteSource
   return found;
 }
 
-function needsSetup(gaps: readonly GuidanceGap[]): GuidancePreparation {
+function needsSetup(
+  gaps: readonly GuidanceGap[],
+  setup: readonly GuidanceGap[] = [],
+): GuidancePreparation {
   // One gap per (kind, subject): repeated findings about the same missing
   // fact collapse instead of stacking near-identical setup actions.
   const unique = new Map<string, GuidanceGap>();
@@ -111,7 +116,7 @@ function needsSetup(gaps: readonly GuidanceGap[]): GuidancePreparation {
     const key = `${gap.kind}\u0000${gap.subject ?? ''}`;
     if (!unique.has(key)) unique.set(key, gap);
   }
-  return { status: 'needs_setup', missing: [...unique.values()].sort(compareGaps) };
+  return { status: 'needs_setup', missing: [...unique.values()].sort(compareGaps), setup };
 }
 
 function findEntry(
@@ -220,8 +225,13 @@ function currentConditionFacts(checkIn: CurrentConditionInput): Record<string, F
   return facts;
 }
 
-function currentConditionGap(subject: string, detail: string, state: GuidanceGapState): GuidanceGap {
-  return { kind: 'current_condition', detail, subject, state, destination: 'today_check_in' };
+function currentConditionGap(
+  subject: string,
+  detail: string,
+  state: GuidanceGapState,
+  reason: GuidanceGapReason,
+): GuidanceGap {
+  return { kind: 'current_condition', detail, subject, state, destination: 'today_check_in', reason };
 }
 
 /** Reads the value a validation issue points at, so "left out" can be told from "not usable". */
@@ -243,6 +253,13 @@ function rejectionState(issue: z.core.$ZodIssue, raw: unknown): GuidanceGapState
   if (issue.code === 'custom') return 'contradictory';
   if (issue.code === 'invalid_type' && valueAt(raw, issue.path) === undefined) return 'missing';
   return 'unsupported';
+}
+
+/** The machine-readable reason that goes with a rejected check-in answer. */
+function rejectionReason(state: GuidanceGapState): GuidanceGapReason {
+  if (state === 'contradictory') return 'check_in_contradictory';
+  if (state === 'missing') return 'check_in_missing';
+  return 'check_in_unsupported';
 }
 
 /** What each check-in answer is called to the owner; the field path itself is never shown. */
@@ -274,7 +291,12 @@ function rejectionGaps(error: unknown, raw: unknown): GuidanceGap[] {
     const gaps = error.issues.map(issue => {
       const field = typeof issue.path[0] === 'string' ? issue.path[0] : 'checkIn';
       const state = rejectionState(issue, raw);
-      return currentConditionGap(`current.${field}`, rejectionDetail(field, state), state);
+      return currentConditionGap(
+        `current.${field}`,
+        rejectionDetail(field, state),
+        state,
+        rejectionReason(state),
+      );
     });
     if (gaps.length > 0) return gaps;
   }
@@ -284,6 +306,7 @@ function rejectionGaps(error: unknown, raw: unknown): GuidanceGap[] {
         'current.observedAt',
         "The check-in time is in the future. Set it to now or earlier in today's check-in.",
         'contradictory',
+        'check_in_contradictory',
       ),
     ];
   }
@@ -307,6 +330,7 @@ function resolveCurrentCondition(
           'current.concerns',
           'You chose "I am not sure". Pick what you notice today, or skip the check-in and use what is saved in My Hair.',
           'unknown',
+          'check_in_unknown',
         ),
       ],
     };
@@ -317,50 +341,210 @@ function resolveCurrentCondition(
 /** Plain names for the Passport answers a goal can require; any other fact gets a generic phrase. */
 const PROFILE_FACT_NAMES: Readonly<Record<string, string>> = {
   naturalPattern: 'your natural hair pattern',
+  pattern: 'your natural hair pattern',
+  strandDiameter: 'your strand thickness',
   diameter: 'your strand thickness',
   density: 'your hair density',
+  lengthCm: 'your recorded hair length',
+  lengthMeasurement: 'your recorded hair length',
+  damageObservation: 'what you have noticed about damage',
+  heatPreference: 'how you like to use heat',
+  concerns: 'what concerns you have',
+  goals: 'what you want to achieve',
 };
 
 function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGap[] {
   const gaps: GuidanceGap[] = [];
   for (const fact of goal.requiredProfileFacts) {
     const value = snapshot.passportFacts[fact];
+    const name = Object.hasOwn(PROFILE_FACT_NAMES, fact)
+      ? PROFILE_FACT_NAMES[fact]
+      : 'an answer this goal needs';
     if (value === undefined || value === null) {
       gaps.push({
         kind: 'hair_profile',
-        detail: `My Hair is missing ${Object.hasOwn(PROFILE_FACT_NAMES, fact) ? PROFILE_FACT_NAMES[fact] : 'an answer this goal needs'}. Add it in My Hair so your plan can use it.`,
+        detail: `Add ${name} in My Hair so your plan can use it.`,
         subject: fact,
         state: 'missing',
         destination: 'my_hair',
+        reason: 'passport_fact_missing',
+        subjectLabel: name,
+      });
+      continue;
+    }
+    // An explicit "unknown" is an answer the owner gave, not an absent one.
+    // Where a rule genuinely needs a known answer it is still unresolved, so
+    // it becomes its own gap instead of being read as a recorded value.
+    if (value === 'unknown') {
+      gaps.push({
+        kind: 'hair_profile',
+        detail: `You recorded ${name} as not sure. Add it when you know, or choose a different goal.`,
+        subject: fact,
+        state: 'unknown',
+        destination: 'my_hair',
+        reason: 'passport_fact_unknown',
+        subjectLabel: name,
       });
     }
   }
   return gaps;
 }
 
+/** The recorded chemical-service types, in the owner's own words. */
+const SERVICE_TYPE_WORDS: Readonly<Record<string, string>> = {
+  'permanent-colour': 'permanent colour',
+  'demi-permanent': 'demi-permanent colour',
+  'semi-permanent': 'semi-permanent colour',
+  highlights: 'highlights',
+  balayage: 'balayage',
+  'bleach-or-lightener': 'bleach or lightener',
+  'colour-remover': 'colour remover',
+  keratin: 'keratin',
+  'brazilian-smoothing': 'brazilian smoothing',
+  nanoplasty: 'nanoplasty',
+  relaxer: 'relaxer',
+  texturiser: 'texturising',
+  perm: 'perm',
+  'chemical-straightening': 'chemical straightening',
+  other: 'other chemical',
+};
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
+const ORDINAL_NAMES = [
+  'first', 'second', 'third', 'fourth', 'fifth', 'sixth',
+  'seventh', 'eighth', 'ninth', 'tenth',
+] as const;
+
+/** The recorded date of a service, in plain words, with its precision kept. */
+function serviceDateWords(service: GuidanceServiceFact): string | null {
+  const date = service.effectiveStart;
+  if (date === null) return null;
+  if (date.precision === 'day') {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.value);
+    if (match === null) return null;
+    const month = MONTH_NAMES[Number(match[2]) - 1];
+    if (month === undefined) return null;
+    return ` on ${Number(match[3])} ${month} ${match[1]}`;
+  }
+  if (date.precision === 'month') {
+    const match = /^(\d{4})-(\d{2})$/.exec(date.value);
+    if (match === null) return null;
+    const month = MONTH_NAMES[Number(match[2]) - 1];
+    if (month === undefined) return null;
+    return ` in ${month} ${match[1]}`;
+  }
+  if (date.precision === 'year') return ` in ${date.value}`;
+  return null;
+}
+
+/**
+ * The safest owner-facing identity of a recorded service: what it was, and
+ * when, and — only when nothing else can tell them apart — which one it was
+ * in the order they were recorded. A record id is never part of it.
+ */
+function serviceLabel(service: GuidanceServiceFact, ordinal: number): string {
+  const type = service.facts.serviceType;
+  const typeWords = typeof type === 'string' && Object.hasOwn(SERVICE_TYPE_WORDS, type)
+    ? SERVICE_TYPE_WORDS[type]
+    : null;
+  const other = service.facts.otherLabel;
+  const otherWords =
+    type === 'other' && typeof other === 'string' && other.trim() !== ''
+      ? safeOwnerText(other)
+      : null;
+  const date = serviceDateWords(service);
+  if (otherWords !== null) return `the ${otherWords} you recorded${date ?? ''}`;
+  if (typeWords !== null) return `the ${typeWords} service you recorded${date ?? ''}`;
+  if (date !== null) return `the chemical service you recorded${date}`;
+  const word = ORDINAL_NAMES[ordinal] ?? `number ${ordinal + 1}`;
+  return `the ${word} chemical service you recorded`;
+}
+
+/**
+ * A record id in the owner's own words must never survive into a sentence.
+ * The snapshot loader falls back to "Recorded item <id>" when the owner never
+ * named something, so the id is taken out before the name can be shown.
+ */
+const ID_LIKE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/** Owner-entered text, trimmed of ids and clipped so it cannot flood a card. */
+function safeOwnerText(value: string): string {
+  return value.replace(ID_LIKE, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+/** The owner's own name for a product or tool, with any record id removed. */
+function safeItemName(name: string): string {
+  const cleaned = safeOwnerText(name);
+  if (cleaned === '' || /^recorded item$/i.test(cleaned)) return 'an item you saved';
+  return cleaned;
+}
+
+/** The owner's own words for how much of an item is left. */
+const AVAILABILITY_WORDS: Readonly<Record<string, string>> = {
+  available: 'available',
+  low: 'running low',
+  empty: 'empty',
+  out_of_stock: 'out of stock',
+  archived: 'archived',
+};
+
+function availabilityWords(availability: string): string {
+  return Object.hasOwn(AVAILABILITY_WORDS, availability)
+    ? AVAILABILITY_WORDS[availability]
+    : 'not available';
+}
+
+/**
+ * Services are ordered by the date they were recorded and then by their id,
+ * so "the first recorded service" always means the same service for the same
+ * records, whatever order the database returned them in.
+ */
+function servicesInRecordOrder(snapshot: GuidanceSnapshot): GuidanceServiceFact[] {
+  return [...snapshot.services].sort((left, right) => {
+    const leftDate = left.effectiveStart?.precision === 'unknown' ? null : left.effectiveStart?.value ?? null;
+    const rightDate = right.effectiveStart?.precision === 'unknown' ? null : right.effectiveStart?.value ?? null;
+    if (leftDate !== rightDate) {
+      if (leftDate === null) return 1;
+      if (rightDate === null) return -1;
+      return leftDate < rightDate ? -1 : 1;
+    }
+    return left.serviceId < right.serviceId ? -1 : 1;
+  });
+}
+
 function serviceGaps(snapshot: GuidanceSnapshot): GuidanceGap[] {
   const gaps: GuidanceGap[] = [];
-  for (const service of snapshot.services) {
+  const ordered = servicesInRecordOrder(snapshot);
+  ordered.forEach((service, index) => {
+    const label = serviceLabel(service, index);
     if (service.currentPresence === 'unknown') {
       gaps.push({
         kind: 'service_presence',
-        detail: 'We cannot tell whether a chemical service you recorded is still affecting your hair. Update it in My Hair → Services.',
+        detail: `We cannot tell whether ${label} is still affecting your hair. Update it in My Hair under Services.`,
         subject: service.serviceId,
         state: 'unknown',
         destination: 'my_hair_services',
+        reason: 'service_presence_unknown',
+        subjectLabel: label,
       });
-      continue;
+      return;
     }
     if (service.currentPresence === 'present') {
       gaps.push({
         kind: 'service_presence',
-        detail: 'A chemical service you recorded may still be affecting your hair, and guidance for that is not available yet. If it has worn off or was entered by mistake, update it in My Hair → Services.',
+        detail: `We cannot show reviewed guidance while ${label} may still be affecting your hair. Update it in My Hair under Services.`,
         subject: service.serviceId,
         state: 'unsupported',
         destination: 'my_hair_services',
+        reason: 'service_effect_unsupported',
+        subjectLabel: label,
       });
     }
-  }
+  });
   return gaps;
 }
 
@@ -372,6 +556,191 @@ function sortById<T extends { readonly ownerItemId: string }>(items: readonly T[
   return [...items].sort((left, right) =>
     left.ownerItemId < right.ownerItemId ? -1 : 1,
   );
+}
+
+/**
+ * The capabilities a published reviewed rule requires. Only published rules
+ * count: a withdrawn or draft rule asks for nothing, and nothing here may
+ * invent a requirement the reviewed content never stated.
+ */
+function requiredCapabilities(bundle: ReviewedGuidanceBundle): readonly string[] {
+  const names = new Set<string>();
+  for (const rule of bundle.rules) {
+    if (rule.status !== 'published') continue;
+    for (const effect of rule.effects) {
+      if (effect.kind === 'require_capability') names.add(effect.capability);
+    }
+  }
+  return [...names].sort();
+}
+
+/** Whether a published rule restricts heat, and whether it names a temperature. */
+function heatInstruction(bundle: ReviewedGuidanceBundle): { restricts: boolean; exact: boolean } {
+  let restricts = false;
+  let exact = false;
+  for (const rule of bundle.rules) {
+    if (rule.status !== 'published') continue;
+    for (const effect of rule.effects) {
+      if (effect.kind !== 'heat_restriction') continue;
+      restricts = true;
+      if (effect.maxTemperatureCelsius !== undefined) exact = true;
+    }
+  }
+  return { restricts, exact };
+}
+
+/**
+ * Owner setup that does not block a plan: recorded products and tools that
+ * StrandCue cannot use yet, and the reason it cannot use them. These never
+ * change a decision and never stop generation — they are the owner's own
+ * next step, offered because they asked for a plan.
+ */
+function setupGaps(
+  snapshot: GuidanceSnapshot,
+  bundle: ReviewedGuidanceBundle,
+): GuidanceGap[] {
+  const gaps: GuidanceGap[] = [];
+  const required = requiredCapabilities(bundle);
+  const heat = heatInstruction(bundle);
+
+  for (const product of sortById(snapshot.products)) {
+    const label = safeItemName(product.name);
+    if (product.availability !== 'available') {
+      gaps.push({
+        kind: 'product_version',
+        detail: `Your ${label} is marked as ${availabilityWords(product.availability)}. Choose an available product in My Shelf.`,
+        subject: product.ownerItemId,
+        state: 'missing',
+        destination: 'my_shelf',
+        reason: 'product_unavailable',
+        subjectLabel: label,
+      });
+      continue;
+    }
+    if (product.versionId === null) {
+      if (required.length > 0) {
+        gaps.push({
+          kind: 'product_capability',
+          detail: `Your ${label} is saved by hand, so StrandCue cannot check the exact version yet. Match it in My Shelf.`,
+          subject: product.ownerItemId,
+          state: 'unknown',
+          destination: 'my_shelf',
+          reason: 'product_manual_unmatched',
+          subjectLabel: label,
+        });
+      }
+      continue;
+    }
+    const entry = bundle.capabilities.find(
+      candidate => candidate.kind === 'product' && candidate.versionId === product.versionId,
+    );
+    if (entry === undefined || entry.status !== 'published') {
+      gaps.push({
+        kind: 'product_capability',
+        detail: `There is no published reviewed guidance for the exact version of your ${label} yet. Match it in My Shelf.`,
+        subject: product.ownerItemId,
+        state: 'unsupported',
+        destination: 'my_shelf',
+        reason: 'product_capability_unpublished',
+        subjectLabel: label,
+      });
+    }
+  }
+
+  for (const tool of sortById(snapshot.tools)) {
+    const label = safeItemName(tool.name);
+    if (tool.availability !== 'available') {
+      gaps.push({
+        kind: 'tool_version',
+        detail: `Your ${label} is marked as ${availabilityWords(tool.availability)}. Add an available tool in My Tools.`,
+        subject: tool.ownerItemId,
+        state: 'missing',
+        destination: 'my_tools',
+        reason: 'tool_unavailable',
+        subjectLabel: label,
+      });
+      continue;
+    }
+    if (tool.versionId === null && required.length > 0) {
+      gaps.push({
+        kind: 'tool_capability',
+        detail: `Your ${label} is saved by hand, so StrandCue cannot check the exact version yet. Match it in My Tools.`,
+        subject: tool.ownerItemId,
+        state: 'unknown',
+        destination: 'my_tools',
+        reason: 'tool_manual_unmatched',
+        subjectLabel: label,
+      });
+    }
+  }
+
+  if (heat.restricts) {
+    const available = snapshot.tools.filter(tool => tool.availability === 'available');
+    if (available.length === 0) {
+      gaps.push({
+        kind: 'tool_capability',
+        detail: 'No tool is recorded for the heat step this plan needs. Add the tool you use in My Tools.',
+        subject: null,
+        state: 'missing',
+        destination: 'my_tools',
+        reason: 'tool_not_recorded',
+        subjectLabel: null,
+      });
+    }
+    for (const tool of sortById(available)) {
+      const label = safeItemName(tool.name);
+      const facts = tool.ownerFacts;
+      // An exact temperature is only ever read from what the owner recorded.
+      // A wattage is a wattage: it never becomes a temperature, and a model
+      // or a name never becomes a heat method.
+      if (heat.exact && (facts === undefined || facts.settings === null || facts.settings.state !== 'recorded')) {
+        gaps.push({
+          kind: 'tool_capability',
+          detail: `StrandCue cannot read the exact temperature you use with your ${label}. Add it in My Tools.`,
+          subject: tool.ownerItemId,
+          state: 'unknown',
+          destination: 'my_tools',
+          reason: 'tool_temperature_unknown',
+          subjectLabel: label,
+        });
+      }
+      if (facts === undefined || facts.heatMethods === null || facts.heatMethods.state !== 'recorded') {
+        gaps.push({
+          kind: 'tool_capability',
+          detail: `StrandCue cannot read how you use heat with your ${label}. Add it in My Tools.`,
+          subject: tool.ownerItemId,
+          state: 'unknown',
+          destination: 'my_tools',
+          reason: 'tool_heat_method_unknown',
+          subjectLabel: label,
+        });
+      }
+    }
+  }
+
+  if (required.length > 0) {
+    const provided = new Set<string>();
+    for (const candidate of [
+      ...buildProducts(sortById(snapshot.products), bundle),
+      ...buildTools(sortById(snapshot.tools), bundle),
+    ]) {
+      if (!candidate.available) continue;
+      for (const capability of candidate.verifiedCapabilities) provided.add(capability);
+    }
+    if (required.some(capability => !provided.has(capability))) {
+      gaps.push({
+        kind: 'product_capability',
+        detail: 'Nothing you own provides what this plan needs. Review My Shelf, or add a product you already own.',
+        subject: null,
+        state: 'missing',
+        destination: 'my_shelf',
+        reason: 'product_no_candidate',
+        subjectLabel: null,
+      });
+    }
+  }
+
+  return gaps.sort(compareGaps);
 }
 
 function buildContext(
@@ -431,7 +800,8 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
       currentFacts = currentConditionFacts(condition);
     }
   }
-  if (gaps.length > 0) return needsSetup(gaps);
+  const setup = setupGaps(input.snapshot, input.bundle);
+  if (gaps.length > 0) return needsSetup(gaps, setup);
 
   const products = buildProducts(sortById(input.snapshot.products), input.bundle);
   const tools = buildTools(sortById(input.snapshot.tools), input.bundle);
@@ -452,5 +822,6 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
     prepared,
     bundleId: input.bundle.bundleId,
     bundleVersion: input.bundle.version,
+    setup,
   };
 }

@@ -485,7 +485,40 @@ export const GuidanceGapKindSchema = z.enum([
   'current_condition',
 ]);
 
-export const GuidanceGapStateSchema = z.enum(['missing', 'unknown', 'failed_source', 'contradictory', 'unsupported']);
+export const GuidanceGapStateSchema = z.enum([
+  'missing',
+  'unknown',
+  'failed_source',
+  'contradictory',
+  'unsupported',
+  'content_pending',
+]);
+
+export const GuidanceGapReasonSchema = z.enum([
+  'passport_fact_missing',
+  'passport_fact_unknown',
+  'service_presence_unknown',
+  'service_presence_conflicting',
+  'service_effect_unsupported',
+  'service_zone_missing',
+  'product_no_candidate',
+  'product_manual_unmatched',
+  'product_capability_unpublished',
+  'product_unavailable',
+  'product_fact_unconfirmed',
+  'tool_not_recorded',
+  'tool_unavailable',
+  'tool_manual_unmatched',
+  'tool_heat_method_unknown',
+  'tool_temperature_unknown',
+  'check_in_contradictory',
+  'check_in_missing',
+  'check_in_unknown',
+  'check_in_unsupported',
+  'check_in_zone_missing',
+  'source_failed',
+  'content_not_published',
+]);
 
 export const GuidanceGapDestinationSchema = z.enum(['my_hair', 'my_hair_services', 'my_shelf', 'my_tools', 'today_check_in']);
 
@@ -497,6 +530,13 @@ export const GuidanceGapSchema = frozen(
       subject: nonEmptyString.nullable(),
       state: GuidanceGapStateSchema,
       destination: GuidanceGapDestinationSchema.nullable(),
+      // The machine-readable reason inside the kind. Optional so a gap
+      // written before Task 3.2 still parses.
+      reason: GuidanceGapReasonSchema.nullable().optional(),
+      // The owner-facing name for the subject. Never an id: the schema only
+      // checks that it is text, and the producer is responsible for keeping
+      // ids out of it.
+      subjectLabel: nonEmptyString.nullable().optional(),
     })
     .strict(),
 );
@@ -629,6 +669,7 @@ const ReadyPreparationSchema = z
     prepared: PreparedGuidanceInputSchema,
     bundleId: nonEmptyString,
     bundleVersion: nonEmptyString,
+    setup: z.array(GuidanceGapSchema).optional(),
   })
   .strict();
 
@@ -636,6 +677,7 @@ const NeedsSetupPreparationSchema = z
   .object({
     status: z.literal('needs_setup'),
     missing: z.array(GuidanceGapSchema).min(1),
+    setup: z.array(GuidanceGapSchema).optional(),
   })
   .strict();
 

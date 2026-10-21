@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAllCheckInDrafts } from '../../apps/mobile/src/guidance/current-condition-state';
 
 import { TodayGuidance } from '../../apps/mobile/src/TodayGuidance';
 import {
@@ -256,6 +257,7 @@ beforeAll(() => {
 afterAll(() => { consoleErrorSpy.mockRestore(); });
 
 beforeEach(() => {
+  clearAllCheckInDrafts();
   vi.clearAllMocks();
   mocks.uuidCounter.value = 0;
   mocks.generate.mockResolvedValue({ status: 'content_pending' });

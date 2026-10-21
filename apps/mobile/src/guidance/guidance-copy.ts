@@ -83,13 +83,14 @@ export function gapTarget(gap: GuidanceGap): DestinationId | null {
   return gap.destination === null ? gapDestination(gap.kind) : GAP_DESTINATION_SCREEN[gap.destination];
 }
 
-/** A short lead-in that says why the gap stops the plan, so the five states read differently. */
+/** A short lead-in that says why the gap stops the plan, so the six states read differently. */
 export const GAP_STATE_LEAD: Readonly<Record<GuidanceGapState, string>> = {
   missing: 'Not answered yet',
   unknown: 'Marked as not sure',
   failed_source: 'We could not check this',
   contradictory: 'These answers do not agree',
   unsupported: 'Not covered yet',
+  content_pending: 'Not available yet',
 };
 
 export const SOURCE_AREA_NAMES: Readonly<Record<GuidanceSourceName, string>> = {
@@ -99,6 +100,104 @@ export const SOURCE_AREA_NAMES: Readonly<Record<GuidanceSourceName, string>> = {
   products: 'My Shelf',
   tools: 'My Tools',
 };
+
+/**
+ * What a failed read says. It names the area, says the app could not read it,
+ * and asks for one retry. It never blames the owner and never says their
+ * records are wrong.
+ */
+export const FAILED_SOURCE_TITLE = 'We could not read';
+export const FAILED_SOURCE_BODY = (area: string): string =>
+  `We could not read ${area}. Nothing was changed, and nothing was guessed.`;
+export const RETRY_DATA_LABEL = 'Try again';
+export const RETRY_DATA_ACCESSIBILITY = 'Try again';
+export const RETRY_FAILED_MESSAGE = 'We could not read your records again. Try again.';
+
+/**
+ * Content that is not published yet. The owner's information was read; the
+ * reviewed guidance for their situation is what is missing. Nothing here
+ * routes the owner to change their own records, because their records are not
+ * the limitation.
+ */
+export const CONTENT_PENDING_ITEM_TITLE =
+  'Reviewed guidance for this situation is not available yet.';
+export const CONTENT_PENDING_ITEM_BODY =
+  'We read your information. The reviewed guidance for this situation has not been published yet, so StrandCue did not guess and did not produce a plan.';
+
+/**
+ * The resolver's own words. The heading says what the screen is; the
+ * announcement says the new state once; nothing here repeats a section title
+ * inside every item's label.
+ */
+export const RESOLVER_HEADING = 'What is needed before a plan';
+export const RESOLVER_SETUP_HEADING = 'What you could add next';
+export const RESOLVER_ANNOUNCEMENT_ONE = 'One thing needs your attention before a plan.';
+export const RESOLVER_ANNOUNCEMENT_MANY = (count: number): string =>
+  `${count} things need your attention before a plan.`;
+
+/** The one primary action for each destination, and where it goes. */
+export const RESOLVER_ACTIONS = {
+  addInMyHair: {
+    id: 'add_in_my_hair',
+    label: 'Add this in My Hair',
+    accessibilityLabel: 'Add this in My Hair',
+  },
+  reviewServices: {
+    id: 'review_chemical_services',
+    label: 'Review your chemical services',
+    accessibilityLabel: 'Review your chemical services in My Hair',
+  },
+  reviewShelf: {
+    id: 'review_my_shelf',
+    label: 'Review My Shelf',
+    accessibilityLabel: 'Review My Shelf',
+  },
+  addProduct: {
+    id: 'add_product',
+    label: 'Add a product',
+    accessibilityLabel: 'Add a product to My Shelf',
+  },
+  matchProduct: {
+    id: 'match_product',
+    label: 'Match this product',
+    accessibilityLabel: 'Match this product in My Shelf',
+  },
+  chooseAvailableProduct: {
+    id: 'choose_available_product',
+    label: 'Choose an available product',
+    accessibilityLabel: 'Choose an available product in My Shelf',
+  },
+  reviewTools: {
+    id: 'review_my_tools',
+    label: 'Review My Tools',
+    accessibilityLabel: 'Review My Tools',
+  },
+  addTool: {
+    id: 'add_tool',
+    label: 'Add a tool',
+    accessibilityLabel: 'Add a tool to My Tools',
+  },
+  matchTool: {
+    id: 'match_tool',
+    label: 'Match this tool',
+    accessibilityLabel: 'Match this tool in My Tools',
+  },
+  addTemperature: {
+    id: 'add_temperature',
+    label: 'Add the exact temperature',
+    accessibilityLabel: 'Add the exact temperature in My Tools',
+  },
+  addHeatMethod: {
+    id: 'add_heat_method',
+    label: 'Add the heat method',
+    accessibilityLabel: 'Add the heat method in My Tools',
+  },
+  reviewCheckIn: {
+    id: 'review_check_in',
+    label: 'Review check-in answers',
+    accessibilityLabel: 'Review check-in answers',
+  },
+} as const;
 
 /** Names the areas that could not be read, or says nothing specific when none are known. */
 export function sourceErrorAreas(sources: readonly GuidanceIncompleteSource[] | undefined): string | null {
@@ -226,7 +325,53 @@ export const CHECK_IN_ERROR_TEXT: Readonly<Record<CheckInErrorCode, string>> = {
   observed_at_required: 'Record when you made these observations.',
   observed_at_invalid: 'Record the observation time with its timezone, for example 2026-10-13T08:00:00+02:00.',
   observed_at_future: 'Record an observation time that is not later than now.',
+  zone_concerns_required:
+    'You chose where you notice it. Choose what you notice there as well, or remove the area.',
 };
+
+/**
+ * The zone step (Task 3.2). Zone detail is optional: an owner may say only
+ * what they notice. Where they do name an area, they also say what they
+ * notice there, so the answer is never half finished.
+ */
+export const ZONE_LABEL = 'Where do you notice it';
+export const ZONE_HINT =
+  'Optional. Choose an area, then choose which part of your hair you mean. You can choose more than one area.';
+export const ZONE_REGION_LABEL = 'Area';
+export const ZONE_SEGMENT_LABEL = 'Part of the hair';
+export const ZONE_SELECTED_LABEL = 'Areas you chose';
+export const ZONE_CONCERNS_LABEL = 'What do you notice there';
+
+export const ZONE_REGION_LABELS: Readonly<Record<string, string>> = {
+  'whole-head': 'Whole head',
+  front: 'Front',
+  crown: 'Crown',
+  nape: 'Nape',
+  other: 'Another area',
+  unknown: 'Not sure where',
+};
+
+export const ZONE_SEGMENT_LABELS: Readonly<Record<string, string>> = {
+  'entire-strand': 'All of the hair',
+  roots: 'Roots',
+  'mid-lengths': 'Mid-lengths',
+  ends: 'Ends',
+  other: 'Another part',
+  unknown: 'Not sure which part',
+};
+
+/** The plain name of one zone, in the order the owner reads it. */
+export function zoneLabel(zone: { readonly region: string; readonly segment: string }): string {
+  const region = ZONE_REGION_LABELS[zone.region] ?? 'Another area';
+  const segment = ZONE_SEGMENT_LABELS[zone.segment] ?? 'Another part';
+  return `${region}, ${segment}`;
+}
+
+export const ZONE_REMOVE_LABEL = (zone: string): string => `Remove ${zone}`;
+export const ZONE_ADDED_STATUS = (zone: string): string => `${zone} added.`;
+export const ZONE_REMOVED_STATUS = (zone: string): string => `${zone} removed.`;
+export const ZONE_CONCERN_LABEL = (zone: string, concern: string): string =>
+  `${zone}: ${concern}`;
 
 export const CHECK_IN_SUMMARY_HEADING = 'Your check-in';
 export const CHECK_IN_SUMMARY_TIME = (minutes: number): string =>

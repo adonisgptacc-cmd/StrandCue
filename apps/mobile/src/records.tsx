@@ -7,7 +7,7 @@ import { normalizeUsernameInput, normalizeUsernameSuffix, parseUsernameOptions, 
 import { loadPassport, type PassportRecord } from './passport-api';
 import { PassportEditor } from './passport-editor';
 import { ReleaseStageBanner } from './ReleaseStageBanner';
-import { DESTINATIONS, INITIAL_DESTINATION, type DestinationId } from './navigation';
+import { DESTINATIONS, INITIAL_DESTINATION, guidanceRouteTarget, type DestinationId, type GuidanceRoute } from './navigation';
 import { TodayGuidance } from './TodayGuidance';
 import { MyHairOverview } from './MyHairOverview';
 import { useOwnerLoad } from './owner-load';
@@ -20,6 +20,7 @@ import { DeletionScreen } from './screens/DeletionScreen';
 import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperText, usernameIdeasLabel } from './settings-api';
 import { consentErrorMessage, consentPurposeLabel, listConsents, optionalPurposes, setConsent, type ConsentList, type ConsentPurpose } from './consent-api';
 import { clearServiceDrafts } from './service-form';
+import { clearAllCheckInDrafts } from './guidance/current-condition-state';
 import * as Crypto from 'expo-crypto';
 import { Button, Field, Page, styles, display, fieldLabel } from './ui';
 
@@ -223,6 +224,10 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const logout = async () => {
     setBusy(true); setError('');
     try {
+      // The temporary check-in and the resolver state belong to the owner who
+      // is leaving. They are cleared before the sign-out, so the next person
+      // to use this device cannot read them.
+      clearAllCheckInDrafts();
       await secureStorage.removeItem(`strandcue-draft-${user.id}`);
       await clearServiceDrafts(secureStorage, user.id);
       const {error: issue} = await supabase!.auth.signOut({scope:'local'});
@@ -246,10 +251,22 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     <Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy || usernameStatus === 'checking'} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
   const selectDestination = (next: DestinationId) => {setDestination(next);setEditing(false);setTarget(undefined);};
+  /**
+   * A resolver route may name a destination and, for My Hair, the part of it.
+   * A route that stays on Today never reaches here.
+   */
+  const selectRoute = (route: GuidanceRoute) => {
+    const target = guidanceRouteTarget(route);
+    if (target === null) return;
+    setDestination(target.destination);
+    if (target.hairView !== undefined) setHairView(target.hairView);
+    setEditing(false);
+    setTarget(undefined);
+  };
   const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
-    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectDestination}/>}
+    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectRoute}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
     {destination === 'journey' && <View style={styles.row}>{(['History','Activities'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}

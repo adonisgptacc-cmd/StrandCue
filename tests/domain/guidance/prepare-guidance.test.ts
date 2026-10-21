@@ -1460,3 +1460,239 @@ describe('task 3.1: one deterministic prepared guidance input', () => {
     });
   });
 });
+
+/**
+ * Task 3.2: targeted questions and setup recovery.
+ *
+ * The gaps a resolver shows are decided here, because only this layer knows
+ * what the owner recorded. Every fixture is synthetic.
+ */
+describe('task 3.2: targeted setup gaps', () => {
+  it('treats a required Passport fact recorded as unknown as an honest gap', () => {
+    const result = prepare(
+      snapshot({ passportFacts: { naturalPattern: 'curly', density: 'unknown' } }),
+      bundle({
+        goals: [{ id: 'basic_wash', label: 'Basic wash', requiredProfileFacts: ['density'] }],
+      }),
+    );
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing[0]).toMatchObject({
+      kind: 'hair_profile',
+      state: 'unknown',
+      destination: 'my_hair',
+      reason: 'passport_fact_unknown',
+    });
+    expect(result.missing[0].detail).toContain('not sure');
+    expect(result.missing[0].subjectLabel).toBe('your hair density');
+  });
+
+  it('does not treat a recorded answer as missing', () => {
+    const result = prepare(snapshot({ passportFacts: { naturalPattern: 'curly' } }));
+    expect(result.status).toBe('ready');
+  });
+
+  it('tells two services with the same presence state apart, and shows no id', () => {
+    const result = prepare(snapshot({
+      services: [
+        {
+          serviceId: 'svc-b',
+          currentPresence: 'unknown',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-02' },
+          facts: { serviceType: 'highlights' },
+        },
+        {
+          serviceId: 'svc-a',
+          currentPresence: 'unknown',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
+          facts: { serviceType: 'bleach-or-lightener' },
+        },
+      ],
+    }));
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    const labels = result.missing.map(gap => gap.subjectLabel);
+    expect(new Set(labels).size).toBe(2);
+    for (const gap of result.missing) {
+      expect(gap.detail).not.toContain('svc-');
+      expect(gap.detail).not.toContain('→');
+      expect(gap.destination).toBe('my_hair_services');
+    }
+    const details = result.missing.map(gap => gap.detail).join(' ');
+    expect(details).toContain('bleach or lightener');
+    expect(details).toContain('highlights');
+  });
+
+  it('names a service by its recorded date when it has no type', () => {
+    const result = prepare(snapshot({
+      services: [
+        {
+          serviceId: 'svc-a',
+          currentPresence: 'unknown',
+          effectiveStart: { precision: 'day' as const, value: '2026-06-01' },
+          facts: {},
+        },
+      ],
+    }));
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing[0].subjectLabel).toBe('the chemical service you recorded on 1 June 2026');
+  });
+
+  it('never lets an unmatched manual product satisfy an exact prerequisite', () => {
+    const result = prepare(snapshot({
+      products: [
+        {
+          ownerItemId: 'owner-product-1',
+          versionId: null,
+          name: 'Saved shampoo',
+          availability: 'available',
+          revision: 1,
+        },
+      ],
+    }));
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    // The manual product acquires nothing and is never a candidate.
+    expect(result.context.products).toEqual([]);
+    const manual = result.setup?.find(gap => gap.reason === 'product_manual_unmatched');
+    expect(manual?.destination).toBe('my_shelf');
+    expect(manual?.detail).toContain('cannot check the exact version yet');
+    expect(manual?.detail).not.toMatch(/unsafe|dangerous/i);
+  });
+
+  it('offers My Shelf when an owned product is no longer available', () => {
+    const result = prepare(snapshot({
+      products: [
+        {
+          ownerItemId: 'owner-product-1',
+          versionId: PRODUCT_VERSION,
+          name: 'Old shampoo',
+          availability: 'archived',
+          revision: 3,
+        },
+      ],
+    }));
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    const unavailable = result.setup?.find(gap => gap.reason === 'product_unavailable');
+    expect(unavailable?.destination).toBe('my_shelf');
+    expect(unavailable?.detail).toContain('archived');
+  });
+
+  it('never reads a temperature from a wattage, and asks for the exact one', () => {
+    const heatBundle = bundle({
+      rules: [
+        {
+          ruleId: 'rule-heat',
+          versionId: '1',
+          status: 'published',
+          strength: 'hard',
+          condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
+          effects: [
+            { kind: 'heat_restriction', exposure: 'direct_contact', prohibited: true, maxTemperatureCelsius: 200 },
+          ],
+          reason: 'Synthetic heat rule.',
+          evidenceIds: [RULE_EVIDENCE],
+        },
+      ],
+    });
+    const result = prepare(
+      snapshot({
+        tools: [
+          {
+            ownerItemId: 'owner-tool-1',
+            versionId: null,
+            name: 'My dryer',
+            availability: 'available',
+            revision: 1,
+            ownerFacts: {
+              wattageWatts: 1800,
+              adjustableTemp: 'unknown',
+              settings: null,
+              heatMethods: null,
+            },
+          },
+        ],
+      }),
+      heatBundle,
+    );
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    // The wattage stays a wattage: no temperature is derived from it.
+    expect(result.prepared.tools[0].ownerFacts.wattageWatts).toBe(1800);
+    expect(result.prepared.tools[0].ownerFacts.settings.state).toBe('not_answered');
+    expect(result.prepared.tools[0].ownerFacts.heatMethods.state).toBe('not_answered');
+    const temperature = result.setup?.find(gap => gap.reason === 'tool_temperature_unknown');
+    expect(temperature?.destination).toBe('my_tools');
+    expect(temperature?.detail).toContain('exact temperature');
+    expect(result.setup?.map(gap => gap.reason)).toContain('tool_heat_method_unknown');
+  });
+
+  it('asks for the tool itself when a reviewed rule needs heat and none is recorded', () => {
+    const heatBundle = bundle({
+      rules: [
+        {
+          ruleId: 'rule-heat',
+          versionId: '1',
+          status: 'published',
+          strength: 'hard',
+          condition: { kind: 'fact_equals', fact: 'goal', value: 'basic_wash' },
+          effects: [
+            { kind: 'heat_restriction', exposure: 'direct_contact', prohibited: true, maxTemperatureCelsius: 200 },
+          ],
+          reason: 'Synthetic heat rule.',
+          evidenceIds: [RULE_EVIDENCE],
+        },
+      ],
+    });
+    const result = prepare(snapshot({ tools: [] }), heatBundle);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    const missing = result.setup?.find(gap => gap.reason === 'tool_not_recorded');
+    expect(missing?.destination).toBe('my_tools');
+  });
+
+  it('never blocks a plan on an owner setup item', () => {
+    const result = prepare(snapshot({
+      products: [
+        {
+          ownerItemId: 'owner-product-1',
+          versionId: null,
+          name: 'Saved shampoo',
+          availability: 'available',
+          revision: 1,
+        },
+      ],
+    }));
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.setup?.length).toBeGreaterThan(0);
+    // A setup item never blocks: the plan is still produced.
+    expect('missing' in result).toBe(false);
+  });
+
+  it('keeps every gap free of record ids, field paths and database wording', () => {
+    const result = prepare(snapshot({
+      passportFacts: {},
+      products: [
+        {
+          ownerItemId: 'owner-product-1',
+          versionId: null,
+          name: 'Saved shampoo',
+          availability: 'archived',
+          revision: 1,
+        },
+      ],
+    }));
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    const details = [...result.missing, ...(result.setup ?? [])].map(gap => gap.detail);
+    expect(details.length).toBeGreaterThan(0);
+    for (const detail of details) {
+      expect(detail).not.toMatch(/owner-product-1|naturalPattern|owner-1/i);
+      expect(detail).not.toMatch(/select |invalid|schema|source_incomplete|rule conflict/i);
+      expect(detail).not.toContain('→');
+    }
+  });
+});

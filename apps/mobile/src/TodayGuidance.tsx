@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 
 import {
   normalizeCurrentCondition,
   type CurrentConditionInput,
-  type GuidanceGap,
   type ProtocolDecision,
 } from '../../../packages/domain/src/index';
 import {
@@ -15,69 +14,74 @@ import {
   CHECK_IN_SUMMARY_SESSION_ONLY,
   CHECK_IN_SUMMARY_TIME,
   CONCERN_LABELS,
-  CONTENT_PENDING_BODY,
   confidenceLabel,
-  DESTINATION_LABELS,
   EXECUTION_BOUNDARY,
   EXECUTION_LOADING_LABEL,
   EXECUTION_LOAD_FAILED,
   EXECUTION_RELOAD_LABEL,
   GENERATE_LABEL,
   GENERATING_LABEL,
-  GAP_STATE_LEAD,
-  gapTarget,
-  sourceErrorAreas,
   LOADING_LABEL,
   MISSING_HEADING,
   NO_PURCHASE_NEEDED,
   READY_TITLE,
-  RETRY_LABEL,
   REVIEW_CHECK_IN_LABEL,
+  RETRY_FAILED_MESSAGE,
+  RESOLVER_HEADING,
+  RESOLVER_SETUP_HEADING,
   SAVE_FAILED,
   START_OVER_LABEL,
   statusTitle,
   stepLabel,
 } from './guidance/guidance-copy';
 import {
+  clearCheckInDraft,
   initialPreflight,
+  loadCheckInDraft,
+  loadResolverFocus,
   preflightReducer,
+  saveCheckInDraft,
+  saveResolverFocus,
   type CheckInDraft,
 } from './guidance/current-condition-state';
+import { resolverItems, type GuidanceResolverItem } from './guidance/guidance-gap-state';
 import { recordRecommendationRun } from './guidance/recommendation-run-api';
 import { generateTodayGuidance } from './guidance/today-guidance-service';
 import { useTodayRestore } from './guidance/today-restore';
+import { GuidanceGapResolver } from './GuidanceGapResolver';
 import { TodayCheckIn } from './TodayCheckIn';
 import { ProtocolExecution, type TerminalAbandonReceipt } from './ProtocolExecution';
-import type { DestinationId } from './navigation';
+import type { GuidanceRoute } from './navigation';
 import { Button, styles } from './ui';
 
 export interface TodayGuidanceProps {
   readonly ownerId: string;
-  readonly onNavigate: (destination: DestinationId) => void;
+  readonly onNavigate: (route: GuidanceRoute) => void;
 }
 
 /**
- * Today's guidance preflight state machine.
- *
- * States: `idle → checking_in → ready_to_generate → generating → result`,
- * with owner and request epochs. The check-in is a temporary cosmetic
- * self-report for one request only — never a diagnosis, never a Passport
- * write, never invented advice.
- *
- * Four rules this component exists to enforce:
- *
- * 1. Nothing generates on mount or on owner change. Guidance is produced
- *    only when the owner completes a check-in and asks for a plan. An owner
- *    change resets the machine to `idle` and discards in-flight responses.
- * 2. A late response from an older request never overwrites the current
- *    result. Every generation carries a request epoch; only the newest one
- *    may apply, and nothing applies after unmount.
- * 3. Duplicate taps generate once. An in-flight guard plus the reducer's
- *    `generation_started` gate mean one epoch is one generation.
- * 4. A generated plan is persisted exactly once. If saving fails, the plan is
- *    still shown and the failure is stated — it is never regenerated, because
- *    regenerating would silently change the decision being read.
+ * The part of the check-in a gap named, so the resolver can bring the owner
+ * back to exactly that answer.
  */
+type CheckInSection = 'concerns' | 'goal' | 'time' | 'observed_at' | 'zones';
+
+function sectionFor(subject: string | null): CheckInSection | null {
+  switch (subject) {
+    case 'current.concerns':
+      return 'concerns';
+    case 'current.goal':
+      return 'goal';
+    case 'current.availableMinutes':
+      return 'time';
+    case 'current.observedAt':
+      return 'observed_at';
+    case 'current.zones':
+    case 'current.zoneConcerns':
+      return 'zones';
+    default:
+      return null;
+  }
+}
 
 const GOAL_ID = 'basic_wash' as const;
 const GOAL_LABEL = 'Basic wash';
@@ -92,41 +96,23 @@ function requestId(): string {
   return Crypto.randomUUID();
 }
 
-function GapList({
-  gaps,
-  onNavigate,
-  onReviewCheckIn,
-}: {
-  readonly gaps: readonly GuidanceGap[];
-  readonly onNavigate: (destination: DestinationId) => void;
-  readonly onReviewCheckIn: (() => void) | null;
-}) {
-  return <View style={styles.card}>
-    <Text style={styles.heading}>What is needed</Text>
-    {gaps.map(gap => {
-      const destination = gapTarget(gap);
-      return <View key={`${gap.kind}-${gap.subject ?? ''}-${gap.detail}`} style={styles.notice}>
-        <Text style={styles.label}>{GAP_STATE_LEAD[gap.state]}</Text>
-        <Text style={styles.body}>{gap.detail}</Text>
-        {destination !== null && (
-          <Button
-            title={DESTINATION_LABELS[destination]}
-            accessibilityLabel={DESTINATION_LABELS[destination]}
-            secondary
-            onPress={() => onNavigate(destination)}
-          />
-        )}
-        {destination === null && gap.kind === 'current_condition' && onReviewCheckIn !== null && (
-          <Button
-            title={REVIEW_CHECK_IN_LABEL}
-            accessibilityLabel={REVIEW_CHECK_IN_LABEL}
-            secondary
-            onPress={onReviewCheckIn}
-          />
-        )}
-      </View>;
-    })}
-  </View>;
+/** The check-in, as the service expects it: zones only when they were named. */
+function currentConditionOf(draft: CheckInDraft): Record<string, unknown> {
+  return {
+    observedAt: draft.observedAt,
+    concerns: [...draft.concerns],
+    goal: draft.goal,
+    availableMinutes: draft.availableMinutes,
+    ...(draft.zones.length > 0 ? { zones: draft.zones.map(zone => ({ ...zone })) } : {}),
+    ...(draft.zoneConcerns.length > 0
+      ? {
+          zoneConcerns: draft.zoneConcerns.map(entry => ({
+            zone: { ...entry.zone },
+            concerns: [...entry.concerns],
+          })),
+        }
+      : {}),
+  };
 }
 
 function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
@@ -177,10 +163,39 @@ function DecisionView({ decision }: { readonly decision: ProtocolDecision }) {
   </View>;
 }
 
+/**
+ * Today's guidance preflight state machine.
+ *
+ * States: `idle → checking_in → ready_to_generate → generating → result`,
+ * with owner and request epochs. The check-in is a temporary cosmetic
+ * self-report for one request only — never a diagnosis, never a Passport
+ * write, never invented advice.
+ *
+ * Five rules this component exists to enforce:
+ *
+ * 1. Nothing generates on mount or on owner change. Guidance is produced
+ *    only when the owner completes a check-in and asks for a plan. An owner
+ *    change resets the machine to `idle` and discards in-flight responses.
+ * 2. A late response from an older request never overwrites the current
+ *    result. Every generation carries a request epoch; only the newest one
+ *    may apply, and nothing applies after unmount.
+ * 3. Duplicate taps generate once. An in-flight guard plus the reducer's
+ *    `generation_started` gate mean one epoch is one generation.
+ * 4. A generated plan is persisted exactly once. If saving fails, the plan is
+ *    still shown and the failure is stated — it is never regenerated, because
+ *    regenerating would silently change the decision being read.
+ * 5. The check-in survives the trip to a destination. It is kept in an
+ *    owner-scoped session draft, so opening My Hair, My Shelf or My Tools and
+ *    coming back finds the owner's own answers, unchanged. The draft is
+ *    session-only, is never written to the Passport, and is cleared the
+ *    moment the owner changes, signs out or deletes the account.
+ */
 export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   const [preflight, dispatch] = useReducer(preflightReducer, ownerId, initialPreflight);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [retryFailed, setRetryFailed] = useState(false);
+  const [focusSection, setFocusSection] = useState<CheckInSection | null>(null);
   // Fix E: process-death recovery. This read-only restore runs on mount and
   // on every owner change, independently of generating new guidance. It never
   // generates, records, or starts anything: a validated restore only exposes
@@ -190,7 +205,24 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   const ownerToken = useRef(0);
   const inflight = useRef(false);
   const mounted = useRef(true);
+  const attempted = useRef(false);
   const resultRef = useRef<Text | null>(null);
+
+  // An owner change is handled during the render, not in an effect: the
+  // previous owner's answers are cleared before anything is painted, so no
+  // frame of the previous owner's check-in can ever be shown to the next one.
+  const [previousOwner, setPreviousOwner] = useState(ownerId);
+  const [restoredOwner, setRestoredOwner] = useState<string | null>(null);
+  if (previousOwner !== ownerId) {
+    setPreviousOwner(ownerId);
+    clearCheckInDraft(previousOwner);
+    dispatch({ type: 'owner_changed', ownerId });
+  }
+  if (restoredOwner !== ownerId) {
+    setRestoredOwner(ownerId);
+    const draft = loadCheckInDraft(ownerId);
+    if (draft !== null) dispatch({ type: 'restore_check_in', draft });
+  }
 
   useEffect(() => {
     mounted.current = true;
@@ -213,6 +245,16 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     inflight.current = false;
   }, [ownerId]);
 
+  // The check-in is kept in an owner-scoped session draft so it survives a
+  // trip to another screen. It is session-only and never leaves the device.
+  useEffect(() => {
+    if (preflight.phase === 'idle') {
+      clearCheckInDraft(ownerId);
+      return;
+    }
+    saveCheckInDraft(ownerId, preflight.checkIn);
+  }, [ownerId, preflight.phase, preflight.checkIn]);
+
   useEffect(() => {
     if (preflight.phase === 'result') resultRef.current?.focus?.();
   }, [preflight.phase]);
@@ -227,12 +269,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     let currentCondition: CurrentConditionInput;
     try {
       currentCondition = normalizeCurrentCondition(
-        {
-          observedAt: preflight.checkIn.observedAt,
-          concerns: [...preflight.checkIn.concerns],
-          goal: preflight.checkIn.goal,
-          availableMinutes: preflight.checkIn.availableMinutes,
-        },
+        currentConditionOf(preflight.checkIn),
         new Date(asOf),
       );
     } catch {
@@ -248,6 +285,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     const live = () => mounted.current && owner === ownerToken.current && current === requestEpoch.current;
     dispatch({ type: 'generation_started', requestEpoch: current });
     setSaveFailed(false);
+    setRetryFailed(false);
     try {
       const result = await generateTodayGuidance({
         ownerId,
@@ -288,6 +326,8 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         }
         return;
       }
+      if (result.status === 'source_error' && attempted.current) setRetryFailed(true);
+      attempted.current = true;
     } catch {
       if (!live()) return;
       dispatch({
@@ -295,6 +335,8 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         requestEpoch: current,
         result: { status: 'source_error', detail: 'Your records could not be read completely.' },
       });
+      if (attempted.current) setRetryFailed(true);
+      attempted.current = true;
     } finally {
       inflight.current = false;
     }
@@ -325,6 +367,67 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
 
   const busy = preflight.phase === 'generating' || saving;
   const result = preflight.result;
+  /**
+   * A retry keeps the resolver on screen: the owner sees the same gap, the
+   * retry button is disabled while the read runs, and a failed retry leaves
+   * their focus where it was.
+   */
+  const isRetry = preflight.phase === 'generating' && result !== null;
+
+  /**
+   * The resolver list. A failed read becomes one item per source, a
+   * contradicted or missing answer becomes one item per gap, and content
+   * that is not published becomes one item that asks nothing of the owner.
+   */
+  const items: readonly GuidanceResolverItem[] = useMemo(() => {
+    if (result === null) return [];
+    if (result.status === 'needs_setup') {
+      return resolverItems({
+        gaps: [...result.missing, ...(result.setup ?? [])],
+        failedSources: [],
+        contentPending: false,
+      });
+    }
+    if (result.status === 'source_error') {
+      return resolverItems({
+        gaps: [],
+        failedSources: result.incompleteSources ?? [],
+        contentPending: false,
+        sourceReadFailed: true,
+      });
+    }
+    if (result.status === 'content_pending') {
+      return resolverItems({ gaps: [], failedSources: [], contentPending: true });
+    }
+    return resolverItems({
+      gaps: [...(result.setup ?? [])],
+      failedSources: [],
+      contentPending: false,
+    });
+  }, [result]);
+
+  const handleNavigate = useCallback((route: GuidanceRoute) => {
+    onNavigate(route);
+  }, [onNavigate]);
+
+  const handleReviewCheckIn = useCallback((subject: string | null) => {
+    setFocusSection(sectionFor(subject));
+    dispatch({ type: 'back_to_check_in' });
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    void run();
+  }, [run]);
+
+  /** The gap the owner was resolving, so focus can go back to it. */
+  const focusKey = useMemo(() => {
+    const stored = loadResolverFocus(ownerId);
+    return stored !== null && items.some(item => item.key === stored) ? stored : null;
+  }, [items, ownerId]);
+
+  const rememberFocus = useCallback((key: string | null) => {
+    saveResolverFocus(ownerId, key);
+  }, [ownerId]);
 
   return <View style={{ gap: 16 }}>
     <Text style={styles.kicker}>TODAY · {GOAL_LABEL.toUpperCase()}</Text>
@@ -398,6 +501,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         errors={preflight.errors}
         nowIso={nowIso}
         dispatch={dispatch}
+        focusSection={focusSection}
       />
     )}
 
@@ -417,7 +521,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
       />
     </>}
 
-    {preflight.phase === 'generating' && <>
+    {preflight.phase === 'generating' && !isRetry && <>
       <Text style={styles.body}>{LOADING_LABEL}</Text>
       <Button
         title={GENERATING_LABEL}
@@ -427,13 +531,15 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
       />
     </>}
 
+    {isRetry && <Text style={styles.body}>{LOADING_LABEL}</Text>}
+
     {saveFailed && (
       <View style={styles.notice}>
         <Text accessibilityRole="alert" style={styles.error}>{SAVE_FAILED}</Text>
       </View>
     )}
 
-    {result !== null && preflight.phase === 'result' && (
+    {result !== null && (preflight.phase === 'result' || isRetry) && (
       <>
         <Text
           ref={resultRef}
@@ -445,26 +551,21 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         </Text>
         <CheckInSummary draft={preflight.checkIn} />
 
-        {result.status === 'content_pending' && (
-          <Text style={styles.body}>{CONTENT_PENDING_BODY}</Text>
-        )}
-
-        {result.status === 'needs_setup' && (
-          <GapList
-            gaps={result.missing}
-            onNavigate={onNavigate}
-            onReviewCheckIn={() => dispatch({ type: 'back_to_check_in' })}
-          />
-        )}
-
         {result.status === 'source_error' && (
-          <View style={styles.notice}>
-            <Text accessibilityRole="alert" style={styles.error}>{result.detail}</Text>
-            {sourceErrorAreas(result.incompleteSources) !== null && (
-              <Text style={styles.body}>{sourceErrorAreas(result.incompleteSources)}</Text>
-            )}
-            <Button title={RETRY_LABEL} accessibilityLabel={RETRY_LABEL} secondary onPress={() => void run()} />
-          </View>
+          <Text style={styles.body}>{result.detail}</Text>
+        )}
+
+        {items.length > 0 && (
+          <GuidanceGapResolver
+            items={items}
+            heading={result.status === 'needs_setup' ? RESOLVER_HEADING : RESOLVER_SETUP_HEADING}
+            onNavigate={(route, key) => { rememberFocus(key); handleNavigate(route); }}
+            onRetry={handleRetry}
+            onReviewCheckIn={handleReviewCheckIn}
+            retrying={isRetry}
+            retryError={retryFailed && result.status === 'source_error' ? RETRY_FAILED_MESSAGE : null}
+            focusKey={focusKey}
+          />
         )}
 
         {result.status === 'ready' && <>

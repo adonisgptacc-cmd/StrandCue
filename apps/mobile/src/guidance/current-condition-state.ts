@@ -1,7 +1,10 @@
 import {
   CurrentConditionConcernSchema,
+  ServiceRegionSchema,
+  ServiceSegmentSchema,
   type CurrentConditionConcern,
-} from '../../../../packages/domain/src/current-condition.ts';
+  type CurrentConditionZone,
+} from '../../../../packages/domain/src/index';
 import type { TodayGuidanceResult } from './today-guidance-service.ts';
 
 /**
@@ -35,13 +38,44 @@ export type PreflightPhase =
  */
 export const CHECK_IN_CONCERNS: readonly CurrentConditionConcern[] = CurrentConditionConcernSchema.options;
 
+/**
+ * The service-zone taxonomy, reused as it is. A check-in names where on the
+ * head a concern was noticed, and the reviewed content already speaks in
+ * these regions and segments; a second taxonomy would make the two
+ * untranslatable.
+ */
+export const ZONE_REGIONS = ServiceRegionSchema.options;
+export const ZONE_SEGMENTS = ServiceSegmentSchema.options;
+
 export type CheckInGoal = 'basic_wash';
+
+/** One zone and the concerns the owner noticed in it. */
+export interface CheckInZoneDraft {
+  readonly zone: CurrentConditionZone;
+  readonly concerns: readonly CurrentConditionConcern[];
+}
 
 export interface CheckInDraft {
   readonly concerns: readonly CurrentConditionConcern[];
   readonly goal: CheckInGoal;
   readonly availableMinutes: number | null;
   readonly observedAt: string | null;
+  /** The zones the owner named, in canonical order. Optional detail. */
+  readonly zones: readonly CurrentConditionZone[];
+  /** Which reported concern sits in which reported zone. */
+  readonly zoneConcerns: readonly CheckInZoneDraft[];
+}
+
+/** The identity of a zone, and the order the taxonomy sorts in. */
+export function zoneKey(zone: CurrentConditionZone): string {
+  return `${zone.region}:${zone.segment}`;
+}
+
+/** Zones in canonical order, so tap order never changes the answer. */
+export function sortZones(zones: readonly CurrentConditionZone[]): CurrentConditionZone[] {
+  return [...zones].sort((left, right) =>
+    zoneKey(left) < zoneKey(right) ? -1 : zoneKey(left) > zoneKey(right) ? 1 : 0,
+  );
 }
 
 export type CheckInErrorCode =
@@ -51,7 +85,8 @@ export type CheckInErrorCode =
   | 'time_range'
   | 'observed_at_required'
   | 'observed_at_invalid'
-  | 'observed_at_future';
+  | 'observed_at_future'
+  | 'zone_concerns_required';
 
 export interface PreflightState {
   readonly phase: PreflightPhase;
@@ -66,6 +101,8 @@ export interface PreflightState {
 export type PreflightAction =
   | { readonly type: 'begin_check_in'; readonly observedAt: string }
   | { readonly type: 'toggle_concern'; readonly concern: CurrentConditionConcern }
+  | { readonly type: 'toggle_zone'; readonly region: CurrentConditionZone['region']; readonly segment: CurrentConditionZone['segment'] }
+  | { readonly type: 'toggle_zone_concern'; readonly zone: CurrentConditionZone; readonly concern: CurrentConditionConcern }
   | { readonly type: 'set_goal'; readonly goal: CheckInGoal }
   | { readonly type: 'set_available_minutes'; readonly minutes: number | null }
   | { readonly type: 'refresh_observed_at'; readonly observedAt: string }
@@ -73,6 +110,7 @@ export type PreflightAction =
   | { readonly type: 'back_to_check_in' }
   | { readonly type: 'reset' }
   | { readonly type: 'owner_changed'; readonly ownerId: string }
+  | { readonly type: 'restore_check_in'; readonly draft: CheckInDraft }
   | { readonly type: 'generation_started'; readonly requestEpoch: number }
   | {
       readonly type: 'generation_finished';
@@ -85,7 +123,55 @@ const EMPTY_DRAFT: CheckInDraft = {
   goal: 'basic_wash',
   availableMinutes: null,
   observedAt: null,
+  zones: [],
+  zoneConcerns: [],
 };
+
+/**
+ * The check-in of one owner, kept for as long as that owner is on the
+ * screen. It is a session draft and nothing more: it is never written to the
+ * Hair Passport, never persisted, and it is cleared the moment the owner
+ * changes, signs out or deletes the account, so no previous owner's answers
+ * can be read by the next one.
+ */
+interface OwnerSession {
+  readonly draft: CheckInDraft | null;
+  readonly focusKey: string | null;
+}
+
+const checkInSessions = new Map<string, OwnerSession>();
+
+function session(ownerId: string): OwnerSession {
+  return checkInSessions.get(ownerId) ?? { draft: null, focusKey: null };
+}
+
+export function saveCheckInDraft(ownerId: string, draft: CheckInDraft): void {
+  checkInSessions.set(ownerId, { ...session(ownerId), draft });
+}
+
+export function loadCheckInDraft(ownerId: string): CheckInDraft | null {
+  return session(ownerId).draft;
+}
+
+/**
+ * The gap the owner was resolving. It survives a trip to My Hair or My Shelf
+ * so the resolver can put focus back on the same gap when they come back.
+ */
+export function saveResolverFocus(ownerId: string, focusKey: string | null): void {
+  checkInSessions.set(ownerId, { ...session(ownerId), focusKey });
+}
+
+export function loadResolverFocus(ownerId: string): string | null {
+  return session(ownerId).focusKey;
+}
+
+export function clearCheckInDraft(ownerId: string): void {
+  checkInSessions.delete(ownerId);
+}
+
+export function clearAllCheckInDrafts(): void {
+  checkInSessions.clear();
+}
 
 export function initialPreflight(ownerId: string): PreflightState {
   return {
@@ -116,6 +202,68 @@ function toggleConcern(
 
 function hasExplicitOffset(value: string): boolean {
   return /([+-]\d{2}:?\d{2}|z)$/i.test(value.trim());
+}
+
+/**
+ * Adds or removes a zone. A zone can only be in the list once: adding one
+ * that is already there changes nothing, and removing one also removes the
+ * concerns attached to it, so nothing can point at a zone that is gone.
+ */
+function toggleZone(
+  draft: CheckInDraft,
+  region: CurrentConditionZone['region'],
+  segment: CurrentConditionZone['segment'],
+): CheckInDraft {
+  const zone: CurrentConditionZone = { region, segment };
+  const key = zoneKey(zone);
+  const present = draft.zones.some(entry => zoneKey(entry) === key);
+  const zones = present
+    ? draft.zones.filter(entry => zoneKey(entry) !== key)
+    : sortZones([...draft.zones, zone]);
+  const zoneConcerns = draft.zoneConcerns.filter(entry => zoneKey(entry.zone) !== key);
+  return { ...draft, zones, zoneConcerns };
+}
+
+/**
+ * Attaches or removes a concern on a zone. Only a concern the owner already
+ * reported can be attached, and only to a zone the owner already named.
+ */
+function toggleZoneConcern(
+  draft: CheckInDraft,
+  zone: CurrentConditionZone,
+  concern: CurrentConditionConcern,
+): CheckInDraft {
+  const key = zoneKey(zone);
+  if (!draft.zones.some(entry => zoneKey(entry) === key)) return draft;
+  if (!draft.concerns.includes(concern)) return draft;
+  if (concern === 'none' || concern === 'unknown') return draft;
+  const existing = draft.zoneConcerns.find(entry => zoneKey(entry.zone) === key);
+  if (existing === undefined) {
+    return {
+      ...draft,
+      zoneConcerns: sortZoneConcerns([
+        ...draft.zoneConcerns,
+        { zone, concerns: [concern] },
+      ]),
+    };
+  }
+  const attached = existing.concerns.includes(concern);
+  const concerns = attached
+    ? existing.concerns.filter(entry => entry !== concern)
+    : [...existing.concerns, concern].sort();
+  const zoneConcerns = concerns.length === 0
+    ? draft.zoneConcerns.filter(entry => zoneKey(entry.zone) !== key)
+    : draft.zoneConcerns.map(entry => (zoneKey(entry.zone) === key ? { zone, concerns } : entry));
+  return { ...draft, zoneConcerns: sortZoneConcerns(zoneConcerns) };
+}
+
+/** Zone-attached concerns in canonical order, so tap order never matters. */
+function sortZoneConcerns(
+  entries: readonly CheckInZoneDraft[],
+): readonly CheckInZoneDraft[] {
+  return [...entries].sort((left, right) =>
+    zoneKey(left.zone) < zoneKey(right.zone) ? -1 : zoneKey(left.zone) > zoneKey(right.zone) ? 1 : 0,
+  );
 }
 
 /**
@@ -153,6 +301,15 @@ export function validateCheckIn(draft: CheckInDraft, now: string): CheckInErrorC
       errors.push('observed_at_future');
     }
   }
+  // A zone the owner named but attached nothing to is an unfinished answer:
+  // they said where, and not what. Where no zone is named, the answer is
+  // complete, because zone detail is optional.
+  if (
+    draft.zones.length > 0 &&
+    !draft.zoneConcerns.some(entry => entry.concerns.length > 0)
+  ) {
+    errors.push('zone_concerns_required');
+  }
   return errors;
 }
 
@@ -184,6 +341,10 @@ export function preflightReducer(
         ...state.checkIn,
         concerns: toggleConcern(state.checkIn.concerns, action.concern),
       });
+    case 'toggle_zone':
+      return edit(state, toggleZone(state.checkIn, action.region, action.segment));
+    case 'toggle_zone_concern':
+      return edit(state, toggleZoneConcern(state.checkIn, action.zone, action.concern));
     case 'set_goal':
       return edit(state, { ...state.checkIn, goal: action.goal });
     case 'set_available_minutes':
@@ -210,6 +371,12 @@ export function preflightReducer(
         ...initialPreflight(action.ownerId),
         ownerEpoch: state.ownerEpoch + 1,
       };
+    }
+    case 'restore_check_in': {
+      // A returning owner finds their own answers again. Nothing else is
+      // restored: no result, no error and no decision travel with it.
+      if (state.phase !== 'idle') return state;
+      return { ...state, phase: 'checking_in', checkIn: action.draft, errors: [] };
     }
     case 'generation_started': {
       // The in-flight guard: a second tap while generating (or from any other

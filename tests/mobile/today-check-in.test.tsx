@@ -44,6 +44,8 @@ function emptyDraft(overrides: Partial<CheckInDraft> = {}): CheckInDraft {
     goal: 'basic_wash',
     availableMinutes: null,
     observedAt: null,
+    zones: [],
+    zoneConcerns: [],
     ...overrides,
   };
 }
@@ -115,7 +117,7 @@ describe('today check-in labels and screen-reader behavior', () => {
       .map(node => node.props.accessibilityLabel as string);
     expect(labels).toContain(CHECK_IN_TITLE);
     for (const concern of Object.values(CONCERN_LABELS)) {
-      expect(labels).toContain(`${CONCERNS_LABEL}: ${concern}`);
+      expect(labels).toContain(`${concern}`);
     }
     expect(labels).toContain(TIME_LABEL);
     expect(labels).toContain(REFRESH_TIME_LABEL);
@@ -128,7 +130,7 @@ describe('today check-in labels and screen-reader behavior', () => {
   it('tells a screen-reader user that the two stand-alone answers clear the others, and no other answer says so', async () => {
     const { renderer } = await renderCheckIn();
     const hintOf = (label: string) =>
-      renderer.root.find(node => node.type === 'button' && node.props.accessibilityLabel === `${CONCERNS_LABEL}: ${label}`).props.accessibilityHint;
+      renderer.root.find(node => node.type === 'button' && node.props.accessibilityLabel === `${label}`).props.accessibilityHint;
     expect(hintOf(CONCERN_LABELS.none)).toBe('Clears your other choices');
     expect(hintOf(CONCERN_LABELS.unknown)).toBe('Clears your other choices');
     expect(hintOf(CONCERN_LABELS.dryness)).toBeUndefined();
@@ -140,15 +142,17 @@ describe('today check-in labels and screen-reader behavior', () => {
       draft: emptyDraft({ concerns: ['dryness'] }),
     });
     const dryness = renderer.root.find(
-      node => node.type === 'button' && node.props.accessibilityLabel === `${CONCERNS_LABEL}: Dryness`,
+      node => node.type === 'button' && node.props.accessibilityLabel === 'Dryness',
     );
     expect(dryness.props.accessibilityRole).toBe('checkbox');
     expect(dryness.props.accessibilityState).toMatchObject({ checked: true });
     const frizz = renderer.root.find(
-      node => node.type === 'button' && node.props.accessibilityLabel === `${CONCERNS_LABEL}: Frizz`,
+      node => node.type === 'button' && node.props.accessibilityLabel === 'Frizz',
     );
     expect(frizz.props.accessibilityState).toMatchObject({ checked: false });
-    const goal = renderer.root.find(node => node.props.accessibilityRole === 'radio');
+    const goal = renderer.root.find(
+      node => node.type === 'button' && node.props.accessibilityLabel === 'Basic wash',
+    );
     expect(goal.props.accessibilityState).toMatchObject({ selected: true });
     await act(async () => { renderer.unmount(); });
   });
@@ -178,8 +182,10 @@ describe('today check-in labels and screen-reader behavior', () => {
     // too — it pins the wiring, while the `Record<CheckInGoal, string>` type
     // change is the real recurrence guard. See the fix report.
     const { renderer, dispatch } = await renderCheckIn();
-    const goal = renderer.root.find(node => node.props.accessibilityRole === 'radio');
-    const labelledGoal = (goal.props.accessibilityLabel as string).replace('Goal for this plan: ', '');
+    const goal = renderer.root.find(
+      node => node.type === 'button' && node.props.accessibilityLabel === 'Basic wash',
+    );
+    const labelledGoal = goal.props.accessibilityLabel as string;
     await act(async () => {
       goal.props.onPress();
       await Promise.resolve();
@@ -192,7 +198,7 @@ describe('today check-in labels and screen-reader behavior', () => {
   it('dispatches toggle, time and observation actions without inventing values', async () => {
     const { renderer, dispatch } = await renderCheckIn();
     const dryness = renderer.root.find(
-      node => node.type === 'button' && node.props.accessibilityLabel === `${CONCERNS_LABEL}: Dryness`,
+      node => node.type === 'button' && node.props.accessibilityLabel === 'Dryness',
     );
     await act(async () => {
       dryness.props.onPress();

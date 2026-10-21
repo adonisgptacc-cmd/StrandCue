@@ -20,6 +20,7 @@ const criticalModules = [
   'packages/domain/src/guidance/prepared-input.ts', 'packages/domain/src/guidance/prepare-guidance.ts',
   'packages/domain/src/guidance/schemas.ts', 'packages/domain/src/current-condition.ts',
   'apps/mobile/src/ProtocolExecution.tsx', 'apps/mobile/src/TodayGuidance.tsx',
+  'apps/mobile/src/GuidanceGapResolver.tsx',
   'scripts/lock-agreement.ts', 'scripts/audit-control-plane.ts', 'scripts/audit-cli.ts',
   'scripts/expo-sdk-evidence.ts', 'scripts/local-supabase-test-target.ts',
   'scripts/audit-dependencies-cli.ts', 'scripts/runner-dependency-policy.ts',

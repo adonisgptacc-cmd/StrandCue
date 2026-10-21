@@ -163,13 +163,51 @@ export type GuidanceGapKind =
   | 'current_condition';
 
 /**
- * Why a fact cannot be used. The five states never merge: a fact that was never
+ * Why a fact cannot be used. The six states never merge: a fact that was never
  * answered (`missing`), one the owner said they do not know (`unknown`), one
  * whose source could not be read (`failed_source`), one that contradicts
- * another answer (`contradictory`), and one no reviewed rule covers
- * (`unsupported`).
+ * another answer (`contradictory`), one no reviewed rule covers
+ * (`unsupported`), and one whose reviewed content is not published yet
+ * (`content_pending`).
  */
-export type GuidanceGapState = 'missing' | 'unknown' | 'failed_source' | 'contradictory' | 'unsupported';
+export type GuidanceGapState =
+  | 'missing'
+  | 'unknown'
+  | 'failed_source'
+  | 'contradictory'
+  | 'unsupported'
+  | 'content_pending';
+
+/**
+ * The machine-readable reason inside a gap kind. It never reaches the owner:
+ * it exists so a resolver can route, order and key a gap without reading its
+ * wording. Every value names a situation the owner can act on, and none names
+ * a record, a column or a rule.
+ */
+export type GuidanceGapReason =
+  | 'passport_fact_missing'
+  | 'passport_fact_unknown'
+  | 'service_presence_unknown'
+  | 'service_presence_conflicting'
+  | 'service_effect_unsupported'
+  | 'service_zone_missing'
+  | 'product_no_candidate'
+  | 'product_manual_unmatched'
+  | 'product_capability_unpublished'
+  | 'product_unavailable'
+  | 'product_fact_unconfirmed'
+  | 'tool_not_recorded'
+  | 'tool_unavailable'
+  | 'tool_manual_unmatched'
+  | 'tool_heat_method_unknown'
+  | 'tool_temperature_unknown'
+  | 'check_in_contradictory'
+  | 'check_in_missing'
+  | 'check_in_unknown'
+  | 'check_in_unsupported'
+  | 'check_in_zone_missing'
+  | 'source_failed'
+  | 'content_not_published';
 
 /** Where the owner can resolve a gap, when it can be resolved anywhere. */
 export type GuidanceGapDestination = 'my_hair' | 'my_hair_services' | 'my_shelf' | 'my_tools' | 'today_check_in';
@@ -180,6 +218,18 @@ export interface GuidanceGap {
   readonly subject: string | null;
   readonly state: GuidanceGapState;
   readonly destination: GuidanceGapDestination | null;
+  /**
+   * The machine-readable reason inside the kind. Optional so a gap written
+   * before Task 3.2 still parses; a resolver falls back to the kind when it is
+   * absent.
+   */
+  readonly reason?: GuidanceGapReason | null;
+  /**
+   * An owner-facing name for the subject — the recorded service type and date,
+   * the product name, the fact in plain words. Never an id, never a field
+   * path: it is the only part of a gap that may be shown next to its wording.
+   */
+  readonly subjectLabel?: string | null;
 }
 
 export type GuidanceUnavailableReason =
@@ -305,10 +355,18 @@ export type GuidancePreparation =
       readonly prepared: PreparedGuidanceInput;
       readonly bundleId: string;
       readonly bundleVersion: string;
+      /**
+       * Owner records that would let StrandCue say more, without stopping the
+       * plan. They never block a plan and never change a decision: they are
+       * the owner's own next step, if they want one.
+       */
+      readonly setup?: readonly GuidanceGap[];
     }
   | {
       readonly status: 'needs_setup';
       readonly missing: readonly GuidanceGap[];
+      /** Non-blocking owner setup, alongside the gaps that do block. */
+      readonly setup?: readonly GuidanceGap[];
     }
   | {
       readonly status: 'unavailable';

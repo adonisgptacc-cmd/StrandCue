@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAllCheckInDrafts } from '../../apps/mobile/src/guidance/current-condition-state';
 
 import { TodayCheckIn } from '../../apps/mobile/src/TodayCheckIn';
 import { TodayGuidance } from '../../apps/mobile/src/TodayGuidance';
@@ -8,7 +9,6 @@ import {
   CHECK_IN_BOUNDARY,
   CHECK_IN_CONTINUE_LABEL,
   CHECK_IN_START_LABEL,
-  CONCERNS_LABEL,
   TIME_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 import {
@@ -81,6 +81,8 @@ function checkInDraft(): CheckInDraft {
     // @ts-expect-error RED: the save flag must disappear from the draft shape.
     saveToPassport: false,
     observedAt: null,
+    zones: [],
+    zoneConcerns: [],
   };
 }
 
@@ -101,6 +103,7 @@ beforeAll(() => {
 afterAll(() => { consoleErrorSpy.mockRestore(); });
 
 beforeEach(() => {
+  clearAllCheckInDrafts();
   vi.clearAllMocks();
   mocks.uuidCounter.value = 0;
   mocks.generate.mockResolvedValue({ status: 'content_pending' });
@@ -170,7 +173,7 @@ describe('task 16: no My Hair save promise on the check-in', () => {
       });
     };
     await press(CHECK_IN_START_LABEL);
-    await press(`${CONCERNS_LABEL}: Dryness`);
+    await press('Dryness');
     await act(async () => {
       renderer.root.find(
         node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
