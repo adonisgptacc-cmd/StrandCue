@@ -1,4 +1,4 @@
-# Task 3.4 Cue Check Foundation Implementation Plan
+# Increment 4 Cue Check and Personal Outcomes Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -12,7 +12,7 @@
 
 ## Global constraints
 
-- Start from clean `codex/full-product-integration` at `bedb71c`; verify the SHA before changing code. Use a new isolated branch/worktree named `codex/task-3.4-cue-check-foundation`.
+- Start from the clean `codex/full-product-integration` HEAD containing this plan and verify `bedb71c` is an ancestor. Use a new isolated branch/worktree named `codex/increment-4-cue-check-personal-outcomes`.
 - Use Node 24.19.x. Never run gates under the machine-default Node 25.
 - Use strict RED → GREEN → refactor. Record the genuine failing command and reason before implementation for every task.
 - New and materially changed logic must remain at least 80% statements, branches, functions and lines.
@@ -24,9 +24,9 @@
 - Bind each record to the exact authoritative execution and recommendation run. Refuse missing, foreign, non-terminal or inconsistent links. Never accept owner/run/product identifiers supplied as trusted facts by the client.
 - Corrections append history; voiding appends an audit event. Do not update or delete historical Cue Check facts in place.
 - Include Cue Checks and their history in owner export and deletion. Do not add them to catalogue evidence, reviewed-content publication, or another owner’s reads.
-- Do not implement personal ranking, eligibility changes, automatic learning, rule rewriting or controlled experiments in Task 3.4. CC-06–CC-08 remain deferred.
+- Do not implement personal ranking, eligibility changes, automatic learning, rule rewriting or controlled experiments in Increment 4. CC-06–CC-08 remain deferred.
 - Production guidance stays draft. Do not publish Banana content or invent products, capabilities, rules, evidence or reviewers.
-- No push, merge, deploy, hosted migration, hosted setting change, photo/OCR/weather/reminder work, or Task 3.5.
+- No push, merge, deploy, hosted migration, hosted setting change, photo/OCR/weather/reminder work, or Increment 5.
 
 ## Review focus
 
@@ -38,7 +38,7 @@
 
 ---
 
-### Task 1: define Cue Check contracts and non-causal summaries
+### Task 4.1: define Cue Check contracts and non-causal summaries
 
 **Files:**
 - Create: `packages/domain/src/cue-check.ts`
@@ -61,7 +61,7 @@
 - [ ] Implement summaries that expose numerator, denominator, context and uncertainty; require an explicit minimum comparable sample before any pattern wording; never use caused, fixed, repaired, proved, best, safe or works.
 - [ ] Run focused tests, typecheck and coverage; commit `feat: define private Cue Checks and honest summaries`.
 
-### Task 2: add owner-only append-only Cue Check persistence
+### Task 4.2: add owner-only append-only Cue Check persistence
 
 **Files:**
 - Create: `supabase/migrations/<timestamp>_cue_checks.sql`
@@ -82,7 +82,7 @@
 - [ ] Verify the full migration set applies from zero and reruns fail safely where expected.
 - [ ] Run database suites and coverage; commit `feat: persist owner-only Cue Checks`.
 
-### Task 3: add the mobile Cue Check API and state machine
+### Task 4.3: add the mobile Cue Check API and state machine
 
 **Files:**
 - Create: `apps/mobile/src/journey/cue-check-api.ts`
@@ -99,7 +99,7 @@
 - [ ] Implement fail-closed adapters and immutable reducer transitions. Do not log payloads, free text, URLs, tokens, emails, UUIDs or database responses.
 - [ ] Run focused tests, typecheck, lint and coverage; commit `feat: add Cue Check client boundary`.
 
-### Task 4: implement accessible Cue Check and Journey history surfaces
+### Task 4.4: implement accessible Cue Check and Journey history surfaces
 
 **Files:**
 - Create: `apps/mobile/src/journey/CueCheck.tsx`
@@ -121,12 +121,12 @@
 - [ ] Implement the smallest accessible surfaces with neutral cosmetic wording and no score, percentage fit, streak, diagnosis or outcome promise.
 - [ ] Run mobile, integration, accessibility and owner-switch suites; commit `feat: add Cue Check and personal history`.
 
-### Task 5: integrate, review and stop
+### Increment 4 integration, review and stop
 
 **Files:**
 - Modify: `docs/product/full-product-capability-matrix.md`
 - Modify: `docs/product/requirement-traceability.md`
-- Create: `.superpowers/sdd/2026-10-21-task-3.4-cue-check-foundation/task-3.4-report.md`
+- Create: `.superpowers/sdd/2026-10-21-increment-4-cue-check-personal-outcomes/increment-4-report.md`
 
 - [ ] Run an end-to-end component journey with test-only fixtures: terminal execution → immediate Cue Check → delayed Cue Check → correction → Journey summary → void. Prove production draft guidance still returns `content_pending`.
 - [ ] Run fresh independent code-correctness, database/security/privacy and accessibility/plain-language reviews. Fix and re-review every Critical, High and Medium finding.
@@ -134,8 +134,8 @@
 - [ ] Record exact results. Treat dependency drift, hosted owner isolation, real two-session PostgreSQL concurrency and device evidence as HOLD/NOT RUN unless actually proved; never relabel them PASS.
 - [ ] Update CC-01–CC-05 only where named tests prove behavior. Leave CC-06–CC-08 Not started or Partial as the evidence supports.
 - [ ] Confirm a clean tree and provide a handoff listing commits, migrations, RED/GREEN evidence, coverage, review findings, residuals and all hosted/manual HOLDs.
-- [ ] Stop. Do not begin Task 3.5.
+- [ ] Stop. Do not begin Increment 5.
 
 ## Ready-to-copy OpenCode prompt
 
-Continue StrandCue Task 3.4 from the clean `codex/full-product-integration` HEAD `bedb71c`. Read and follow `docs/superpowers/plans/2026-10-21-task-3.4-cue-check-foundation.md`, `docs/superpowers/specs/2026-10-10-canonical-product-spec.md` (especially CC-01–CC-08), `docs/superpowers/specs/2026-10-10-product-recovery-audit.md`, the Task 3.3 plan/report, and the current requirement traceability and capability matrix before changing code. Create an isolated branch/worktree `codex/task-3.4-cue-check-foundation`. Use Node 24.19.x and strict RED → GREEN → refactor with genuine failing evidence for each task. Implement immutable Cue Check contracts, honest non-causal summaries, owner-only append-only persistence with idempotent create/correct/void/list operations bound to the exact authoritative terminal execution and recommendation run, schema-validated mobile APIs/state, and accessible immediate/later Cue Check plus Journey history UI. Keep planned steps, confirmed actual actions and owner observations separate. Most answers must be optional and unknown-aware. Corrections and voids append history. Include the records in owner export and deletion, while proving they never alter catalogue evidence, reviewed content, eligibility or recommendation rules. Do not implement ranking, automatic learning, rule rewriting or controlled experiments; CC-06–CC-08 remain deferred. Production guidance remains draft; do not publish Banana content or invent products, capabilities, rules, evidence or reviewers. Run independent correctness, database/security/privacy and accessibility/plain-language reviews, fix and re-review every Critical/High/Medium finding, then run the complete gate list and report exact evidence. Treat dependency drift, hosted isolation, real PostgreSQL concurrency and device work as HOLD/NOT RUN unless actually proved. Do not push, merge, deploy, apply hosted migrations, change hosted services, start photos/OCR/weather/reminders, or begin Task 3.5. Stop after the clean Task 3.4 handoff.
+Start StrandCue Increment 4, but execute **Task 4.1 only**. Begin from the current clean `codex/full-product-integration` HEAD that contains this plan and verify `bedb71c` is an ancestor. Read `docs/superpowers/plans/2026-10-21-increment-4-cue-check-personal-outcomes.md`, `docs/superpowers/specs/2026-10-10-canonical-product-spec.md` (especially CC-01–CC-08), `docs/superpowers/specs/2026-10-10-product-recovery-audit.md`, the Task 3.3 plan/report, and the current requirement traceability and capability matrix before changing code. Create an isolated branch/worktree `codex/increment-4-cue-check-personal-outcomes`. Use Node 24.19.x and strict RED → GREEN → refactor with genuine failing evidence. Implement only the immutable Cue Check domain contracts and deterministic non-causal personal summary functions described in Task 4.1: optional and unknown-aware immediate/delayed observations; exact outcome vocabulary; bounded uninterpreted notes; correction/void lifecycle types; canonical immutable values; comparable-use counts, context and uncertainty; and an explicit minimum sample before any pattern wording. Never say or imply that a product caused, fixed, repaired, grew, proved, guaranteed or universally safely produced an outcome. Add the new domain exports and focused tests. Ensure new logic has at least 80% statements, branches, functions and lines. Run the focused suites, domain typecheck, full typecheck, lint and `git diff --check`. Run fresh code-correctness, privacy/safety-language and schema-boundary reviews; fix and re-review every Critical, High and Medium finding. Commit the Task 4.1 deliverable and provide a clean handoff with the branch/worktree/HEAD, changed files, genuine RED/GREEN evidence, exact test and coverage results, review findings and remaining limitations. Do not create a migration, API, state machine or UI; do not change export/deletion; do not publish Banana content or invent products, capabilities, rules, evidence or reviewers; do not push, merge, deploy or alter hosted services. Stop before Task 4.2.
