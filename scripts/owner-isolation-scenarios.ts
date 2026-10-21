@@ -126,6 +126,14 @@ delete from public.products where id in ('${FX.productShampoo}', '${FX.productMa
 delete from public.brands where id = '${FX.brand}';
 `;
 
+// Idempotent: a fixture left by an interrupted earlier run is reused, never duplicated.
+const IDEMPOTENT_SEED_SQL = SEED_SQL.replaceAll(');\n', ') on conflict do nothing;\n');
+
+/** Inserts the synthetic catalogue rows (draft content only; nothing is published). */
+export async function seedOwnerIsolationFixtures(probe: PrivilegedProbe): Promise<void> {
+  await probe.exec(IDEMPOTENT_SEED_SQL);
+}
+
 /** Removes the synthetic catalogue rows. Owner accounts must be removed first: their matched rows reference these versions. */
 export async function cleanupOwnerIsolationFixtures(probe: PrivilegedProbe): Promise<void> {
   await probe.exec(CLEANUP_SQL);
@@ -805,8 +813,7 @@ export async function runOwnerIsolationScenarios(input: ScenarioInput): Promise<
       for (const [who, name] of [['a', `sc_t5_a_${suffix}`], ['b', `sc_t5_b_${suffix}`]] as const) {
         ok(await call$(context, who, 'complete_account', { p_username: name, p_eligible: true }), `complete_account (${who})`, z.unknown());
       }
-      // Idempotent: a fixture left by an interrupted earlier run is reused, never duplicated.
-      if (probe) { await probe.exec(SEED_SQL.replaceAll(');\n', ') on conflict do nothing;\n')); seeded = true; }
+      if (probe) { await seedOwnerIsolationFixtures(probe); seeded = true; }
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : 'setup failed';
