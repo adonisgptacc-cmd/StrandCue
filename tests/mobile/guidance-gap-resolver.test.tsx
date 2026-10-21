@@ -635,6 +635,36 @@ describe('check-in preservation', () => {
     expect(button(renderer, 'Dryness').props.accessibilityState).toMatchObject({ checked: true });
     await act(async () => { renderer.unmount(); });
   });
+
+  it('brings the owner to the observation time when that is what failed', async () => {
+    // A check-in time in the future is the observation time's own problem, so
+    // the resolver sends the owner to that part of the form and nowhere else.
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [
+        {
+          kind: 'current_condition',
+          detail: 'The check-in time is in the future. Set it to now or earlier in today\'s check-in.',
+          subject: 'current.observedAt',
+          state: 'contradictory',
+          destination: 'today_check_in',
+          reason: 'check_in_contradictory',
+          subjectLabel: null,
+        },
+      ],
+    });
+    const renderer = await render();
+    await completeCheckIn(renderer, ['Dryness'], '20');
+    await press(renderer, 'Generate my plan');
+    mocks.accessibilityFocus.length = 0;
+    await press(renderer, 'Review check-in answers');
+    const focused = renderer.root.findAll(
+      node => node.type === 'span' && node.props.accessibilityLabel === 'Observation time',
+    );
+    expect(focused.length).toBe(1);
+    expect(mocks.accessibilityFocus.length).toBeGreaterThan(0);
+    await act(async () => { renderer.unmount(); });
+  });
 });
 
 describe('retrying a failed read', () => {

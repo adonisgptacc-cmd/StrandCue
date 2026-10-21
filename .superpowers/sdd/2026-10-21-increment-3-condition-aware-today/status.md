@@ -40,7 +40,7 @@ Date: 21 October 2026.
 npm run check:runtime        -> NODE-RUNTIME-PASS v24.19.0
 npm run typecheck            -> 0 errors
 npm run lint                 -> 0 errors, 0 warnings
-npm run test:coverage        -> 3382 passed, 18 skipped; per-file floors met
+npm run test:coverage        -> 3388 passed, 18 skipped; per-file floors met
 npm run export:web           -> export succeeded
 npm run audit:control-plane  -> pass
 npm run audit:dependencies   -> HOLD (4 findings, unchanged from the baseline)

@@ -94,17 +94,20 @@ Test Files  1 failed (1)
 ```
 Focused Task 3.2 suites
   tests/mobile/guidance-gap-state.test.ts        30 passed
-  tests/mobile/guidance-gap-resolver.test.tsx    40 passed
-  tests/mobile/current-condition-state.test.ts   51 passed
+  tests/mobile/guidance-gap-resolver.test.tsx    41 passed
+  tests/mobile/current-condition-state.test.ts   52 passed
   tests/mobile/today-check-in.test.tsx           12 passed
   tests/mobile/today-guidance.test.tsx           34 passed
   tests/mobile/today-guidance-service.test.ts    28 passed
-  tests/domain/guidance/prepare-guidance.test.ts 99 passed
+  tests/mobile/guidance-snapshot.test.ts         12 passed
+  tests/domain/guidance/prepare-guidance.test.ts 100 passed
   tests/domain/guidance/schemas.test.ts          12 passed
   tests/domain/current-condition.test.ts         15 passed
+
+  10 files, 438 passed
 ```
 
-Full suite: **3382 passed, 18 skipped, 0 failed** (174 files).
+Full suite: **3388 passed, 18 skipped, 0 failed** (174 files).
 
 ## 4. Full gate results
 
@@ -121,8 +124,52 @@ Full suite: **3382 passed, 18 skipped, 0 failed** (174 files).
 | changed-file secret scan | 0 findings |
 | `git status --short` | clean at the stop point |
 
-## 5. Changed-file coverage
+## 4b. The required behaviours, and the test that proves each
 
+| # | Required behaviour | Test |
+|---|---|---|
+| 1 | A missing Passport fact routes to My Hair | `guidance-gap-state` › "routes a missing Passport fact to My Hair" |
+| 2 | A required Passport fact recorded as `unknown` routes to My Hair | `guidance-gap-state` › "routes a required Passport fact recorded as unknown to My Hair"; `prepare-guidance` › "treats a required Passport fact recorded as unknown as an honest gap" |
+| 3 | A chemical presence gap routes to Services | `guidance-gap-state` › "routes a chemical-service gap to Services without an arrow" |
+| 4 | Two similar service gaps: distinct keys, understandable labels | `guidance-gap-state` › "gives two similar service gaps distinct keys and distinct labels"; `prepare-guidance` › "tells two services with the same presence state apart, and shows no id" |
+| 5 | Missing product setup routes to My Shelf | `guidance-gap-state` › "routes a missing product setup to My Shelf and offers a matching action" |
+| 6 | An unmatched manual product does not satisfy an exact prerequisite | `prepare-guidance` › "never lets an unmatched manual product satisfy an exact prerequisite" |
+| 7 | Missing tool setup routes to My Tools | `guidance-gap-state` › "routes a missing tool setup to My Tools and names the missing fact" |
+| 8 | Unknown temperature is not inferred from wattage | `prepare-guidance` › "never reads a temperature from a wattage, and asks for the exact one" |
+| 9 | Contradictory concerns route back to Today | `guidance-gap-state` › "routes a contradictory check-in back to the check-in"; `guidance-gap-resolver` › "keeps the check-in when the owner returns to Today from a check-in gap" |
+| 10 | "None" clears concrete concerns | `guidance-gap-resolver` › "clears concrete concerns when the owner answers none"; `current-condition-state` › "removes a concern from every area it was attached to when it is un-ticked" |
+| 11 | "Not sure" clears concrete concerns | `guidance-gap-resolver` › "clears concrete concerns when the owner answers not sure" |
+| 12 | A concrete concern clears "none" and "not sure" | `guidance-gap-resolver` › "clears none and not sure when the owner picks a concrete concern" |
+| 13 | A future observation time routes to the right Today section | `prepare-guidance` › "names the observation time when the check-in time is in the future"; `guidance-gap-resolver` › "brings the owner to the observation time when that is what failed" |
+| 14 | A failed Passport read produces a Passport retry item | `guidance-gap-state` › "names the area of every failed read and offers one retry" |
+| 15 | Failed Shelf, Tool, activity and service reads name the right area | `guidance-gap-state` › "names the correct area for a Shelf, a Tool, an activity and a service read" |
+| 16 | Retry preserves the check-in | `guidance-gap-resolver` › "keeps the check-in and reloads through the same trusted path" |
+| 17 | Repeated retry taps cannot create concurrent loads | `guidance-gap-resolver` › "never runs two loads at once when the retry is tapped twice" |
+| 18 | A failed retry restores focus and announces once | `guidance-gap-resolver` › "keeps focus and announces once when the retry fails again" |
+| 19 | A successful retry removes the resolved source gap | `guidance-gap-resolver` › "removes the resolved source gap when the retry succeeds" |
+| 20 | Draft content displays content pending | `guidance-gap-resolver` › "shows the content-pending state and offers the owner nothing to change" |
+| 21 | Content pending does not blame the owner or route them to edit personal data | `guidance-gap-state` › "asks nothing of the owner and offers no way to change their records", "never routes a content gap to a records destination" |
+| 22 | No resolver action changes production content status | `guidance-gap-resolver` › "never changes the production content status" |
+| 23 | Navigation away and back preserves the complete check-in | `guidance-gap-resolver` › "keeps the check-in when the owner opens a destination and comes back" |
+| 24 | A failed destination save preserves the check-in | `guidance-gap-resolver` › "keeps the check-in when a destination save fails" |
+| 25 | An owner switch clears the previous owner's state before paint | `guidance-gap-resolver` › "clears the previous owner state before anything is painted"; `current-condition-state` › "forgets the previous owner when another owner is served" |
+| 26 | Sign-out clears the resolver and check-in state | `current-condition-state` › "keeps a draft for its owner and clears it on request"; `guidance-gap-resolver` › "clears every owner session when the owner signs out" |
+| 27 | Zone selection uses the existing taxonomy | `guidance-gap-resolver` › "uses the existing service-zone taxonomy and plain owner-facing labels" |
+| 28 | Duplicate zones cannot be added | `guidance-gap-resolver` › "exposes the selected state of a zone and never adds the same zone twice" |
+| 29 | Zone ordering is deterministic | `current-condition-state` › "orders areas by the taxonomy the owner picks them in" |
+| 30 | Zone-attached concerns survive navigation away and back | `guidance-gap-resolver` › "keeps zone-attached concerns when the owner goes away and comes back" |
+| 31 | Accessibility labels do not repeat the section heading | `guidance-gap-resolver` › "does not repeat the section heading in every concern label" |
+| 32 | The Services destination is spoken without the arrow glyph | `guidance-gap-resolver` › "speaks the Services destination without an arrow glyph" |
+| 33 | Gap keys cannot collide for same-field issues | `guidance-gap-state` › "never collides the keys of two issues about the same field", "never uses the same key twice, even for two identical gaps" |
+| 34 | Gap ordering is deterministic | `guidance-gap-state` › "produces the same order whatever order the gaps arrived in" |
+| 35 | Raw UUIDs, internal paths and database wording never render | `guidance-gap-resolver` › "never renders a raw id, an internal field path or database wording"; `prepare-guidance` › "keeps every gap free of record ids, field paths and database wording" |
+| 36 | Resolving gaps creates no activity or protocol event | `guidance-gap-resolver` › "creates no activity and no protocol event while a gap is resolved" |
+| 37 | No Hair Passport write from the temporary check-in | `guidance-gap-resolver` › "never writes the temporary check-in to the Hair Passport" |
+| 38 | No Shelf or Tool write merely by viewing a gap | `guidance-gap-resolver` › "writes nothing to the Shelf or the Tools merely by showing a gap" |
+| 39 | The Task 3.1 preparation tests stay green | `tests/domain/guidance/prepare-guidance.test.ts` (100 passed, unchanged Task 3.1 cases) |
+| 40 | The `content_pending`, owner-switch and no-save tests stay green | `today-guidance.test.tsx`, `today-restore*.test.tsx`, `check-in-no-save-promise.test.tsx` |
+
+## 5. Changed-file coverage
 | File | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
 | `apps/mobile/src/GuidanceGapResolver.tsx` | 95.34 | 97.43 | 90.00 | 97.36 |

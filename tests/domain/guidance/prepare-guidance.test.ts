@@ -1672,6 +1672,33 @@ describe('task 3.2: targeted setup gaps', () => {
     expect('missing' in result).toBe(false);
   });
 
+  it('names the observation time when the check-in time is in the future', () => {
+    const result = prepareGuidance({
+      snapshot: snapshot(),
+      bundle: validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
+      goalId: 'basic_wash',
+      requestId: 'request-32',
+      asOf: AS_OF,
+      currentCondition: {
+        observedAt: '2026-10-12T08:00:00.000+02:00',
+        concerns: ['dryness'],
+        goal: 'basic_wash',
+        availableMinutes: 25,
+      },
+      now: new Date(NOW),
+    } satisfies PrepareGuidanceInput);
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    // The gap names the field the owner has to change, so the resolver can
+    // take them straight to it.
+    expect(result.missing[0]).toMatchObject({
+      kind: 'current_condition',
+      subject: 'current.observedAt',
+      state: 'contradictory',
+      destination: 'today_check_in',
+    });
+  });
+
   it('keeps every gap free of record ids, field paths and database wording', () => {
     const result = prepare(snapshot({
       passportFacts: {},
