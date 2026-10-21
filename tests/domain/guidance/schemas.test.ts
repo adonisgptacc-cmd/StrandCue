@@ -550,11 +550,39 @@ function recommendationContext(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function preparedInput(overrides: Record<string, unknown> = {}) {
+  return {
+    schemaVersion: 1,
+    goal: { id: 'basic_wash', label: 'Basic wash' },
+    availableMinutes: null,
+    passport: { facts: { pattern: 'curly' } },
+    currentCondition: null,
+    effectiveFacts: [],
+    chemicalServices: [],
+    heatHistory: [],
+    activities: [],
+    products: [],
+    tools: [],
+    completeness: { activities: 'complete', passport: 'complete', products: 'complete', services: 'complete', tools: 'complete' },
+    ...overrides,
+  };
+}
+
+const gap = (overrides: Record<string, unknown> = {}) => ({
+  kind: 'hair_profile',
+  detail: 'pattern is not recorded',
+  subject: 'pattern',
+  state: 'missing',
+  destination: 'my_hair',
+  ...overrides,
+});
+
 describe('guidance preparation contracts', () => {
   it('parses a ready preparation carrying a complete engine context', () => {
     const parsed = GuidancePreparationSchema.parse({
       status: 'ready',
       context: recommendationContext(),
+      prepared: preparedInput(),
       bundleId: 'bundle-a',
       bundleVersion: '1',
     });
@@ -568,27 +596,52 @@ describe('guidance preparation contracts', () => {
       GuidancePreparationSchema.parse({
         status: 'ready',
         context: { requestId: 'request-a' },
+        prepared: preparedInput(),
         bundleId: 'bundle-a',
         bundleVersion: '1',
       }),
     ).toThrow();
   });
 
+  it('rejects a ready preparation without a prepared input, or with one that carries an unlisted field', () => {
+    const ready = { status: 'ready', context: recommendationContext(), bundleId: 'bundle-a', bundleVersion: '1' };
+    expect(() => GuidancePreparationSchema.parse(ready)).toThrow();
+    expect(() => GuidancePreparationSchema.parse({ ...ready, prepared: preparedInput({ reviewedBy: 'someone' }) })).toThrow();
+    expect(() => GuidancePreparationSchema.parse({ ...ready, prepared: preparedInput({ schemaVersion: 2 }) })).toThrow();
+  });
+
+  it('freezes the prepared input it parses', () => {
+    const parsed = GuidancePreparationSchema.parse({
+      status: 'ready', context: recommendationContext(), prepared: preparedInput(), bundleId: 'bundle-a', bundleVersion: '1',
+    });
+    expect(parsed.status === 'ready' && Object.isFrozen(parsed.prepared.passport.facts)).toBe(true);
+  });
+
   it('parses a needs-setup preparation with gaps', () => {
     const parsed = GuidancePreparationSchema.parse({
       status: 'needs_setup',
       missing: [
-        { kind: 'hair_profile', detail: 'pattern is not recorded', subject: 'pattern' },
-        { kind: 'service_presence', detail: 'presence unknown', subject: 'service-a' },
+        gap(),
+        gap({ kind: 'service_presence', detail: 'presence unknown', subject: 'service-a', state: 'unknown', destination: 'my_hair_services' }),
       ],
     });
     expect(parsed.status === 'needs_setup' && parsed.missing.length).toBe(2);
   });
 
-  it('rejects a gap outside the closed enum', () => {
-    expect(() =>
-      GuidanceGapSchema.parse({ kind: 'marketing', detail: 'x', subject: null }),
-    ).toThrow();
+  it('rejects a gap outside the closed enum, or without a state', () => {
+    expect(() => GuidanceGapSchema.parse(gap({ kind: 'marketing' }))).toThrow();
+    expect(() => GuidanceGapSchema.parse(gap({ state: 'diagnosed' }))).toThrow();
+    expect(() => GuidanceGapSchema.parse(gap({ destination: 'https://example.invalid' }))).toThrow();
+    const { state: _state, ...withoutState } = gap();
+    expect(() => GuidanceGapSchema.parse(withoutState)).toThrow();
+    expect(GuidanceGapSchema.parse(gap({ destination: null })).destination).toBeNull();
+  });
+
+  it('names the incomplete sources on an unavailable preparation, and nothing else', () => {
+    const base = { status: 'unavailable', reason: 'snapshot_incomplete' };
+    expect(GuidancePreparationSchema.parse({ ...base, incompleteSources: [{ source: 'tools', state: 'failed' }] }).status).toBe('unavailable');
+    expect(() => GuidancePreparationSchema.parse({ ...base, incompleteSources: [{ source: 'tools', state: 'complete' }] })).toThrow();
+    expect(() => GuidancePreparationSchema.parse({ ...base, incompleteSources: [{ source: 'tools', state: 'failed', detail: 'x' }] })).toThrow();
   });
 
   it('rejects a preparation status outside the closed union', () => {
@@ -624,6 +677,8 @@ describe('guidance preparation contracts', () => {
           kind: 'current_condition',
           detail: 'The temporary check-in needs attention.',
           subject: 'current.concerns',
+          state: 'unknown',
+          destination: 'today_check_in',
         },
       ],
     });
@@ -632,6 +687,8 @@ describe('guidance preparation contracts', () => {
       kind: 'current_condition',
       detail: 'The temporary check-in needs attention.',
       subject: 'current.concerns',
+      state: 'contradictory',
+      destination: 'today_check_in',
     }).kind).toBe('current_condition');
   });
 });

@@ -10,13 +10,17 @@ import {
   normalizeCurrentCondition,
   type CurrentConditionInput,
 } from '../current-condition.ts';
+import { buildPreparedInput } from './prepared-input.ts';
 import type {
   GuidanceGap,
+  GuidanceGapState,
   GuidanceGoal,
   GuidanceGoalId,
+  GuidanceIncompleteSource,
   GuidancePreparation,
   GuidanceSnapshot,
   GuidanceSourceItem,
+  GuidanceSourceName,
   ReviewedCapabilityEntry,
   ReviewedGuidanceBundle,
 } from './types.ts';
@@ -83,8 +87,19 @@ function compareGaps(left: GuidanceGap, right: GuidanceGap): number {
   return leftSubject < rightSubject ? -1 : 1;
 }
 
-function unavailable(reason: 'snapshot_incomplete' | 'no_supported_goal'): GuidancePreparation {
+function unavailable(reason: 'no_supported_goal'): GuidancePreparation {
   return { status: 'unavailable', reason };
+}
+
+/** Names the sources that could not be used, in a fixed order, and says why for each. */
+function incompleteSources(snapshot: GuidanceSnapshot): GuidanceIncompleteSource[] {
+  const sources = Object.keys(snapshot.completeness) as GuidanceSourceName[];
+  const found: GuidanceIncompleteSource[] = [];
+  for (const source of sources.sort()) {
+    const state = snapshot.completeness[source];
+    if (state !== 'complete') found.push({ source, state });
+  }
+  return found;
 }
 
 function needsSetup(gaps: readonly GuidanceGap[]): GuidancePreparation {
@@ -96,11 +111,6 @@ function needsSetup(gaps: readonly GuidanceGap[]): GuidancePreparation {
     if (!unique.has(key)) unique.set(key, gap);
   }
   return { status: 'needs_setup', missing: [...unique.values()].sort(compareGaps) };
-}
-
-function isIncomplete(snapshot: GuidanceSnapshot): boolean {
-  const sources = Object.keys(snapshot.completeness) as (keyof typeof snapshot.completeness)[];
-  return sources.some(source => snapshot.completeness[source] !== 'complete');
 }
 
 function findEntry(
@@ -209,8 +219,29 @@ function currentConditionFacts(checkIn: CurrentConditionInput): Record<string, F
   return facts;
 }
 
-function currentConditionGap(subject: string, detail: string): GuidanceGap {
-  return { kind: 'current_condition', detail, subject };
+function currentConditionGap(subject: string, detail: string, state: GuidanceGapState): GuidanceGap {
+  return { kind: 'current_condition', detail, subject, state, destination: 'today_check_in' };
+}
+
+/** Reads the value a validation issue points at, so "left out" can be told from "not usable". */
+function valueAt(raw: unknown, path: readonly PropertyKey[]): unknown {
+  let value = raw;
+  for (const key of path) {
+    if (value === null || typeof value !== 'object') return undefined;
+    value = (value as Record<PropertyKey, unknown>)[key];
+  }
+  return value;
+}
+
+/**
+ * The state of a rejected check-in answer: one that was left out is `missing`,
+ * one that disagrees with another answer is `contradictory`, and anything the
+ * check-in does not accept is `unsupported`.
+ */
+function rejectionState(issue: z.core.$ZodIssue, raw: unknown): GuidanceGapState {
+  if (issue.code === 'custom') return 'contradictory';
+  if (issue.code === 'invalid_type' && valueAt(raw, issue.path) === undefined) return 'missing';
+  return 'unsupported';
 }
 
 /**
@@ -220,7 +251,7 @@ function currentConditionGap(subject: string, detail: string): GuidanceGap {
  * Anything this function does not recognize is rethrown: only known
  * validation failures become gaps.
  */
-function rejectionGaps(error: unknown): GuidanceGap[] {
+function rejectionGaps(error: unknown, raw: unknown): GuidanceGap[] {
   if (error instanceof z.ZodError) {
     const gaps = error.issues.map(issue => {
       const field = typeof issue.path[0] === 'string' ? issue.path[0] : 'checkIn';
@@ -228,6 +259,7 @@ function rejectionGaps(error: unknown): GuidanceGap[] {
       return currentConditionGap(
         subject,
         `The temporary check-in answer for '${subject}' was not usable. Review that check-in answer and try again.`,
+        rejectionState(issue, raw),
       );
     });
     if (gaps.length > 0) return gaps;
@@ -237,6 +269,7 @@ function rejectionGaps(error: unknown): GuidanceGap[] {
       currentConditionGap(
         'current.observedAt',
         'The temporary check-in observation time is in the future. Record an observation time that is not later than now.',
+        'contradictory',
       ),
     ];
   }
@@ -246,12 +279,12 @@ function rejectionGaps(error: unknown): GuidanceGap[] {
 function resolveCurrentCondition(
   raw: unknown,
   now: Date,
-): { facts: Record<string, FactValue> } | { gaps: GuidanceGap[] } {
+): { normalized: CurrentConditionInput } | { gaps: GuidanceGap[] } {
   let normalized: CurrentConditionInput;
   try {
     normalized = normalizeCurrentCondition(raw, now);
   } catch (error) {
-    return { gaps: rejectionGaps(error) };
+    return { gaps: rejectionGaps(error, raw) };
   }
   if (normalized.concerns.length === 1 && normalized.concerns[0] === 'unknown') {
     return {
@@ -259,11 +292,12 @@ function resolveCurrentCondition(
         currentConditionGap(
           'current.concerns',
           "No current condition was reported ('unknown'). Describe what is true today, or skip the check-in to use the stored My Hair facts.",
+          'unknown',
         ),
       ],
     };
   }
-  return { facts: currentConditionFacts(normalized) };
+  return { normalized };
 }
 
 function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGap[] {
@@ -275,6 +309,8 @@ function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGa
         kind: 'hair_profile',
         detail: `My Hair is missing '${fact}', which this goal needs before reviewed guidance can be produced.`,
         subject: fact,
+        state: 'missing',
+        destination: 'my_hair',
       });
     }
   }
@@ -289,6 +325,8 @@ function serviceGaps(snapshot: GuidanceSnapshot): GuidanceGap[] {
         kind: 'service_presence',
         detail: `We cannot confirm whether the effect of '${service.serviceId}' is still present. Record that in My Hair → Services.`,
         subject: service.serviceId,
+        state: 'unknown',
+        destination: 'my_hair_services',
       });
       continue;
     }
@@ -297,6 +335,8 @@ function serviceGaps(snapshot: GuidanceSnapshot): GuidanceGap[] {
         kind: 'service_presence',
         detail: `A recorded chemical service ('${service.serviceId}') is marked as still present. No reviewed rule currently covers guidance while it is present, so ordinary guidance is stopped.`,
         subject: service.serviceId,
+        state: 'unsupported',
+        destination: 'my_hair_services',
       });
     }
   }
@@ -346,12 +386,16 @@ function buildContext(
  * modified, and concerns never manufacture product capabilities.
  */
 export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparation {
-  if (isIncomplete(input.snapshot)) return unavailable('snapshot_incomplete');
+  const incomplete = incompleteSources(input.snapshot);
+  if (incomplete.length > 0) {
+    return { status: 'unavailable', reason: 'snapshot_incomplete', incompleteSources: incomplete };
+  }
   const goal = input.bundle.goals.find(entry => entry.id === input.goalId);
   if (goal === undefined) return unavailable('no_supported_goal');
 
   const gaps = [...profileGaps(input.snapshot, goal), ...serviceGaps(input.snapshot)];
   let currentFacts: Record<string, FactValue> = {};
+  let condition: CurrentConditionInput | null = null;
   if (input.currentCondition !== undefined) {
     // `asOf` keeps the fallback deterministic; callers pass `now`
     // explicitly. normalizeCurrentCondition is always invoked with an
@@ -361,7 +405,10 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
       input.now ?? new Date(input.asOf),
     );
     if ('gaps' in resolved) gaps.push(...resolved.gaps);
-    else currentFacts = resolved.facts;
+    else {
+      condition = resolved.normalized;
+      currentFacts = currentConditionFacts(condition);
+    }
   }
   if (gaps.length > 0) return needsSetup(gaps);
 
@@ -371,6 +418,7 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
   return {
     status: 'ready',
     context: buildContext(input, input.snapshot, input.bundle, products, tools, currentFacts),
+    prepared: buildPreparedInput({ snapshot: input.snapshot, bundle: input.bundle, goal, condition }),
     bundleId: input.bundle.bundleId,
     bundleVersion: input.bundle.version,
   };

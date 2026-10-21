@@ -7,6 +7,7 @@ import {
   validatePublishedBundle,
   type GuidancePreparation,
   type GuidanceSnapshot,
+  type PreparedGuidanceInput,
   type PrepareGuidanceInput,
   type ReviewedGuidanceBundle,
 } from '../../../packages/domain/src/index';
@@ -236,7 +237,11 @@ describe('preparation gates', () => {
       },
     });
     const result = prepare(incomplete);
-    expect(result).toEqual({ status: 'unavailable', reason: 'snapshot_incomplete' });
+    expect(result).toEqual({
+      status: 'unavailable',
+      reason: 'snapshot_incomplete',
+      incompleteSources: [{ source: 'products', state: 'failed' }],
+    });
   });
 
   it('refuses to prepare from a truncated source', () => {
@@ -252,6 +257,7 @@ describe('preparation gates', () => {
     expect(prepare(truncated)).toEqual({
       status: 'unavailable',
       reason: 'snapshot_incomplete',
+      incompleteSources: [{ source: 'tools', state: 'truncated' }],
     });
   });
 
@@ -1038,5 +1044,360 @@ describe('task 4: temporary current-condition check-ins', () => {
     const decision = generateProtocol(result.context);
     expect(decision.status).toBe('ready');
     expect(decision.steps.length).toBeGreaterThan(0);
+  });
+});
+
+describe('task 3.1: one deterministic prepared guidance input', () => {
+  const T31_NOW = new Date('2026-10-11T09:00:00.000+02:00');
+  const ZONE_A = { region: 'front', segment: 'roots' } as const;
+  const ZONE_B = { region: 'crown', segment: 'ends' } as const;
+
+  function conditionInput(overrides: Record<string, unknown> = {}) {
+    return { observedAt: '2026-10-11T08:00:00.000+02:00', concerns: ['dryness'], goal: 'basic_wash', availableMinutes: 25, ...overrides };
+  }
+
+  function prepareInput(snapshotInput: GuidanceSnapshot = snapshot(), currentCondition?: unknown, bundleInput: ReviewedGuidanceBundle = bundle()) {
+    return prepareGuidance({
+      snapshot: snapshotInput,
+      bundle: validatePublishedBundle(bundleInput, evidenceRegistry(), capabilityReview(), NOW),
+      goalId: 'basic_wash',
+      requestId: 'request-31',
+      asOf: AS_OF,
+      currentCondition,
+      now: T31_NOW,
+    } satisfies PrepareGuidanceInput);
+  }
+
+  function readyPrepared(result: GuidancePreparation): PreparedGuidanceInput {
+    if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+    return result.prepared;
+  }
+
+  const sourceItem = (id: string, overrides: Record<string, unknown> = {}) => ({
+    ownerItemId: id, versionId: null, name: `Synthetic ${id}`, availability: 'available' as const, revision: 1, ...overrides,
+  });
+
+  it('carries the goal, the available time, the Passport facts and the source completeness', () => {
+    const prepared = readyPrepared(prepareInput(snapshot({ passportFacts: { naturalPattern: 'curly', density: 'medium' } }), conditionInput()));
+    expect(prepared.schemaVersion).toBe(1);
+    expect(prepared.goal).toEqual({ id: 'basic_wash', label: 'Basic wash' });
+    expect(prepared.availableMinutes).toBe(25);
+    expect(prepared.passport.facts).toEqual({ density: 'medium', naturalPattern: 'curly' });
+    expect(Object.keys(prepared.completeness)).toEqual(['activities', 'passport', 'products', 'services', 'tools']);
+    expect(Object.values(prepared.completeness)).toEqual(['complete', 'complete', 'complete', 'complete', 'complete']);
+  });
+
+  it('reaches the prepared context with dryness, and keeps no check-in answer when none was given', () => {
+    const withCheckIn = readyPrepared(prepareInput(snapshot(), conditionInput({ concerns: ['dryness'] })));
+    expect(withCheckIn.currentCondition?.concerns).toEqual(['dryness']);
+    const without = readyPrepared(prepareInput(snapshot()));
+    expect(without.currentCondition).toBeNull();
+    expect(without.availableMinutes).toBeNull();
+  });
+
+  it('keeps breakage, tangling, frizz and buildup distinct, in canonical order, in the prepared input and the engine facts', () => {
+    const result = prepareInput(snapshot(), conditionInput({ concerns: ['buildup', 'frizz', 'tangling', 'breakage'] }));
+    expect(readyPrepared(result).currentCondition?.concerns).toEqual(['breakage', 'buildup', 'frizz', 'tangling']);
+    if (result.status !== 'ready') throw new Error('not ready');
+    for (const concern of ['breakage', 'buildup', 'frizz', 'tangling']) expect(result.context.environmentFacts[`current.concerns.${concern}`]).toBe(true);
+    expect(result.context.environmentFacts['current.concerns.dryness']).toBeUndefined();
+  });
+
+  it('keeps scalp discomfort a cosmetic observation: no diagnosis, severity or condition name appears anywhere', () => {
+    const prepared = readyPrepared(prepareInput(snapshot(), conditionInput({ concerns: ['scalp-discomfort'] })));
+    expect(prepared.currentCondition?.concerns).toEqual(['scalp-discomfort']);
+    expect(Object.keys(prepared.currentCondition ?? {}).sort()).toEqual(['concerns', 'explicitNone', 'observedAt', 'zoneConcerns', 'zones']);
+    expect(JSON.stringify(prepared)).not.toMatch(/diagnos|disease|dermatitis|infection|severity|symptom/i);
+  });
+
+  it('keeps chemical-processing and heat concerns distinct from each other and from the stored history', () => {
+    const chemical = readyPrepared(prepareInput(snapshot(), conditionInput({ concerns: ['chemical-processing-concern'] })));
+    const heat = readyPrepared(prepareInput(snapshot(), conditionInput({ concerns: ['heat-concern'] })));
+    expect(chemical.currentCondition?.concerns).toEqual(['chemical-processing-concern']);
+    expect(heat.currentCondition?.concerns).toEqual(['heat-concern']);
+    // A concern is the person's worry today. It records no service and no heat event.
+    expect(chemical.chemicalServices).toEqual([]);
+    expect(heat.heatHistory).toEqual([]);
+  });
+
+  it('keeps zone-specific concerns attached to their zones, sorted, with explicit none stated', () => {
+    const prepared = readyPrepared(prepareInput(snapshot(), conditionInput({
+      concerns: ['dryness', 'breakage'], zones: [ZONE_A, ZONE_B],
+      zoneConcerns: [{ zone: ZONE_A, concerns: ['dryness'] }, { zone: ZONE_B, concerns: ['dryness', 'breakage'] }],
+    })));
+    expect(prepared.currentCondition?.zones).toEqual([ZONE_B, ZONE_A]);
+    expect(prepared.currentCondition?.zoneConcerns).toEqual([
+      { zone: ZONE_B, concerns: ['breakage', 'dryness'] },
+      { zone: ZONE_A, concerns: ['dryness'] },
+    ]);
+    expect(readyPrepared(prepareInput(snapshot(), conditionInput({ concerns: ['none'] }))).currentCondition).toMatchObject({ explicitNone: true, concerns: ['none'] });
+    expect(readyPrepared(prepareInput(snapshot(), conditionInput())).currentCondition).toMatchObject({ explicitNone: false, zones: [], zoneConcerns: [] });
+  });
+
+  describe('Passport baseline and temporary precedence', () => {
+    const passportFacts = { naturalPattern: 'curly', damageObservation: 'none', heatPreference: 'minimise-heat' };
+    const fact = (prepared: PreparedGuidanceInput, dimension: string) => prepared.effectiveFacts.find(entry => entry.dimension === dimension);
+
+    it('lets a temporary answer override a recorded baseline for this request only, and keeps the baseline visible', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ passportFacts }), conditionInput({ concerns: ['reported-damage'] })));
+      expect(fact(prepared, 'damage')).toEqual({
+        dimension: 'damage', baseline: { state: 'recorded', value: 'none' }, current: 'reported', effective: 'current', overridden: true,
+      });
+      // The durable baseline is still reported as it is stored.
+      expect(prepared.passport.facts.damageObservation).toBe('none');
+    });
+
+    it('adds a temporary answer where the Passport recorded nothing, without calling it an override', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ passportFacts: { naturalPattern: 'curly' } }), conditionInput({ concerns: ['heat-concern'] })));
+      expect(fact(prepared, 'heat')).toEqual({
+        dimension: 'heat', baseline: { state: 'not_recorded', value: null }, current: 'reported', effective: 'current', overridden: false,
+      });
+    });
+
+    it('uses the unchanged Passport baseline for a second request that has no check-in', () => {
+      const stored = snapshot({ passportFacts });
+      const first = readyPrepared(prepareInput(stored, conditionInput({ concerns: ['reported-damage', 'heat-concern'] })));
+      const second = readyPrepared(prepareInput(stored));
+      expect(fact(first, 'damage')?.effective).toBe('current');
+      expect(fact(second, 'damage')).toEqual({
+        dimension: 'damage', baseline: { state: 'recorded', value: 'none' }, current: 'not_answered', effective: 'baseline', overridden: false,
+      });
+      expect(second.passport.facts).toEqual(first.passport.facts);
+      expect(JSON.stringify(stored)).toBe(JSON.stringify(snapshot({ passportFacts })));
+    });
+
+    it('does not let a missing temporary answer erase a recorded Passport fact', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ passportFacts }), conditionInput({ concerns: ['dryness'] })));
+      expect(fact(prepared, 'damage')).toMatchObject({ current: 'not_answered', effective: 'baseline', overridden: false });
+      expect(fact(prepared, 'heat')).toMatchObject({ baseline: { state: 'recorded', value: 'minimise-heat' }, effective: 'baseline' });
+      expect(prepared.passport.facts.heatPreference).toBe('minimise-heat');
+    });
+
+    it('keeps an explicit unknown unknown: a baseline of unknown is not replaced by a guess', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ passportFacts: { ...passportFacts, damageObservation: 'unknown' } }), conditionInput({ concerns: ['dryness'] })));
+      expect(fact(prepared, 'damage')).toEqual({
+        dimension: 'damage', baseline: { state: 'unknown', value: 'unknown' }, current: 'not_answered', effective: 'baseline', overridden: false,
+      });
+    });
+
+    it('treats an explicit none today as a temporary answer that still leaves the stored baseline untouched', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ passportFacts: { ...passportFacts, damageObservation: 'moderate' } }), conditionInput({ concerns: ['none'] })));
+      expect(fact(prepared, 'damage')).toEqual({
+        dimension: 'damage', baseline: { state: 'recorded', value: 'moderate' }, current: 'none', effective: 'current', overridden: true,
+      });
+      expect(prepared.passport.facts.damageObservation).toBe('moderate');
+    });
+  });
+
+  describe('owner records as context', () => {
+    it('lists only available records, never archived, empty, low or out-of-stock ones', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({
+        products: [
+          sourceItem('p-ok'), sourceItem('p-archived', { availability: 'archived' }), sourceItem('p-empty', { availability: 'empty' }),
+          sourceItem('p-low', { availability: 'low' }), sourceItem('p-out', { availability: 'out_of_stock' }),
+        ],
+        tools: [sourceItem('t-ok'), sourceItem('t-archived', { availability: 'archived' }), sourceItem('t-out', { availability: 'out_of_stock' })],
+      })));
+      expect(prepared.products.map(item => item.ownerItemId)).toEqual(['p-ok']);
+      expect(prepared.tools.map(item => item.ownerItemId)).toEqual(['t-ok']);
+    });
+
+    it('keeps a manual product visible as context but never lets it satisfy an exact reviewed capability', () => {
+      const result = prepareInput(snapshot({ products: [sourceItem('p-manual', { name: 'My unlabelled cleansing bottle' })] }));
+      const prepared = readyPrepared(result);
+      expect(prepared.products).toEqual([{
+        ownerItemId: 'p-manual', name: 'My unlabelled cleansing bottle', identity: 'manual', versionId: null, review: 'not_applicable', verifiedCapabilities: [], satisfiesExactCapability: false,
+      }]);
+      if (result.status !== 'ready') throw new Error('not ready');
+      expect(result.context.products).toEqual([]);
+    });
+
+    it('marks a matched exact version with no published entry as not reviewed, and a reviewed one as satisfying its capability only', () => {
+      const unreviewed = '99999999-9999-4999-8999-999999999999';
+      const prepared = readyPrepared(prepareInput(snapshot({
+        products: [sourceItem('p-reviewed', { versionId: PRODUCT_VERSION }), sourceItem('p-unreviewed', { versionId: unreviewed })],
+      })));
+      expect(prepared.products.find(item => item.ownerItemId === 'p-unreviewed')).toMatchObject({
+        identity: 'exact', review: 'not_reviewed', verifiedCapabilities: [], satisfiesExactCapability: false,
+      });
+      expect(prepared.products.find(item => item.ownerItemId === 'p-reviewed')).toMatchObject({
+        identity: 'exact', review: 'reviewed', verifiedCapabilities: ['cleanse'], satisfiesExactCapability: true,
+      });
+    });
+
+    it('never creates efficacy or capability from a name, a category word or an ingredient list in the name', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({
+        products: [sourceItem('p-protein', { name: 'Protein repair shampoo with ceramides and keratin' })],
+        tools: [sourceItem('t-steam', { name: 'Steam straightener 230 degrees heated air' })],
+      })));
+      expect(prepared.products[0].verifiedCapabilities).toEqual([]);
+      expect(prepared.products[0].satisfiesExactCapability).toBe(false);
+      expect(prepared.tools[0].verifiedCapabilities).toEqual([]);
+      expect(prepared.tools[0].satisfiesExactCapability).toBe(false);
+    });
+
+    it('shows a tool name as a name only: it never becomes a heat method, a temperature or a wattage', () => {
+      const tool = readyPrepared(prepareInput(snapshot({ tools: [sourceItem('t-steam', { name: 'Steam straightener 230 degrees 1800 watts' })] }))).tools[0];
+      expect(tool.ownerFacts).toEqual({
+        wattageWatts: null, adjustableTemp: 'not_answered',
+        settings: { state: 'not_answered', recordedTemperatures: [] },
+        heatMethods: { state: 'not_answered', methods: [] },
+      });
+    });
+
+    it('keeps a recorded wattage as a wattage: an unknown temperature stays unknown and nothing is derived', () => {
+      const tool = readyPrepared(prepareInput(snapshot({ tools: [sourceItem('t-dryer', { ownerFacts: {
+        wattageWatts: 1900, adjustableTemp: 'unknown', settings: { state: 'unknown' }, heatMethods: { state: 'unknown' } } })] }))).tools[0];
+      expect(tool.ownerFacts.wattageWatts).toBe(1900);
+      expect(tool.ownerFacts.settings).toEqual({ state: 'unknown', recordedTemperatures: [] });
+      expect(tool.ownerFacts.heatMethods).toEqual({ state: 'unknown', methods: [] });
+      expect(JSON.stringify(tool)).not.toMatch(/temperatureC|degrees|celsius/i);
+    });
+
+    it('carries a temperature only when the owner recorded it, in the unit they recorded it in', () => {
+      const tool = readyPrepared(prepareInput(snapshot({ tools: [sourceItem('t-iron', { ownerFacts: {
+        wattageWatts: null, adjustableTemp: 'yes',
+        settings: { state: 'recorded', items: [{ label: 'Low', temperature: null }, { label: 'Plate', temperature: { value: 350, unit: 'F' } }] },
+        heatMethods: { state: 'recorded', methods: ['direct-contact'] } } })] }))).tools[0];
+      expect(tool.ownerFacts.settings).toEqual({ state: 'recorded', recordedTemperatures: [{ label: 'Plate', value: 350, unit: 'F' }] });
+      expect(tool.ownerFacts.heatMethods).toEqual({ state: 'recorded', methods: ['direct-contact'] });
+      expect(tool.ownerFacts.adjustableTemp).toBe('yes');
+    });
+  });
+
+  describe('chemical and heat history and recorded activity', () => {
+    it('lists chemical services with their presence, zones and date precision, sorted by service', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ services: [
+        { serviceId: 'svc-b', currentPresence: 'not-present', effectiveStart: { precision: 'month', value: '2026-06' }, facts: {}, zones: [ZONE_B] },
+        { serviceId: 'svc-a', currentPresence: 'not-present', effectiveStart: null, facts: {} },
+      ] })));
+      expect(prepared.chemicalServices).toEqual([
+        { serviceId: 'svc-a', presence: 'not-present', effectiveStart: null, zones: [] },
+        { serviceId: 'svc-b', presence: 'not-present', effectiveStart: { precision: 'month', value: '2026-06' }, zones: [ZONE_B] },
+      ]);
+    });
+
+    it('lists only recorded heat, leaves unrecorded values null and invents none', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ services: [
+        { serviceId: 'svc-heat', currentPresence: 'not-present', effectiveStart: null, facts: {}, zones: [ZONE_A],
+          heat: { method: 'flat-iron', temperatureC: 180, passes: null, source: 'user-estimated' } },
+        { serviceId: 'svc-none', currentPresence: 'not-present', effectiveStart: null, facts: {}, heat: null },
+        { serviceId: 'svc-unknown', currentPresence: 'not-present', effectiveStart: null, facts: {}, heat: { method: 'unknown', source: 'user-reported' } },
+      ] })));
+      expect(prepared.heatHistory).toEqual([
+        { serviceId: 'svc-heat', method: 'flat-iron', temperatureC: 180, passes: null, durationMinutes: null, source: 'user-estimated', zones: [ZONE_A] },
+        { serviceId: 'svc-unknown', method: 'unknown', temperatureC: null, passes: null, durationMinutes: null, source: 'user-reported', zones: [] },
+      ]);
+    });
+
+    it('lists unvoided recorded activities with only their kind and precision', () => {
+      const prepared = readyPrepared(prepareInput(snapshot({ activities: [
+        { activityId: 'act-2', revision: 1, voided: false, appliedRevisionIds: ['r2'], facts: { activityKind: 'wash', precision: 'exact_day' } },
+        { activityId: 'act-1', revision: 1, voided: false, appliedRevisionIds: ['r1'], facts: {} },
+        { activityId: 'act-void', revision: 2, voided: true, appliedRevisionIds: ['r3'], facts: { activityKind: 'styling' } },
+      ] })));
+      expect(prepared.activities).toEqual([
+        { activityId: 'act-1', kind: null, precision: null },
+        { activityId: 'act-2', kind: 'wash', precision: 'exact_day' },
+      ]);
+    });
+  });
+
+  describe('determinism and immutability', () => {
+    function crowded(order: 'forward' | 'reverse'): GuidanceSnapshot {
+      const products = [sourceItem('p-1', { versionId: PRODUCT_VERSION }), sourceItem('p-2'), sourceItem('p-3', { availability: 'archived' })];
+      const tools = [sourceItem('t-1', { versionId: TOOL_VERSION, ownerFacts: { wattageWatts: 1500, adjustableTemp: 'no', settings: null, heatMethods: null } }), sourceItem('t-2')];
+      const services = [
+        { serviceId: 's-1', currentPresence: 'not-present' as const, effectiveStart: null, facts: {}, zones: [ZONE_A, ZONE_B], heat: { method: 'blow-dryer' as const, source: 'user-reported' as const } },
+        { serviceId: 's-2', currentPresence: 'not-present' as const, effectiveStart: null, facts: {} },
+      ];
+      const passportFacts = order === 'forward'
+        ? { naturalPattern: 'curly', density: 'medium', heatPreference: 'avoid-heat' }
+        : { heatPreference: 'avoid-heat', density: 'medium', naturalPattern: 'curly' };
+      const flip = <T,>(items: T[]) => (order === 'forward' ? [...items] : [...items].reverse());
+      return snapshot({ passportFacts, products: flip(products), tools: flip(tools), services: flip(services) });
+    }
+
+    it('produces byte-identical prepared input whatever the shelf, tool, service, concern, zone and key order', () => {
+      const forward = prepareInput(crowded('forward'), conditionInput({ concerns: ['dryness', 'heat-concern', 'buildup'], zones: [ZONE_A, ZONE_B], zoneConcerns: [{ zone: ZONE_A, concerns: ['dryness', 'buildup'] }] }));
+      const reverse = prepareInput(crowded('reverse'), {
+        availableMinutes: 25, goal: 'basic_wash', observedAt: '2026-10-11T08:00:00.000+02:00',
+        zoneConcerns: [{ concerns: ['buildup', 'dryness'], zone: { segment: 'roots', region: 'front' } }],
+        zones: [ZONE_B, ZONE_A], concerns: ['buildup', 'heat-concern', 'dryness'],
+      });
+      expect(JSON.stringify(readyPrepared(forward))).toBe(JSON.stringify(readyPrepared(reverse)));
+    });
+
+    it('produces the same bytes for the same inputs and explicit time, run after run', () => {
+      const input = crowded('forward');
+      const first = JSON.stringify(readyPrepared(prepareInput(input, conditionInput())));
+      const second = JSON.stringify(readyPrepared(prepareInput(input, conditionInput())));
+      expect(first).toBe(second);
+    });
+
+    it('leaves the snapshot, the check-in and the bundle byte-equivalent, and freezes the prepared input', () => {
+      const input = crowded('forward');
+      const checkIn = conditionInput({ concerns: ['frizz', 'dryness'], zones: [ZONE_A], zoneConcerns: [{ zone: ZONE_A, concerns: ['frizz'] }] });
+      const published = bundle();
+      const before = [JSON.stringify(input), JSON.stringify(checkIn), JSON.stringify(published)];
+      const prepared = readyPrepared(prepareInput(input, checkIn, published));
+      expect([JSON.stringify(input), JSON.stringify(checkIn), JSON.stringify(published)]).toEqual(before);
+      expect(Object.isFrozen(prepared)).toBe(true);
+      expect(Object.isFrozen(prepared.products)).toBe(true);
+      expect(Object.isFrozen(prepared.currentCondition?.concerns)).toBe(true);
+      expect(() => (prepared.products as unknown as unknown[]).push({})).toThrow(TypeError);
+    });
+
+    it('does not put reviewer names, evidence ids, claims or rules in the prepared input', () => {
+      const text = JSON.stringify(readyPrepared(prepareInput(crowded('forward'), conditionInput())));
+      for (const forbidden of ['reviewedBy', 'authoredBy', 'evidenceIds', 'I. Fixture', 'fixture-evidence', 'rule-wash', 'claim']) {
+        expect(text).not.toContain(forbidden);
+      }
+    });
+  });
+
+  describe('fail-closed and structured gaps', () => {
+    it('never prepares from a source that failed, was missing or was cut short, and says which', () => {
+      const result = prepareInput(snapshot({ completeness: { passport: 'failed', services: 'complete', activities: 'truncated', products: 'complete', tools: 'missing' } }), conditionInput());
+      expect(result).toEqual({
+        status: 'unavailable', reason: 'snapshot_incomplete',
+        incompleteSources: [{ source: 'activities', state: 'truncated' }, { source: 'passport', state: 'failed' }, { source: 'tools', state: 'missing' }],
+      });
+    });
+
+    it('states each gap as missing, unknown or unsupported and names where it can be resolved', () => {
+      const gaps = (result: GuidancePreparation) => (result.status === 'needs_setup' ? result.missing : []);
+      expect(gaps(prepareInput(snapshot({ passportFacts: {} }))).find(gap => gap.kind === 'hair_profile')).toMatchObject({
+        subject: 'naturalPattern', state: 'missing', destination: 'my_hair',
+      });
+      const unknownService = gaps(prepareInput(snapshot({ services: [{ serviceId: 's-u', currentPresence: 'unknown', effectiveStart: null, facts: {} }] })));
+      expect(unknownService[0]).toMatchObject({ kind: 'service_presence', state: 'unknown', destination: 'my_hair_services' });
+      const presentService = gaps(prepareInput(snapshot({ services: [{ serviceId: 's-p', currentPresence: 'present', effectiveStart: null, facts: {} }] })));
+      expect(presentService[0]).toMatchObject({ kind: 'service_presence', state: 'unsupported', destination: 'my_hair_services' });
+      const unknownConcern = gaps(prepareInput(snapshot(), conditionInput({ concerns: ['unknown'] })));
+      expect(unknownConcern[0]).toMatchObject({ kind: 'current_condition', state: 'unknown', destination: 'today_check_in' });
+    });
+
+    it('names a contradictory, a missing and an unsupported check-in answer differently', () => {
+      const gaps = (current: unknown) => {
+        const result = prepareInput(snapshot(), current);
+        return result.status === 'needs_setup' ? result.missing : [];
+      };
+      expect(gaps(conditionInput({ concerns: ['none', 'dryness'] }))[0]).toMatchObject({ state: 'contradictory', destination: 'today_check_in' });
+      expect(gaps(conditionInput({ zones: [ZONE_A], zoneConcerns: [{ zone: ZONE_B, concerns: ['dryness'] }] }))[0]).toMatchObject({ state: 'contradictory' });
+      const { availableMinutes: _omitted, ...withoutMinutes } = conditionInput();
+      expect(gaps(withoutMinutes)[0]).toMatchObject({ state: 'missing', destination: 'today_check_in' });
+      expect(gaps(conditionInput({ notes: 'itchy' }))[0]).toMatchObject({ state: 'unsupported', destination: 'today_check_in' });
+    });
+
+    it('keeps every gap free of diagnosis, raw values and internal detail', () => {
+      const result = prepareInput(snapshot({ passportFacts: {} }), conditionInput({ concerns: ['none', 'dryness'], notes: 'itchy' }));
+      const text = JSON.stringify(result);
+      expect(text).not.toMatch(/itchy|diagnos|zod|undefined|\[object|stack|select |owner-1/i);
+    });
+
+    it('still refuses a draft or withdrawn bundle even with a complete check-in', () => {
+      expect(() => prepareInput(snapshot(), conditionInput(), bundle({ status: 'draft' }))).toThrow();
+    });
   });
 });

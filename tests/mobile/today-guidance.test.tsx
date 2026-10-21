@@ -171,6 +171,8 @@ const GAP: GuidanceGap = {
   kind: 'hair_profile',
   detail: "My Hair is missing 'naturalPattern', which this goal needs before reviewed guidance can be produced.",
   subject: 'naturalPattern',
+  state: 'missing',
+  destination: 'my_hair',
 };
 
 function text(renderer: ReactTestRenderer): string {

@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 import { EffectiveDateSchema } from '../dates.ts';
 import { ActivityRevisionSchema } from '../activity.ts';
+import { CurrentConditionConcernSchema, CurrentConditionZoneSchema } from '../current-condition.ts';
 import { FactValueSchema, RecommendationContextSchema, RecommendationRuleSchema } from '../recommendations/schemas.ts';
+import { ServiceHeatSchema, ServiceZoneSchema } from '../services.ts';
+import { ToolHeatMethodsSchema, ToolSettingsSchema, YesNoUnknownSchema } from '../tools.ts';
 import type { RecommendationCondition, RecommendationEffect } from '../recommendations/types.ts';
 import { isGuidanceCapability } from './capability-vocabulary.ts';
 
@@ -108,6 +111,24 @@ export const GuidanceSourceItemSchema = z
   })
   .strict();
 
+/**
+ * What the owner recorded about a tool, exactly as recorded. Reuses the owner
+ * tool contracts so an impossible stored answer fails here instead of reaching
+ * guidance. `null` is "never answered"; an explicit unknown is its own answer.
+ */
+export const GuidanceToolOwnerFactsSchema = z
+  .object({
+    wattageWatts: z.number().int().min(1).max(10000).nullable(),
+    adjustableTemp: YesNoUnknownSchema.nullable(),
+    settings: ToolSettingsSchema.nullable(),
+    heatMethods: ToolHeatMethodsSchema.nullable(),
+  })
+  .strict();
+
+export const GuidanceToolItemSchema = GuidanceSourceItemSchema.extend({
+  ownerFacts: GuidanceToolOwnerFactsSchema.optional(),
+}).strict();
+
 export const GuidanceServiceFactSchema = z
   .object({
     serviceId: nonEmptyString,
@@ -117,6 +138,9 @@ export const GuidanceServiceFactSchema = z
     // unknown rather than being defaulted to today.
     effectiveStart: EffectiveDateSchema.nullable(),
     facts: factRecordSchema,
+    // Zones and heat are copied as recorded: a missing value stays missing.
+    zones: z.array(ServiceZoneSchema).max(36).optional(),
+    heat: ServiceHeatSchema.nullable().optional(),
   })
   .strict();
 
@@ -202,7 +226,7 @@ export const GuidanceSnapshotSchema = frozen(
       services: z.array(GuidanceServiceFactSchema),
       activities: z.array(GuidanceActivityFactSchema),
       products: z.array(GuidanceSourceItemSchema),
-      tools: z.array(GuidanceSourceItemSchema),
+      tools: z.array(GuidanceToolItemSchema),
       completeness: GuidanceCompletenessSchema,
     })
     .strict()
@@ -461,12 +485,18 @@ export const GuidanceGapKindSchema = z.enum([
   'current_condition',
 ]);
 
+export const GuidanceGapStateSchema = z.enum(['missing', 'unknown', 'failed_source', 'contradictory', 'unsupported']);
+
+export const GuidanceGapDestinationSchema = z.enum(['my_hair', 'my_hair_services', 'my_shelf', 'my_tools', 'today_check_in']);
+
 export const GuidanceGapSchema = frozen(
   z
     .object({
       kind: GuidanceGapKindSchema,
       detail: nonEmptyString,
       subject: nonEmptyString.nullable(),
+      state: GuidanceGapStateSchema,
+      destination: GuidanceGapDestinationSchema.nullable(),
     })
     .strict(),
 );
@@ -477,10 +507,126 @@ export const GuidanceUnavailableReasonSchema = z.enum([
   'no_supported_goal',
 ]);
 
+const PreparedConcernAnswerSchema = z.enum(['reported', 'none', 'not_answered']);
+
+const PreparedZoneSchema = CurrentConditionZoneSchema;
+
+/**
+ * The prepared guidance input. Strict throughout: a field nobody listed here,
+ * such as a reviewer name, a claim or a rule, cannot ride along.
+ */
+export const PreparedGuidanceInputSchema = frozen(
+  z
+    .object({
+      schemaVersion: z.literal(1),
+      goal: z.object({ id: GuidanceGoalIdSchema, label: nonEmptyString }).strict(),
+      availableMinutes: z.number().int().min(0).max(1440).nullable(),
+      passport: z.object({ facts: factRecordSchema }).strict(),
+      currentCondition: z
+        .object({
+          observedAt: IsoTimestampSchema,
+          concerns: z.array(CurrentConditionConcernSchema).min(1),
+          explicitNone: z.boolean(),
+          zones: z.array(PreparedZoneSchema),
+          zoneConcerns: z.array(z.object({ zone: PreparedZoneSchema, concerns: z.array(CurrentConditionConcernSchema).min(1) }).strict()),
+        })
+        .strict()
+        .nullable(),
+      effectiveFacts: z.array(
+        z
+          .object({
+            dimension: z.enum(['damage', 'heat']),
+            baseline: z.object({ state: z.enum(['recorded', 'unknown', 'not_recorded']), value: FactValueSchema }).strict(),
+            current: PreparedConcernAnswerSchema,
+            effective: z.enum(['current', 'baseline', 'not_recorded']),
+            overridden: z.boolean(),
+          })
+          .strict(),
+      ),
+      chemicalServices: z.array(
+        z
+          .object({
+            serviceId: nonEmptyString,
+            presence: GuidanceServicePresenceSchema,
+            effectiveStart: EffectiveDateSchema.nullable(),
+            zones: z.array(ServiceZoneSchema),
+          })
+          .strict(),
+      ),
+      heatHistory: z.array(
+        z
+          .object({
+            serviceId: nonEmptyString,
+            method: ServiceHeatSchema.shape.method,
+            temperatureC: z.number().nullable(),
+            passes: z.number().int().nullable(),
+            durationMinutes: z.number().nullable(),
+            source: ServiceHeatSchema.shape.source,
+            zones: z.array(ServiceZoneSchema),
+          })
+          .strict(),
+      ),
+      activities: z.array(
+        z
+          .object({
+            activityId: nonEmptyString,
+            kind: z.enum(['wash', 'styling', 'other']).nullable(),
+            precision: z.enum(['exact_day', 'exact_month', 'exact_year', 'unknown']).nullable(),
+          })
+          .strict(),
+      ),
+      products: z.array(preparedOwnerItemShape().strict()),
+      tools: z.array(
+        preparedOwnerItemShape()
+          .extend({
+            ownerFacts: z
+              .object({
+                wattageWatts: z.number().int().nullable(),
+                adjustableTemp: z.enum(['yes', 'no', 'unknown', 'not_answered']),
+                settings: z
+                  .object({
+                    state: z.enum(['not_answered', 'unknown', 'recorded']),
+                    recordedTemperatures: z.array(z.object({ label: nonEmptyString, value: z.number(), unit: z.enum(['C', 'F']) }).strict()),
+                  })
+                  .strict(),
+                heatMethods: z.object({ state: z.enum(['not_answered', 'unknown', 'recorded']), methods: z.array(nonEmptyString) }).strict(),
+              })
+              .strict(),
+          })
+          .strict(),
+      ),
+      // Alphabetical, so the prepared input's bytes never depend on the order a
+      // snapshot happened to be assembled in.
+      completeness: z
+        .object({
+          activities: GuidanceSourceCompletenessSchema,
+          passport: GuidanceSourceCompletenessSchema,
+          products: GuidanceSourceCompletenessSchema,
+          services: GuidanceSourceCompletenessSchema,
+          tools: GuidanceSourceCompletenessSchema,
+        })
+        .strict(),
+    })
+    .strict(),
+);
+
+function preparedOwnerItemShape() {
+  return z.object({
+    ownerItemId: nonEmptyString,
+    name: nonEmptyString,
+    identity: z.enum(['exact', 'manual']),
+    versionId: nonEmptyString.nullable(),
+    review: z.enum(['reviewed', 'withdrawn', 'not_reviewed', 'not_applicable']),
+    verifiedCapabilities: z.array(nonEmptyString),
+    satisfiesExactCapability: z.boolean(),
+  });
+}
+
 const ReadyPreparationSchema = z
   .object({
     status: z.literal('ready'),
     context: RecommendationContextSchema,
+    prepared: PreparedGuidanceInputSchema,
     bundleId: nonEmptyString,
     bundleVersion: nonEmptyString,
   })
@@ -497,6 +643,9 @@ const UnavailablePreparationSchema = z
   .object({
     status: z.literal('unavailable'),
     reason: GuidanceUnavailableReasonSchema,
+    incompleteSources: z
+      .array(z.object({ source: GuidanceSourceNameSchema, state: z.enum(['missing', 'truncated', 'failed']) }).strict())
+      .optional(),
   })
   .strict();
 
