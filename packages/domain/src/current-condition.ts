@@ -12,6 +12,15 @@ import { z } from 'zod';
 
 import { ServiceZoneSchema } from './services.ts';
 
+/**
+ * Cosmetic concern vocabulary. Every entry is something a person can notice and
+ * tap: none names a diagnosis, a disease or a medical finding, and a concern is
+ * never a severity. `buildup` covers product buildup or a heavy, coated feel;
+ * `scalp-discomfort` is the person's own report of how their scalp feels, not an
+ * assessment of it; `chemical-processing-concern` and `heat-concern` say the
+ * person is worried about the effect of chemical processing or heat on their
+ * hair today, and nothing about what happened.
+ */
 export const CurrentConditionConcernSchema = z.enum([
   'dryness',
   'frizz',
@@ -19,9 +28,13 @@ export const CurrentConditionConcernSchema = z.enum([
   'breakage',
   'stiffness',
   'dullness',
+  'buildup',
   'scalp-dryness',
   'scalp-oiliness',
+  'scalp-discomfort',
   'reported-damage',
+  'chemical-processing-concern',
+  'heat-concern',
   'none',
   'unknown',
 ]);
@@ -81,6 +94,48 @@ const ZonesSchema = z
   );
 
 /**
+ * A concern attached to one reported zone. `none` and `unknown` describe the
+ * whole check-in, so neither can be attached to a zone. Each entry is sorted
+ * canonically so tap order never changes the answer.
+ */
+const ZoneConcernSchema = z
+  .object({
+    zone: CurrentConditionZoneSchema,
+    concerns: z
+      .array(CurrentConditionConcernSchema)
+      .min(1)
+      .superRefine((concerns, context) => {
+        if (new Set(concerns).size !== concerns.length) {
+          context.addIssue({ code: 'custom', message: 'Zone concerns must be unique' });
+        }
+        if (concerns.some(concern => concern === 'none' || concern === 'unknown')) {
+          context.addIssue({
+            code: 'custom',
+            message: "'none' and 'unknown' are exclusive check-in answers: they cannot be attached to a zone",
+          });
+        }
+      })
+      .transform(concerns => [...concerns].sort()),
+  })
+  .strict();
+
+const ZoneConcernsSchema = z
+  .array(ZoneConcernSchema)
+  .min(1)
+  .max(36)
+  .superRefine((entries, context) => {
+    const keys = entries.map(({ zone }) => `${zone.region}:${zone.segment}`);
+    if (new Set(keys).size !== keys.length) {
+      context.addIssue({ code: 'custom', message: 'Zone concern zones must be unique' });
+    }
+  })
+  .transform(entries =>
+    [...entries].sort((left, right) =>
+      `${left.zone.region}:${left.zone.segment}`.localeCompare(`${right.zone.region}:${right.zone.segment}`),
+    ),
+  );
+
+/**
  * Goal under pursuit when the check-in was taken. Mirrors
  * GuidanceGoalIdSchema; extend both together when a new goal ships.
  */
@@ -113,8 +168,25 @@ export const CurrentConditionSchema = frozen(
       // (1440 minutes): a single routine session cannot span more than a day.
       availableMinutes: z.number().int().min(0).max(1440),
       zones: ZonesSchema.optional(),
+      // Which reported concern was noticed in which reported zone. Optional: a
+      // check-in may name zones without saying which concern sits where.
+      zoneConcerns: ZoneConcernsSchema.optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((checkIn, context) => {
+      // A zone-attached answer may only point at what the same check-in
+      // reported. Anything else is a contradiction, never silently repaired.
+      const reportedZones = new Set((checkIn.zones ?? []).map(({ region, segment }) => `${region}:${segment}`));
+      const reportedConcerns = new Set<string>(checkIn.concerns);
+      for (const entry of checkIn.zoneConcerns ?? []) {
+        if (!reportedZones.has(`${entry.zone.region}:${entry.zone.segment}`)) {
+          context.addIssue({ code: 'custom', path: ['zoneConcerns'], message: 'Zone concerns must refer to reported zones' });
+        }
+        if (entry.concerns.some(concern => !reportedConcerns.has(concern))) {
+          context.addIssue({ code: 'custom', path: ['zoneConcerns'], message: 'Zone concerns must refer to reported concerns' });
+        }
+      }
+    }),
 );
 
 export type CurrentConditionInput = z.output<typeof CurrentConditionSchema>;

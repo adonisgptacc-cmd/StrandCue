@@ -1,4 +1,7 @@
-import type { CurrentConditionConcern } from '../../../../packages/domain/src/current-condition.ts';
+import {
+  CurrentConditionConcernSchema,
+  type CurrentConditionConcern,
+} from '../../../../packages/domain/src/current-condition.ts';
 import type { TodayGuidanceResult } from './today-guidance-service.ts';
 
 /**
@@ -25,19 +28,12 @@ export type PreflightPhase =
   | 'generating'
   | 'result';
 
-export const CHECK_IN_CONCERNS: readonly CurrentConditionConcern[] = [
-  'dryness',
-  'frizz',
-  'tangling',
-  'breakage',
-  'stiffness',
-  'dullness',
-  'scalp-dryness',
-  'scalp-oiliness',
-  'reported-damage',
-  'none',
-  'unknown',
-];
+/**
+ * Every cosmetic concern the domain contract defines, in the contract's own order
+ * (`none` and `unknown` last). Derived, not retyped: a concern added to the
+ * contract appears here, and a label missing for it fails type-checking.
+ */
+export const CHECK_IN_CONCERNS: readonly CurrentConditionConcern[] = CurrentConditionConcernSchema.options;
 
 export type CheckInGoal = 'basic_wash';
 

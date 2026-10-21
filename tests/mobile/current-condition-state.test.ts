@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
+import { CurrentConditionConcernSchema } from '../../packages/domain/src/index';
 import {
+  CHECK_IN_CONCERNS,
   initialPreflight,
   preflightReducer,
   validateCheckIn,
   type CheckInDraft,
   type PreflightState,
 } from '../../apps/mobile/src/guidance/current-condition-state';
+import { CONCERN_LABELS } from '../../apps/mobile/src/guidance/guidance-copy';
 
 const OWNER = 'owner-1';
 const OBSERVED = '2026-10-13T08:00:00+02:00';
@@ -362,6 +365,48 @@ describe('today preflight generation epochs', () => {
     });
     expect(late).toBe(cleared);
     expect(late.phase).toBe('idle');
+    expect(late.checkIn.concerns).toEqual([]);
     expect(late.result).toBeNull();
+  });
+});
+
+describe('Task 3.1: the check-in offers the complete cosmetic vocabulary', () => {
+  it('lists exactly the concerns the domain contract defines, in the contract order, with none and unknown last', () => {
+    expect([...CHECK_IN_CONCERNS]).toEqual([...CurrentConditionConcernSchema.options]);
+    expect(CHECK_IN_CONCERNS.slice(-2)).toEqual(['none', 'unknown']);
+  });
+
+  it('offers buildup, scalp discomfort, chemical processing and heat as separate answers', () => {
+    for (const concern of ['buildup', 'scalp-discomfort', 'chemical-processing-concern', 'heat-concern'] as const) {
+      expect(CHECK_IN_CONCERNS).toContain(concern);
+      const picked = preflightReducer(checkingIn({ concerns: [] }), { type: 'toggle_concern', concern });
+      expect(picked.checkIn.concerns).toEqual([concern]);
+    }
+  });
+
+  it('keeps the new concerns tap-order independent and exclusive with none and unknown', () => {
+    let state = checkingIn({ concerns: [] });
+    for (const concern of ['heat-concern', 'buildup', 'scalp-discomfort'] as const) {
+      state = preflightReducer(state, { type: 'toggle_concern', concern });
+    }
+    expect(validateCheckIn(state.checkIn, NOW)).toEqual([]);
+    const none = preflightReducer(state, { type: 'toggle_concern', concern: 'none' });
+    expect(none.checkIn.concerns).toEqual(['none']);
+    const back = preflightReducer(none, { type: 'toggle_concern', concern: 'buildup' });
+    expect(back.checkIn.concerns).toEqual(['buildup']);
+    expect(validateCheckIn(draft({ concerns: ['none', 'heat-concern'] }), NOW)).toEqual(['concerns_exclusive']);
+    expect(validateCheckIn(draft({ concerns: ['unknown', 'scalp-discomfort'] }), NOW)).toEqual(['concerns_exclusive']);
+  });
+
+  it('words every concern plainly: unique, non-empty, self-reported and never a diagnosis', () => {
+    const labels = Object.values(CONCERN_LABELS);
+    expect(Object.keys(CONCERN_LABELS).sort()).toEqual([...CurrentConditionConcernSchema.options].sort());
+    expect(new Set(labels).size).toBe(labels.length);
+    for (const label of labels) {
+      expect(label.trim()).not.toBe('');
+      expect(label).not.toMatch(/diagnos|disease|dermatitis|infection|alopecia|psoriasis|treat|cure|medical/i);
+    }
+    expect(CONCERN_LABELS['chemical-processing-concern']).toMatch(/worried|concern/i);
+    expect(CONCERN_LABELS['heat-concern']).toMatch(/worried|concern/i);
   });
 });

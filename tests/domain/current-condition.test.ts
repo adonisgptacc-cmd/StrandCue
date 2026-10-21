@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CurrentConditionConcernSchema,
   CurrentConditionSchema,
   normalizeCurrentCondition,
 } from '../../packages/domain/src/index.ts';
@@ -198,6 +199,113 @@ describe('CurrentCondition contracts', () => {
 
     normalizeCurrentCondition(submitted, NOW);
 
+    expect(submitted).toEqual(before);
+  });
+});
+
+describe('Task 3.1: the complete cosmetic concern vocabulary', () => {
+  const ZONE_FRONT_ROOTS = { region: 'front', segment: 'roots' };
+  const ZONE_CROWN_ENDS = { region: 'crown', segment: 'ends' };
+
+  it.each([
+    'dryness',
+    'breakage',
+    'tangling',
+    'frizz',
+    'buildup',
+    'scalp-discomfort',
+    'chemical-processing-concern',
+    'heat-concern',
+  ])('accepts %s as its own cosmetic answer', concern => {
+    const parsed = normalizeCurrentCondition({ ...validCheckIn(), concerns: [concern] }, NOW);
+    expect(parsed.concerns).toEqual([concern]);
+  });
+
+  it('keeps every concern distinct: buildup is not dryness, heat is not chemical processing, scalp is not hair', () => {
+    const parsed = normalizeCurrentCondition(
+      { ...validCheckIn(), concerns: ['heat-concern', 'buildup', 'chemical-processing-concern', 'scalp-discomfort', 'breakage', 'tangling'] },
+      NOW,
+    );
+    // Canonical order, nothing merged, nothing added.
+    expect(parsed.concerns).toEqual(['breakage', 'buildup', 'chemical-processing-concern', 'heat-concern', 'scalp-discomfort', 'tangling']);
+  });
+
+  it('keeps none and unknown exclusive against every new concern too', () => {
+    for (const concern of ['buildup', 'scalp-discomfort', 'chemical-processing-concern', 'heat-concern']) {
+      expect(() => normalizeCurrentCondition({ ...validCheckIn(), concerns: ['none', concern] }, NOW)).toThrow(/exclusive/i);
+      expect(() => normalizeCurrentCondition({ ...validCheckIn(), concerns: ['unknown', concern] }, NOW)).toThrow(/exclusive/i);
+    }
+  });
+
+  it('is a cosmetic vocabulary: no concern names a diagnosis, a disease or a medical finding', () => {
+    for (const concern of CurrentConditionConcernSchema.options) {
+      expect(concern).not.toMatch(/diagnos|disease|dermatitis|infection|alopecia|psoriasis|syndrome|loss/i);
+    }
+  });
+
+  it('attaches a concern to its own zone and keeps the answer sorted and frozen', () => {
+    const parsed = normalizeCurrentCondition(
+      {
+        ...validCheckIn(),
+        concerns: ['dryness', 'breakage'],
+        zones: [ZONE_FRONT_ROOTS, ZONE_CROWN_ENDS],
+        zoneConcerns: [
+          { zone: ZONE_FRONT_ROOTS, concerns: ['dryness'] },
+          { zone: ZONE_CROWN_ENDS, concerns: ['dryness', 'breakage'] },
+        ],
+      },
+      NOW,
+    );
+    expect(parsed.zoneConcerns).toEqual([
+      { zone: ZONE_CROWN_ENDS, concerns: ['breakage', 'dryness'] },
+      { zone: ZONE_FRONT_ROOTS, concerns: ['dryness'] },
+    ]);
+    expect(Object.isFrozen(parsed.zoneConcerns)).toBe(true);
+    expect(Object.isFrozen((parsed.zoneConcerns as { concerns: string[] }[])[0].concerns)).toBe(true);
+  });
+
+  it('treats zone concerns as optional and leaves them absent when none were given', () => {
+    expect(normalizeCurrentCondition(validCheckIn(), NOW)).not.toHaveProperty('zoneConcerns');
+  });
+
+  it.each([
+    ['a zone concern for a zone that was not reported', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_CROWN_ENDS, concerns: ['dryness'] }] }, /reported zones/i],
+    ['a zone concern with no reported zones at all', { zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['dryness'] }] }, /reported zones/i],
+    ['a zone concern the check-in did not report', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['buildup'] }] }, /reported concerns/i],
+    ['none inside a zone', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['none'] }] }, /none|unknown|exclusive/i],
+    ['unknown inside a zone', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['unknown'] }] }, /none|unknown|exclusive/i],
+    ['the same zone twice', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['dryness'] }, { zone: ZONE_FRONT_ROOTS, concerns: ['frizz'] }] }, /unique/i],
+    ['a duplicate concern inside a zone', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['dryness', 'dryness'] }] }, /unique/i],
+    ['an empty zone concern list', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [] }, undefined],
+    ['an empty concern list for a zone', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: [] }] }, undefined],
+    ['an unknown key on a zone concern', { zones: [ZONE_FRONT_ROOTS], zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['dryness'], severity: 'high' }] }, undefined],
+  ])('rejects %s instead of repairing it', (_name, extra, message) => {
+    const attempt = () => normalizeCurrentCondition({ ...validCheckIn(), concerns: ['dryness', 'frizz'], ...extra }, NOW);
+    if (message) expect(attempt).toThrow(message);
+    else expect(attempt).toThrow();
+  });
+
+  it('does not let tap order, zone order or key order change a zone-attached answer', () => {
+    const left = normalizeCurrentCondition(
+      { ...validCheckIn(), concerns: ['dryness', 'breakage'], zones: [ZONE_FRONT_ROOTS, ZONE_CROWN_ENDS],
+        zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['dryness'] }, { zone: ZONE_CROWN_ENDS, concerns: ['dryness', 'breakage'] }] },
+      NOW,
+    );
+    const right = normalizeCurrentCondition(
+      { zoneConcerns: [{ concerns: ['breakage', 'dryness'], zone: { segment: 'ends', region: 'crown' } }, { concerns: ['dryness'], zone: { segment: 'roots', region: 'front' } }],
+        zones: [ZONE_CROWN_ENDS, ZONE_FRONT_ROOTS], concerns: ['breakage', 'dryness'], availableMinutes: 30, goal: 'basic_wash', observedAt: '2026-10-13T11:30:00+02:00' },
+      NOW,
+    );
+    expect(JSON.stringify(left)).toBe(JSON.stringify(right));
+  });
+
+  it('never mutates the caller input when zone concerns are present', () => {
+    const submitted = {
+      ...validCheckIn(), concerns: ['frizz', 'dryness'], zones: [ZONE_FRONT_ROOTS],
+      zoneConcerns: [{ zone: ZONE_FRONT_ROOTS, concerns: ['frizz', 'dryness'] }],
+    };
+    const before = structuredClone(submitted);
+    normalizeCurrentCondition(submitted, NOW);
     expect(submitted).toEqual(before);
   });
 });

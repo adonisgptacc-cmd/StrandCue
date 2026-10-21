@@ -137,9 +137,13 @@ export const CONCERN_LABELS: Readonly<Record<CurrentConditionConcern, string>> =
   breakage: 'Breakage',
   stiffness: 'Stiffness',
   dullness: 'Dullness',
+  buildup: 'Buildup or a heavy, coated feel',
   'scalp-dryness': 'Scalp dryness',
   'scalp-oiliness': 'Scalp oiliness',
+  'scalp-discomfort': 'Scalp discomfort you can feel',
   'reported-damage': 'Damage you can see or feel',
+  'chemical-processing-concern': 'Worried about chemical processing',
+  'heat-concern': 'Worried about heat',
   none: 'None of these',
   unknown: 'I am not sure',
 };
