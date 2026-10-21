@@ -679,21 +679,24 @@ describe('task 6 integration: honest states without purchase pressure', () => {
         noPurchaseNeeded: null,
         steps: [],
         omissions: [
-          "No verified available candidate provides required capability 'condition'",
+          "profile.unrecorded rule-wash@1 https://example.invalid/secret 11111111-1111-4111-8111-111111111111",
         ],
         alternatives: [],
       }),
     });
   }
 
-  it('states what is missing when no reviewed combination is available', async () => {
+  it('keeps unsupported engine omissions out of visible and accessibility text', async () => {
     mocks.generate.mockResolvedValue(unsupportedResult());
     const renderer = await render();
     await generate(renderer);
     const rendered = text(renderer);
-    expect(rendered).toContain('no verified available candidate');
-    expect(rendered).toContain('condition');
-    expect(hasLabeled(renderer, 'What is missing')).toBe(true);
+    expect(rendered).toContain('no published reviewed rule covers this situation yet');
+    expect(rendered).not.toContain('profile.unrecorded');
+    expect(rendered).not.toContain('rule-wash@1');
+    expect(rendered).not.toContain('example.invalid');
+    expect(rendered).not.toContain('11111111-1111-4111-8111-111111111111');
+    expect(hasLabeled(renderer, 'What is missing')).toBe(false);
     expect(rendered).not.toContain('no purchase needed');
     await act(async () => { renderer.unmount(); });
   });
@@ -709,13 +712,8 @@ describe('task 6 integration: honest states without purchase pressure', () => {
     mocks.generate.mockResolvedValue(unsupportedResult());
     renderer = await render();
     await generate(renderer);
-    expect(hasLabeled(renderer, 'What is missing')).toBe(true);
-    expect(
-      hasLabeled(
-        renderer,
-        "No verified available candidate provides required capability 'condition'",
-      ),
-    ).toBe(true);
+    expect(hasLabeled(renderer, 'What is missing')).toBe(false);
+    expect(hasLabeled(renderer, 'profile.unrecorded rule-wash@1 https://example.invalid/secret 11111111-1111-4111-8111-111111111111')).toBe(false);
     await act(async () => { renderer.unmount(); });
 
     mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
@@ -778,6 +776,20 @@ describe('task 6 integration: honest states without purchase pressure', () => {
     for (const pattern of banned) {
       expect(rendered).not.toMatch(pattern);
     }
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('requires approval again after starting over and generating another plan', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    const renderer = await render();
+    await generate(renderer);
+
+    await press(renderer, 'Start this plan');
+    expect(renderer.root.findAll(node => node.type === 'button' && node.props.accessibilityLabel === 'Start this plan')).toHaveLength(2);
+
+    await press(renderer, START_OVER_LABEL);
+    await generate(renderer);
+    expect(renderer.root.findAll(node => node.type === 'button' && node.props.accessibilityLabel === 'Start this plan')).toHaveLength(1);
     await act(async () => { renderer.unmount(); });
   });
 });

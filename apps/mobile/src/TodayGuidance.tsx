@@ -20,7 +20,6 @@ import {
   GENERATE_LABEL,
   GENERATING_LABEL,
   LOADING_LABEL,
-  MISSING_HEADING,
   READY_TITLE,
   REVIEW_CHECK_IN_LABEL,
   RETRY_FAILED_MESSAGE,
@@ -169,7 +168,10 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   // Start is gated behind a validated preview: the owner must confirm the
   // preview before execution is mounted, and the stored decision is never
   // silently swapped for a regenerated one.
-  const [startExecution, setStartExecution] = useState(false);
+  const [startedRequest, setStartedRequest] = useState<Readonly<{
+    ownerId: string;
+    requestId: string;
+  }> | null>(null);
   // Fix E: process-death recovery. This read-only restore runs on mount and
   // on every owner change, independently of generating new guidance. It never
   // generates, records, or starts anything: a validated restore only exposes
@@ -269,6 +271,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     // from the newest request: anything else is a late response and is
     // discarded before it can render or persist.
     const live = () => mounted.current && owner === ownerToken.current && current === requestEpoch.current;
+    setStartedRequest(null);
     dispatch({ type: 'generation_started', requestEpoch: current });
     setSaveFailed(false);
     setRetryFailed(false);
@@ -608,9 +611,15 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         )}
 
         {result.status === 'ready' && previewModel !== null && (
-          <ProtocolPreview model={previewModel} onStart={() => setStartExecution(true)} />
+          <ProtocolPreview
+            model={previewModel}
+            onStart={() => setStartedRequest({ ownerId, requestId: result.requestId })}
+          />
         )}
-        {result.status === 'ready' && startExecution && result.decision.steps.length > 0 && (
+        {result.status === 'ready'
+          && startedRequest?.ownerId === ownerId
+          && startedRequest.requestId === result.requestId
+          && result.decision.steps.length > 0 && (
           <ProtocolExecution key={ownerId} ownerId={ownerId} decision={result.decision} />
         )}
 
@@ -635,10 +644,6 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
             <Text style={styles.body}>
               No published reviewed rule covers this situation yet. Nothing is being suggested in its place.
             </Text>
-            {result.decision.omissions.length > 0 && <>
-              <Text style={styles.label} accessibilityRole="header" accessibilityLabel={MISSING_HEADING}>{MISSING_HEADING}</Text>
-              {result.decision.omissions.map(omission => <Text key={omission} style={styles.body} accessibilityRole="text" accessibilityLabel={omission}>{omission}</Text>)}
-            </>}
           </View>
         )}
 
@@ -646,7 +651,10 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           title={START_OVER_LABEL}
           accessibilityLabel={START_OVER_LABEL}
           secondary
-          onPress={() => dispatch({ type: 'reset' })}
+          onPress={() => {
+            setStartedRequest(null);
+            dispatch({ type: 'reset' });
+          }}
         />
       </>
     )}
