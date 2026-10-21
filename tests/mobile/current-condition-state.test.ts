@@ -16,6 +16,7 @@ import {
   type PreflightState,
 } from '../../apps/mobile/src/guidance/current-condition-state';
 import { CONCERN_LABELS } from '../../apps/mobile/src/guidance/guidance-copy';
+import type { TodayGuidanceResult } from '../../apps/mobile/src/guidance/today-guidance-service';
 
 const OWNER = 'owner-1';
 const OBSERVED = '2026-10-13T08:00:00+02:00';
@@ -548,5 +549,91 @@ describe('task 3.2: the owner-scoped check-in session', () => {
       { type: 'restore_check_in', draft: draft({ concerns: ['frizz'] }) },
     );
     expect(busy.checkIn.concerns).toEqual(['dryness']);
+  });
+});
+
+/**
+ * Task 3.2 review fixes: the check-in can never hold an answer the domain
+ * would refuse, and a stale result never survives a return to the form.
+ */
+describe('task 3.2: the check-in can never contradict itself', () => {
+  const ZONE = { region: 'crown' as const, segment: 'roots' as const };
+
+  it('removes a concern from every area it was attached to when it is un-ticked', () => {
+    const state = preflightReducer(
+      {
+        ...initialPreflight(OWNER),
+        phase: 'checking_in',
+        checkIn: draft({
+          concerns: ['dryness', 'frizz'],
+          zones: [ZONE],
+          zoneConcerns: [{ zone: ZONE, concerns: ['dryness'] }],
+        }),
+      },
+      { type: 'toggle_concern', concern: 'dryness' },
+    );
+    expect(state.checkIn.concerns).toEqual(['frizz']);
+    expect(state.checkIn.zoneConcerns).toEqual([]);
+  });
+
+  it('removes every attached concern when a stand-alone answer is chosen', () => {
+    const state = preflightReducer(
+      {
+        ...initialPreflight(OWNER),
+        phase: 'checking_in',
+        checkIn: draft({
+          concerns: ['dryness'],
+          zones: [ZONE],
+          zoneConcerns: [{ zone: ZONE, concerns: ['dryness'] }],
+        }),
+      },
+      { type: 'toggle_concern', concern: 'none' },
+    );
+    expect(state.checkIn.concerns).toEqual(['none']);
+    expect(state.checkIn.zoneConcerns).toEqual([]);
+  });
+
+  it('reports an area attachment the owner did not report', () => {
+    const errors = validateCheckIn(draft({
+      concerns: ['dryness'],
+      zones: [ZONE],
+      zoneConcerns: [{ zone: ZONE, concerns: ['frizz'] }],
+    }), NOW);
+    expect(errors).toContain('zone_concern_unreported');
+  });
+
+  it('orders areas by the taxonomy the owner picks them in', () => {
+    const state = preflightReducer(
+      {
+        ...initialPreflight(OWNER),
+        phase: 'checking_in',
+        checkIn: draft({ concerns: ['dryness'] }),
+      },
+      { type: 'toggle_zone', region: 'nape', segment: 'ends' },
+    );
+    const second = preflightReducer(
+      state,
+      { type: 'toggle_zone', region: 'crown', segment: 'roots' },
+    );
+    expect(second.checkIn.zones.map(zone => zone.region)).toEqual(['crown', 'nape']);
+  });
+
+  it('leaves the previous result behind when the owner goes back to the form', () => {
+    const withResult = {
+      ...initialPreflight(OWNER),
+      phase: 'result' as const,
+      result: { status: 'content_pending' } as TodayGuidanceResult,
+    };
+    const back = preflightReducer(withResult, { type: 'back_to_check_in' });
+    expect(back.phase).toBe('checking_in');
+    expect(back.result).toBeNull();
+  });
+
+  it('carries a reason back to the form, so the owner is never left guessing', () => {
+    const back = preflightReducer(
+      { ...initialPreflight(OWNER), phase: 'ready_to_generate' },
+      { type: 'back_to_check_in', error: 'check_in_unusable' },
+    );
+    expect(back.errors).toEqual(['check_in_unusable']);
   });
 });

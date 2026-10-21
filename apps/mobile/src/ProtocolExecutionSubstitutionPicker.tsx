@@ -61,7 +61,7 @@ export function ExecutionSubstitutionPicker({
       </Text>
     )}
     {shelfDetail !== null && shelfDetail.id === shelfItemId && shelfDetail.versionId !== null && (
-      <Text style={styles.body}>{shelfItemVersionLabel(shelfDetail.versionId)}</Text>
+      <Text style={styles.body}>{shelfItemVersionLabel(shelfDetail.manualName ?? 'this product')}</Text>
     )}
   </>;
 }

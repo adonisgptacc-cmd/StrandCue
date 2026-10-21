@@ -71,11 +71,17 @@ export function zoneKey(zone: CurrentConditionZone): string {
   return `${zone.region}:${zone.segment}`;
 }
 
-/** Zones in canonical order, so tap order never changes the answer. */
+/**
+ * Zones in the order the owner meets them: the area first, then the part of
+ * the hair, both in the taxonomy's own order. Tap order never changes the
+ * answer.
+ */
 export function sortZones(zones: readonly CurrentConditionZone[]): CurrentConditionZone[] {
-  return [...zones].sort((left, right) =>
-    zoneKey(left) < zoneKey(right) ? -1 : zoneKey(left) > zoneKey(right) ? 1 : 0,
-  );
+  return [...zones].sort((left, right) => {
+    const byRegion = ZONE_REGIONS.indexOf(left.region) - ZONE_REGIONS.indexOf(right.region);
+    if (byRegion !== 0) return byRegion;
+    return ZONE_SEGMENTS.indexOf(left.segment) - ZONE_SEGMENTS.indexOf(right.segment);
+  });
 }
 
 export type CheckInErrorCode =
@@ -86,7 +92,9 @@ export type CheckInErrorCode =
   | 'observed_at_required'
   | 'observed_at_invalid'
   | 'observed_at_future'
-  | 'zone_concerns_required';
+  | 'zone_concerns_required'
+  | 'zone_concern_unreported'
+  | 'check_in_unusable';
 
 export interface PreflightState {
   readonly phase: PreflightPhase;
@@ -107,7 +115,7 @@ export type PreflightAction =
   | { readonly type: 'set_available_minutes'; readonly minutes: number | null }
   | { readonly type: 'refresh_observed_at'; readonly observedAt: string }
   | { readonly type: 'complete_check_in'; readonly now: string }
-  | { readonly type: 'back_to_check_in' }
+  | { readonly type: 'back_to_check_in'; readonly error?: CheckInErrorCode }
   | { readonly type: 'reset' }
   | { readonly type: 'owner_changed'; readonly ownerId: string }
   | { readonly type: 'restore_check_in'; readonly draft: CheckInDraft }
@@ -130,9 +138,14 @@ const EMPTY_DRAFT: CheckInDraft = {
 /**
  * The check-in of one owner, kept for as long as that owner is on the
  * screen. It is a session draft and nothing more: it is never written to the
- * Hair Passport, never persisted, and it is cleared the moment the owner
- * changes, signs out or deletes the account, so no previous owner's answers
- * can be read by the next one.
+ * Hair Passport, it is never sent anywhere, and it is cleared the moment the
+ * owner changes, signs out or deletes the account, so no previous owner's
+ * answers can be read by the next one.
+ *
+ * The answers a *generated plan* used are a separate matter: the facts the
+ * engine read are kept in the owner-scoped private run record, which is the
+ * accepted audit design from Task 3.1. That record is not this draft, and
+ * this draft is not that record.
  */
 interface OwnerSession {
   readonly draft: CheckInDraft | null;
@@ -190,6 +203,10 @@ export function initialPreflight(ownerId: string): PreflightState {
  * either exclusive answer stands alone, and picking an ordinary concern
  * clears a standing exclusive answer. An empty draft is allowed here so the
  * check-in step can report `concerns_required` instead of inventing one.
+ *
+ * A concern that leaves the list also leaves every zone it was attached to:
+ * the domain refuses a zone concern the owner did not report, so keeping the
+ * old attachment would leave the owner with an answer that cannot be sent.
  */
 function toggleConcern(
   selected: readonly CurrentConditionConcern[],
@@ -198,6 +215,19 @@ function toggleConcern(
   if (concern === 'none' || concern === 'unknown') return [concern];
   if (selected.includes(concern)) return selected.filter(entry => entry !== concern);
   return [...selected.filter(entry => entry !== 'none' && entry !== 'unknown'), concern];
+}
+
+/** Removes a concern from every zone it was attached to. */
+function withoutConcern(
+  zoneConcerns: readonly CheckInZoneDraft[],
+  concern: CurrentConditionConcern,
+): readonly CheckInZoneDraft[] {
+  return zoneConcerns
+    .map(entry => ({
+      zone: entry.zone,
+      concerns: entry.concerns.filter(entry => entry !== concern),
+    }))
+    .filter(entry => entry.concerns.length > 0);
 }
 
 function hasExplicitOffset(value: string): boolean {
@@ -248,9 +278,10 @@ function toggleZoneConcern(
     };
   }
   const attached = existing.concerns.includes(concern);
-  const concerns = attached
+  const concerns = (attached
     ? existing.concerns.filter(entry => entry !== concern)
-    : [...existing.concerns, concern].sort();
+    : [...existing.concerns, concern]
+  ).sort((left, right) => CHECK_IN_CONCERNS.indexOf(left) - CHECK_IN_CONCERNS.indexOf(right));
   const zoneConcerns = concerns.length === 0
     ? draft.zoneConcerns.filter(entry => zoneKey(entry.zone) !== key)
     : draft.zoneConcerns.map(entry => (zoneKey(entry.zone) === key ? { zone, concerns } : entry));
@@ -261,9 +292,12 @@ function toggleZoneConcern(
 function sortZoneConcerns(
   entries: readonly CheckInZoneDraft[],
 ): readonly CheckInZoneDraft[] {
-  return [...entries].sort((left, right) =>
-    zoneKey(left.zone) < zoneKey(right.zone) ? -1 : zoneKey(left.zone) > zoneKey(right.zone) ? 1 : 0,
-  );
+  const byZone = (left: CheckInZoneDraft, right: CheckInZoneDraft): number => {
+    const byRegion = ZONE_REGIONS.indexOf(left.zone.region) - ZONE_REGIONS.indexOf(right.zone.region);
+    if (byRegion !== 0) return byRegion;
+    return ZONE_SEGMENTS.indexOf(left.zone.segment) - ZONE_SEGMENTS.indexOf(right.zone.segment);
+  };
+  return [...entries].sort(byZone);
 }
 
 /**
@@ -302,13 +336,26 @@ export function validateCheckIn(draft: CheckInDraft, now: string): CheckInErrorC
     }
   }
   // A zone the owner named but attached nothing to is an unfinished answer:
-  // they said where, and not what. Where no zone is named, the answer is
-  // complete, because zone detail is optional.
-  if (
-    draft.zones.length > 0 &&
-    !draft.zoneConcerns.some(entry => entry.concerns.length > 0)
-  ) {
-    errors.push('zone_concerns_required');
+  // they said where, and not what. Every named area must carry an answer.
+  // Where no zone is named, the answer is complete, because zone detail is
+  // optional.
+  if (draft.zones.length > 0) {
+    const answered = new Set(
+      draft.zoneConcerns
+        .filter(entry => entry.concerns.length > 0)
+        .map(entry => zoneKey(entry.zone)),
+    );
+    if (draft.zones.some(zone => !answered.has(zoneKey(zone)))) {
+      errors.push('zone_concerns_required');
+    }
+  }
+  // A zone concern the owner did not report is a contradiction the domain
+  // would refuse, so it is caught here rather than at the service boundary.
+  if (draft.zoneConcerns.some(entry =>
+    entry.concerns.some(concern =>
+      !draft.concerns.includes(concern) || concern === 'none' || concern === 'unknown',
+    ))) {
+    errors.push('zone_concern_unreported');
   }
   return errors;
 }
@@ -336,11 +383,18 @@ export function preflightReducer(
         result: null,
       };
     }
-    case 'toggle_concern':
-      return edit(state, {
-        ...state.checkIn,
-        concerns: toggleConcern(state.checkIn.concerns, action.concern),
-      });
+    case 'toggle_concern': {
+      const concerns = toggleConcern(state.checkIn.concerns, action.concern);
+      // Whatever the concerns are now, the zone attachments follow them: a
+      // concern that is no longer reported is no longer attached anywhere.
+      const zoneConcerns = state.checkIn.concerns
+        .filter(entry => !concerns.includes(entry))
+        .reduce<readonly CheckInZoneDraft[]>(
+          (kept, gone) => withoutConcern(kept, gone),
+          state.checkIn.zoneConcerns,
+        );
+      return edit(state, { ...state.checkIn, concerns, zoneConcerns });
+    }
     case 'toggle_zone':
       return edit(state, toggleZone(state.checkIn, action.region, action.segment));
     case 'toggle_zone_concern':
@@ -359,7 +413,15 @@ export function preflightReducer(
     }
     case 'back_to_check_in': {
       if (state.phase !== 'ready_to_generate' && state.phase !== 'result') return state;
-      return { ...state, phase: 'checking_in', errors: [] };
+      // The result goes with it: the next generation must never render the
+      // previous plan while it runs. A reason may come with it, so the owner
+      // is never returned to the form without an explanation.
+      return {
+        ...state,
+        phase: 'checking_in',
+        errors: action.error === undefined ? [] : [action.error],
+        result: null,
+      };
     }
     case 'reset': {
       if (state.phase === 'generating') return state;

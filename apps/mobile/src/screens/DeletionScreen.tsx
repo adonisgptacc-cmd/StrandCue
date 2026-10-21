@@ -10,15 +10,16 @@ import {
   statusDeletion,
   type DeletionStatus,
 } from '../deletion-api';
+import { clearCheckInDraft } from '../guidance/current-condition-state';
 import { Button, styles } from '../ui';
 
 const CONFIRM_TEXT = 'DELETE MY ACCOUNT';
 
 export function DeletionScreen({ owner }: { owner: string }) {
-  return <OwnerDeletionScreen key={owner} />;
+  return <OwnerDeletionScreen key={owner} owner={owner} />;
 }
 
-function OwnerDeletionScreen() {
+function OwnerDeletionScreen({ owner }: { owner: string }) {
   const [status, setStatus] = useState<DeletionStatus | null>(null);
   const [reason, setReason] = useState('');
   const [confirmText, setConfirmText] = useState('');
@@ -65,6 +66,9 @@ function OwnerDeletionScreen() {
       setRetryPending(true);
       await requestDeletion(payload.operationId, payload.reason);
       if (!alive.current) return;
+      // The account is going away, so the temporary check-in and the
+      // resolver state that belonged to it go with it.
+      clearCheckInDraft(owner);
       pendingRequest.current = null;
       setRetryPending(false);
       setOperationId(Crypto.randomUUID());

@@ -11,7 +11,7 @@ import {
   CHECK_IN_START_LABEL,
   CHECK_IN_SUMMARY_HEADING,
   START_OVER_LABEL,
-  TIME_LABEL,
+  TIME_INPUT_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 
 const mocks = vi.hoisted(() => ({
@@ -232,7 +232,7 @@ async function completeCheckIn(
     }
   }
   const time = renderer.root.find(
-    node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+    node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
   );
   await act(async () => {
     time.props.onChangeText(minutes);
@@ -420,6 +420,12 @@ describe('today guidance states', () => {
   });
 
   it('keeps needs_input, rule_conflict and unsupported visibly distinct and never successful', async () => {
+    // The titles say it in the owner's words, never in engine vocabulary.
+    const titles = {
+      needs_input: 'this plan needs a little more from you',
+      rule_conflict: 'two reviewed rules disagree here',
+      unsupported: 'nothing reviewed covers this yet',
+    } as const;
     for (const status of ['needs_input', 'rule_conflict', 'unsupported'] as const) {
       mocks.generate.mockResolvedValue(
         readyResult({
@@ -434,7 +440,7 @@ describe('today guidance states', () => {
       await generate(renderer);
       const rendered = text(renderer);
       expect(rendered).not.toContain('your plan is ready');
-      expect(rendered).toContain(status.replaceAll('_', ' '));
+      expect(rendered).toContain(titles[status]);
       if (status === 'needs_input') expect(rendered).toContain('profile.unrecorded');
       await act(async () => { renderer.unmount(); });
     }

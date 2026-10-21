@@ -27,6 +27,8 @@ import {
   READY_TITLE,
   REVIEW_CHECK_IN_LABEL,
   RETRY_FAILED_MESSAGE,
+  RESOLVER_CONTENT_HEADING,
+  RESOLVER_FAILED_HEADING,
   RESOLVER_HEADING,
   RESOLVER_SETUP_HEADING,
   SAVE_FAILED,
@@ -186,8 +188,11 @@ function DecisionView({ decision }: { readonly decision: ProtocolDecision }) {
  *    regenerating would silently change the decision being read.
  * 5. The check-in survives the trip to a destination. It is kept in an
  *    owner-scoped session draft, so opening My Hair, My Shelf or My Tools and
- *    coming back finds the owner's own answers, unchanged. The draft is
- *    session-only, is never written to the Passport, and is cleared the
+ *    coming back finds the owner's own answers, unchanged. The draft lives in
+ *    the app's memory only: it is never written to the Hair Passport and
+ *    never sent anywhere. (The facts a *generated plan* used are kept in the
+ *    owner-scoped private run record, which is the accepted audit design from
+ *    Task 3.1; that record is not this draft.) The draft is cleared the
  *    moment the owner changes, signs out or deletes the account.
  */
 export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
@@ -243,6 +248,9 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     dispatch({ type: 'owner_changed', ownerId });
     ownerToken.current += 1;
     inflight.current = false;
+    // A new owner starts with a clean slate: no attempt of the previous
+    // owner counts as theirs.
+    attempted.current = false;
   }, [ownerId]);
 
   // The check-in is kept in an owner-scoped session draft so it survives a
@@ -273,7 +281,9 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         new Date(asOf),
       );
     } catch {
-      dispatch({ type: 'back_to_check_in' });
+      // A check-in the domain cannot use must return to the form with a
+      // reason, never generate and never disappear without a word.
+      dispatch({ type: 'back_to_check_in', error: 'check_in_unusable' });
       return;
     }
     inflight.current = true;
@@ -299,6 +309,11 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
       if (!live()) return;
 
       dispatch({ type: 'generation_finished', requestEpoch: current, result });
+
+      // A read has been attempted. A later failure is a retry that failed
+      // again, not the first failure, and is said as such.
+      const isRetryFailure = attempted.current;
+      attempted.current = true;
 
       if (result.status === 'ready' || result.status === 'needs_input'
         || result.status === 'rule_conflict' || result.status === 'unsupported') {
@@ -326,8 +341,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         }
         return;
       }
-      if (result.status === 'source_error' && attempted.current) setRetryFailed(true);
-      attempted.current = true;
+      if (result.status === 'source_error' && isRetryFailure) setRetryFailed(true);
     } catch {
       if (!live()) return;
       dispatch({
@@ -378,12 +392,15 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
    * The resolver list. A failed read becomes one item per source, a
    * contradicted or missing answer becomes one item per gap, and content
    * that is not published becomes one item that asks nothing of the owner.
+   *
+   * The blocking gaps and the optional setup never share a list: a setup
+   * item is the owner's own next step, not something a plan needs.
    */
   const items: readonly GuidanceResolverItem[] = useMemo(() => {
     if (result === null) return [];
     if (result.status === 'needs_setup') {
       return resolverItems({
-        gaps: [...result.missing, ...(result.setup ?? [])],
+        gaps: [...result.missing],
         failedSources: [],
         contentPending: false,
       });
@@ -404,6 +421,15 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
       failedSources: [],
       contentPending: false,
     });
+  }, [result]);
+
+  /** The heading names what the resolver is showing, so it is never wrong. */
+  const resolverHeading = useMemo(() => {
+    if (result === null) return RESOLVER_HEADING;
+    if (result.status === 'needs_setup') return RESOLVER_HEADING;
+    if (result.status === 'source_error') return RESOLVER_FAILED_HEADING;
+    if (result.status === 'content_pending') return RESOLVER_CONTENT_HEADING;
+    return RESOLVER_SETUP_HEADING;
   }, [result]);
 
   const handleNavigate = useCallback((route: GuidanceRoute) => {
@@ -558,7 +584,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         {items.length > 0 && (
           <GuidanceGapResolver
             items={items}
-            heading={result.status === 'needs_setup' ? RESOLVER_HEADING : RESOLVER_SETUP_HEADING}
+            heading={resolverHeading}
             onNavigate={(route, key) => { rememberFocus(key); handleNavigate(route); }}
             onRetry={handleRetry}
             onReviewCheckIn={handleReviewCheckIn}

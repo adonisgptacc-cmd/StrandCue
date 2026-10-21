@@ -87,7 +87,11 @@ function compareGaps(left: GuidanceGap, right: GuidanceGap): number {
   if (byKind !== 0) return byKind;
   const leftSubject = left.subject ?? '';
   const rightSubject = right.subject ?? '';
-  return leftSubject < rightSubject ? -1 : 1;
+  // A real comparator: equal subjects compare equal, so the order is total
+  // and does not depend on the sort's internals.
+  if (leftSubject < rightSubject) return -1;
+  if (leftSubject > rightSubject) return 1;
+  return 0;
 }
 
 function unavailable(reason: 'no_supported_goal'): GuidancePreparation {

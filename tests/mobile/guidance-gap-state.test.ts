@@ -4,7 +4,6 @@ import type { GuidanceGap, GuidanceGapReason } from '../../packages/domain/src/i
 import {
   contentPendingItem,
   failedSourceItems,
-  failedSourceNames,
   gapRenderKey,
   resolverItemFor,
   resolverItems,
@@ -13,8 +12,6 @@ import {
 } from '../../apps/mobile/src/guidance/guidance-gap-state';
 import {
   CHECK_IN_SUMMARY_TIME,
-  gapTarget,
-  sourceErrorAreas,
   statusTitle,
   zoneLabel,
 } from '../../apps/mobile/src/guidance/guidance-copy';
@@ -106,7 +103,7 @@ describe('guidance gap routing', () => {
     const items = resolverItems(input({ gaps: [PASSPORT_GAP] }));
     expect(items).toHaveLength(1);
     expect(items[0].route).toBe('my_hair');
-    expect(items[0].primaryAction?.label).toBe('Add this in My Hair');
+    expect(items[0].primaryAction?.label).toBe('Add your strand thickness in My Hair');
     expect(items[0].state).toBe('missing');
   });
 
@@ -132,21 +129,21 @@ describe('guidance gap routing', () => {
     const items = resolverItems(input({ gaps: [SHELF_GAP] }));
     expect(items[0].route).toBe('my_shelf');
     expect(items[0].primaryAction?.label).toBe('Review My Shelf');
-    expect(items[0].secondaryAction?.label).toBe('Match this product');
+    expect(items[0].secondaryAction?.label).toBe('Match your saved shampoo');
   });
 
   it('routes a missing tool setup to My Tools and names the missing fact', () => {
     const items = resolverItems(input({ gaps: [TOOL_GAP] }));
     expect(items[0].route).toBe('my_tools');
     expect(items[0].primaryAction?.label).toBe('Review My Tools');
-    expect(items[0].secondaryAction?.label).toBe('Add the exact temperature');
+    expect(items[0].secondaryAction?.label).toBe('Add the exact temperature for your dryer');
   });
 
   it('routes a contradictory check-in back to the check-in', () => {
     const items = resolverItems(input({ gaps: [CHECK_IN_GAP] }));
     expect(items[0].route).toBe('today_check_in');
     expect(items[0].primaryAction?.label).toBe('Review check-in answers');
-    expect(items[0].subject).toBe('current.concerns');
+    expect(items[0].internalSubject).toBe('current.concerns');
   });
 });
 
@@ -308,7 +305,7 @@ describe('every gap shape the resolver can meet', () => {
     };
     const items = resolverItems(input({ gaps: [orphan] }));
     expect(items[0].route).toBe('content_pending');
-    expect(items[0].primaryAction?.label).toBe('Review My Shelf');
+    expect(items[0].primaryAction).toBeNull();
   });
 
   it('offers the one second action each kind of setup item deserves', () => {
@@ -347,13 +344,6 @@ describe('every gap shape the resolver can meet', () => {
     expect(new Set(items.map(item => item.key)).size).toBe(3);
   });
 
-  it('names the sources a caller can retry', () => {
-    const items = resolverItems(input({
-      failedSources: [{ source: 'tools', state: 'failed' }],
-      gaps: [PASSPORT_GAP],
-    }));
-    expect(failedSourceNames(items)).toEqual(['tools']);
-  });
 });
 
 describe('the wording the resolver uses', () => {
@@ -361,24 +351,14 @@ describe('the wording the resolver uses', () => {
     expect(statusTitle({ status: 'ready' } as never)).toBe('Your plan is ready');
     expect(statusTitle({ status: 'needs_setup' } as never)).toBe('A few things are needed first');
     expect(statusTitle({ status: 'content_pending' } as never)).toContain('still being prepared');
-    expect(statusTitle({ status: 'needs_input' } as never)).toContain('needs input');
-    expect(statusTitle({ status: 'rule_conflict' } as never)).toContain('rule conflict');
-    expect(statusTitle({ status: 'unsupported' } as never)).toContain('unsupported');
+    expect(statusTitle({ status: 'needs_input' } as never)).toContain('needs a little more');
+    expect(statusTitle({ status: 'rule_conflict' } as never)).toContain('Two reviewed rules disagree');
+    expect(statusTitle({ status: 'unsupported' } as never)).toContain('Nothing reviewed covers');
     expect(statusTitle({ status: 'source_error' } as never)).toContain('could not be read');
     expect(statusTitle({ status: 'unknown_status' } as never)).toContain('could not be read');
   });
 
-  it('says which areas could not be read, or says nothing when none is known', () => {
-    expect(sourceErrorAreas(undefined)).toBeNull();
-    expect(sourceErrorAreas([])).toBeNull();
-    expect(sourceErrorAreas([{ source: 'passport', state: 'failed' }])).toContain('My Hair');
-  });
 
-  it('sends a gap with no destination to the screen that can fix its kind', () => {
-    expect(gapTarget({ kind: 'hair_profile', detail: 'x', subject: null, state: 'missing', destination: null })).toBe('my_hair');
-    expect(gapTarget({ kind: 'tool_capability', detail: 'x', subject: null, state: 'missing', destination: null })).toBe('my_tools');
-    expect(gapTarget({ kind: 'current_condition', detail: 'x', subject: null, state: 'missing', destination: 'today_check_in' })).toBeNull();
-  });
 
   it('names a zone in plain words, even when the taxonomy has no name for it', () => {
     expect(zoneLabel({ region: 'crown', segment: 'roots' })).toBe('Crown, Roots');

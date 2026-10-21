@@ -1,13 +1,8 @@
 import type {
   CurrentConditionConcern,
-  GuidanceGap,
-  GuidanceGapDestination,
-  GuidanceGapKind,
   GuidanceGapState,
-  GuidanceIncompleteSource,
   GuidanceSourceName,
 } from '../../../../packages/domain/src/index';
-import type { DestinationId } from '../navigation';
 import type { CheckInErrorCode, CheckInGoal } from './current-condition-state';
 import type { TodayGuidanceResult } from './today-guidance-service';
 
@@ -22,66 +17,13 @@ import type { TodayGuidanceResult } from './today-guidance-service';
  */
 
 export const CONTENT_PENDING_TITLE = 'Reviewed guidance content is still being prepared';
-export const CONTENT_PENDING_BODY =
-  'StrandCue only produces a plan from reviewed content that a person has checked. None is published yet, so nothing is being generated from your records.';
 
 export const LOADING_LABEL = 'Loading your records…';
 export const GENERATE_LABEL = 'Generate my plan';
-export const RETRY_LABEL = 'Retry';
 export const GENERATING_LABEL = 'Working…';
 
 export const SAVE_FAILED =
   'Plan created, audit save failed. Your plan is shown below, but this decision was not stored privately.';
-
-export const DESTINATION_LABELS: Readonly<Record<DestinationId, string>> = {
-  today: 'Go to Today',
-  my_hair: 'Go to My Hair',
-  my_shelf: 'Go to My Shelf',
-  my_tools: 'Go to My Tools',
-  journey: 'Go to Journey',
-  settings: 'Go to Settings',
-};
-
-/**
- * Where a setup gap can actually be fixed. A gap with no destination is
- * explained in text instead — a button that goes nowhere is worse than none.
- */
-const GAP_DESTINATION: Readonly<Record<GuidanceGapKind, DestinationId | null>> = {
-  hair_profile: 'my_hair',
-  service_presence: 'my_hair',
-  product_version: 'my_shelf',
-  product_capability: 'my_shelf',
-  tool_version: 'my_tools',
-  tool_capability: 'my_tools',
-  source_incomplete: 'journey',
-  reviewed_content: null,
-  // A temporary check-in answer is fixed in the check-in step itself: the
-  // result screen offers "Review check-in answers", which returns to the form
-  // with the draft intact. No records destination can fix it.
-  current_condition: null,
-};
-
-export function gapDestination(kind: GuidanceGapKind): DestinationId | null {
-  return GAP_DESTINATION[kind];
-}
-
-/**
- * The screen a gap's own `destination` points at. `today_check_in` is the
- * check-in step on this screen, not a records screen, so it has no navigation
- * target (the result screen offers "Review check-in answers" instead). A gap
- * that names no destination falls back to the kind's default.
- */
-const GAP_DESTINATION_SCREEN: Readonly<Record<GuidanceGapDestination, DestinationId | null>> = {
-  my_hair: 'my_hair',
-  my_hair_services: 'my_hair',
-  my_shelf: 'my_shelf',
-  my_tools: 'my_tools',
-  today_check_in: null,
-};
-
-export function gapTarget(gap: GuidanceGap): DestinationId | null {
-  return gap.destination === null ? gapDestination(gap.kind) : GAP_DESTINATION_SCREEN[gap.destination];
-}
 
 /** A short lead-in that says why the gap stops the plan, so the six states read differently. */
 export const GAP_STATE_LEAD: Readonly<Record<GuidanceGapState, string>> = {
@@ -109,8 +51,11 @@ export const SOURCE_AREA_NAMES: Readonly<Record<GuidanceSourceName, string>> = {
 export const FAILED_SOURCE_TITLE = 'We could not read';
 export const FAILED_SOURCE_BODY = (area: string): string =>
   `We could not read ${area}. Nothing was changed, and nothing was guessed.`;
+export const FAILED_SOURCE_UNKNOWN_BODY =
+  'We could not read your records. Nothing was changed, and nothing was guessed.';
 export const RETRY_DATA_LABEL = 'Try again';
 export const RETRY_DATA_ACCESSIBILITY = 'Try again';
+export const RETRY_DATA_BUSY_LABEL = 'Trying again…';
 export const RETRY_FAILED_MESSAGE = 'We could not read your records again. Try again.';
 
 /**
@@ -122,7 +67,7 @@ export const RETRY_FAILED_MESSAGE = 'We could not read your records again. Try a
 export const CONTENT_PENDING_ITEM_TITLE =
   'Reviewed guidance for this situation is not available yet.';
 export const CONTENT_PENDING_ITEM_BODY =
-  'We read your information. The reviewed guidance for this situation has not been published yet, so StrandCue did not guess and did not produce a plan.';
+  'We read your information. StrandCue did not guess, and did not produce a plan.';
 
 /**
  * The resolver's own words. The heading says what the screen is; the
@@ -131,9 +76,11 @@ export const CONTENT_PENDING_ITEM_BODY =
  */
 export const RESOLVER_HEADING = 'What is needed before a plan';
 export const RESOLVER_SETUP_HEADING = 'What you could add next';
-export const RESOLVER_ANNOUNCEMENT_ONE = 'One thing needs your attention before a plan.';
+export const RESOLVER_FAILED_HEADING = 'What we could not read';
+export const RESOLVER_CONTENT_HEADING = 'What is not available yet';
+export const RESOLVER_ANNOUNCEMENT_ONE = 'One thing needs your attention.';
 export const RESOLVER_ANNOUNCEMENT_MANY = (count: number): string =>
-  `${count} things need your attention before a plan.`;
+  `${count} things need your attention.`;
 
 /** The one primary action for each destination, and where it goes. */
 export const RESOLVER_ACTIONS = {
@@ -184,13 +131,13 @@ export const RESOLVER_ACTIONS = {
   },
   addTemperature: {
     id: 'add_temperature',
-    label: 'Add the exact temperature',
-    accessibilityLabel: 'Add the exact temperature in My Tools',
+    label: 'Add the exact temperature for this tool',
+    accessibilityLabel: 'Add the exact temperature for this tool in My Tools',
   },
   addHeatMethod: {
     id: 'add_heat_method',
-    label: 'Add the heat method',
-    accessibilityLabel: 'Add the heat method in My Tools',
+    label: 'Add the heat method for this tool',
+    accessibilityLabel: 'Add the heat method for this tool in My Tools',
   },
   reviewCheckIn: {
     id: 'review_check_in',
@@ -198,13 +145,6 @@ export const RESOLVER_ACTIONS = {
     accessibilityLabel: 'Review check-in answers',
   },
 } as const;
-
-/** Names the areas that could not be read, or says nothing specific when none are known. */
-export function sourceErrorAreas(sources: readonly GuidanceIncompleteSource[] | undefined): string | null {
-  if (sources === undefined || sources.length === 0) return null;
-  const names = sources.map(entry => SOURCE_AREA_NAMES[entry.source]);
-  return `Could not be read completely: ${names.join(', ')}. Try again.`;
-}
 
 export const READY_TITLE = 'Your plan is ready';
 export const NEEDS_SETUP_TITLE = 'A few things are needed first';
@@ -227,11 +167,11 @@ export function statusTitle(result: TodayGuidanceResult): string {
     case 'content_pending':
       return CONTENT_PENDING_TITLE;
     case 'needs_input':
-      return 'needs input — this plan needs more from you';
+      return 'This plan needs a little more from you';
     case 'rule_conflict':
-      return 'rule conflict — reviewed rules disagree here';
+      return 'Two reviewed rules disagree here';
     case 'unsupported':
-      return 'unsupported — no reviewed guidance covers this yet';
+      return 'Nothing reviewed covers this yet';
     case 'source_error':
       return SOURCE_ERROR_TITLE;
     default:
@@ -308,10 +248,12 @@ export const CHECK_IN_GOAL_LABELS: Readonly<Record<CheckInGoal, string>> = {
 };
 
 export const TIME_LABEL = 'Time available (minutes)';
+export const TIME_INPUT_LABEL = 'Minutes of time available';
 export const TIME_HELP =
   'Whole minutes from 0 to 1440 (one day). Use 0 when you have no time to spare today.';
 
 export const OBSERVED_AT_LABEL = 'Observation time';
+export const OBSERVED_AT_NOT_SET = 'Not set yet.';
 export const REFRESH_TIME_LABEL = 'Use current time';
 
 export const CHECK_IN_ERRORS_HEADING = 'Check your check-in answers';
@@ -323,11 +265,19 @@ export const CHECK_IN_ERROR_TEXT: Readonly<Record<CheckInErrorCode, string>> = {
   time_required: 'Enter the time you have available in minutes.',
   time_range: 'Enter whole minutes from 0 to 1440 (one day).',
   observed_at_required: 'Record when you made these observations.',
-  observed_at_invalid: 'Record the observation time with its timezone, for example 2026-10-13T08:00:00+02:00.',
+  observed_at_invalid:
+    'Record the observation time with your timezone, for example 13 October 2026, 8:00 am, +02:00.',
   observed_at_future: 'Record an observation time that is not later than now.',
   zone_concerns_required:
     'You chose where you notice it. Choose what you notice there as well, or remove the area.',
+  zone_concern_unreported:
+    'A thing you noticed in an area is not in your answers. Tick it there, or remove the area.',
+  check_in_unusable:
+    'Today’s check-in could not be used as it stands. Review your answers and try again.',
 };
+
+/** The exclusive answers clear the others; the owner is told when it happens. */
+export const CONCERNS_CLEARED_STATUS = 'Your other answers were cleared.';
 
 /**
  * The zone step (Task 3.2). Zone detail is optional: an owner may say only
@@ -376,7 +326,8 @@ export const ZONE_CONCERN_LABEL = (zone: string, concern: string): string =>
 export const CHECK_IN_SUMMARY_HEADING = 'Your check-in';
 export const CHECK_IN_SUMMARY_TIME = (minutes: number): string =>
   minutes === 1 ? '1 minute available' : `${minutes} minutes available`;
-export const CHECK_IN_SUMMARY_SESSION_ONLY = 'These answers stay with this plan request only. Nothing is saved to My Hair.';
+export const CHECK_IN_SUMMARY_SESSION_ONLY =
+  'These answers are used for this plan request only. Nothing is saved to My Hair.';
 
 /**
  * Protocol execution copy (TD-07–TD-08).
@@ -460,6 +411,6 @@ export const selectedShelfItemLabel = (name: string, availability: string): stri
  * product is selected, never shown an internal identifier.
  */
 export const selectedShelfItemUnknownLabel = 'A product from your shelf is selected';
-export const shelfItemVersionLabel = (versionId: string): string => `Exact version ${versionId}`;
+export const shelfItemVersionLabel = (name: string): string => `The exact version of ${name}`;
 export const EXECUTION_REASON_ABANDON_LABEL = 'Reason for stopping';
 export const EXECUTION_EMPTY_REASON = 'Add a short reason so your record stays honest.';

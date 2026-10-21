@@ -9,11 +9,15 @@ export const styles = StyleSheet.create({
   brand: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
   logo: { fontSize: 24, fontWeight: '700', letterSpacing: -1, color: colors.ink },
   kicker: { fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', color: colors.quiet },
-  title: { fontSize: 36, lineHeight: 41, letterSpacing: -1.3, color: colors.ink, fontWeight: '600' },
-  subtitle: { fontSize: 16, lineHeight: 24, color: colors.quiet },
+  // No fixed lineHeight on the text styles: a pixel line height does not
+  // scale with the operating system's font size, so large-text and
+  // magnification users would see clipped lines. The platform derives the
+  // line height from the scaled font size instead.
+  title: { fontSize: 36, fontWeight: '600', color: colors.ink },
+  subtitle: { fontSize: 16, color: colors.quiet },
   card: { backgroundColor: colors.white, borderRadius: 20, padding: 22, borderWidth: 1, borderColor: colors.line, gap: 14 },
   heading: { fontSize: 20, fontWeight: '600', color: colors.ink },
-  body: { fontSize: 15, lineHeight: 22, color: colors.ink },
+  body: { fontSize: 15, color: colors.ink },
   label: { fontSize: 13, fontWeight: '600', color: colors.ink, marginBottom: 8 },
   input: { borderWidth: 1, borderColor: colors.edge, borderRadius: 12, padding: 14, fontSize: 16, minHeight: 48, color: colors.ink, backgroundColor: colors.paper },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },

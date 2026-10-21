@@ -13,11 +13,16 @@ import {
   CONCERN_LABELS,
   CONCERNS_LABEL,
   REFRESH_TIME_LABEL,
+  TIME_INPUT_LABEL,
   TIME_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 import type { CheckInDraft, CheckInErrorCode } from '../../apps/mobile/src/guidance/current-condition-state';
 
-const mocks = vi.hoisted(() => ({ nowIso: '2026-10-13T10:00:00+02:00' }));
+const mocks = vi.hoisted(() => ({
+  nowIso: '2026-10-13T10:00:00+02:00',
+  /** Every node the screen reader was asked to focus. */
+  accessibilityFocus: [] as unknown[],
+}));
 
 vi.mock('react-native', () => {
   const host = (tag: string) => {
@@ -35,6 +40,11 @@ vi.mock('react-native', () => {
     Text: host('span'),
     TextInput: host('input'),
     View: host('div'),
+    AccessibilityInfo: {
+      setAccessibilityFocus: (tag: unknown) => { mocks.accessibilityFocus.push(tag); },
+      announceForAccessibility: () => undefined,
+    },
+    findNodeHandle: (node: unknown) => node,
   };
 });
 
@@ -120,6 +130,7 @@ describe('today check-in labels and screen-reader behavior', () => {
       expect(labels).toContain(`${concern}`);
     }
     expect(labels).toContain(TIME_LABEL);
+    expect(labels).toContain(TIME_INPUT_LABEL);
     expect(labels).toContain(REFRESH_TIME_LABEL);
     expect(labels).toContain(CHECK_IN_CONTINUE_LABEL);
     // No save control exists: the session-only notice is plain text instead.
@@ -171,7 +182,7 @@ describe('today check-in labels and screen-reader behavior', () => {
   it('offers a numeric keyboard for available time', async () => {
     const { renderer } = await renderCheckIn();
     const time = renderer.root.find(
-      node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+      node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
     );
     expect(time.props.keyboardType).toBe('numeric');
     await act(async () => { renderer.unmount(); });
@@ -207,7 +218,7 @@ describe('today check-in labels and screen-reader behavior', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'toggle_concern', concern: 'dryness' });
 
     const time = renderer.root.find(
-      node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+      node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
     );
     await act(async () => {
       time.props.onChangeText('45');
@@ -259,10 +270,9 @@ describe('today check-in touch targets, focus and large-text structure', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('announces validation errors as an alert and moves focus to them', async () => {
-    const focus = vi.fn();
-    const { renderer } = await renderCheckIn({ nodeMock: () => ({ focus }) });
-    expect(focus).not.toHaveBeenCalled();
+  it('announces validation errors as an alert and moves focus to the part that failed', async () => {
+    const { renderer } = await renderCheckIn({ nodeMock: () => ({ focus: vi.fn() }) });
+    expect(mocks.accessibilityFocus.length).toBe(0);
     await act(async () => {
       renderer.update(
         createElement(TodayCheckIn, {
@@ -280,7 +290,8 @@ describe('today check-in touch targets, focus and large-text structure', () => {
     expect(alert.props.accessibilityLabel).toBe(CHECK_IN_ERRORS_HEADING);
     expect(text(renderer)).toContain(CHECK_IN_ERROR_TEXT.concerns_required.toLowerCase());
     expect(text(renderer)).toContain(CHECK_IN_ERROR_TEXT.time_required.toLowerCase());
-    expect(focus).toHaveBeenCalledTimes(1);
+    // The screen reader is sent to the first part of the form that failed.
+    expect(mocks.accessibilityFocus.length).toBe(1);
     await act(async () => { renderer.unmount(); });
   });
 

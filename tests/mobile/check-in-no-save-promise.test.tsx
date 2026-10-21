@@ -9,7 +9,7 @@ import {
   CHECK_IN_BOUNDARY,
   CHECK_IN_CONTINUE_LABEL,
   CHECK_IN_START_LABEL,
-  TIME_LABEL,
+  TIME_INPUT_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 import {
   initialPreflight,
@@ -176,7 +176,7 @@ describe('task 16: no My Hair save promise on the check-in', () => {
     await press('Dryness');
     await act(async () => {
       renderer.root.find(
-        node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+        node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
       ).props.onChangeText('20');
       await Promise.resolve();
     });

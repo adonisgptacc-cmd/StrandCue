@@ -4,6 +4,7 @@ import * as Linking from 'expo-linking';
 import type { User } from '@supabase/supabase-js';
 import { RECOVERY_ACTIVE_KEY, RECOVERY_KEY, secureStorage, supabase } from './client';
 import { authNeedsLoading, isApprovedAuthCallback, isSessionRevokedError, maxOfflineRefreshAttempts, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
+import { clearAllCheckInDrafts } from './guidance/current-condition-state';
 import { transitionServiceDraftOwner } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
@@ -90,6 +91,9 @@ export function useAccount() {
       // idempotently: same null state, no notice change, no extra sign-out.
       client.auth.stopAutoRefresh();
       void client.auth.signOut({scope: 'local'}).catch(() => undefined);
+      // The temporary check-in and the resolver state belong to the account
+      // that is going away. They live in memory only, and they go with it.
+      clearAllCheckInDrafts();
       void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
         if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
       });
@@ -135,6 +139,9 @@ export function useAccount() {
         const request = ++epoch;
         offlineFailures.current = 0;
         verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false);
+        // The session ended, so the check-in and the resolver state that
+        // belonged to it are cleared with it.
+        clearAllCheckInDrafts();
         void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
           if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
         });

@@ -11,7 +11,7 @@ import {
   CHECK_IN_START_LABEL,
   CONCERNS_LABEL,
   RESOLVER_HEADING,
-  TIME_LABEL,
+  TIME_INPUT_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
 import {
   clearAllCheckInDrafts,
@@ -36,6 +36,10 @@ const mocks = vi.hoisted(() => ({
   executionGetActive: vi.fn(),
   restoreAggregate: vi.fn(),
   uuidCounter: { value: 0 },
+  /** Every node the screen reader was asked to focus. */
+  accessibilityFocus: [] as unknown[],
+  /** Every string the screen reader was asked to announce. */
+  announced: [] as string[],
 }));
 
 vi.mock('react-native', () => {
@@ -54,6 +58,13 @@ vi.mock('react-native', () => {
     Text: host('span'),
     TextInput: host('input'),
     View: host('div'),
+    // The platform's focus and announcement APIs, so the resolver can be
+    // tested on the behaviour a screen reader actually sees.
+    AccessibilityInfo: {
+      setAccessibilityFocus: (tag: unknown) => { mocks.accessibilityFocus.push(tag); },
+      announceForAccessibility: (text: string) => { mocks.announced.push(text); },
+    },
+    findNodeHandle: (node: unknown) => node,
   };
 });
 
@@ -203,18 +214,13 @@ function alerts(renderer: ReactTestRenderer) {
 async function render(
   ownerId: string = OWNER,
   onNavigate = vi.fn(),
-  focusSpy = vi.fn(),
 ): Promise<ReactTestRenderer> {
   let renderer!: ReactTestRenderer;
   await act(async () => {
     renderer = create(
       createElement(TodayGuidance, { ownerId, onNavigate: onNavigate as never }),
       {
-        createNodeMock: (element: { props?: unknown }) => {
-          const props = element.props as { accessibilityLabel?: string } | undefined;
-          if (props?.accessibilityLabel === RESOLVER_HEADING) return { focus: focusSpy };
-          return null;
-        },
+        createNodeMock: () => ({ focus: vi.fn() }),
       },
     );
     await Promise.resolve();
@@ -242,7 +248,7 @@ async function completeCheckIn(
     if (control.props.accessibilityState?.checked !== true) await press(renderer, concern);
   }
   const time = renderer.root.find(
-    node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+    node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
   );
   await act(async () => {
     time.props.onChangeText(minutes);
@@ -285,7 +291,37 @@ describe('the resolver on the screen', () => {
     await generate(renderer);
     expect(labelled(renderer, RESOLVER_HEADING).props.accessibilityRole).toBe('header');
     expect(liveRegions(renderer).length).toBeGreaterThan(0);
-    expect(hasButton(renderer, 'Add this in My Hair')).toBe(true);
+    expect(hasButton(renderer, 'Add your strand thickness in My Hair')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('names the subject in the action, so the button says what it acts on', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [
+        {
+          kind: 'product_capability',
+          detail: 'Your saved shampoo is saved by hand, so StrandCue cannot check the exact version yet. Match it in My Shelf.',
+          subject: 'owner-item-1',
+          state: 'unknown',
+          destination: 'my_shelf',
+          reason: 'product_manual_unmatched',
+          subjectLabel: 'your saved shampoo',
+        },
+      ],
+    });
+    const renderer = await render();
+    await generate(renderer);
+    expect(hasButton(renderer, 'Match your saved shampoo in My Shelf')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('announces the items themselves, so a changed set is never silent', async () => {
+    mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [PASSPORT_GAP] });
+    const renderer = await render();
+    await generate(renderer);
+    const announcement = liveRegions(renderer)[0].props.children as string;
+    expect(announcement).toContain('your strand thickness');
     await act(async () => { renderer.unmount(); });
   });
 
@@ -300,12 +336,11 @@ describe('the resolver on the screen', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('moves focus to the heading when the resolver appears', async () => {
+  it('moves focus to the first thing the owner can act on when the resolver appears', async () => {
     mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [PASSPORT_GAP] });
-    const focusSpy = vi.fn();
-    const renderer = await render(OWNER, vi.fn(), focusSpy);
+    const renderer = await render();
     await generate(renderer);
-    expect(focusSpy).toHaveBeenCalled();
+    expect(mocks.accessibilityFocus.length).toBeGreaterThan(0);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -334,6 +369,31 @@ describe('the resolver on the screen', () => {
     expect(rendered).not.toContain('stranddiameter');
     expect(rendered).not.toContain('source_incomplete');
     expect(rendered).not.toMatch(/select |invalid|schema|rule conflict/i);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('keeps the optional setup apart from the gaps that stop a plan', async () => {
+    // A blocking gap and an optional setup item are never shown as one
+    // list: one is needed before a plan, the other is the owner's choice.
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [PASSPORT_GAP],
+      setup: [
+        {
+          kind: 'product_capability',
+          detail: 'Your saved shampoo is saved by hand, so StrandCue cannot check the exact version yet. Match it in My Shelf.',
+          subject: 'owner-item-1',
+          state: 'unknown',
+          destination: 'my_shelf',
+          reason: 'product_manual_unmatched',
+          subjectLabel: 'your saved shampoo',
+        },
+      ],
+    });
+    const renderer = await render();
+    await generate(renderer);
+    expect(hasButton(renderer, 'Add your strand thickness in My Hair')).toBe(true);
+    expect(hasButton(renderer, 'Match your saved shampoo in My Shelf')).toBe(false);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -488,7 +548,7 @@ describe('check-in preservation', () => {
     let renderer = await render(OWNER, onNavigate);
     await completeCheckIn(renderer, ['Dryness'], '35');
     await press(renderer, 'Generate my plan');
-    await press(renderer, 'Add this in My Hair');
+    await press(renderer, 'Add your strand thickness in My Hair');
     expect(onNavigate).toHaveBeenCalledWith('my_hair');
     await act(async () => { renderer.unmount(); });
 
@@ -497,7 +557,7 @@ describe('check-in preservation', () => {
     expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(false);
     expect(button(renderer, 'Dryness').props.accessibilityState).toMatchObject({ checked: true });
     const time = renderer.root.find(
-      node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+      node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
     );
     expect(time.props.value).toBe('35');
     await act(async () => { renderer.unmount(); });
@@ -521,13 +581,13 @@ describe('check-in preservation', () => {
     let renderer = await render(OWNER, onNavigate);
     await completeCheckIn(renderer, ['Dryness'], '25');
     await press(renderer, 'Generate my plan');
-    await press(renderer, 'Add this in My Hair');
+    await press(renderer, 'Add your strand thickness in My Hair');
     // The destination could not save; the owner returns to Today.
     await act(async () => { renderer.unmount(); });
     renderer = await render(OWNER, onNavigate);
     expect(button(renderer, 'Dryness').props.accessibilityState).toMatchObject({ checked: true });
     const time = renderer.root.find(
-      node => node.type === 'input' && node.props.accessibilityLabel === TIME_LABEL,
+      node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
     );
     expect(time.props.value).toBe('25');
     await act(async () => { renderer.unmount(); });
@@ -627,21 +687,25 @@ describe('retrying a failed read', () => {
   });
 
   it('keeps focus and announces once when the retry fails again', async () => {
-    const focusSpy = vi.fn();
     mocks.generate.mockResolvedValue({
       status: 'source_error',
       detail: 'Your records could not be read completely.',
       incompleteSources: [{ source: 'passport', state: 'failed' }],
     });
-    const renderer = await render(OWNER, vi.fn(), focusSpy);
+    const renderer = await render(OWNER, vi.fn());
     await completeCheckIn(renderer);
     await press(renderer, 'Generate my plan');
-    focusSpy.mockClear();
+    mocks.accessibilityFocus.length = 0;
+    mocks.announced.length = 0;
     await press(renderer, 'Try again');
     // The failure is stated once, in the one live region.
     expect(liveRegions(renderer).length).toBe(1);
     expect(text(renderer)).toContain('could not read your records again');
     expect(alerts(renderer).length).toBe(0);
+    // The same set of gaps is on screen, so focus is not thrown to the top.
+    expect(mocks.accessibilityFocus.length).toBe(0);
+    // The failure is announced once.
+    expect(mocks.announced.filter(text => text.includes('could not read your records again'))).toHaveLength(1);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -700,7 +764,7 @@ describe('content that is not published', () => {
     expect(rendered).toContain('we read your information');
     expect(rendered).toContain('did not guess');
     // Nothing sends the owner to change their own records.
-    expect(hasButton(renderer, 'Add this in My Hair')).toBe(false);
+    expect(hasButton(renderer, 'Add your strand thickness in My Hair')).toBe(false);
     expect(hasButton(renderer, 'Review My Shelf')).toBe(false);
     expect(hasButton(renderer, 'Review My Tools')).toBe(false);
     await act(async () => { renderer.unmount(); });
@@ -730,8 +794,8 @@ describe('the resolver on its own', () => {
     route: 'my_hair' as const,
     primaryAction: {
       id: 'add_in_my_hair',
-      label: 'Add this in My Hair',
-      accessibilityLabel: 'Add this in My Hair',
+      label: 'Add your strand thickness in My Hair',
+      accessibilityLabel: 'Add your strand thickness in My Hair',
       route: 'my_hair' as const,
     },
     secondaryAction: {
@@ -781,7 +845,6 @@ describe('the resolver on its own', () => {
   });
 
   it('puts focus back on the gap the owner was resolving', async () => {
-    const focusSpy = vi.fn();
     let renderer!: ReactTestRenderer;
     await act(async () => {
       renderer = create(
@@ -794,23 +857,17 @@ describe('the resolver on its own', () => {
           retryError: null,
           focusKey: ITEM.key,
         } as never),
-        {
-          createNodeMock: (element: { props?: unknown }) => {
-            const props = element.props as { accessibilityLabel?: string } | undefined;
-            if (props?.accessibilityLabel === RESOLVER_HEADING) return { focus: focusSpy };
-            return { focus: focusSpy };
-          },
-        },
+        { createNodeMock: () => ({ focus: vi.fn() }) },
       );
       await Promise.resolve();
     });
-    expect(focusSpy).toHaveBeenCalled();
+    expect(mocks.accessibilityFocus.length).toBeGreaterThan(0);
     await act(async () => { renderer.unmount(); });
   });
 
   it('disables both actions while a retry is running', async () => {
     const renderer = await renderResolver([ITEM], { retrying: true });
-    expect(button(renderer, 'Add this in My Hair').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(button(renderer, 'Add your strand thickness in My Hair').props.accessibilityState).toMatchObject({ disabled: true });
     expect(button(renderer, 'Match this product in My Shelf').props.accessibilityState).toMatchObject({ disabled: true });
     await act(async () => { renderer.unmount(); });
   });
@@ -818,7 +875,7 @@ describe('the resolver on its own', () => {
   it('sends the owner to the destination of the action they tapped', async () => {
     const onNavigate = vi.fn();
     const renderer = await renderResolver([ITEM], { onNavigate });
-    await press(renderer, 'Add this in My Hair');
+    await press(renderer, 'Add your strand thickness in My Hair');
     expect(onNavigate).toHaveBeenCalledWith('my_hair', ITEM.key);
     await act(async () => { renderer.unmount(); });
   });
@@ -829,7 +886,7 @@ describe('what the resolver never does', () => {
     mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [PASSPORT_GAP] });
     const renderer = await render();
     await generate(renderer);
-    await press(renderer, 'Add this in My Hair');
+    await press(renderer, 'Add your strand thickness in My Hair');
     expect(mocks.recordRun).not.toHaveBeenCalled();
     expect(mocks.executionStart).not.toHaveBeenCalled();
     expect(mocks.executionTransition).not.toHaveBeenCalled();
