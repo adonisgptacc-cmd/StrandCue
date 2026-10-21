@@ -109,6 +109,13 @@ Focused Task 3.2 suites
 
 Full suite: **3388 passed, 18 skipped, 0 failed** (174 files).
 
+> One run of the plain `npx vitest run` (unbounded workers) hit a timeout in
+> `tests/database/shelf.test.ts` - a pglite database test that took 151 s in
+> that run and belongs to the shelf, not to this task. The file passes on its
+> own (103 passed) and in the gate's own run, `npm run test:coverage --
+> --maxWorkers=4` (3388 passed). The recorded results are from the
+> `--maxWorkers=4` run, which is the gate command.
+
 ## 4. Full gate results
 
 | Gate | Result |
