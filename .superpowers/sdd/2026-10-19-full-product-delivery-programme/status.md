@@ -76,8 +76,9 @@ working tree → clean
   (`1a570bb`): launch-level PASS on a receipted artifact; all
   account-dependent journey scenarios BLOCKED with grounds
   (`docs/verification/hair-passport-journey-acceptance-2026-10-19.md`).
-- All of Increment 2 (Shelf search/detail, Tools completion, two-owner device
-  journey).
+- Increment 2 (Shelf search/detail, Tools completion and the local two-owner
+  device journey) is complete through Task 2.5. Hosted, physical-device,
+  TalkBack and release-signing evidence remain external gates.
 - Increment 3 onward (explicitly out of scope for this run).
 
 ## HOLDs carried forward
@@ -165,3 +166,30 @@ external gates. Full evidence: `.superpowers/sdd/2026-10-19-full-product-deliver
 
 Increment 3 was not started. No push, merge, deploy, hosted migration, content
 publication, photo upload or paid service was performed.
+
+## Task 2.5 — local two-owner isolation and Android acceptance (21 October 2026)
+
+Starting HEAD `1c9fff7`; tooling commits `2e18aba` and `c6edb08`. The live
+isolation harness covers 42 owner-bound scenarios and the opt-in real-Postgres
+concurrency suite covers 7 cases. Both passed against the disposable loopback
+Supabase stack. An API 34 x86_64 emulator exercised Hair Passport, Shelf,
+catalogue search/detail/match, My Tools, export, owner switch, process restart,
+offline/reconnect recovery and archive. Owner B saw no Owner A facts. Draft
+product and tool catalogue material remained unpublished and unavailable.
+
+The device driver selected a non-editable label when a label and text input
+shared an accessible name. Task 2.5 fixes that by selecting an enabled
+`EditText` exactly and dismissing the keyboard after entry; a regression test
+pins the duplicate-name case.
+
+Final gates: runtime, typecheck, lint, web export, control-plane audit, full
+coverage and diff check pass. Full coverage: 168 files passed, 4 skipped; 3211
+tests passed, 18 skipped; 95.95 / 90.16 / 98.46 / 97.9. The dependency audit
+remains **HOLD**, exit 1, with 0 critical, 20 high, 11 moderate and codes
+`ADVISORY-UNEXCEPTED`, `RUNNER-REVIEW-DRIFT`. It is not a pass.
+
+The artifact is internal and debug-signed, from source `2e18aba`, with a
+loopback-only cleartext exception outside Git. Hosted isolation, a physical
+device, TalkBack, and the missing alpha/release signing identity remain
+BLOCKED or NOT RUN. Synthetic owners, fixtures and export jobs were removed.
+No hosted service was touched. Increment 3 was not started.

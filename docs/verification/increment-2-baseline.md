@@ -169,12 +169,32 @@ clean. **audit:dependencies is a HOLD** (`ADVISORY-UNEXCEPTED`, `RUNNER-REVIEW-D
 
 - `audit:dependencies` cannot reach the npm registry in this environment —
   dependency auditing is a **HOLD**, never a pass.
-- No isolated disposable Supabase test project is configured, so
-  `verify:supabase-owner-isolation` and the account-dependent device rows stay
-  **HOLD/BLOCKED** with evidence, and PGlite cannot prove real PostgreSQL
-  concurrency.
-- Device rows that need accounts and a backend stay BLOCKED; local and
-  PGlite gates are run instead.
+- No isolated disposable **hosted** Supabase project is configured, so hosted
+  owner isolation stays **HOLD/BLOCKED**. Task 2.5 used the disposable loopback
+  Supabase stack and proved the covered paths over real PostgreSQL, PostgREST
+  and Auth, including the separately opted-in two-session concurrency suite.
+- The API 34 x86_64 emulator rows covered by Task 2.5 pass locally. A physical
+  device, TalkBack and the alpha/release signing identity remain BLOCKED or
+  NOT RUN.
 - The Banana shampoo/conditioner review remains pending: no capability,
   direction, claim or reviewer identity from it may be published or
   transcribed.
+
+## Task 2.5 — local two-owner isolation and Android journey (21 October 2026)
+
+Task 2.5 extended the isolation harness to 42 scenarios and exercised the
+Increment 2 owner journey on an API 34 x86_64 emulator against the disposable
+local Supabase stack (real PostgreSQL, PostgREST and Auth). Owner A completed
+Hair Passport, Shelf and My Tools changes; explicitly matched the synthetic
+product and tool candidates; saw unpublished catalogue sections remain closed;
+exported owner data; survived process restart and offline/reconnect recovery;
+and archived both records. Owner B saw empty Passport, Shelf and Tools screens.
+The post-run harness passed all 42 scenarios, the opt-in two-session PostgreSQL
+suite passed 7/7, and cleanup left zero synthetic owners or catalogue fixtures.
+
+This is local emulator evidence only. The APK was an internal debug-signed
+artifact from source `2e18aba`, with a loopback-only cleartext exception outside
+Git. It is not the alpha/release identity. Hosted isolation, a physical device,
+TalkBack and release signing remain BLOCKED or NOT RUN. Full evidence:
+`docs/verification/increment-2-android-owner-journey-2026-10-21.md` and
+`.superpowers/sdd/2026-10-19-full-product-delivery-programme/task-2.5-two-owner-device-acceptance.md`.
