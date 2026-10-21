@@ -1,7 +1,9 @@
 import {
   parseProtocolExecution,
+  parseRecommendationContext,
   type ProtocolDecision,
   type ProtocolExecution,
+  type RecommendationContext,
 } from '../../../../packages/domain/src/index.ts';
 import type { ProtocolExecutionReceipt } from './protocol-execution-api.ts';
 import {
@@ -108,6 +110,12 @@ export interface ResumeErrorMapping {
  */
 export interface RestoredRunIdentifiers {
   readonly requestId: string;
+  /**
+   * The exact stored RecommendationContext the decision was produced from.
+   * Parsed once, here, so a restored preview can be rebuilt from the stored
+   * context instead of the live shelf.
+   */
+  readonly input: RecommendationContext;
   readonly inputFingerprint: string;
   readonly asOf: string;
   readonly engineVersion: string;
@@ -207,6 +215,12 @@ export function validateRestoredBundle(bundle: unknown): RestoredBundleValidatio
   ) {
     return { status: 'unverified' };
   }
+  let input: RecommendationContext;
+  try {
+    input = parseRecommendationContext(run.input);
+  } catch {
+    return { status: 'unverified' };
+  }
   const decision = run.decision;
   if (!isRenderableDecision(decision)) return { status: 'unverified' };
   // Stored-decision agreement, three ways: the run's decision names the run,
@@ -238,6 +252,7 @@ export function validateRestoredBundle(bundle: unknown): RestoredBundleValidatio
     decision,
     run: {
       requestId: run.requestId,
+      input,
       inputFingerprint: run.inputFingerprint,
       asOf: run.asOf,
       engineVersion: run.engineVersion,

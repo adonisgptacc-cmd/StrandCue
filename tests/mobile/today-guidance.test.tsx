@@ -6,6 +6,7 @@ import { clearAllCheckInDrafts } from '../../apps/mobile/src/guidance/current-co
 import type { GuidanceGap, ProtocolDecision } from '../../packages/domain/src/index';
 import { normalizeCurrentCondition } from '../../packages/domain/src/index';
 import { TodayGuidance } from '../../apps/mobile/src/TodayGuidance';
+import { type ProtocolPreviewModel } from '../../apps/mobile/src/guidance/protocol-preview-model';
 import {
   CHECK_IN_CONTINUE_LABEL,
   CHECK_IN_START_LABEL,
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   executionTransition: vi.fn(),
   executionGetActive: vi.fn(),
   restoreAggregate: vi.fn(),
+  preview: vi.fn(),
   nowIso: '2026-10-11T09:00:00.000Z',
   uuidCounter: { value: 0 },
 }));
@@ -57,6 +59,9 @@ vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({
 
 vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
   recordRecommendationRun: mocks.recordRun,
+}));
+vi.mock('../../apps/mobile/src/guidance/protocol-preview-model', () => ({
+  buildProtocolPreview: mocks.preview,
 }));
 
 // The execution surface mounts beside a ready plan but records nothing until
@@ -166,6 +171,51 @@ function readyResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function readyPreviewModel(overrides: Partial<ProtocolPreviewModel> = {}): ProtocolPreviewModel {
+  return {
+    status: 'ready',
+    route: {
+      summary: 'Basic wash: treat with the products and tools you own.',
+      goal: 'Basic wash',
+    },
+    ownedItems: [
+      { kind: 'product', name: 'Garnier shampoo', available: true, owned: true },
+    ],
+    steps: [
+      {
+        position: 1,
+        action: 'apply',
+        item: { kind: 'product', name: 'Garnier shampoo', available: true, owned: true },
+        waitSeconds: null,
+        rinse: null,
+        reason: 'Use Garnier shampoo.',
+      },
+      {
+        position: 2,
+        action: 'wait',
+        item: undefined,
+        waitSeconds: 60,
+        rinse: null,
+        reason: 'Wait 60 seconds.',
+      },
+    ],
+    reasons: [
+      { step: 1, text: 'Use Garnier shampoo.' },
+      { step: 2, text: 'Wait 60 seconds.' },
+    ],
+    confidence: { level: 'moderate', limitedBecause: [] },
+    evidence: [
+      { kind: 'rule', covered: true, note: 'Reviewed evidence supports this rule.' },
+    ],
+    limitations: [
+      { text: 'This plan covers cosmetic hair care only; it is not a diagnosis or a treatment.' },
+    ],
+    alternatives: [],
+    noPurchaseNeeded: true,
+    ...overrides,
+  } as ProtocolPreviewModel;
+}
+
 const GAP: GuidanceGap = {
   kind: 'hair_profile',
   detail: "My Hair is missing 'naturalPattern', which this goal needs before reviewed guidance can be produced.",
@@ -271,6 +321,7 @@ beforeEach(() => {
   mocks.recordRun.mockResolvedValue({ requestId: 'request-1' });
   mocks.restoreAggregate.mockResolvedValue(null);
   mocks.executionGetActive.mockResolvedValue(null);
+  mocks.preview.mockReturnValue(readyPreviewModel());
 });
 
 describe('today guidance states', () => {
@@ -388,18 +439,21 @@ describe('today guidance states', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('renders steps, reasons, confidence, evidence, omissions and alternatives', async () => {
+  it('renders the plain-language preview instead of the raw engine dump', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     const renderer = await render();
     await generate(renderer);
     const rendered = text(renderer);
     expect(rendered).toContain('step 1');
     expect(rendered).toContain('step 2');
-    expect(rendered).toContain('rule-wash@1');
-    expect(rendered).toContain('moderate');
-    expect(rendered).toContain('evidence-1');
-    expect(rendered).toContain('omitted synthetic conditioner');
-    expect(rendered).toContain('alternative: synthetic balm');
+    expect(rendered).toContain('use garnier shampoo.');
+    expect(rendered).toContain('wait 60 seconds.');
+    expect(rendered).toContain('moderate confidence');
+    expect(rendered).toContain('reviewed evidence supports each rule in this plan.');
+    expect(rendered).not.toContain('rule-wash@1');
+    expect(rendered).not.toContain('evidence-1');
+    expect(rendered).not.toContain('omitted synthetic conditioner');
+    expect(hasButton(renderer, 'Start this plan')).toBe(true);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -413,10 +467,12 @@ describe('today guidance states', () => {
     mocks.generate.mockResolvedValue(
       readyResult({ decision: readyDecision({ noPurchaseNeeded: false }) }),
     );
+    mocks.preview.mockReturnValue(readyPreviewModel({ noPurchaseNeeded: false }));
     renderer = await render();
     await generate(renderer);
     expect(text(renderer)).not.toContain('no purchase needed');
     await act(async () => { renderer.unmount(); });
+    mocks.preview.mockReturnValue(readyPreviewModel());
   });
 
   it('keeps needs_input, rule_conflict and unsupported visibly distinct and never successful', async () => {
@@ -441,7 +497,6 @@ describe('today guidance states', () => {
       const rendered = text(renderer);
       expect(rendered).not.toContain('your plan is ready');
       expect(rendered).toContain(titles[status]);
-      if (status === 'needs_input') expect(rendered).toContain('profile.unrecorded');
       await act(async () => { renderer.unmount(); });
     }
   });

@@ -5,7 +5,6 @@ import * as Crypto from 'expo-crypto';
 import {
   normalizeCurrentCondition,
   type CurrentConditionInput,
-  type ProtocolDecision,
 } from '../../../packages/domain/src/index';
 import {
   CHECK_IN_IDLE_BODY,
@@ -14,7 +13,6 @@ import {
   CHECK_IN_SUMMARY_SESSION_ONLY,
   CHECK_IN_SUMMARY_TIME,
   CONCERN_LABELS,
-  confidenceLabel,
   EXECUTION_BOUNDARY,
   EXECUTION_LOADING_LABEL,
   EXECUTION_LOAD_FAILED,
@@ -23,7 +21,6 @@ import {
   GENERATING_LABEL,
   LOADING_LABEL,
   MISSING_HEADING,
-  NO_PURCHASE_NEEDED,
   READY_TITLE,
   REVIEW_CHECK_IN_LABEL,
   RETRY_FAILED_MESSAGE,
@@ -34,8 +31,11 @@ import {
   SAVE_FAILED,
   START_OVER_LABEL,
   statusTitle,
-  stepLabel,
 } from './guidance/guidance-copy';
+import { buildProtocolPreview, type ProtocolPreviewModel } from './guidance/protocol-preview-model';
+import { CURRENT_REVIEWED_BUNDLE } from './guidance/reviewed-bundle';
+import { CHECKED_IN_EVIDENCE_REGISTRY } from './guidance/evidence-registry';
+import { ProtocolPreview } from './ProtocolPreview';
 import {
   clearCheckInDraft,
   initialPreflight,
@@ -130,41 +130,6 @@ function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
   </View>;
 }
 
-function DecisionView({ decision }: { readonly decision: ProtocolDecision }) {
-  const evidence = decision.audit.evaluatedRules.flatMap(entry => entry.evidenceIds);
-  return <View style={styles.card}>
-    <Text style={styles.label}>Confidence</Text>
-    <Text style={styles.body}>{confidenceLabel(decision.confidence)}</Text>
-    {decision.noPurchaseNeeded === true && (
-      <Text style={styles.body} accessibilityRole="text" accessibilityLabel={NO_PURCHASE_NEEDED}>{NO_PURCHASE_NEEDED}</Text>
-    )}
-    <Text style={styles.label}>Steps</Text>
-    {decision.steps.map(step => (
-      <View key={step.stepId} style={styles.notice}>
-        <Text style={styles.label}>{stepLabel(step.position)}</Text>
-        <Text style={styles.body}>{step.action}</Text>
-        {step.reasons.map(reason => <Text key={reason} style={styles.subtitle}>{reason}</Text>)}
-      </View>
-    ))}
-    {decision.omissions.length > 0 && <>
-      <Text style={styles.label}>Not included</Text>
-      {decision.omissions.map(omission => <Text key={omission} style={styles.body}>{omission}</Text>)}
-    </>}
-    {decision.alternatives.length > 0 && <>
-      <Text style={styles.label}>Alternatives</Text>
-      {decision.alternatives.map(alternative => <Text key={alternative} style={styles.body}>{alternative}</Text>)}
-    </>}
-    {decision.missingInputs.length > 0 && <>
-      <Text style={styles.label}>Still needed</Text>
-      {decision.missingInputs.map(missing => <Text key={missing} style={styles.body}>{missing}</Text>)}
-    </>}
-    <Text style={styles.label}>Evidence</Text>
-    {evidence.length === 0
-      ? <Text style={styles.body}>No evidence references were attached to this decision.</Text>
-      : evidence.map(id => <Text key={id} style={styles.body}>{id}</Text>)}
-  </View>;
-}
-
 /**
  * Today's guidance preflight state machine.
  *
@@ -201,6 +166,10 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   const [saveFailed, setSaveFailed] = useState(false);
   const [retryFailed, setRetryFailed] = useState(false);
   const [focusSection, setFocusSection] = useState<CheckInSection | null>(null);
+  // Start is gated behind a validated preview: the owner must confirm the
+  // preview before execution is mounted, and the stored decision is never
+  // silently swapped for a regenerated one.
+  const [startExecution, setStartExecution] = useState(false);
   // Fix E: process-death recovery. This read-only restore runs on mount and
   // on every owner change, independently of generating new guidance. It never
   // generates, records, or starts anything: a validated restore only exposes
@@ -212,6 +181,13 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   const mounted = useRef(true);
   const readFailed = useRef(false);
   const resultRef = useRef<Text | null>(null);
+
+  /**
+   * The fail-closed preview for the current decision, rebuilt only from the
+   * stored decision and its exact stored context. The checked-in bundle and
+   * evidence registry are the authority for every binding. `null` when there
+   * is nothing to preview (idle, check-in, or a non-decision result).
+   */
 
   // An owner change is handled during the render, not in an effect: the
   // previous owner's answers are cleared before anything is painted, so no
@@ -380,6 +356,35 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   const busy = preflight.phase === 'generating' || saving;
   const result = preflight.result;
   /**
+   * The fail-closed preview for the current decision, rebuilt only from the
+   * stored decision and its exact stored context. The checked-in bundle and
+   * evidence registry are the authority for every binding. `null` when there
+   * is nothing to preview (idle, check-in, or a non-decision result).
+   */
+  const previewModel = useMemo<ProtocolPreviewModel | null>(() => {
+    if (result === null || result.status !== 'ready') return null;
+    return buildProtocolPreview({
+      decision: result.decision,
+      context: result.input,
+      bundle: CURRENT_REVIEWED_BUNDLE,
+      evidenceRegistry: CHECKED_IN_EVIDENCE_REGISTRY,
+    });
+  }, [result]);
+
+  /**
+   * The same fail-closed preview for a restored stored decision, built from
+   * the decision and its exact stored context rather than the live shelf.
+   */
+  const restoredPreviewModel = useMemo<ProtocolPreviewModel | null>(() => {
+    if (restore.decision === null || restore.run === null) return null;
+    return buildProtocolPreview({
+      decision: restore.decision,
+      context: restore.run.input,
+      bundle: CURRENT_REVIEWED_BUNDLE,
+      evidenceRegistry: CHECKED_IN_EVIDENCE_REGISTRY,
+    });
+  }, [restore.decision, restore.run]);
+  /**
    * A retry keeps the resolver on screen: the owner sees the same gap, the
    * retry button is disabled while the read runs, and a failed retry leaves
    * their focus where it was.
@@ -506,7 +511,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         >
           {READY_TITLE}
         </Text>
-        <DecisionView decision={restore.decision} />
+        {restoredPreviewModel !== null && <ProtocolPreview model={restoredPreviewModel} />}
         <ProtocolExecution
           key={ownerId}
           ownerId={ownerId}
@@ -602,19 +607,18 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           />
         )}
 
-        {result.status === 'ready' && <>
-          <DecisionView decision={result.decision} />
-          {result.decision.steps.length > 0 && (
-            <ProtocolExecution key={ownerId} ownerId={ownerId} decision={result.decision} />
-          )}
-        </>}
+        {result.status === 'ready' && previewModel !== null && (
+          <ProtocolPreview model={previewModel} onStart={() => setStartExecution(true)} />
+        )}
+        {result.status === 'ready' && startExecution && result.decision.steps.length > 0 && (
+          <ProtocolExecution key={ownerId} ownerId={ownerId} decision={result.decision} />
+        )}
 
         {result.status === 'needs_input' && (
           <View style={styles.card}>
             <Text style={styles.body}>
               A reviewed rule needs information you have not recorded yet, so no plan was produced.
             </Text>
-            <DecisionView decision={result.decision} />
           </View>
         )}
 

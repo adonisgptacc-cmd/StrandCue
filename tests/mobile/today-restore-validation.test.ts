@@ -115,6 +115,20 @@ function receiptFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function recommendationContext(): Record<string, unknown> {
+  return {
+    requestId: RUN_ID,
+    asOf: T0,
+    goal: 'basic_wash',
+    profileFacts: {},
+    products: [],
+    tools: [],
+    historyFacts: {},
+    environmentFacts: {},
+    rules: [],
+  };
+}
+
 function runFixture(overrides: Record<string, unknown> = {}) {
   const { decision: decisionOverride, ...rest } = overrides;
   const decision = decisionFixture(
@@ -128,7 +142,7 @@ function runFixture(overrides: Record<string, unknown> = {}) {
     bundleId: 'bundle-synthetic',
     bundleVersion: '1',
     status: 'ready',
-    input: { requestId: RUN_ID },
+    input: recommendationContext(),
     decision,
     trusted: true,
     createdAt: T0,
@@ -162,6 +176,7 @@ describe('restored bundle validation', () => {
     expect(outcome.decision.requestId).toBe(RUN_ID);
     expect(outcome.run).toEqual({
       requestId: RUN_ID,
+      input: recommendationContext(),
       inputFingerprint: FINGERPRINT,
       asOf: T0,
       engineVersion: '1',

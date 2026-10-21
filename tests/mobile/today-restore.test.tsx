@@ -171,6 +171,20 @@ function receipt(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function recommendationContext(): Record<string, unknown> {
+  return {
+    requestId: RUN_ID,
+    asOf: T0,
+    goal: 'basic_wash',
+    profileFacts: {},
+    products: [],
+    tools: [],
+    historyFacts: {},
+    environmentFacts: {},
+    rules: [],
+  };
+}
+
 function runRow(overrides: Record<string, unknown> = {}) {
   return {
     requestId: RUN_ID,
@@ -180,7 +194,7 @@ function runRow(overrides: Record<string, unknown> = {}) {
     bundleId: 'bundle-synthetic',
     bundleVersion: '1',
     status: 'ready',
-    input: { requestId: RUN_ID },
+    input: recommendationContext(),
     decision: storedDecision(),
     trusted: true,
     createdAt: T0,
