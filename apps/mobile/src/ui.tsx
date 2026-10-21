@@ -21,7 +21,7 @@ export const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '600', color: colors.ink, marginBottom: 8 },
   input: { borderWidth: 1, borderColor: colors.edge, borderRadius: 12, padding: 14, fontSize: 16, minHeight: 48, color: colors.ink, backgroundColor: colors.paper },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  button: { minHeight: 48, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
+  button: { minHeight: 48, minWidth: 44, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
   buttonText: { color: colors.white, fontSize: 15, fontWeight: '600' },
   secondary: { backgroundColor: colors.sage },
   pill: { paddingHorizontal: 14, paddingVertical: 12, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.line, justifyContent: 'center' },

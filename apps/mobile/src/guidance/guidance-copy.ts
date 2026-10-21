@@ -153,6 +153,27 @@ export const RESOLVER_ACTIONS = {
 
 export const READY_TITLE = 'Your plan is ready';
 export const NEEDS_SETUP_TITLE = 'A few things are needed first';
+
+/**
+ * Trusted protocol preview copy (Task 3.3).
+ *
+ * Plain-language headings and labels for the pre-start preview. None of this
+ * names a rule, a version, an evidence source or a reviewer.
+ */
+
+export const PREVIEW_HEADING = 'What your plan will do';
+export const PREVIEW_READY_HEADING = 'Your plan is ready to start';
+export const PREVIEW_CONTENT_PENDING_HEADING = 'Reviewed guidance is not available yet';
+export const PREVIEW_UNAVAILABLE_HEADING = 'This plan cannot be verified';
+
+export const STEPS_HEADING = 'Planned steps';
+export const OWNED_ITEMS_HEADING = 'Products and tools this plan uses';
+export const EVIDENCE_HEADING = 'Evidence behind the plan';
+export const EVIDENCE_SUPPORTED = 'Reviewed evidence supports each rule in this plan.';
+export const CONFIDENCE_HEADING = 'Confidence';
+export const LIMITATIONS_HEADING = 'Things to know';
+export const ALTERNATIVES_HEADING = 'Eligible alternatives';
+export const ALTERNATIVES_NONE = 'What you own already covers this plan.';
 export const SOURCE_ERROR_TITLE = 'Your records could not be read completely';
 
 /**
