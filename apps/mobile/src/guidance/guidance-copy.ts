@@ -48,7 +48,6 @@ export const SOURCE_AREA_NAMES: Readonly<Record<GuidanceSourceName, string>> = {
  * and asks for one retry. It never blames the owner and never says their
  * records are wrong.
  */
-export const FAILED_SOURCE_TITLE = 'We could not read';
 export const FAILED_SOURCE_BODY = (area: string): string =>
   `We could not read ${area}. Nothing was changed, and nothing was guessed.`;
 export const FAILED_SOURCE_UNKNOWN_BODY =
@@ -81,6 +80,12 @@ export const RESOLVER_CONTENT_HEADING = 'What is not available yet';
 export const RESOLVER_ANNOUNCEMENT_ONE = 'One thing needs your attention.';
 export const RESOLVER_ANNOUNCEMENT_MANY = (count: number): string =>
   `${count} things need your attention.`;
+export const RESOLVER_SETUP_ANNOUNCEMENT_ONE = 'One thing you could add next.';
+export const RESOLVER_SETUP_ANNOUNCEMENT_MANY = (count: number): string =>
+  `${count} things you could add next.`;
+export const RESOLVER_FAILED_ANNOUNCEMENT = 'We could not read everything we needed.';
+export const RESOLVER_CONTENT_ANNOUNCEMENT =
+  'Reviewed guidance for this situation is not available yet.';
 
 /** The one primary action for each destination, and where it goes. */
 export const RESOLVER_ACTIONS = {
@@ -214,7 +219,7 @@ export const REVIEW_CHECK_IN_LABEL = 'Review check-in answers';
 export const START_OVER_LABEL = 'Start a new check-in';
 
 export const CHECK_IN_BOUNDARY =
-  'Your answers are self-reported observations about how your hair looks and feels today. They are not a diagnosis. They stay in this session only, are used only for this plan, change nothing in My Hair, and promise no result.';
+  'Your answers are self-reported observations about how your hair looks and feels today. They are not a diagnosis. They stay on this device for this session. If you ask for a plan, the facts that plan used are kept in your private record. Nothing is added to My Hair, and nothing here promises a result.';
 
 export const CONCERNS_LABEL = 'What do you notice today?';
 export const CONCERNS_HINT = 'Choose all that apply. “I am not sure” and “None of these” each stand alone.';
@@ -266,7 +271,7 @@ export const CHECK_IN_ERROR_TEXT: Readonly<Record<CheckInErrorCode, string>> = {
   time_range: 'Enter whole minutes from 0 to 1440 (one day).',
   observed_at_required: 'Record when you made these observations.',
   observed_at_invalid:
-    'Record the observation time with your timezone, for example 13 October 2026, 8:00 am, +02:00.',
+    'Record the observation time with your timezone, for example 13 October 2026, 8:00 am.',
   observed_at_future: 'Record an observation time that is not later than now.',
   zone_concerns_required:
     'You chose where you notice it. Choose what you notice there as well, or remove the area.',
@@ -286,11 +291,13 @@ export const CONCERNS_CLEARED_STATUS = 'Your other answers were cleared.';
  */
 export const ZONE_LABEL = 'Where do you notice it';
 export const ZONE_HINT =
-  'Optional. Choose an area, then choose which part of your hair you mean. You can choose more than one area.';
+  'Optional. Choose an area, then choose which part of your hair you mean. You can choose more than one area. An area you choose also needs what you notice there.';
 export const ZONE_REGION_LABEL = 'Area';
 export const ZONE_SEGMENT_LABEL = 'Part of the hair';
 export const ZONE_SELECTED_LABEL = 'Areas you chose';
 export const ZONE_CONCERNS_LABEL = 'What do you notice there';
+export const ZONE_CONCERNS_EMPTY =
+  'Tick what you notice first, then choose it here.';
 
 export const ZONE_REGION_LABELS: Readonly<Record<string, string>> = {
   'whole-head': 'Whole head',

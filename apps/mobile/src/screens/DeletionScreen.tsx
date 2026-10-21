@@ -65,10 +65,11 @@ function OwnerDeletionScreen({ owner }: { owner: string }) {
       pendingRequest.current = payload;
       setRetryPending(true);
       await requestDeletion(payload.operationId, payload.reason);
-      if (!alive.current) return;
       // The account is going away, so the temporary check-in and the
-      // resolver state that belonged to it go with it.
+      // resolver state that belonged to it go with it, whether or not this
+      // screen is still on the way out.
       clearCheckInDraft(owner);
+      if (!alive.current) return;
       pendingRequest.current = null;
       setRetryPending(false);
       setOperationId(Crypto.randomUUID());

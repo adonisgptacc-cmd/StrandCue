@@ -46,7 +46,7 @@ import {
   saveResolverFocus,
   type CheckInDraft,
 } from './guidance/current-condition-state';
-import { resolverItems, type GuidanceResolverItem } from './guidance/guidance-gap-state';
+import { resolverItems, type GuidanceResolverItem, type GuidanceResolverRole } from './guidance/guidance-gap-state';
 import { recordRecommendationRun } from './guidance/recommendation-run-api';
 import { generateTodayGuidance } from './guidance/today-guidance-service';
 import { useTodayRestore } from './guidance/today-restore';
@@ -210,7 +210,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
   const ownerToken = useRef(0);
   const inflight = useRef(false);
   const mounted = useRef(true);
-  const attempted = useRef(false);
+  const readFailed = useRef(false);
   const resultRef = useRef<Text | null>(null);
 
   // An owner change is handled during the render, not in an effect: the
@@ -250,7 +250,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     inflight.current = false;
     // A new owner starts with a clean slate: no attempt of the previous
     // owner counts as theirs.
-    attempted.current = false;
+    readFailed.current = false;
   }, [ownerId]);
 
   // The check-in is kept in an owner-scoped session draft so it survives a
@@ -310,11 +310,6 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
 
       dispatch({ type: 'generation_finished', requestEpoch: current, result });
 
-      // A read has been attempted. A later failure is a retry that failed
-      // again, not the first failure, and is said as such.
-      const isRetryFailure = attempted.current;
-      attempted.current = true;
-
       if (result.status === 'ready' || result.status === 'needs_input'
         || result.status === 'rule_conflict' || result.status === 'unsupported') {
         setSaving(true);
@@ -341,7 +336,10 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         }
         return;
       }
-      if (result.status === 'source_error' && isRetryFailure) setRetryFailed(true);
+      // A read has failed. A later failure is a retry that failed again, not
+      // the first failure, and is said as such.
+      if (result.status === 'source_error' && readFailed.current) setRetryFailed(true);
+      if (result.status === 'source_error') readFailed.current = true;
     } catch {
       if (!live()) return;
       dispatch({
@@ -349,8 +347,8 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         requestEpoch: current,
         result: { status: 'source_error', detail: 'Your records could not be read completely.' },
       });
-      if (attempted.current) setRetryFailed(true);
-      attempted.current = true;
+      if (readFailed.current) setRetryFailed(true);
+      readFailed.current = true;
     } finally {
       inflight.current = false;
     }
@@ -430,6 +428,15 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
     if (result.status === 'source_error') return RESOLVER_FAILED_HEADING;
     if (result.status === 'content_pending') return RESOLVER_CONTENT_HEADING;
     return RESOLVER_SETUP_HEADING;
+  }, [result]);
+
+  /** The role decides what the resolver announces, so it never overstates. */
+  const resolverRole = useMemo<GuidanceResolverRole>(() => {
+    if (result === null) return 'attention';
+    if (result.status === 'needs_setup') return 'attention';
+    if (result.status === 'source_error') return 'failed';
+    if (result.status === 'content_pending') return 'content';
+    return 'setup';
   }, [result]);
 
   const handleNavigate = useCallback((route: GuidanceRoute) => {
@@ -570,7 +577,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         <Text
           ref={resultRef}
           style={styles.title}
-          accessibilityRole="header"
+          accessibilityRole={items.length > 0 ? 'text' : 'header'}
           accessibilityLabel={statusTitle(result)}
         >
           {statusTitle(result)}
@@ -585,6 +592,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           <GuidanceGapResolver
             items={items}
             heading={resolverHeading}
+            role={resolverRole}
             onNavigate={(route, key) => { rememberFocus(key); handleNavigate(route); }}
             onRetry={handleRetry}
             onReviewCheckIn={handleReviewCheckIn}

@@ -154,7 +154,17 @@ interface OwnerSession {
 
 const checkInSessions = new Map<string, OwnerSession>();
 
+/** The owner whose session was last used. */
+let lastOwnerSeen: string | null = null;
+
 function session(ownerId: string): OwnerSession {
+  // A different owner is being served: the previous owner's session goes
+  // with them, so no previous owner's answers are left in memory. The store
+  // stays owner-keyed, so nothing is ever read across owners.
+  if (lastOwnerSeen !== null && lastOwnerSeen !== ownerId) {
+    checkInSessions.delete(lastOwnerSeen);
+  }
+  lastOwnerSeen = ownerId;
   return checkInSessions.get(ownerId) ?? { draft: null, focusKey: null };
 }
 
@@ -217,7 +227,11 @@ function toggleConcern(
   return [...selected.filter(entry => entry !== 'none' && entry !== 'unknown'), concern];
 }
 
-/** Removes a concern from every zone it was attached to. */
+/**
+ * Removes a concern from every zone it was attached to. A zone that loses
+ * its last concern goes too: it would otherwise name a place with nothing
+ * noticed there, which the owner cannot complete.
+ */
 function withoutConcern(
   zoneConcerns: readonly CheckInZoneDraft[],
   concern: CurrentConditionConcern,
@@ -228,6 +242,18 @@ function withoutConcern(
       concerns: entry.concerns.filter(entry => entry !== concern),
     }))
     .filter(entry => entry.concerns.length > 0);
+}
+
+/** The zones that lost their last answer, and so go with it. */
+function zonesThatLostTheirAnswer(
+  zones: readonly CurrentConditionZone[],
+  before: readonly CheckInZoneDraft[],
+  after: readonly CheckInZoneDraft[],
+): readonly CurrentConditionZone[] {
+  const lost = before
+    .filter(entry => !after.some(kept => zoneKey(kept.zone) === zoneKey(entry.zone)))
+    .map(entry => entry.zone);
+  return zones.filter(zone => !lost.some(gone => zoneKey(gone) === zoneKey(zone)));
 }
 
 function hasExplicitOffset(value: string): boolean {
@@ -386,14 +412,20 @@ export function preflightReducer(
     case 'toggle_concern': {
       const concerns = toggleConcern(state.checkIn.concerns, action.concern);
       // Whatever the concerns are now, the zone attachments follow them: a
-      // concern that is no longer reported is no longer attached anywhere.
+      // concern that is no longer reported is no longer attached anywhere,
+      // and an area left without an answer is left with nothing.
       const zoneConcerns = state.checkIn.concerns
         .filter(entry => !concerns.includes(entry))
         .reduce<readonly CheckInZoneDraft[]>(
           (kept, gone) => withoutConcern(kept, gone),
           state.checkIn.zoneConcerns,
         );
-      return edit(state, { ...state.checkIn, concerns, zoneConcerns });
+      const zones = zonesThatLostTheirAnswer(
+        state.checkIn.zones,
+        state.checkIn.zoneConcerns,
+        zoneConcerns,
+      );
+      return edit(state, { ...state.checkIn, concerns, zoneConcerns, zones });
     }
     case 'toggle_zone':
       return edit(state, toggleZone(state.checkIn, action.region, action.segment));

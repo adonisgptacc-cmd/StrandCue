@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { Platform } from 'react-native';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { GuidanceGap, ProtocolDecision } from '../../packages/domain/src/index';
@@ -325,6 +326,21 @@ describe('the resolver on the screen', () => {
     await act(async () => { renderer.unmount(); });
   });
 
+  it('shows one state heading on the screen, not two', async () => {
+    mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [PASSPORT_GAP] });
+    const renderer = await render();
+    await generate(renderer);
+    const headers = renderer.root.findAll(
+      node => node.type === 'span' && node.props.accessibilityRole === 'header',
+    );
+    const labels = headers.map(node => node.props.accessibilityLabel as string);
+    // The resolver's heading is the one that names the state; the screen
+    // title beside it is not a second heading saying the same thing.
+    expect(labels).toContain(RESOLVER_HEADING);
+    expect(labels).not.toContain('A few things are needed first');
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('announces the new state once, with no second alert on the same screen', async () => {
     mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [PASSPORT_GAP] });
     const renderer = await render();
@@ -501,7 +517,7 @@ describe('the check-in answers', () => {
       .findAll(node => typeof node.props.accessibilityLabel === 'string')
       .map(node => node.props.accessibilityLabel as string);
     expect(labels).toContain('Whole head');
-    expect(labels).toContain('Roots');
+    expect(labels).toContain('Part of the hair: Roots');
     expect(ZONE_REGIONS).toContain('crown');
     expect(ZONE_SEGMENTS).toContain('mid-lengths');
     await act(async () => { renderer.unmount(); });
@@ -510,7 +526,7 @@ describe('the check-in answers', () => {
   it('exposes the selected state of a zone and never adds the same zone twice', async () => {
     const { renderer, dispatch } = await renderCheckIn(draft());
     await press(renderer, 'Crown');
-    await press(renderer, 'Roots');
+    await press(renderer, 'Part of the hair: Roots');
     const zoneToggle = dispatch.mock.calls
       .map(call => call[0] as PreflightAction)
       .filter(action => action.type === 'toggle_zone');
@@ -598,7 +614,7 @@ describe('check-in preservation', () => {
     await press(renderer, CHECK_IN_START_LABEL);
     await press(renderer, 'Dryness');
     await press(renderer, 'Crown');
-    await press(renderer, 'Roots');
+    await press(renderer, 'Part of the hair: Roots');
     await press(renderer, 'Crown, Roots: Dryness');
     await act(async () => { renderer.unmount(); });
 
@@ -681,7 +697,8 @@ describe('retrying a failed read', () => {
       button(renderer, 'Try again').props.onPress();
       await Promise.resolve();
     });
-    expect(button(renderer, 'Try again').props.accessibilityState).toMatchObject({ disabled: true });
+    // While the read runs the button says so, in words as well as in state.
+    expect(button(renderer, 'Trying again…').props.accessibilityState).toMatchObject({ disabled: true });
     await act(async () => { release({ status: 'content_pending' }); await Promise.resolve(); });
     await act(async () => { renderer.unmount(); });
   });
@@ -697,15 +714,21 @@ describe('retrying a failed read', () => {
     await press(renderer, 'Generate my plan');
     mocks.accessibilityFocus.length = 0;
     mocks.announced.length = 0;
-    await press(renderer, 'Try again');
-    // The failure is stated once, in the one live region.
-    expect(liveRegions(renderer).length).toBe(1);
-    expect(text(renderer)).toContain('could not read your records again');
-    expect(alerts(renderer).length).toBe(0);
-    // The same set of gaps is on screen, so focus is not thrown to the top.
-    expect(mocks.accessibilityFocus.length).toBe(0);
-    // The failure is announced once.
-    expect(mocks.announced.filter(text => text.includes('could not read your records again'))).toHaveLength(1);
+    // iOS has no live region, so the platform announcement carries the state
+    // there. It is called once, and the live region is not used as well.
+    const platform = Platform.OS;
+    Platform.OS = 'ios';
+    try {
+      await press(renderer, 'Try again');
+      expect(mocks.announced.filter(text => text.includes('could not read your records again'))).toHaveLength(1);
+      expect(liveRegions(renderer).length).toBe(1);
+      expect(text(renderer)).toContain('could not read your records again');
+      expect(alerts(renderer).length).toBe(0);
+      // The same set of gaps is on screen, so focus is not thrown to the top.
+      expect(mocks.accessibilityFocus.length).toBe(0);
+    } finally {
+      Platform.OS = platform;
+    }
     await act(async () => { renderer.unmount(); });
   });
 

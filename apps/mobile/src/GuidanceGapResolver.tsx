@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { AccessibilityInfo, Pressable, Text, View } from 'react-native';
+import { AccessibilityInfo, Platform, Pressable, Text, View } from 'react-native';
 
 import {
   GAP_STATE_LEAD,
@@ -9,6 +9,7 @@ import {
 import {
   resolverAnnouncement,
   type GuidanceResolverItem,
+  type GuidanceResolverRole,
 } from './guidance/guidance-gap-state';
 import { focusOn } from './focus';
 import type { GuidanceRoute } from './navigation';
@@ -31,6 +32,8 @@ export interface GuidanceGapResolverProps {
   readonly focusKey: string | null;
   /** The screen heading; it changes with what the resolver is showing. */
   readonly heading?: string;
+  /** What the resolver is showing, which decides what it announces. */
+  readonly role?: GuidanceResolverRole;
 }
 
 /**
@@ -43,14 +46,13 @@ export interface GuidanceGapResolverProps {
  * Accessibility rules this component keeps:
  *
  * - There is one heading, and it is a header.
- * - The new state is announced once. The announcement names the items, so a
- *   changed set is never silent, and it is sent through the platform's
- *   announcement API as well as the live region, so iOS hears it too. The
- *   component never uses an alert role, which would announce it a second
- *   time.
- * - Focus moves to the first thing the owner can act on, and to the gap the
- *   owner was resolving when they come back from a destination. A retry that
- *   fails leaves the focus where it was.
+ * - The new state is announced once. On Android the live region speaks it; on
+ *   iOS, which has no live region, the platform announcement API speaks it.
+ *   The component never uses an alert role, and never speaks the same string
+ *   through both channels.
+ * - Focus moves to the heading, or to the gap the owner was resolving when
+ *   they come back from a destination. A retry that fails leaves the focus
+ *   where it was.
  * - Every action names its destination, and no label contains a record id.
  */
 export function GuidanceGapResolver({
@@ -62,18 +64,21 @@ export function GuidanceGapResolver({
   retryError,
   focusKey,
   heading = RESOLVER_HEADING,
+  role = 'attention',
 }: GuidanceGapResolverProps) {
   const headingRef = useRef<Text | null>(null);
   const actionRefs = useRef<Record<string, unknown>>({});
   const signature = items.map(item => item.key).join('|');
-  const announcement = resolverAnnouncement(items);
+  const announcement = resolverAnnouncement(items, role);
 
   // The state is announced once, and only when it changes: the announcement
   // names the items, so a set that changed without changing its size is
-  // still announced.
+  // still announced. Android reads the live region below; iOS has no live
+  // region, so the platform announcement carries it there.
   useEffect(() => {
     const spoken = retryError ?? announcement;
     if (spoken === '') return;
+    if (Platform.OS !== 'ios') return;
     try {
       AccessibilityInfo.announceForAccessibility(spoken);
     } catch {
@@ -82,25 +87,16 @@ export function GuidanceGapResolver({
     }
   }, [signature, retryError, announcement]);
 
-  // Focus follows the change: a new set of gaps moves focus to the first
-  // thing the owner can act on, and a returning owner finds the gap they
-  // were resolving.
+  // Focus follows the change: a new set of gaps moves focus to the heading,
+  // and a returning owner finds the gap they were resolving.
   useEffect(() => {
     const restored = focusKey === null ? undefined : actionRefs.current[focusKey];
     if (restored !== undefined && restored !== null) {
       focusOn({ current: restored });
       return;
     }
-    const firstAction = items.find(item => item.primaryAction !== null);
-    if (firstAction !== undefined) {
-      const target = actionRefs.current[firstAction.key];
-      if (target !== undefined && target !== null) {
-        focusOn({ current: target });
-        return;
-      }
-    }
     focusOn({ current: headingRef.current });
-  }, [signature, focusKey, items]);
+  }, [signature, focusKey]);
 
   const run = (item: GuidanceResolverItem, route: GuidanceRoute) => {
     if (route === 'retry_sources') {
@@ -143,7 +139,9 @@ export function GuidanceGapResolver({
           <Pressable
             ref={node => { actionRefs.current[item.key] = node; }}
             accessibilityRole="button"
-            accessibilityLabel={primary.accessibilityLabel}
+            accessibilityLabel={primary.route === 'retry_sources' && retrying
+              ? RETRY_DATA_BUSY_LABEL
+              : primary.accessibilityLabel}
             accessibilityState={{ disabled: retrying }}
             disabled={retrying}
             onPress={() => run(item, primary.route)}

@@ -4,7 +4,6 @@ import type {
   GuidanceGapReason,
   GuidanceGapState,
   GuidanceIncompleteSource,
-  GuidanceSourceName,
 } from '../../../../packages/domain/src/index';
 import type { GuidanceRoute } from '../navigation';
 import {
@@ -15,6 +14,10 @@ import {
   RESOLVER_ACTIONS,
   RESOLVER_ANNOUNCEMENT_MANY,
   RESOLVER_ANNOUNCEMENT_ONE,
+  RESOLVER_CONTENT_ANNOUNCEMENT,
+  RESOLVER_FAILED_ANNOUNCEMENT,
+  RESOLVER_SETUP_ANNOUNCEMENT_MANY,
+  RESOLVER_SETUP_ANNOUNCEMENT_ONE,
   RETRY_DATA_ACCESSIBILITY,
   RETRY_DATA_LABEL,
   SOURCE_AREA_NAMES,
@@ -102,8 +105,8 @@ const ROUTE_GROUP: Readonly<Record<GuidanceRoute, number>> = {
 
 /**
  * Where a kind of gap is resolved when the gap names no destination of its
- * own. The old `gapTarget` fallback lived here; it is kept so a gap without
- * a destination still reaches the screen that can fix it.
+ * own. The kind's own route is the fallback, so a gap without a destination
+ * still reaches the screen that can fix it.
  */
 const KIND_ROUTE: Readonly<Record<GuidanceGapKind, GuidanceRoute>> = {
   hair_profile: 'my_hair',
@@ -261,6 +264,13 @@ function primaryFor(gap: GuidanceGap, route: GuidanceRoute): GuidanceResolverAct
       return action(RESOLVER_ACTIONS.reviewTools, route);
     case 'today_check_in':
       return action(RESOLVER_ACTIONS.reviewCheckIn, route);
+    case 'retry_sources':
+      return {
+        id: 'retry_sources',
+        label: RETRY_DATA_LABEL,
+        accessibilityLabel: RETRY_DATA_ACCESSIBILITY,
+        route,
+      };
     default:
       // A content limitation asks nothing of the owner: there is no action
       // that would help, and an action that does nothing is worse than none.
@@ -402,22 +412,32 @@ export function resolverItems(input: GuidanceResolverInput): GuidanceResolverIte
 }
 
 /**
+ * The role the resolver is playing, which decides what its announcement
+ * says. The same list of items means different things depending on whether
+ * they block a plan, are the owner's own next step, are a read that failed
+ * or are content that is not published.
+ */
+export type GuidanceResolverRole = 'attention' | 'setup' | 'failed' | 'content';
+
+/**
  * The announcement for the resolver. It names the count *and* what the
  * items are, so a changed set with the same count is still announced: a
  * screen-reader user is never left with a silent change.
  */
-export function resolverAnnouncement(items: readonly GuidanceResolverItem[]): string {
+export function resolverAnnouncement(
+  items: readonly GuidanceResolverItem[],
+  role: GuidanceResolverRole,
+): string {
   if (items.length === 0) return '';
-  const summary = items.length === 1
-    ? RESOLVER_ANNOUNCEMENT_ONE
-    : RESOLVER_ANNOUNCEMENT_MANY(items.length);
+  if (role === 'content') return RESOLVER_CONTENT_ANNOUNCEMENT;
+  if (role === 'failed') return RESOLVER_FAILED_ANNOUNCEMENT;
+  const summary = role === 'setup'
+    ? (items.length === 1
+      ? RESOLVER_SETUP_ANNOUNCEMENT_ONE
+      : RESOLVER_SETUP_ANNOUNCEMENT_MANY(items.length))
+    : (items.length === 1
+      ? RESOLVER_ANNOUNCEMENT_ONE
+      : RESOLVER_ANNOUNCEMENT_MANY(items.length));
   const titles = items.map(item => item.title).join(' ');
   return `${summary} ${titles}`;
-}
-
-/** The source names a resolver can retry, for the caller that owns the retry. */
-export function failedSourceNames(items: readonly GuidanceResolverItem[]): readonly GuidanceSourceName[] {
-  return items
-    .filter(item => item.route === 'retry_sources' && item.internalSubject !== null)
-    .map(item => item.internalSubject as GuidanceSourceName);
 }

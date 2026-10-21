@@ -34,6 +34,7 @@ import {
   TIME_LABEL,
   ZONE_ADDED_STATUS,
   ZONE_CONCERN_LABEL,
+  ZONE_CONCERNS_EMPTY,
   ZONE_CONCERNS_LABEL,
   ZONE_HINT,
   ZONE_LABEL,
@@ -64,10 +65,16 @@ export function observationTimeLabel(observedAt: string | null): string {
   const parsed = Date.parse(observedAt);
   if (Number.isNaN(parsed)) return OBSERVED_AT_NOT_SET;
   const date = new Date(parsed);
-  const hours = `${date.getHours()}`.padStart(2, '0');
+  const hours = date.getHours() % 12 === 0 ? 12 : date.getHours() % 12;
   const minutes = `${date.getMinutes()}`.padStart(2, '0');
-  return `${date.getDate()} ${date.getMonth() + 1} ${date.getFullYear()}, ${hours}:${minutes}`;
+  const meridiem = date.getHours() < 12 ? 'am' : 'pm';
+  return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}, ${hours}:${minutes} ${meridiem}`;
 }
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
 
 /**
  * Temporary current-condition check-in form (HP-06, TD-02–TD-03, SF-01,
@@ -91,7 +98,6 @@ export function observationTimeLabel(observedAt: string | null): string {
  *   optional, and no zone is ever inferred from a photo or any other fact.
  */
 export function TodayCheckIn({ draft, errors, nowIso, dispatch, focusSection = null }: TodayCheckInProps) {
-  const errorRef = useRef<Text | null>(null);
   const concernsRef = useRef<Text | null>(null);
   const goalRef = useRef<Text | null>(null);
   const timeRef = useRef<Text | null>(null);
@@ -113,7 +119,7 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch, focusSection = n
           ? observedAtRef
           : errors.some(code => code.startsWith('zone'))
             ? zonesRef
-            : goalRef;
+            : concernsRef;
     focusOn({ current: section.current });
   }, [errors]);
 
@@ -284,7 +290,9 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch, focusSection = n
             style={[styles.pill, region === option && styles.selected]}
           >
             <Text style={[styles.body, region === option && { color: colors.white }]}>
-              {ZONE_REGION_LABELS[option] ?? option}
+              {region === option
+                ? `✓ ${ZONE_REGION_LABELS[option] ?? option}`
+                : ZONE_REGION_LABELS[option] ?? option}
             </Text>
           </Pressable>
         ))}
@@ -295,14 +303,14 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch, focusSection = n
           <Text style={styles.label} accessibilityRole="header" accessibilityLabel={ZONE_SEGMENT_LABEL}>
             {ZONE_SEGMENT_LABEL}
           </Text>
-          <View style={styles.row} accessibilityLabel={ZONE_SEGMENT_LABEL}>
+          <View style={styles.row} accessibilityRole="radiogroup" accessibilityLabel={ZONE_SEGMENT_LABEL}>
             {ZONE_SEGMENTS.map(option => {
               const zone: CurrentConditionZone = { region, segment: option };
               const checked = selectedZones.some(entry => zoneKey(entry) === zoneKey(zone));
               return <Pressable
                 key={option}
                 accessibilityRole="checkbox"
-                accessibilityLabel={ZONE_SEGMENT_LABELS[option] ?? option}
+                accessibilityLabel={`${ZONE_SEGMENT_LABEL}: ${ZONE_SEGMENT_LABELS[option] ?? option}`}
                 accessibilityState={{ checked }}
                 onPress={() => toggleZone(region, option)}
                 style={[styles.pill, checked && styles.selected]}
@@ -341,7 +349,11 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch, focusSection = n
           <Text style={styles.label} accessibilityRole="header" accessibilityLabel={ZONE_CONCERNS_LABEL}>
             {ZONE_CONCERNS_LABEL}
           </Text>
+          {concerns.length === 0 && (
+            <Text style={styles.subtitle}>{ZONE_CONCERNS_EMPTY}</Text>
+          )}
           {selectedZones.map(zone => {
+            if (concerns.length === 0) return null;
             const label = zoneLabel(zone);
             const attached = draft.zoneConcerns.find(entry => zoneKey(entry.zone) === zoneKey(zone));
             return <View key={zoneKey(zone)}>
@@ -377,9 +389,8 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch, focusSection = n
     {errors.length > 0 && (
       <View style={styles.notice}>
         <Text
-          ref={errorRef}
           accessibilityRole="alert"
-          accessibilityLabel={CHECK_IN_ERRORS_HEADING}
+          accessibilityLabel={`${CHECK_IN_ERRORS_HEADING}. ${CHECK_IN_ERROR_TEXT[errors[0]]}`}
           style={styles.error}
         >
           {CHECK_IN_ERRORS_HEADING}

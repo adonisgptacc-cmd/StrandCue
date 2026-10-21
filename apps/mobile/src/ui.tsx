@@ -27,7 +27,7 @@ export const styles = StyleSheet.create({
   pill: { paddingHorizontal: 14, paddingVertical: 12, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: colors.line, justifyContent: 'center' },
   selected: { backgroundColor: colors.ink, borderColor: colors.ink },
   notice: { borderRadius: 12, padding: 14, backgroundColor: colors.sage },
-  error: { color: colors.error, fontSize: 14, lineHeight: 21 },
+  error: { color: colors.error, fontSize: 14 },
   divider: { height: 1, backgroundColor: colors.line },
 });
 export function Page({ children }: PropsWithChildren) {

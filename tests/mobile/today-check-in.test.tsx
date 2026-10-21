@@ -287,7 +287,9 @@ describe('today check-in touch targets, focus and large-text structure', () => {
     const alert = renderer.root.find(
       node => node.type === 'span' && node.props.accessibilityRole === 'alert',
     );
-    expect(alert.props.accessibilityLabel).toBe(CHECK_IN_ERRORS_HEADING);
+    expect(alert.props.accessibilityLabel).toBe(
+      `${CHECK_IN_ERRORS_HEADING}. ${CHECK_IN_ERROR_TEXT.concerns_required}`,
+    );
     expect(text(renderer)).toContain(CHECK_IN_ERROR_TEXT.concerns_required.toLowerCase());
     expect(text(renderer)).toContain(CHECK_IN_ERROR_TEXT.time_required.toLowerCase());
     // The screen reader is sent to the first part of the form that failed.
@@ -316,8 +318,8 @@ describe('today check-in cosmetic boundary and honest wording', () => {
     const { renderer } = await renderCheckIn();
     expect(text(renderer)).toContain(CHECK_IN_BOUNDARY.toLowerCase().slice(0, 40));
     expect(text(renderer)).toContain('not a diagnosis');
-    expect(text(renderer)).toContain('stay in this session only');
-    expect(text(renderer)).toContain('change nothing in my hair');
+    expect(text(renderer)).toContain('stay on this device for this session');
+    expect(text(renderer)).toContain('nothing is added to my hair');
     await act(async () => { renderer.unmount(); });
   });
 

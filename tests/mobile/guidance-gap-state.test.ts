@@ -5,6 +5,7 @@ import {
   contentPendingItem,
   failedSourceItems,
   gapRenderKey,
+  resolverAnnouncement,
   resolverItemFor,
   resolverItems,
   unknownSourceFailureItem,
@@ -347,8 +348,7 @@ describe('every gap shape the resolver can meet', () => {
 });
 
 describe('the wording the resolver uses', () => {
-  it('names every state the screen can be in', () => {
-    expect(statusTitle({ status: 'ready' } as never)).toBe('Your plan is ready');
+  it('names every state the screen can be in', () => {    expect(statusTitle({ status: 'ready' } as never)).toBe('Your plan is ready');
     expect(statusTitle({ status: 'needs_setup' } as never)).toBe('A few things are needed first');
     expect(statusTitle({ status: 'content_pending' } as never)).toContain('still being prepared');
     expect(statusTitle({ status: 'needs_input' } as never)).toContain('needs a little more');
@@ -368,5 +368,15 @@ describe('the wording the resolver uses', () => {
   it('says one minute in the singular', () => {
     expect(CHECK_IN_SUMMARY_TIME(1)).toBe('1 minute available');
     expect(CHECK_IN_SUMMARY_TIME(20)).toBe('20 minutes available');
+  });
+
+  it('announces each role in its own words, and never overstates it', () => {
+    const items = resolverItems(input({ gaps: [PASSPORT_GAP] }));
+    expect(resolverAnnouncement(items, 'attention')).toContain('needs your attention');
+    expect(resolverAnnouncement(items, 'setup')).toContain('you could add next');
+    expect(resolverAnnouncement(items, 'failed')).toBe('We could not read everything we needed.');
+    expect(resolverAnnouncement(items, 'content')).toContain('not available yet');
+    // The items themselves are named, so a changed set is never silent.
+    expect(resolverAnnouncement(items, 'attention')).toContain('your strand thickness');
   });
 });

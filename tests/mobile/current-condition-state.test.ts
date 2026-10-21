@@ -636,4 +636,33 @@ describe('task 3.2: the check-in can never contradict itself', () => {
     );
     expect(back.errors).toEqual(['check_in_unusable']);
   });
+
+  it('removes an area that has lost its last answer', () => {
+    const state = preflightReducer(
+      {
+        ...initialPreflight(OWNER),
+        phase: 'checking_in',
+        checkIn: draft({
+          concerns: ['dryness'],
+          zones: [ZONE],
+          zoneConcerns: [{ zone: ZONE, concerns: ['dryness'] }],
+        }),
+      },
+      { type: 'toggle_concern', concern: 'dryness' },
+    );
+    // An area with nothing noticed in it cannot be completed, so it goes
+    // with the answer that left it.
+    expect(state.checkIn.zones).toEqual([]);
+    expect(state.checkIn.zoneConcerns).toEqual([]);
+    expect(validateCheckIn(state.checkIn, NOW)).not.toContain('zone_concerns_required');
+  });
+
+  it('forgets the previous owner when another owner is served', () => {
+    clearAllCheckInDrafts();
+    saveCheckInDraft(OWNER, draft({ concerns: ['dryness'] }));
+    expect(loadCheckInDraft(OWNER)?.concerns).toEqual(['dryness']);
+    // Another owner is served: the previous owner's session goes with them.
+    expect(loadCheckInDraft('owner-2')).toBeNull();
+    expect(loadCheckInDraft(OWNER)).toBeNull();
+  });
 });
