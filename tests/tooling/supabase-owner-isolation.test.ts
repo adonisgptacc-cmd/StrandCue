@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import config from '../../vitest.config';
 import {
+  classifyOwnerIsolationTarget,
   DEFAULT_OWNER_ISOLATION_TABLES,
   evaluateOwnerIsolationResponse,
   formatOwnerIsolationReport,
+  redactIdentifier,
   runOwnerIsolationCli,
   runOwnerIsolationHarness,
 } from '../../scripts/supabase-owner-isolation';
@@ -224,6 +226,67 @@ describe('Supabase two-owner isolation harness', () => {
     try {
       expect(await runOwnerIsolationCli({}, vi.fn())).toBe(1);
       expect(write).toHaveBeenLastCalledWith('OWNER-ISOLATION-HOLD code=CONFIG_INVALID\n');
+    } finally {
+      write.mockRestore();
+    }
+  });
+});
+
+const HOSTED = {
+  SUPABASE_ACCEPTANCE_TARGET: 'isolated-test',
+  SUPABASE_ACCEPTANCE_URL: 'https://abcdefghijklmnopqrst.supabase.co',
+  SUPABASE_ACCEPTANCE_ENV_LABEL: 'isolated_test',
+  SUPABASE_ACCEPTANCE_PROJECT_REF: 'abcdefghijklmnopqrst',
+  SUPABASE_ACCEPTANCE_PRODUCTION_REFS: 'zzzzzzzzzzzzzzzzzzzz,yyyyyyyyyyyyyyyyyyyy',
+};
+const LOCAL = { SUPABASE_ACCEPTANCE_TARGET: 'local-loopback', SUPABASE_ACCEPTANCE_URL: 'http://127.0.0.1:54321' };
+
+describe('the target the harness is allowed to touch', () => {
+  it('accepts a numeric-loopback local stack and an isolated hosted project proven by label and reference', () => {
+    expect(classifyOwnerIsolationTarget(LOCAL)).toEqual({ kind: 'local-loopback', url: 'http://127.0.0.1:54321', projectRef: null });
+    expect(classifyOwnerIsolationTarget(HOSTED)).toEqual({ kind: 'isolated-hosted', url: 'https://abcdefghijklmnopqrst.supabase.co', projectRef: 'abcdefghijklmnopqrst' });
+  });
+
+  it.each([
+    ['no target at all', {}],
+    ['an unknown target kind', { ...LOCAL, SUPABASE_ACCEPTANCE_TARGET: 'staging' }],
+    ['a local target on a hostname, not numeric loopback', { ...LOCAL, SUPABASE_ACCEPTANCE_URL: 'http://localhost:54321' }],
+    ['a local target on a LAN address', { ...LOCAL, SUPABASE_ACCEPTANCE_URL: 'http://192.168.1.20:54321' }],
+    ['a local target without a port', { ...LOCAL, SUPABASE_ACCEPTANCE_URL: 'http://127.0.0.1' }],
+    ['a local target with credentials in the URL', { ...LOCAL, SUPABASE_ACCEPTANCE_URL: 'http://user:pw@127.0.0.1:54321' }],
+    ['a local target carrying a hosted project reference', { ...LOCAL, SUPABASE_ACCEPTANCE_PROJECT_REF: 'abcdefghijklmnopqrst' }],
+    ['a malformed URL', { ...HOSTED, SUPABASE_ACCEPTANCE_URL: 'not a url' }],
+    ['a hosted target over http', { ...HOSTED, SUPABASE_ACCEPTANCE_URL: 'http://abcdefghijklmnopqrst.supabase.co' }],
+    ['a hosted target that is not a supabase project host', { ...HOSTED, SUPABASE_ACCEPTANCE_URL: 'https://api.example.com' }],
+    ['a hosted target with a path', { ...HOSTED, SUPABASE_ACCEPTANCE_URL: 'https://abcdefghijklmnopqrst.supabase.co/rest/v1' }],
+    ['a hosted target with no environment label', { ...HOSTED, SUPABASE_ACCEPTANCE_ENV_LABEL: undefined }],
+    ['a hosted target labelled production', { ...HOSTED, SUPABASE_ACCEPTANCE_ENV_LABEL: 'production' }],
+    ['a hosted target with no project reference', { ...HOSTED, SUPABASE_ACCEPTANCE_PROJECT_REF: undefined }],
+    ['a hosted URL that disagrees with the stated reference', { ...HOSTED, SUPABASE_ACCEPTANCE_PROJECT_REF: 'bbbbbbbbbbbbbbbbbbbb' }],
+    ['a hosted target that is a known production reference', { ...HOSTED, SUPABASE_ACCEPTANCE_PRODUCTION_REFS: 'zzzzzzzzzzzzzzzzzzzz, abcdefghijklmnopqrst' }],
+    ['a hosted target with no production list to compare against', { ...HOSTED, SUPABASE_ACCEPTANCE_PRODUCTION_REFS: undefined }],
+    ['a hosted target with an empty production list', { ...HOSTED, SUPABASE_ACCEPTANCE_PRODUCTION_REFS: '  ' }],
+  ] as const)('fails closed for %s', (_name, env) => {
+    expect(() => classifyOwnerIsolationTarget(env as Record<string, string | undefined>)).toThrow('CONFIG_INVALID');
+  });
+
+  it('redacts identifiers to a short stable prefix and never returns a whole one', () => {
+    expect(redactIdentifier('abcdefghijklmnopqrst')).toBe('abc***');
+    expect(redactIdentifier('ab')).toBe('***');
+    expect(redactIdentifier('')).toBe('***');
+    expect(redactIdentifier(null)).toBe('***');
+    expect(redactIdentifier('11111111-1111-4111-8111-111111111111')).not.toContain('4111');
+  });
+
+  it('the CLI refuses a production-like hosted target before any request is made', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const fetcher = vi.fn();
+    try {
+      const env = { ...HOSTED, SUPABASE_ACCEPTANCE_PRODUCTION_REFS: 'abcdefghijklmnopqrst', SUPABASE_ACCEPTANCE_PUBLISHABLE_KEY: 'k',
+        SUPABASE_ACCEPTANCE_OWNER_A_EMAIL: 'a@example.invalid', SUPABASE_ACCEPTANCE_OWNER_A_PASSWORD: 'x', SUPABASE_ACCEPTANCE_OWNER_B_EMAIL: 'b@example.invalid', SUPABASE_ACCEPTANCE_OWNER_B_PASSWORD: 'y' };
+      expect(await runOwnerIsolationCli(env, fetcher)).toBe(1);
+      expect(write).toHaveBeenLastCalledWith('OWNER-ISOLATION-HOLD code=CONFIG_INVALID\n');
+      expect(fetcher).not.toHaveBeenCalled();
     } finally {
       write.mockRestore();
     }

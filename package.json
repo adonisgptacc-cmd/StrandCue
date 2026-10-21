@@ -15,6 +15,7 @@
     "check:android-local": "node scripts/android-local-preflight.ts",
     "verify:android-artifact": "node scripts/verify-android-artifact.ts",
     "verify:supabase-owner-isolation": "node scripts/supabase-owner-isolation.ts",
+    "verify:supabase-owner-isolation:live": "node scripts/owner-isolation-live.ts",
     "lint": "eslint apps/mobile packages/domain scripts tests vitest.config.ts eslint.config.mjs --max-warnings=0",
     "preverify": "npm run check:runtime",
     "test": "vitest run",

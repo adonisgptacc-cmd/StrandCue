@@ -25,6 +25,7 @@ const criticalModules = [
   'scripts/verify-android-artifact.ts',
   'scripts/android-native-manifest.ts',
   'scripts/supabase-owner-isolation.ts',
+  'scripts/owner-isolation-scenarios.ts', 'scripts/owner-isolation-live.ts',
 ];
 const floor = { lines: 80, statements: 80, functions: 80, branches: 80 };
 

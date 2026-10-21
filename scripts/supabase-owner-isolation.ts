@@ -139,10 +139,54 @@ const holdReport = (code: OwnerIsolationCode): OwnerIsolationReport => Object.fr
   status: 'HOLD' as const, code, results: Object.freeze([]),
 });
 
+/** An identifier is never printed whole: a short prefix is enough to tell two apart in a report. */
+export function redactIdentifier(value: string | null | undefined): string {
+  return typeof value === 'string' && value.length > 3 ? `${value.slice(0, 3)}***` : '***';
+}
+
+export type OwnerIsolationTargetKind = 'local-loopback' | 'isolated-hosted';
+
+export interface OwnerIsolationTarget {
+  readonly kind: OwnerIsolationTargetKind;
+  readonly url: string;
+  readonly projectRef: string | null;
+}
+
+const HOSTED_PROJECT_HOST = /^([a-z0-9]{20})\.supabase\.co$/;
+
+/**
+ * Decides whether the harness may touch a target at all, before any request is made. It accepts exactly two
+ * things: a numeric-loopback local stack, or a hosted project proven isolated by an explicit label, a project
+ * reference that matches its host, and a non-empty list of known production references it is not on. Anything
+ * absent, malformed, ambiguous or production-like throws CONFIG_INVALID.
+ */
+export function classifyOwnerIsolationTarget(env: Readonly<Record<string, string | undefined>>): OwnerIsolationTarget {
+  const invalid = (): never => { throw new Error('CONFIG_INVALID'); };
+  const target = env.SUPABASE_ACCEPTANCE_TARGET;
+  let url: URL;
+  try { url = new URL(env.SUPABASE_ACCEPTANCE_URL ?? ''); } catch { return invalid(); }
+  if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) return invalid();
+  const ref = env.SUPABASE_ACCEPTANCE_PROJECT_REF?.trim() || null;
+  if (target === 'local-loopback') {
+    if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(url.hostname) || !url.port || ref !== null) return invalid();
+    return Object.freeze({ kind: 'local-loopback' as const, url: url.origin, projectRef: null });
+  }
+  if (target === 'isolated-test') {
+    const host = HOSTED_PROJECT_HOST.exec(url.hostname);
+    if (url.protocol !== 'https:' || !host || url.port) return invalid();
+    if (env.SUPABASE_ACCEPTANCE_ENV_LABEL !== 'isolated_test' || ref === null || ref !== host[1]) return invalid();
+    const production = (env.SUPABASE_ACCEPTANCE_PRODUCTION_REFS ?? '').split(',').map(entry => entry.trim()).filter(Boolean);
+    if (production.length === 0 || production.includes(ref)) return invalid();
+    return Object.freeze({ kind: 'isolated-hosted' as const, url: url.origin, projectRef: ref });
+  }
+  return invalid();
+}
+
 function validConfig(config: OwnerIsolationConfig): boolean {
   try {
     const url = new URL(config.url);
-    return url.protocol === 'https:' && Boolean(config.publishableKey)
+    const loopback = url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname) && Boolean(url.port);
+    return (url.protocol === 'https:' || loopback) && Boolean(config.publishableKey)
       && Boolean(config.ownerA.email && config.ownerA.password && config.ownerB.email && config.ownerB.password);
   } catch { return false; }
 }
@@ -190,8 +234,13 @@ export function formatOwnerIsolationReport(report: OwnerIsolationReport): string
 export async function runOwnerIsolationCli(
   env: Readonly<Record<string, string | undefined>> = process.env, fetcher: Fetcher = fetch,
 ): Promise<number> {
+  let target: OwnerIsolationTarget;
+  try { target = classifyOwnerIsolationTarget(env); } catch {
+    process.stdout.write(`${formatOwnerIsolationReport(holdReport('CONFIG_INVALID'))}\n`);
+    return 1;
+  }
   const report = await runOwnerIsolationHarness({
-    url: env.SUPABASE_ACCEPTANCE_URL ?? '',
+    url: target.url,
     publishableKey: env.SUPABASE_ACCEPTANCE_PUBLISHABLE_KEY ?? '',
     ownerA: { email: env.SUPABASE_ACCEPTANCE_OWNER_A_EMAIL ?? '', password: env.SUPABASE_ACCEPTANCE_OWNER_A_PASSWORD ?? '' },
     ownerB: { email: env.SUPABASE_ACCEPTANCE_OWNER_B_EMAIL ?? '', password: env.SUPABASE_ACCEPTANCE_OWNER_B_PASSWORD ?? '' },
