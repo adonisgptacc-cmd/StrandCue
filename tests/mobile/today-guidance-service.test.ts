@@ -778,6 +778,23 @@ describe('task 3.1 integration: the prepared input through the service', () => {
     ]);
   });
 
+  it('says which source could not be read when preparation is refused for an incomplete snapshot', async () => {
+    const incomplete = snapshot({ completeness: { passport: 'complete', services: 'failed', activities: 'complete', products: 'complete', tools: 'truncated' } });
+    const result = await generateTodayGuidance(request(), harness({ snapshot: incomplete }).dependencies);
+    expect(result).toEqual({
+      status: 'source_error',
+      detail: 'Your records could not be read completely. Nothing was generated and no earlier plan was reused.',
+      incompleteSources: [{ source: 'services', state: 'failed' }, { source: 'tools', state: 'truncated' }],
+    });
+  });
+
+  it('keeps the fixed source error when preparation names no source', async () => {
+    const unusable = snapshot({ services: [{ serviceId: 's-1', currentPresence: 'not-present', effectiveStart: null, facts: {}, heat: { method: 'flat-iron', passes: 1.5, source: 'user-reported' } }] });
+    const result = await generateTodayGuidance(request(), harness({ snapshot: unusable }).dependencies);
+    expect(result.status).toBe('source_error');
+    expect(result).not.toHaveProperty('incompleteSources');
+  });
+
   it('never prepares anything from a draft bundle: the production bundle stays content_pending with a complete check-in', async () => {
     const result = await generateTodayGuidance(request({ currentCondition: CHECK_IN, now: AS_OF }));
     expect(result).toEqual({ status: 'content_pending' });

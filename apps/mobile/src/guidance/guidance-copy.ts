@@ -1,4 +1,12 @@
-import type { CurrentConditionConcern, GuidanceGapKind } from '../../../../packages/domain/src/index';
+import type {
+  CurrentConditionConcern,
+  GuidanceGap,
+  GuidanceGapDestination,
+  GuidanceGapKind,
+  GuidanceGapState,
+  GuidanceIncompleteSource,
+  GuidanceSourceName,
+} from '../../../../packages/domain/src/index';
 import type { DestinationId } from '../navigation';
 import type { CheckInErrorCode, CheckInGoal } from './current-condition-state';
 import type { TodayGuidanceResult } from './today-guidance-service';
@@ -55,6 +63,48 @@ const GAP_DESTINATION: Readonly<Record<GuidanceGapKind, DestinationId | null>> =
 
 export function gapDestination(kind: GuidanceGapKind): DestinationId | null {
   return GAP_DESTINATION[kind];
+}
+
+/**
+ * The screen a gap's own `destination` points at. `today_check_in` is the
+ * check-in step on this screen, not a records screen, so it has no navigation
+ * target (the result screen offers "Review check-in answers" instead). A gap
+ * that names no destination falls back to the kind's default.
+ */
+const GAP_DESTINATION_SCREEN: Readonly<Record<GuidanceGapDestination, DestinationId | null>> = {
+  my_hair: 'my_hair',
+  my_hair_services: 'my_hair',
+  my_shelf: 'my_shelf',
+  my_tools: 'my_tools',
+  today_check_in: null,
+};
+
+export function gapTarget(gap: GuidanceGap): DestinationId | null {
+  return gap.destination === null ? gapDestination(gap.kind) : GAP_DESTINATION_SCREEN[gap.destination];
+}
+
+/** A short lead-in that says why the gap stops the plan, so the five states read differently. */
+export const GAP_STATE_LEAD: Readonly<Record<GuidanceGapState, string>> = {
+  missing: 'Not answered yet',
+  unknown: 'Marked as not sure',
+  failed_source: 'We could not check this',
+  contradictory: 'These answers do not agree',
+  unsupported: 'Not covered yet',
+};
+
+export const SOURCE_AREA_NAMES: Readonly<Record<GuidanceSourceName, string>> = {
+  passport: 'My Hair',
+  services: 'your chemical services',
+  activities: 'your recorded activity',
+  products: 'My Shelf',
+  tools: 'My Tools',
+};
+
+/** Names the areas that could not be read, or says nothing specific when none are known. */
+export function sourceErrorAreas(sources: readonly GuidanceIncompleteSource[] | undefined): string | null {
+  if (sources === undefined || sources.length === 0) return null;
+  const names = sources.map(entry => SOURCE_AREA_NAMES[entry.source]);
+  return `Could not be read completely: ${names.join(', ')}. Try again.`;
 }
 
 export const READY_TITLE = 'Your plan is ready';
@@ -130,6 +180,8 @@ export const CHECK_IN_BOUNDARY =
 export const CONCERNS_LABEL = 'What do you notice today?';
 export const CONCERNS_HINT = 'Choose all that apply. “I am not sure” and “None of these” each stand alone.';
 
+export const EXCLUSIVE_CONCERN_HINT = 'Clears your other choices';
+
 export const CONCERN_LABELS: Readonly<Record<CurrentConditionConcern, string>> = {
   dryness: 'Dryness',
   frizz: 'Frizz',
@@ -137,13 +189,13 @@ export const CONCERN_LABELS: Readonly<Record<CurrentConditionConcern, string>> =
   breakage: 'Breakage',
   stiffness: 'Stiffness',
   dullness: 'Dullness',
-  buildup: 'Buildup or a heavy, coated feel',
+  buildup: 'Product buildup or a coated feel',
   'scalp-dryness': 'Scalp dryness',
   'scalp-oiliness': 'Scalp oiliness',
-  'scalp-discomfort': 'Scalp discomfort you can feel',
+  'scalp-discomfort': 'Scalp discomfort',
   'reported-damage': 'Damage you can see or feel',
-  'chemical-processing-concern': 'Worried about chemical processing',
-  'heat-concern': 'Worried about heat',
+  'chemical-processing-concern': 'Worried about chemical services',
+  'heat-concern': 'Worried about heat styling',
   none: 'None of these',
   unknown: 'I am not sure',
 };

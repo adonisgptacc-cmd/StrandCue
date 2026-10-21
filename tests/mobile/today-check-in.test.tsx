@@ -125,6 +125,16 @@ describe('today check-in labels and screen-reader behavior', () => {
     await act(async () => { renderer.unmount(); });
   });
 
+  it('tells a screen-reader user that the two stand-alone answers clear the others, and no other answer says so', async () => {
+    const { renderer } = await renderCheckIn();
+    const hintOf = (label: string) =>
+      renderer.root.find(node => node.type === 'button' && node.props.accessibilityLabel === `${CONCERNS_LABEL}: ${label}`).props.accessibilityHint;
+    expect(hintOf(CONCERN_LABELS.none)).toBe('Clears your other choices');
+    expect(hintOf(CONCERN_LABELS.unknown)).toBe('Clears your other choices');
+    expect(hintOf(CONCERN_LABELS.dryness)).toBeUndefined();
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('exposes concerns as checkboxes with checked state and the goal as a radio', async () => {
     const { renderer } = await renderCheckIn({
       draft: emptyDraft({ concerns: ['dryness'] }),

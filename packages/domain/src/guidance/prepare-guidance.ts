@@ -19,6 +19,7 @@ import type {
   GuidanceIncompleteSource,
   GuidancePreparation,
   GuidanceSnapshot,
+  PreparedGuidanceInput,
   GuidanceSourceItem,
   GuidanceSourceName,
   ReviewedCapabilityEntry,
@@ -244,6 +245,23 @@ function rejectionState(issue: z.core.$ZodIssue, raw: unknown): GuidanceGapState
   return 'unsupported';
 }
 
+/** What each check-in answer is called to the owner; the field path itself is never shown. */
+const CHECK_IN_ANSWER_NAMES: Readonly<Record<string, string>> = {
+  concerns: 'what you notice today',
+  availableMinutes: 'the time you have today',
+  observedAt: 'when you checked in',
+  goal: 'your goal',
+  zones: 'where you notice it',
+  zoneConcerns: 'where you notice each thing',
+};
+
+function rejectionDetail(field: string, state: GuidanceGapState): string {
+  const name = CHECK_IN_ANSWER_NAMES[field] ?? 'your check-in';
+  if (state === 'missing') return `Add ${name} in today's check-in.`;
+  if (state === 'contradictory') return `Your answers about ${name} do not agree. Change them in today's check-in.`;
+  return `Today's check-in cannot use your answer about ${name}. Choose from the options shown.`;
+}
+
 /**
  * Converts a check-in validation failure into stable targeted gaps. One gap
  * per reported issue, subjecting the offending `current.*` field; details are
@@ -255,12 +273,8 @@ function rejectionGaps(error: unknown, raw: unknown): GuidanceGap[] {
   if (error instanceof z.ZodError) {
     const gaps = error.issues.map(issue => {
       const field = typeof issue.path[0] === 'string' ? issue.path[0] : 'checkIn';
-      const subject = `current.${field}`;
-      return currentConditionGap(
-        subject,
-        `The temporary check-in answer for '${subject}' was not usable. Review that check-in answer and try again.`,
-        rejectionState(issue, raw),
-      );
+      const state = rejectionState(issue, raw);
+      return currentConditionGap(`current.${field}`, rejectionDetail(field, state), state);
     });
     if (gaps.length > 0) return gaps;
   }
@@ -268,7 +282,7 @@ function rejectionGaps(error: unknown, raw: unknown): GuidanceGap[] {
     return [
       currentConditionGap(
         'current.observedAt',
-        'The temporary check-in observation time is in the future. Record an observation time that is not later than now.',
+        "The check-in time is in the future. Set it to now or earlier in today's check-in.",
         'contradictory',
       ),
     ];
@@ -291,7 +305,7 @@ function resolveCurrentCondition(
       gaps: [
         currentConditionGap(
           'current.concerns',
-          "No current condition was reported ('unknown'). Describe what is true today, or skip the check-in to use the stored My Hair facts.",
+          'You chose "I am not sure". Pick what you notice today, or skip the check-in and use what is saved in My Hair.',
           'unknown',
         ),
       ],
@@ -300,6 +314,13 @@ function resolveCurrentCondition(
   return { normalized };
 }
 
+/** Plain names for the Passport answers a goal can require; any other fact gets a generic phrase. */
+const PROFILE_FACT_NAMES: Readonly<Record<string, string>> = {
+  naturalPattern: 'your natural hair pattern',
+  diameter: 'your strand thickness',
+  density: 'your hair density',
+};
+
 function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGap[] {
   const gaps: GuidanceGap[] = [];
   for (const fact of goal.requiredProfileFacts) {
@@ -307,7 +328,7 @@ function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGa
     if (value === undefined || value === null) {
       gaps.push({
         kind: 'hair_profile',
-        detail: `My Hair is missing '${fact}', which this goal needs before reviewed guidance can be produced.`,
+        detail: `My Hair is missing ${PROFILE_FACT_NAMES[fact] ?? 'an answer this goal needs'}. Add it in My Hair so your plan can use it.`,
         subject: fact,
         state: 'missing',
         destination: 'my_hair',
@@ -323,7 +344,7 @@ function serviceGaps(snapshot: GuidanceSnapshot): GuidanceGap[] {
     if (service.currentPresence === 'unknown') {
       gaps.push({
         kind: 'service_presence',
-        detail: `We cannot confirm whether the effect of '${service.serviceId}' is still present. Record that in My Hair → Services.`,
+        detail: 'We cannot tell whether a chemical service you recorded is still affecting your hair. Update it in My Hair → Services.',
         subject: service.serviceId,
         state: 'unknown',
         destination: 'my_hair_services',
@@ -333,7 +354,7 @@ function serviceGaps(snapshot: GuidanceSnapshot): GuidanceGap[] {
     if (service.currentPresence === 'present') {
       gaps.push({
         kind: 'service_presence',
-        detail: `A recorded chemical service ('${service.serviceId}') is marked as still present. No reviewed rule currently covers guidance while it is present, so ordinary guidance is stopped.`,
+        detail: 'A chemical service you recorded may still be affecting your hair, and guidance for that is not available yet. If it has worn off or was entered by mistake, update it in My Hair → Services.',
         subject: service.serviceId,
         state: 'unsupported',
         destination: 'my_hair_services',
@@ -415,10 +436,20 @@ export function prepareGuidance(input: PrepareGuidanceInput): GuidancePreparatio
   const products = buildProducts(sortById(input.snapshot.products), input.bundle);
   const tools = buildTools(sortById(input.snapshot.tools), input.bundle);
 
+  let prepared: PreparedGuidanceInput;
+  try {
+    prepared = buildPreparedInput({ snapshot: input.snapshot, bundle: input.bundle, goal, condition });
+  } catch (error) {
+    // A snapshot the prepared contract refuses (built outside the loader, which
+    // validates it) is unusable: fail closed rather than throw at the caller.
+    if (error instanceof z.ZodError) return { status: 'unavailable', reason: 'snapshot_incomplete' };
+    throw error;
+  }
+
   return {
     status: 'ready',
     context: buildContext(input, input.snapshot, input.bundle, products, tools, currentFacts),
-    prepared: buildPreparedInput({ snapshot: input.snapshot, bundle: input.bundle, goal, condition }),
+    prepared,
     bundleId: input.bundle.bundleId,
     bundleVersion: input.bundle.version,
   };

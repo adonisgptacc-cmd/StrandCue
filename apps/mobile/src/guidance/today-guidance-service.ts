@@ -8,6 +8,7 @@ import {
   validatePublishedBundle,
   type GuidanceGap,
   type GuidanceGoalId,
+  type GuidanceIncompleteSource,
   type GuidanceSnapshot,
   type PreparedGuidanceInput,
   type ProtocolDecision,
@@ -83,7 +84,12 @@ export type TodayGuidanceResult =
   | ({ readonly status: 'needs_input'; readonly decision: ProtocolDecision } & GuidanceProvenance)
   | ({ readonly status: 'rule_conflict'; readonly decision: ProtocolDecision } & GuidanceProvenance)
   | ({ readonly status: 'unsupported'; readonly decision: ProtocolDecision } & GuidanceProvenance)
-  | { readonly status: 'source_error'; readonly detail: string };
+  | {
+      readonly status: 'source_error';
+      readonly detail: string;
+      /** Which areas could not be read, when known, so the owner can be told where to retry. */
+      readonly incompleteSources?: readonly GuidanceIncompleteSource[];
+    };
 
 export interface TodayGuidanceDependencies {
   readonly loadSnapshot: (
@@ -193,7 +199,9 @@ export async function generateTodayGuidance(
   });
 
   if (preparation.status === 'unavailable') {
-    return { status: 'source_error', detail: SOURCE_ERROR };
+    return preparation.incompleteSources === undefined
+      ? { status: 'source_error', detail: SOURCE_ERROR }
+      : { status: 'source_error', detail: SOURCE_ERROR, incompleteSources: preparation.incompleteSources };
   }
   if (preparation.status === 'needs_setup') {
     return { status: 'needs_setup', missing: preparation.missing };

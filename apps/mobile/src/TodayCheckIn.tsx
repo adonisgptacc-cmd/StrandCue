@@ -14,6 +14,7 @@ import {
   CONCERN_LABELS,
   CONCERNS_HINT,
   CONCERNS_LABEL,
+  EXCLUSIVE_CONCERN_HINT,
   OBSERVED_AT_LABEL,
   REFRESH_TIME_LABEL,
   TIME_HELP,
@@ -65,6 +66,7 @@ export function TodayCheckIn({ draft, errors, nowIso, dispatch }: TodayCheckInPr
             key={concern}
             accessibilityRole="checkbox"
             accessibilityLabel={label}
+            accessibilityHint={concern === 'none' || concern === 'unknown' ? EXCLUSIVE_CONCERN_HINT : undefined}
             accessibilityState={{ checked }}
             onPress={() => dispatch({ type: 'toggle_concern', concern })}
             style={[styles.pill, checked && styles.selected]}

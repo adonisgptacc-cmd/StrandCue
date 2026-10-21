@@ -84,7 +84,10 @@ function toolFacts(owner: GuidanceToolOwnerFacts | undefined): PreparedToolFacts
     adjustableTemp: facts.adjustableTemp ?? 'not_answered',
     settings: {
       state: facts.settings === null ? 'not_answered' : facts.settings.state,
-      recordedTemperatures: knownSettingTemperatures(facts),
+      // Saved order is the owner's; the prepared input's order is canonical.
+      recordedTemperatures: knownSettingTemperatures(facts).sort(
+        (left, right) => compareText(left.label, right.label) || compareText(left.unit, right.unit) || left.value - right.value,
+      ),
     },
     heatMethods: {
       state: facts.heatMethods === null ? 'not_answered' : facts.heatMethods.state,
@@ -202,7 +205,9 @@ export function buildPreparedInput(input: BuildPreparedInput): PreparedGuidanceI
             concerns: [...condition.concerns],
             explicitNone: condition.concerns.length === 1 && condition.concerns[0] === 'none',
             zones: sortedZones(condition.zones),
-            zoneConcerns: (condition.zoneConcerns ?? []).map(entry => ({ zone: { ...entry.zone }, concerns: [...entry.concerns] })),
+            zoneConcerns: (condition.zoneConcerns ?? [])
+              .map(entry => ({ zone: { ...entry.zone }, concerns: [...entry.concerns].sort(compareText) }))
+              .sort((left, right) => compareText(zoneKey(left.zone), zoneKey(right.zone))),
           },
     effectiveFacts: [
       effectiveFact('damage', baselineOf(snapshot.passportFacts.damageObservation), concernAnswer(condition, 'reported-damage')),

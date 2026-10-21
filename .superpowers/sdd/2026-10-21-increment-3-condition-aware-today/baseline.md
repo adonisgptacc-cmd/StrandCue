@@ -2,8 +2,9 @@
 
 - Primary repository: `C:\Users\ABADO\Desktop\StrandCue`, branch `codex/full-product-integration`, HEAD `ac4e81a`
   (`docs: record worktree reconciliation`), working tree clean before the worktree was created.
-- Isolated worktree: `C:\Users\ABADO\Desktop\StrandCue\.worktrees\increment-3-condition-aware-today`,
-  branch `codex/increment-3-condition-aware-today`, created from exactly `ac4e81a`.
+- Isolated worktree: `C:\Users\ABADO\Desktop\StrandCue-increment-3-today` (created under the primary
+  checkout's `.worktrees` folder, then moved beside it because edits inside the primary checkout path are
+  blocked), branch `codex/increment-3-condition-aware-today`, created from exactly `ac4e81a`.
   The two research worktrees (`codex/research-reconciliation`, `codex/research-source-archive`) were not used.
 - Node v24.19.0 (the machine default, 25.x, is unsupported). Dependencies installed with `npm ci --ignore-scripts`.
 

@@ -314,9 +314,9 @@ describe('today guidance states', () => {
     mocks.generate.mockResolvedValue({
       status: 'needs_setup',
       missing: [
-        { kind: 'product_capability', detail: 'Shelf gap', subject: 'p1' },
-        { kind: 'tool_capability', detail: 'Tool gap', subject: 't1' },
-        { kind: 'service_presence', detail: 'Service gap', subject: 's1' },
+        { kind: 'product_capability', detail: 'Shelf gap', subject: 'p1', state: 'unsupported', destination: 'my_shelf' },
+        { kind: 'tool_capability', detail: 'Tool gap', subject: 't1', state: 'unsupported', destination: 'my_tools' },
+        { kind: 'service_presence', detail: 'Service gap', subject: 's1', state: 'unknown', destination: 'my_hair_services' },
       ],
     });
     const onNavigate = vi.fn();
@@ -324,6 +324,47 @@ describe('today guidance states', () => {
     await generate(renderer);
     expect(hasButton(renderer, 'Go to My Shelf')).toBe(true);
     expect(hasButton(renderer, 'Go to My Tools')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('follows each gap\'s own destination and says in a few words why it stops the plan', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [
+        { kind: 'service_presence', detail: 'Service gap', subject: 's1', state: 'unsupported', destination: 'my_hair_services' },
+        { kind: 'hair_profile', detail: 'Profile gap', subject: 'p', state: 'missing', destination: 'my_hair' },
+        { kind: 'current_condition', detail: 'Check-in gap', subject: 'current.goal', state: 'contradictory', destination: 'today_check_in' },
+      ],
+    });
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    expect(rendered).toContain('not covered yet');
+    expect(rendered).toContain('not answered yet');
+    expect(rendered).toContain('these answers do not agree');
+    expect(hasButton(renderer, 'Go to My Hair')).toBe(true);
+    expect(hasButton(renderer, 'Review check-in answers')).toBe(true);
+    expect(hasButton(renderer, 'Go to My Shelf')).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('names the areas that could not be read instead of one generic message', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'source_error',
+      detail: 'Your records could not be read completely.',
+      incompleteSources: [{ source: 'products', state: 'failed' }, { source: 'tools', state: 'truncated' }],
+    });
+    const renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).toContain('could not be read completely: my shelf, my tools. try again.');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('keeps the generic message when no area is known', async () => {
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Your records could not be read completely.' });
+    const renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).not.toContain('try again.');
     await act(async () => { renderer.unmount(); });
   });
 
@@ -418,6 +459,17 @@ describe('today guidance states', () => {
       status: 'active',
     });
     expect(JSON.stringify(command.input)).not.toMatch(/notes|zones|correctionReason|voidReason/i);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('never sends the prepared input, owner item names or tool facts to the persistence call', async () => {
+    mocks.generate.mockResolvedValue(readyResult({
+      prepared: { schemaVersion: 1, products: [{ name: 'Synthetic owner-entered name' }], tools: [{ ownerFacts: { wattageWatts: 1800 } }] },
+    }));
+    const renderer = await render();
+    await generate(renderer);
+    const sent = JSON.stringify(mocks.recordRun.mock.calls[0][0]);
+    expect(sent).not.toMatch(/prepared|ownerFacts|zoneConcerns|Synthetic owner-entered name|wattage/);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -781,8 +833,10 @@ describe('task 5 preflight: condition-aware generation', () => {
       missing: [
         {
           kind: 'current_condition',
-          detail: "No current condition was reported ('unknown').",
+          detail: 'You chose "I am not sure". Pick what you notice today.',
           subject: 'current.concerns',
+          state: 'unknown',
+          destination: 'today_check_in',
         },
       ],
     });

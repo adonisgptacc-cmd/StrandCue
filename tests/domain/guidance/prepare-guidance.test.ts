@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { buildPreparedInput } from '../../../packages/domain/src/guidance/prepared-input.ts';
+
 import {
   generateProtocol,
   prepareGuidance,
@@ -1398,6 +1400,62 @@ describe('task 3.1: one deterministic prepared guidance input', () => {
 
     it('still refuses a draft or withdrawn bundle even with a complete check-in', () => {
       expect(() => prepareInput(snapshot(), conditionInput(), bundle({ status: 'draft' }))).toThrow();
+    });
+
+    it('words every gap in plain language: no field path, record id, quoted internal term or jargon', () => {
+      const services = [
+        { serviceId: 'svc-zzz-internal-id', currentPresence: 'unknown' as const, effectiveStart: null, facts: {} },
+        { serviceId: 'svc-yyy-internal-id', currentPresence: 'present' as const, effectiveStart: null, facts: {} },
+      ];
+      const texts = [
+        prepareInput(snapshot({ passportFacts: {}, services })),
+        prepareInput(snapshot(), conditionInput({ concerns: ['unknown'] })),
+        prepareInput(snapshot(), conditionInput({ concerns: ['none', 'dryness'] })),
+        prepareInput(snapshot(), conditionInput({ notes: 'x' })),
+        prepareInput(snapshot(), conditionInput({ observedAt: '2026-10-12T08:00:00.000+02:00' })),
+        prepareInput(snapshot(), (({ availableMinutes: _m, ...rest }) => rest)(conditionInput())),
+      ].flatMap(result => (result.status === 'needs_setup' ? result.missing.map(gap => gap.detail) : []));
+      expect(texts.length).toBeGreaterThanOrEqual(7);
+      for (const text of texts) {
+        expect(text).not.toMatch(/current\.|svc-|naturalPattern|'unknown'|reviewed rule|temporary check-in|[a-z]+[A-Z][a-z]+/);
+        expect(text).toMatch(/[.!?]$/);
+      }
+    });
+
+    it('never throws on a snapshot the prepared schema refuses: it fails closed as unavailable', () => {
+      const unusable = snapshot({ services: [{ serviceId: 's-1', currentPresence: 'not-present', effectiveStart: null, facts: {}, heat: { method: 'flat-iron', passes: 1.5, source: 'user-reported' } }] });
+      expect(prepareInput(unusable)).toEqual({ status: 'unavailable', reason: 'snapshot_incomplete' });
+    });
+  });
+
+  describe('canonical ordering of recorded values', () => {
+    const iron = (items: unknown[]) => sourceItem('t-iron', { ownerFacts: {
+      wattageWatts: null, adjustableTemp: 'yes', settings: { state: 'recorded', items }, heatMethods: null } });
+    const low = { label: 'Low', temperature: { value: 150, unit: 'C' } };
+    const high = { label: 'High', temperature: { value: 230, unit: 'C' } };
+
+    it('lists recorded setting temperatures in label order whatever order they were saved in', () => {
+      const forward = readyPrepared(prepareInput(snapshot({ tools: [iron([low, high])] }))).tools[0].ownerFacts.settings;
+      const reverse = readyPrepared(prepareInput(snapshot({ tools: [iron([high, low])] }))).tools[0].ownerFacts.settings;
+      expect(forward.recordedTemperatures.map(entry => entry.label)).toEqual(['High', 'Low']);
+      expect(JSON.stringify(reverse)).toBe(JSON.stringify(forward));
+    });
+
+    it('sorts service zones, heat zones and zone-attached concerns itself, without relying on the check-in schema', () => {
+      const input = {
+        snapshot: snapshot({ services: [{ serviceId: 's-1', currentPresence: 'not-present', effectiveStart: null, facts: {}, zones: [ZONE_A, ZONE_B], heat: { method: 'blow-dryer', source: 'user-reported' } }] }),
+        bundle: validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
+        goal: { id: 'basic_wash' as const, label: 'Basic wash', requiredProfileFacts: [] },
+        condition: {
+          observedAt: '2026-10-11T08:00:00.000+02:00', concerns: ['dryness'] as ['dryness'], goal: 'basic_wash' as const, availableMinutes: 5,
+          zones: [ZONE_A, ZONE_B], zoneConcerns: [{ zone: ZONE_A, concerns: ['dryness' as const] }, { zone: ZONE_B, concerns: ['dryness' as const] }],
+        },
+      };
+      const prepared = buildPreparedInput(input);
+      expect(prepared.chemicalServices[0].zones).toEqual([ZONE_B, ZONE_A]);
+      expect(prepared.heatHistory[0].zones).toEqual([ZONE_B, ZONE_A]);
+      expect(prepared.currentCondition?.zones).toEqual([ZONE_B, ZONE_A]);
+      expect(prepared.currentCondition?.zoneConcerns.map(entry => entry.zone)).toEqual([ZONE_B, ZONE_A]);
     });
   });
 });

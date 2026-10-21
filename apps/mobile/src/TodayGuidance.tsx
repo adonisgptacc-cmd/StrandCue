@@ -24,7 +24,9 @@ import {
   EXECUTION_RELOAD_LABEL,
   GENERATE_LABEL,
   GENERATING_LABEL,
-  gapDestination,
+  GAP_STATE_LEAD,
+  gapTarget,
+  sourceErrorAreas,
   LOADING_LABEL,
   MISSING_HEADING,
   NO_PURCHASE_NEEDED,
@@ -102,8 +104,9 @@ function GapList({
   return <View style={styles.card}>
     <Text style={styles.heading}>What is needed</Text>
     {gaps.map(gap => {
-      const destination = gapDestination(gap.kind);
+      const destination = gapTarget(gap);
       return <View key={`${gap.kind}-${gap.subject ?? ''}-${gap.detail}`} style={styles.notice}>
+        <Text style={styles.label}>{GAP_STATE_LEAD[gap.state]}</Text>
         <Text style={styles.body}>{gap.detail}</Text>
         {destination !== null && (
           <Button
@@ -457,6 +460,9 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
         {result.status === 'source_error' && (
           <View style={styles.notice}>
             <Text accessibilityRole="alert" style={styles.error}>{result.detail}</Text>
+            {sourceErrorAreas(result.incompleteSources) !== null && (
+              <Text style={styles.body}>{sourceErrorAreas(result.incompleteSources)}</Text>
+            )}
             <Button title={RETRY_LABEL} accessibilityLabel={RETRY_LABEL} secondary onPress={() => void run()} />
           </View>
         )}
