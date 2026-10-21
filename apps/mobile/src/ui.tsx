@@ -1,12 +1,26 @@
 import type { PropsWithChildren } from 'react';
 import { toggleSelection } from './contracts';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import brandIcon from '../assets/brand/icon.png';
 
-export const colors = { paper: '#F7F5EF', white: '#FFFFFF', ink: '#253A30', quiet: '#627268', line: '#DCE2D8', sage: '#E8EDDF', accent: '#667D49', error: '#8C3B30', edge: '#6F7C72' };
+export const colors = {
+  paper: '#FDF2E6',
+  white: '#FFFFFF',
+  ink: '#2C172A',
+  quiet: '#6C5268',
+  line: '#DDCEDA',
+  sage: '#E8EDDF',
+  accent: '#63295E',
+  cue: '#F37368',
+  error: '#8C2F39',
+  edge: '#80627B',
+} as const;
 export const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.paper },
   content: { width: '100%', maxWidth: 680, alignSelf: 'center', padding: 24, paddingBottom: 40, gap: 20 },
-  brand: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+  brand: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, gap: 16 },
+  brandIdentity: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandMark: { width: 42, height: 42, borderRadius: 12 },
   logo: { fontSize: 24, fontWeight: '700', letterSpacing: -1, color: colors.ink },
   kicker: { fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', color: colors.quiet },
   // No fixed lineHeight on the text styles: a pixel line height does not
@@ -32,7 +46,19 @@ export const styles = StyleSheet.create({
 });
 export function Page({ children }: PropsWithChildren) {
   return <ScrollView style={styles.page} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-    <View style={styles.brand}><Text style={styles.logo}>strandcue<Text style={{color: colors.accent}}>•</Text></Text><Text style={styles.kicker}>YOUR HAIR RECORD</Text></View>
+    <View style={styles.brand}>
+      <View style={styles.brandIdentity}>
+        <Image
+          source={brandIcon}
+          style={styles.brandMark}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+        <Text style={styles.logo}>strandcue<Text style={{color: colors.cue}}>•</Text></Text>
+      </View>
+      <Text style={styles.kicker}>YOUR HAIR RECORD</Text>
+    </View>
     {children}
   </ScrollView>;
 }

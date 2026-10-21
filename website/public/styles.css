@@ -1,10 +1,12 @@
 :root {
-  --paper: #F7F5EF;
-  --ink: #253A30;
+  --paper: #FDF2E6;
+  --ink: #2C172A;
   --sage: #E8EDDF;
-  --accent: #667D49;
-  --error: #8C3B30;
-  --line: #DCE2D8;
+  --plum: #63295E;
+  --accent: #F37368;
+  --quiet: #6C5268;
+  --error: #8C2F39;
+  --line: #DDCEDA;
   --radius: 1.25rem;
   color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -60,7 +62,8 @@ li + li { margin-top: .55rem; }
   padding-block: 1.75rem;
   border-bottom: 1px solid var(--line);
 }
-.brand-lockup { display: grid; text-decoration: none; min-height: 44px; }
+.brand-lockup { display: grid; grid-template-columns: 44px auto; column-gap: .7rem; align-items: center; text-decoration: none; min-height: 44px; }
+.brand-mark { grid-row: 1 / span 2; width: 44px; height: 44px; border-radius: 12px; }
 .wordmark { font-size: 1.85rem; font-weight: 700; line-height: 1.25; letter-spacing: -.075em; }
 .wordmark span { color: var(--accent); }
 .brand-caption, .eyebrow {
@@ -101,7 +104,7 @@ li + li { margin-top: .55rem; }
   padding: .7rem 1.2rem;
   border: 1px solid var(--ink);
   border-radius: 999px;
-  background: var(--ink);
+  background: var(--plum);
   color: var(--paper);
   font-weight: 600;
   text-decoration: none;
@@ -110,7 +113,7 @@ li + li { margin-top: .55rem; }
 .button:hover { text-decoration: underline; }
 .button-secondary { background: transparent; color: var(--ink); }
 .availability { margin-top: 1.4rem; margin-bottom: 0; font-size: .85rem; }
-.record-panel { padding: clamp(1.5rem, 3vw, 2.5rem); background: var(--sage); border-radius: var(--radius); }
+.record-panel { padding: clamp(1.5rem, 3vw, 2.5rem); background: var(--sage); border-radius: var(--radius); border-top: .35rem solid var(--accent); }
 .record-panel h2 { max-width: 15rem; font-size: clamp(2rem, 3.5vw, 3.25rem); }
 .record-index { margin-block: 2rem; border-top: 1px solid var(--line); }
 .record-row { display: grid; grid-template-columns: 2rem 1fr; gap: .75rem; padding-block: .8rem; border-bottom: 1px solid var(--line); }

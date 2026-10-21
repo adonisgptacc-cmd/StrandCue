@@ -5,5 +5,5 @@
     "allowImportingTsExtensions": true, "resolveJsonModule": true,
     "jsx": "react-jsx", "esModuleInterop": true
   },
-  "include": ["packages/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx", "scripts/**/*.ts", "vitest.config.ts"]
+  "include": ["packages/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx", "scripts/**/*.ts", "apps/mobile/assets.d.ts", "vitest.config.ts"]
 }

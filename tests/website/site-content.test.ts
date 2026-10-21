@@ -26,7 +26,8 @@ describe('public website content', () => {
   });
 
   it('provides the shared public assets', () => {
-    for (const asset of ['styles.css', 'favicon.svg', 'robots.txt', 'sitemap.xml', '_headers']) {
+    for (const asset of ['styles.css', 'brand/favicon.png', 'brand/apple-touch-icon.png',
+      'brand/strandcue-mark.png', 'brand/strandcue-social.png', 'robots.txt', 'sitemap.xml', '_headers']) {
       expect(existsSync(resolve(publicDirectory, asset)), `missing public asset: ${asset}`).toBe(true);
     }
   });
@@ -50,13 +51,13 @@ describe('public website content', () => {
     const cssPath = resolve(publicDirectory, 'styles.css');
     expect(existsSync(cssPath), 'missing shared stylesheet').toBe(true);
     const css = readFileSync(cssPath, 'utf8');
-    for (const colour of ['#F7F5EF', '#253A30', '#E8EDDF', '#667D49', '#8C3B30']) {
+    for (const colour of ['#FDF2E6', '#2C172A', '#E8EDDF', '#63295E', '#F37368', '#8C2F39']) {
       expect(css.toUpperCase()).toContain(colour);
     }
-    expect(css, 'line token must match the app palette').toMatch(/--line:\s*#DCE2D8\s*;/i);
+    expect(css, 'line token must match the app palette').toMatch(/--line:\s*#DDCEDA\s*;/i);
     expect(readPage('index.html')).toMatch(/<link\b[^>]*href="\/styles\.css"/);
-    expect(existsSync(resolve(publicDirectory, 'favicon.svg'))).toBe(true);
-    expect(readPage('index.html')).toMatch(/<link\b[^>]*rel="icon"[^>]*href="\/favicon\.svg"/);
+    expect(existsSync(resolve(publicDirectory, 'brand/favicon.png'))).toBe(true);
+    expect(readPage('index.html')).toMatch(/<link\b[^>]*rel="icon"[^>]*href="\/brand\/favicon\.png"/);
   });
 
   it('provides complete navigation without JavaScript', () => {
@@ -196,8 +197,9 @@ describe('public website content', () => {
       expect(html).toContain(`<meta property="og:url" content="${canonical}"`);
       expect(html).toContain(`<link rel="canonical" href="${canonical}"`);
       expect(html).toContain('href="/styles.css"');
-      expect(html).toContain('href="/favicon.svg"');
-      expect(html).not.toMatch(/og:image/i);
+      expect(html).toContain('href="/brand/favicon.png"');
+      expect(html).toContain('<meta property="og:image" content="https://strandcue.co.za/brand/strandcue-social.png">');
+      expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
       titles.push(title!);
       descriptions.push(description!);
     }
@@ -210,6 +212,7 @@ describe('public website content', () => {
       const links = [...readPage(file).matchAll(/<a class="brand-lockup"[^>]+>/g)].map(match => match[0]);
       expect(links).toHaveLength(2);
       expect(links.every(link => link.includes('aria-label="StrandCue — Your hair record — home"'))).toBe(true);
+      expect(readPage(file).match(/class="brand-mark"/g)).toHaveLength(2);
     }
   });
 
