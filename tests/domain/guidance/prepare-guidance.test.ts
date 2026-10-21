@@ -1447,13 +1447,14 @@ describe('task 3.1: one deterministic prepared guidance input', () => {
         bundle: validatePublishedBundle(bundle(), evidenceRegistry(), capabilityReview(), NOW),
         goal: { id: 'basic_wash' as const, label: 'Basic wash', requiredProfileFacts: [] },
         condition: {
-          observedAt: '2026-10-11T08:00:00.000+02:00', concerns: ['dryness'] as ['dryness'], goal: 'basic_wash' as const, availableMinutes: 5,
+          observedAt: '2026-10-11T08:00:00.000+02:00', concerns: ['frizz', 'dryness'] as ['frizz', 'dryness'], goal: 'basic_wash' as const, availableMinutes: 5,
           zones: [ZONE_A, ZONE_B], zoneConcerns: [{ zone: ZONE_A, concerns: ['dryness' as const] }, { zone: ZONE_B, concerns: ['dryness' as const] }],
         },
       };
       const prepared = buildPreparedInput(input);
       expect(prepared.chemicalServices[0].zones).toEqual([ZONE_B, ZONE_A]);
       expect(prepared.heatHistory[0].zones).toEqual([ZONE_B, ZONE_A]);
+      expect(prepared.currentCondition?.concerns).toEqual(['dryness', 'frizz']);
       expect(prepared.currentCondition?.zones).toEqual([ZONE_B, ZONE_A]);
       expect(prepared.currentCondition?.zoneConcerns.map(entry => entry.zone)).toEqual([ZONE_B, ZONE_A]);
     });

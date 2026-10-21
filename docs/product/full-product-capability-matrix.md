@@ -47,7 +47,7 @@ matrix promotes draft content, fills reviewer identities or publishes facts.
 | HP-03 Current vs dated vs correction vs change | Implemented | `packages/domain/src/history.ts`, `supabase/migrations/20260924150000_activities_history.sql`; `tests/domain/history.test.ts`, `tests/mobile/history.test.ts` |
 | HP-04 Mixed states and zone-specific facts | Partial | `naturalPattern: 'mixed'`, zone bounds in `20261004104838_activity_zone_bounds.sql`, `activity.ts` zones; not every Passport field supports per-zone values |
 | HP-05 Goal-based completeness explanation | Implemented | `apps/mobile/src/MyHairOverview.tsx`, `apps/mobile/src/passport-completeness.ts` (per chosen goal, the facts its plan leans on and the plain-language questions that are still missing or answered "unknown"; no percentage, score or progress fraction anywhere; legacy `lengthCm` counts as the recorded length and mixed projections read as one current length plus one readable earlier entry); `tests/mobile/passport-completeness.test.ts`, `tests/mobile/my-hair-overview.test.tsx` |
-| HP-06 Temporary current-condition without saving | Partial | `apps/mobile/src/TodayCheckIn.tsx`, `guidance/current-condition-state.ts`; session-only, no save flag |
+| HP-06 Temporary current-condition without saving | Partial | `apps/mobile/src/TodayCheckIn.tsx`, `guidance/current-condition-state.ts`; session-only, no save flag. Task 3.1: the cosmetic vocabulary now also covers buildup, scalp discomfort, chemical-processing worry and heat worry, and zone-attached concerns are validated in the domain (`packages/domain/src/current-condition.ts`); the check-in screen does not yet offer a zone picker, so zone-attached concerns cannot be entered from the UI (accepted limitation). The check-in is applied to one request and never written to the Passport (`tests/domain/guidance/prepare-guidance.test.ts`, `tests/mobile/guidance-snapshot.test.ts`) |
 | HP-07 Coarse city/timezone optional | Not started | — |
 
 ## Shelf, catalogue and product lifecycle
@@ -95,8 +95,8 @@ matrix promotes draft content, fills reviewer identities or publishes facts.
 | Requirement | Status | Evidence |
 |---|---|---|
 | TD-01 Today primary action surface | Implemented | `apps/mobile/src/records.tsx` (Today first), `TodayGuidance.tsx` |
-| TD-02 Capture goal/time/condition/availability/history | Partial | `TodayCheckIn.tsx`, `guidance/prepare-guidance.ts`, `guidance-snapshot.ts` |
-| TD-03 Targeted questions before generation | Partial | `prepare-guidance.ts` gaps; `TodayGuidance.tsx` loopback |
+| TD-02 Capture goal/time/condition/availability/history | Partial | `TodayCheckIn.tsx`, `guidance/prepare-guidance.ts`, `guidance-snapshot.ts`. Task 3.1: `packages/domain/src/guidance/prepared-input.ts` builds one deterministic prepared input (Passport baseline, temporary check-in with precedence, chemical and heat history, zones, available Shelf products and Tools with owner-recorded facts, goal, time, source completeness); it is trusted input only and nothing generates a plan from it yet. Photos, weather and Cue Check are not part of it |
+| TD-03 Targeted questions before generation | Partial | `prepare-guidance.ts` gaps (each now states missing, unknown, contradictory or unsupported, names where to fix it, and uses plain wording); `TodayGuidance.tsx` loopback and per-gap destination. A failed or cut-short source stops preparation and names the area instead of producing a gap |
 | TD-04 Show route/reasons/evidence/confidence/alternatives | Partial | `TodayGuidance.tsx`, `guidance-copy.ts` |
 | TD-05 Immutable protocol snapshot | Implemented | `supabase/migrations/20261011090000_recommendation_runs.sql`, `20261013175703_protocol_executions.sql`; `tests/database/recommendation-runs.test.ts` |
 | TD-06 Generating/viewing is not a real event | Implemented | `tests/mobile/today-guidance.test.tsx`, `protocol-execution.test.tsx` |

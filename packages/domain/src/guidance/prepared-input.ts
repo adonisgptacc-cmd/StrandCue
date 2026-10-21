@@ -202,7 +202,7 @@ export function buildPreparedInput(input: BuildPreparedInput): PreparedGuidanceI
         ? null
         : {
             observedAt: condition.observedAt,
-            concerns: [...condition.concerns],
+            concerns: [...condition.concerns].sort(compareText),
             explicitNone: condition.concerns.length === 1 && condition.concerns[0] === 'none',
             zones: sortedZones(condition.zones),
             zoneConcerns: (condition.zoneConcerns ?? [])

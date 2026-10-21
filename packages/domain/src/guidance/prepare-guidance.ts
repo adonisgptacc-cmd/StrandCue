@@ -256,7 +256,7 @@ const CHECK_IN_ANSWER_NAMES: Readonly<Record<string, string>> = {
 };
 
 function rejectionDetail(field: string, state: GuidanceGapState): string {
-  const name = CHECK_IN_ANSWER_NAMES[field] ?? 'your check-in';
+  const name = Object.hasOwn(CHECK_IN_ANSWER_NAMES, field) ? CHECK_IN_ANSWER_NAMES[field] : 'your check-in';
   if (state === 'missing') return `Add ${name} in today's check-in.`;
   if (state === 'contradictory') return `Your answers about ${name} do not agree. Change them in today's check-in.`;
   return `Today's check-in cannot use your answer about ${name}. Choose from the options shown.`;
@@ -328,7 +328,7 @@ function profileGaps(snapshot: GuidanceSnapshot, goal: GuidanceGoal): GuidanceGa
     if (value === undefined || value === null) {
       gaps.push({
         kind: 'hair_profile',
-        detail: `My Hair is missing ${PROFILE_FACT_NAMES[fact] ?? 'an answer this goal needs'}. Add it in My Hair so your plan can use it.`,
+        detail: `My Hair is missing ${Object.hasOwn(PROFILE_FACT_NAMES, fact) ? PROFILE_FACT_NAMES[fact] : 'an answer this goal needs'}. Add it in My Hair so your plan can use it.`,
         subject: fact,
         state: 'missing',
         destination: 'my_hair',
