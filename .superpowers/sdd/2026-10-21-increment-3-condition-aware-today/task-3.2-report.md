@@ -172,13 +172,13 @@ Full suite: **3388 passed, 18 skipped, 0 failed** (174 files).
 ## 5. Changed-file coverage
 | File | Statements | Branches | Functions | Lines |
 |---|---|---|---|---|
-| `apps/mobile/src/GuidanceGapResolver.tsx` | 95.34 | 97.43 | 90.00 | 97.36 |
-| `apps/mobile/src/guidance/guidance-gap-state.ts` | 95.23 | 81.73 | 85.71 | 96.00 |
-| `apps/mobile/src/guidance/guidance-copy.ts` | 99.31 | 100 | 95.45 | 100 |
-| `apps/mobile/src/guidance/current-condition-state.ts` | 94.11 | 92.72 | 93.02 | 94.54 |
-| `apps/mobile/src/TodayGuidance.tsx` | 86.98 | 85.62 | 87.80 | 89.86 |
+| `apps/mobile/src/GuidanceGapResolver.tsx` | 94.73 | 97.50 | 88.88 | 96.96 |
+| `apps/mobile/src/guidance/guidance-gap-state.ts` | 97.67 | 82.88 | 100 | 98.66 |
+| `apps/mobile/src/guidance/guidance-copy.ts` | 98.66 | 100 | 91.30 | 99.28 |
+| `apps/mobile/src/guidance/current-condition-state.ts` | 93.91 | 92.98 | 91.83 | 94.95 |
+| `apps/mobile/src/TodayGuidance.tsx` | 88.26 | 87.27 | 88.09 | 90.84 |
 | `packages/domain/src/guidance/prepare-guidance.ts` | 95.07 | 83.09 | 100 | 98.72 |
-| Whole covered set | 95.77 | 89.82 | 97.99 | 97.74 |
+| Whole covered set | 95.80 | 89.87 | 98.05 | 97.77 |
 
 Every new or materially changed logic file is at or above 80% on all four
 measures. `apps/mobile/src/GuidanceGapResolver.tsx` was added to
@@ -237,7 +237,7 @@ never reaches the Hair Passport.
 | The selected state was shown by colour alone | Medium | A tick is shown on every selected pill, area and choice |
 | The error summary was announced without saying what was wrong | Medium | The alert now carries the first message with its heading |
 | `statusTitle` said "rule conflict" and "unsupported" | Medium | "Two reviewed rules disagree here", "Nothing reviewed covers this yet" |
-| A raw version id was shown to the owner | Medium | The product is named instead |
+| A raw version id was shown to the owner | Medium | The product is named instead. This is one line in `ProtocolExecutionSubstitutionPicker.tsx` - the helper now takes the product's name - and it changes no behaviour, no layout and no flow. It is **not** a protocol-preview redesign; the preview's own wording (step reasons, omissions, missing inputs) is left exactly as Task 3.1 left it, because that surface is Task 3.3's. |
 | The raw ISO example in the error copy | Low | The example no longer carries a timezone offset |
 | The retry button did not say it was busy | Low | It says "Trying again…" in words as well as in state |
 | The exclusive-answer clear was silent | Low | It is announced in the check-in's live region |
