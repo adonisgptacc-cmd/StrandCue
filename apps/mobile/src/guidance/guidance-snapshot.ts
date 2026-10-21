@@ -6,6 +6,7 @@ import {
   type GuidanceSnapshot,
   type GuidanceSourceCompleteness,
   type GuidanceSourceItem,
+  type GuidanceToolOwnerFacts,
 } from '../../../../packages/domain/src/index';
 import { projectActivityHistory } from '../../../../packages/domain/src/activity.ts';
 import { type EffectiveDate } from '../../../../packages/domain/src/dates.ts';
@@ -171,6 +172,10 @@ async function loadServiceFacts(
       currentPresence: summary.currentPresence,
       effectiveStart: effectiveStartOf(summary.facts?.occurredOn ?? null),
       facts: scalarFacts(summary.facts),
+      // Zones and heat are copied exactly as the owner recorded them. A service
+      // with no recorded heat stays heat-less: nothing is estimated here.
+      zones: summary.facts?.zones ?? [],
+      heat: summary.facts?.heat ?? null,
     }));
     return { items: facts, completeness: truncated ? 'truncated' : 'complete' };
   } catch (error) {
@@ -222,6 +227,7 @@ interface DetailRow {
   readonly availability: 'available' | 'low' | 'empty' | 'out_of_stock' | 'archived';
   readonly versionId: string | null;
   readonly label: string | null;
+  readonly ownerFacts: GuidanceToolOwnerFacts;
 }
 
 interface OwnedItemSummary {
@@ -234,6 +240,20 @@ interface OwnedItemSummary {
 
 interface OwnedItemDetail extends OwnedItemSummary {
   readonly versionId: string | null;
+  readonly wattageWatts?: number | null;
+  readonly adjustableTemp?: GuidanceToolOwnerFacts['adjustableTemp'];
+  readonly settings?: GuidanceToolOwnerFacts['settings'];
+  readonly heatMethods?: GuidanceToolOwnerFacts['heatMethods'];
+}
+
+/** What the owner recorded about a tool, as recorded; an unanswered fact stays `null`. */
+function toolOwnerFacts(detail: OwnedItemDetail): GuidanceToolOwnerFacts {
+  return {
+    wattageWatts: detail.wattageWatts ?? null,
+    adjustableTemp: detail.adjustableTemp ?? null,
+    settings: detail.settings ?? null,
+    heatMethods: detail.heatMethods ?? null,
+  };
 }
 
 interface OwnedItemCursor {
@@ -248,12 +268,15 @@ type OwnedItemLister = (options?: {
 
 type OwnedItemDetailLoader = (id: string) => Promise<OwnedItemDetail | null>;
 
+type LoadedOwnedItem = GuidanceSourceItem & { ownerFacts?: GuidanceToolOwnerFacts };
+
 async function loadOwnedItems(
   list: OwnedItemLister,
   detail: OwnedItemDetailLoader,
   labelKey: 'manualName' | 'manualModel',
+  withOwnerFacts: boolean,
   signal?: AbortSignal,
-): Promise<{ items: GuidanceSourceItem[]; completeness: GuidanceSourceCompleteness }> {
+): Promise<{ items: LoadedOwnedItem[]; completeness: GuidanceSourceCompleteness }> {
   try {
     const { items, truncated } = await collectPages(signal, cursor =>
       list({ limit: SNAPSHOT_PAGE_SIZE, cursor: cursor as never }),
@@ -271,15 +294,17 @@ async function loadOwnedItems(
           availability: loaded.availability,
           versionId: loaded.versionId,
           label: loaded[labelKey] ?? null,
+          ownerFacts: toolOwnerFacts(loaded),
         } satisfies DetailRow;
       },
     );
-    const source: GuidanceSourceItem[] = details.map(row => ({
+    const source: LoadedOwnedItem[] = details.map(row => ({
       ownerItemId: row.id,
       versionId: row.versionId,
       name: row.label === null || row.label === '' ? `Recorded item ${row.id}` : row.label,
       availability: row.availability,
       revision: row.revision,
+      ...(withOwnerFacts ? { ownerFacts: row.ownerFacts } : {}),
     }));
     source.sort((left, right) => (left.ownerItemId < right.ownerItemId ? -1 : 1));
     return { items: source, completeness: truncated ? 'truncated' : 'complete' };
@@ -307,8 +332,8 @@ export async function loadGuidanceSnapshot(
     loadPassportFacts(asOfDate, signal),
     loadServiceFacts(asOfDate, signal),
     loadActivityFacts(asOfDate, loadedAt, signal),
-    loadOwnedItems(listUserProducts, getUserProduct, 'manualName', signal),
-    loadOwnedItems(listUserTools, getUserTool, 'manualModel', signal),
+    loadOwnedItems(listUserProducts, getUserProduct, 'manualName', false, signal),
+    loadOwnedItems(listUserTools, getUserTool, 'manualModel', true, signal),
   ]);
 
   throwIfAborted(signal);

@@ -4,6 +4,7 @@ import { loadGuidanceSnapshot } from '../../apps/mobile/src/guidance/guidance-sn
 
 const apiMocks = vi.hoisted(() => ({
   loadPassport: vi.fn(),
+  savePassport: vi.fn(),
   loadServices: vi.fn(),
   listGuidanceActivityHistories: vi.fn(),
   listUserProducts: vi.fn(),
@@ -12,7 +13,10 @@ const apiMocks = vi.hoisted(() => ({
   getUserTool: vi.fn(),
 }));
 
-vi.mock('../../apps/mobile/src/passport-api', () => ({ loadPassport: apiMocks.loadPassport }));
+vi.mock('../../apps/mobile/src/passport-api', () => ({
+  loadPassport: apiMocks.loadPassport,
+  savePassport: apiMocks.savePassport,
+}));
 vi.mock('../../apps/mobile/src/services-api', () => ({ loadServices: apiMocks.loadServices }));
 vi.mock('../../apps/mobile/src/guidance/guidance-activity-api', () => ({
   listGuidanceActivityHistories: apiMocks.listGuidanceActivityHistories,
@@ -741,5 +745,44 @@ describe('guidance snapshot incomplete-source boundaries', () => {
     expect(snapshot.completeness.services).toBe('truncated');
     expect(snapshot.services).toEqual([]);
     expect(apiMocks.loadServices).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe('task 3.1: what the snapshot copies for the prepared input', () => {
+  it('copies a tool as the owner recorded it: answered facts as answered, unanswered ones as null', async () => {
+    apiMocks.getUserTool.mockResolvedValue({
+      id: TOOL_ID, revision: 2, availability: 'available', manualModel: 'Owned iron', versionId: null,
+      wattageWatts: 1800, adjustableTemp: 'unknown', settings: { state: 'unknown' },
+      heatMethods: { state: 'recorded', methods: ['direct-contact'] }, notes: 'private note', revisions: [],
+    });
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.tools[0].ownerFacts).toEqual({
+      wattageWatts: 1800, adjustableTemp: 'unknown', settings: { state: 'unknown' },
+      heatMethods: { state: 'recorded', methods: ['direct-contact'] },
+    });
+    expect(JSON.stringify(snapshot)).not.toContain('private note');
+  });
+
+  it('leaves a tool the owner never described with every fact null, and gives products no tool facts', async () => {
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.tools[0].ownerFacts).toEqual({ wattageWatts: null, adjustableTemp: null, settings: null, heatMethods: null });
+    expect(snapshot.products[0]).not.toHaveProperty('ownerFacts');
+  });
+
+  it('copies service zones and heat exactly as recorded, and records no heat where there is none', async () => {
+    const zone = { region: 'front', segment: 'roots' };
+    apiMocks.loadServices.mockResolvedValue(page([
+      serviceSummary({ facts: { serviceType: 'bleach-or-lightener', occurredOn: { precision: 'day', value: '2026-06-01' }, zones: [zone], heat: { method: 'flat-iron', temperatureC: 180, source: 'user-estimated' } } }),
+      serviceSummary({ serviceId: 'dddddddd-0000-4000-8000-000000000002' }),
+    ]));
+    const snapshot = await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT);
+    expect(snapshot.services[0]).toMatchObject({ zones: [zone], heat: { method: 'flat-iron', temperatureC: 180, source: 'user-estimated' } });
+    expect(snapshot.services[1]).toMatchObject({ zones: [], heat: null });
+  });
+
+  it('only ever reads the Passport: loading the snapshot never calls the Passport write API', async () => {
+    await load();
+    expect(apiMocks.loadPassport).toHaveBeenCalledTimes(1);
+    expect(apiMocks.savePassport).not.toHaveBeenCalled();
   });
 });

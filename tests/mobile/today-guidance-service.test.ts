@@ -724,3 +724,62 @@ describe('task 5 integration: temporary check-in through the service', () => {
     expect(second.inputFingerprint).toBe(first.inputFingerprint);
   });
 });
+
+describe('task 3.1 integration: the prepared input through the service', () => {
+  const CHECK_IN = {
+    observedAt: AS_OF,
+    concerns: ['dryness', 'buildup'],
+    goal: 'basic_wash',
+    availableMinutes: 20,
+  };
+
+  it('hands back one prepared input built from the Passport, the check-in and the shelf', async () => {
+    const result = await generateTodayGuidance(request({ currentCondition: CHECK_IN, now: AS_OF }), harness().dependencies);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.prepared.currentCondition?.concerns).toEqual(['buildup', 'dryness']);
+    expect(result.prepared.availableMinutes).toBe(20);
+    expect(result.prepared.passport.facts).toEqual({ naturalPattern: 'curly' });
+    expect(result.prepared.products.map(item => item.ownerItemId)).toEqual(['owner-product-1']);
+    expect(Object.isFrozen(result.prepared)).toBe(true);
+  });
+
+  it('keeps the fingerprint a hash of the engine context alone, so the prepared input never changes it', async () => {
+    const result = await generateTodayGuidance(request({ currentCondition: CHECK_IN, now: AS_OF }), harness().dependencies);
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.inputFingerprint).toBe(createHash('sha256').update(JSON.stringify(result.input), 'utf8').digest('hex'));
+    expect(JSON.stringify(result.input)).not.toContain('schemaVersion');
+  });
+
+  it('does not write the check-in back to the stored snapshot, and a second request without one sees the unchanged baseline', async () => {
+    const stored = snapshot({ passportFacts: { naturalPattern: 'curly', damageObservation: 'none' } });
+    const before = JSON.stringify(stored);
+    const first = await generateTodayGuidance(
+      request({ currentCondition: { ...CHECK_IN, concerns: ['reported-damage'] }, now: AS_OF }),
+      harness({ snapshot: stored }).dependencies,
+    );
+    const second = await generateTodayGuidance(request(), harness({ snapshot: stored }).dependencies);
+    expect(JSON.stringify(stored)).toBe(before);
+    expect(first.status === 'ready' && first.prepared.effectiveFacts[0]).toMatchObject({ effective: 'current', baseline: { value: 'none' } });
+    expect(second.status === 'ready' && second.prepared.effectiveFacts[0]).toMatchObject({ effective: 'baseline', current: 'not_answered' });
+  });
+
+  it('names where each setup gap is resolved, without an owner value or an internal detail', async () => {
+    const result = await generateTodayGuidance(
+      request({ currentCondition: { ...CHECK_IN, concerns: ['none', 'dryness'] }, now: AS_OF }),
+      harness({ snapshot: snapshot({ passportFacts: {} }) }).dependencies,
+    );
+    expect(result.status).toBe('needs_setup');
+    if (result.status !== 'needs_setup') return;
+    expect(result.missing.map(gap => [gap.kind, gap.state, gap.destination])).toEqual([
+      ['hair_profile', 'missing', 'my_hair'],
+      ['current_condition', 'contradictory', 'today_check_in'],
+    ]);
+  });
+
+  it('never prepares anything from a draft bundle: the production bundle stays content_pending with a complete check-in', async () => {
+    const result = await generateTodayGuidance(request({ currentCondition: CHECK_IN, now: AS_OF }));
+    expect(result).toEqual({ status: 'content_pending' });
+  });
+});

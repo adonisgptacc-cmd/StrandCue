@@ -17,6 +17,8 @@ const criticalModules = [
   'apps/mobile/src/tool-copy.ts', 'apps/mobile/src/tool-history.ts', 'apps/mobile/src/tool-drafts.ts',
   'apps/mobile/src/ToolMatch.tsx', 'apps/mobile/src/ToolCatalogueDetail.tsx', 'apps/mobile/src/tool-catalogue-api.ts',
   'apps/mobile/src/guidance/**/*.ts', 'apps/mobile/src/useProtocolExecutionController.ts',
+  'packages/domain/src/guidance/prepared-input.ts', 'packages/domain/src/guidance/prepare-guidance.ts',
+  'packages/domain/src/guidance/schemas.ts', 'packages/domain/src/current-condition.ts',
   'apps/mobile/src/ProtocolExecution.tsx', 'apps/mobile/src/TodayGuidance.tsx',
   'scripts/lock-agreement.ts', 'scripts/audit-control-plane.ts', 'scripts/audit-cli.ts',
   'scripts/expo-sdk-evidence.ts', 'scripts/local-supabase-test-target.ts',

@@ -9,6 +9,7 @@ import {
   type GuidanceGap,
   type GuidanceGoalId,
   type GuidanceSnapshot,
+  type PreparedGuidanceInput,
   type ProtocolDecision,
   type RecommendationContext,
   type ReviewedGuidanceBundle,
@@ -66,6 +67,13 @@ export interface GuidanceProvenance {
   readonly inputFingerprint: string;
   /** Exact normalized context hashed by inputFingerprint and persisted with the decision. */
   readonly input: RecommendationContext;
+  /**
+   * The one prepared input this run was built from: Passport baseline, the
+   * temporary check-in, chemical and heat history, zones and the available Shelf
+   * and Tools. Never hashed or persisted with the run, so the fingerprint above
+   * still describes the engine context alone.
+   */
+  readonly prepared: PreparedGuidanceInput;
 }
 
 export type TodayGuidanceResult =
@@ -209,6 +217,7 @@ export async function generateTodayGuidance(
     bundleVersion: preparation.bundleVersion,
     inputFingerprint: await dependencies.hashText(JSON.stringify(normalizedInput)),
     input: normalizedInput,
+    prepared: preparation.prepared,
   };
 
   switch (decision.status) {
