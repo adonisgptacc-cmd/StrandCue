@@ -454,6 +454,23 @@ function deriveObservedSurfaces(
     && branch.path.some(isBundlerOrExpoCliPackage);
   if (includesBuildToolPath) surfaces.add('development');
 
+  // npm can collapse an Xcode-only chain at an unclassified terminal node
+  // (for example, uuid -> xcode -> @expo/config-plugins with terminal effects
+  // empty). Preserve only that exact observed confinement without pretending
+  // the terminal package is a manifest root. Any other package or terminal
+  // keeps the result unknown.
+  const collapsedXcodePackages = new Set(['uuid', 'xcode', '@expo/config-plugins']);
+  const matchesCollapsedXcodeConfigPluginsPath = branch.severity === 'moderate'
+    && branch.path.at(-1) === 'uuid'
+    && branch.path.every(packageName => collapsedXcodePackages.has(packageName))
+    && resolution.unidentifiedPaths.length > 0
+    && resolution.unidentifiedPaths.every(unidentifiedPath => (
+      unidentifiedPath.at(-1) === '@expo/config-plugins'
+      && unidentifiedPath.every(packageName => collapsedXcodePackages.has(packageName))
+      && [...branch.path, ...unidentifiedPath].includes('xcode')
+    ));
+  if (matchesCollapsedXcodeConfigPluginsPath) surfaces.add('ios-build-tooling');
+
   resolution.exposureBranches.forEach(exposure => {
     const combinedPath = [...branch.path, ...exposure.path];
     if (combinedPath.includes('xcode')) {
@@ -480,7 +497,11 @@ function deriveObservedSurfaces(
   return {
     surfaces: [...surfaces].sort(),
     isComplete: surfaces.size > 0
-      && (resolution.unidentifiedPaths.length === 0 || includesBuildToolPath),
+      && (
+        resolution.unidentifiedPaths.length === 0
+        || includesBuildToolPath
+        || matchesCollapsedXcodeConfigPluginsPath
+      ),
   };
 }
 

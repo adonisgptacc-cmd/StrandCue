@@ -278,6 +278,50 @@ function xcodeChainAuditReport(higherRoots: string[]) {
   };
 }
 
+function collapsedXcodeAuditReport() {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      uuid: {
+        name: 'uuid',
+        severity: 'moderate' as const,
+        via: [{
+          name: 'uuid',
+          severity: 'moderate' as const,
+          url: UUID_ADVISORY_URL,
+        }],
+        effects: ['xcode'],
+      },
+      xcode: {
+        name: 'xcode',
+        severity: 'moderate' as const,
+        via: ['uuid'],
+        effects: ['@expo/config-plugins'],
+      },
+      '@expo/config-plugins': {
+        name: '@expo/config-plugins',
+        severity: 'moderate' as const,
+        via: ['xcode'],
+        effects: [],
+      },
+    },
+  };
+}
+
+const collapsedXcodeApprovedPaths = [
+  ['uuid'],
+  ['xcode', 'uuid'],
+  ['@expo/config-plugins', 'xcode', 'uuid'],
+] as const;
+
+function collapsedXcodeException(
+  paths: readonly (readonly string[])[] = collapsedXcodeApprovedPaths,
+) {
+  return uuidException({
+    packages: paths.map(path => approvedBranch([...path], ['ios-build-tooling'])),
+  });
+}
+
 describe('dependency advisory policy', () => {
   it('fails every critical advisory even when an exception exists', () => {
     const findings = auditDependencyPolicy(
@@ -577,6 +621,74 @@ describe('dependency advisory policy', () => {
       manifestContext({ rootDevDependencies: ['xcode'] }),
     )).toEqual([]);
   });
+
+  it('accepts a collapsed terminal Xcode graph only for all three reviewed iOS paths', () => {
+    expect(auditDependencyPolicy(
+      collapsedXcodeAuditReport(),
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext(),
+    )).toEqual([]);
+  });
+
+  it('rejects a direct mobile uuid surface alongside the collapsed Xcode graph', () => {
+    expect(auditDependencyPolicy(
+      collapsedXcodeAuditReport(),
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext({ mobileDependencies: ['uuid'] }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('keeps a non-Xcode unresolved effect unidentified in a collapsed Xcode graph', () => {
+    const report = collapsedXcodeAuditReport();
+    report.vulnerabilities.uuid.effects.push('unresolved-runtime-parent');
+
+    expect(auditDependencyPolicy(
+      report,
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNIDENTIFIED',
+      message: 'Advisory dependency surfaces could not be classified.',
+    });
+  });
+
+  it('does not treat an arbitrary unresolved terminal after Xcode as iOS tooling', () => {
+    const report = collapsedXcodeAuditReport();
+    report.vulnerabilities.xcode.effects.push('unresolved-runtime-parent');
+
+    expect(auditDependencyPolicy(
+      report,
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNIDENTIFIED',
+      message: 'Advisory dependency surfaces could not be classified.',
+    });
+  });
+
+  it.each(collapsedXcodeApprovedPaths.map(path => [path] as const))(
+    'requires the collapsed Xcode exception path %j',
+    missingPath => {
+      const remainingPaths = collapsedXcodeApprovedPaths.filter(path => path !== missingPath);
+
+      expect(auditDependencyPolicy(
+        collapsedXcodeAuditReport(),
+        [collapsedXcodeException(remainingPaths)],
+        TODAY,
+        manifestContext(),
+      )).toContainEqual({
+        code: 'ADVISORY-PATH-UNREVIEWED',
+        message: 'Observed advisory dependency path has not been reviewed.',
+      });
+    },
+  );
 
   it('rejects the same GHSA path when it gains an Android production surface', () => {
     const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
