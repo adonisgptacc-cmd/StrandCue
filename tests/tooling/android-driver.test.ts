@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findContaining, findExact, parseUiXml, typeText } from '../../scripts/android-driver';
+import { findContaining, findEditableExact, findExact, parseUiXml, typeText } from '../../scripts/android-driver';
 
 const XML = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0">
 <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="za.co.strandcue.app" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" bounds="[0,0][1080,2400]">
@@ -24,6 +24,16 @@ describe('the Android acceptance driver (pure parts)', () => {
     expect(findExact(nodes, 'Nothing here')).toBeUndefined();
     expect(findContaining(nodes, 'as printed')?.label).toBe('Brand (as printed)');
     expect(findContaining(nodes, 'zzz')).toBeUndefined();
+  });
+
+  it('selects the editable control when a field label and input have the same accessible name', () => {
+    const nodes = parseUiXml(`<hierarchy>
+      <node text="Product name" class="android.widget.TextView" content-desc="" clickable="true" enabled="true" focused="false" bounds="[100,200][980,250]" />
+      <node text="" class="android.widget.EditText" content-desc="Product name" clickable="true" enabled="true" focused="false" bounds="[100,260][980,360]" />
+    </hierarchy>`);
+
+    expect(findExact(nodes, 'Product name')?.className).toBe('android.widget.TextView');
+    expect(findEditableExact(nodes, 'Product name')?.className).toBe('android.widget.EditText');
   });
 
   it('ignores a node without readable bounds and refuses text adb cannot type safely', () => {

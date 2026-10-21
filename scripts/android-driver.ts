@@ -58,6 +58,11 @@ export function findExact(nodes: readonly UiNode[], name: string): UiNode | unde
   return matches.find(node => node.clickable) ?? matches[0];
 }
 
+export function findEditableExact(nodes: readonly UiNode[], name: string): UiNode | undefined {
+  const matches = nodes.filter(node => named(node) === name || node.text === name || node.label === name);
+  return matches.find(node => node.className.endsWith('EditText') && node.enabled);
+}
+
 export const findContaining = (nodes: readonly UiNode[], fragment: string): UiNode | undefined =>
   nodes.find(node => node.label.includes(fragment) || node.text.includes(fragment));
 
@@ -128,12 +133,14 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     case 'type': {
       const nodes = dump();
-      const node = findExact(nodes, first ?? '');
+      const node = findEditableExact(nodes, first ?? '');
       if (!node) { process.stdout.write(`NOT-FOUND ${JSON.stringify(first)}\n`); return 1; }
       tapNode(node);
       await sleep(400);
       clearField(node.text.length + 2);
       typeText(second ?? '');
+      await sleep(400);
+      adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']);
       process.stdout.write(`TYPED length=${(second ?? '').length}\n`);
       return 0;
     }
