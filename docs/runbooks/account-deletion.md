@@ -15,7 +15,7 @@ The deployable worker lives in `workers/account-deletion`. It exports only a `sc
 ```
 
 ```json
-{"event":"retention_cleanup_run","outcome":"completed|failed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"durationMs":0}
+{"event":"retention_cleanup_run","outcome":"completed|failed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"consentsPurged":0,"cueCheckOperationsPurged":0,"durationMs":0}
 ```
 
 The metric contains no user ID, token, provider response, or error message. A failed run rejects its scheduled promise so Cloudflare also records the invocation as failed. Alert when `outcome=failed`, when failures repeat, or when the database queue's oldest pending request exceeds the deletion service objective.

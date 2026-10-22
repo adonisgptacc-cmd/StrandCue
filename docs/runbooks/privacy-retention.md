@@ -110,7 +110,7 @@ external steps; none is done in this change:
    failures. The metric carries counts only:
 
 ```json
-{"event":"retention_cleanup_run","outcome":"completed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"consentsPurged":0,"durationMs":0}
+{"event":"retention_cleanup_run","outcome":"completed","exportsPurged":0,"executionsPurged":0,"eventsPurged":0,"operationsPurged":0,"consentsPurged":0,"cueCheckOperationsPurged":0,"durationMs":0}
 ```
 
 Alert on `outcome=failed`, on repeated failures, and on a growing backlog
@@ -127,18 +127,15 @@ kept for the life of the account, exported (export v5, `cueChecks` and
 their revisions and private operation receipts. They are never purged with the
 execution retention window and no worker pass touches them.
 
-What this means in practice, recorded as the current behaviour rather than a
-settled policy:
+The privacy owner settled the Cue Check retention policy on 2026-10-22:
 
 - `cue_checks.confirmed_steps` is a copy of the confirmed step ids, action text
   and product/tool ids taken when the check was recorded. It outlives the
   execution row it was copied from (90 days after finish for completed
   routines, 30 days for stopped ones).
 - `strandcue_private.cue_check_operations` keeps each submitted payload and
-  result, including free-text notes, so an identical retry returns the original
-  receipt. It is removed only when the account is deleted.
-
-Open decision for the privacy owner, to be confirmed before launch: keep both
-for the life of the account (current behaviour), or give the copied steps and
-the receipt payloads a shorter window. Changing it needs a retention pass and
-a migration; nothing here has been changed.
+  result, including free-text notes, for 30 days. The scheduled pass calls
+  `cue_check_operation_retention_cleanup(as-of)` and removes only receipts
+  strictly older than that window. Exact replay is therefore a 30-day
+  guarantee. The function returns a count only and does not touch Cue Checks,
+  revisions, confirmed steps or owner history.
