@@ -237,6 +237,15 @@ describe('search_path hardening of the definer cores', () => {
       expect(detail.revisions).toHaveLength(2);
       const removed = await voidCue(fresh, { recordId: record.recordId, expectedRevision: 2 });
       expect(removed.lifecycle).toBe('voided');
+      // The export carries Cue Checks too and calls the shared recent-sign-in check as the definer.
+      await fresh.query(`select set_config('request.jwt.claims', $1, false)`, [JSON.stringify({
+        sub: USER_A, role: 'authenticated', email: `${USER_A}@example.test`, is_anonymous: false,
+        amr: [{ method: 'password', timestamp: Math.floor(Date.now() / 1000) }],
+      })]);
+      for (const format of ['json', 'csv']) {
+        const receipt = (await fresh.query<{ result: any }>('select public.export_request($1, $2) result', [crypto.randomUUID(), format])).rows[0].result;
+        expect(receipt.status).toBe('completed');
+      }
     } finally {
       await fresh.close();
     }
