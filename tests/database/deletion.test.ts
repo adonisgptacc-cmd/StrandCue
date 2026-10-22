@@ -289,3 +289,121 @@ describe('account deletion lifecycle and tombstones', () => {
     });
   });
 });
+
+describe('account deletion removes Cue Check owner content', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); }, 60_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.deletion_tombstones');
+    await db.exec('delete from strandcue_private.deletion_lifecycle_events');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  /** Seeds one owner with a terminal execution plus one active Cue Check. */
+  async function seedCueCheckFor(owner: string, username: string) {
+    await asUser(db, owner);
+    await complete(db, username);
+    const runId = crypto.randomUUID();
+    const executionId = crypto.randomUUID();
+    const decision = {
+      status: 'ready', requestId: runId,
+      steps: [1, 2].map((position) => ({
+        stepId: `step-${position}`, position, action: `Test action ${position}`,
+        productId: null, productVersionId: null, toolId: null, toolVersionId: null,
+        waitSeconds: null, rinse: null, reasons: ['test reason'],
+      })),
+    };
+    await db.exec('set session authorization postgres');
+    await db.exec('set session authorization strandcue_mutator');
+    try {
+      await db.query(
+        `select strandcue_private.record_trusted_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`,
+        [runId, 'd'.repeat(64), '2026-10-13T08:00:00.000Z', '1', 'bundle-synthetic', '1', 'ready',
+          JSON.stringify({ requestId: runId, goal: 'basic_wash' }), JSON.stringify(decision)],
+      );
+    } finally {
+      await asUser(db, owner);
+    }
+    await db.query(`select public.start_protocol_execution($1,$2,$3,$4::timestamptz)`,
+      [crypto.randomUUID(), executionId, runId, new Date().toISOString()]);
+    const transition = (expectedRevision: number, command: unknown) =>
+      db.query(`select public.apply_protocol_execution_command($1,$2,$3,$4::jsonb,$5::timestamptz)`,
+        [crypto.randomUUID(), executionId, expectedRevision, JSON.stringify(command), new Date().toISOString()]);
+    await transition(0, { kind: 'complete-step', stepId: 'step-1' });
+    await transition(1, { kind: 'complete-step', stepId: 'step-2' });
+    await transition(2, { kind: 'complete' });
+    const created = (await db.query<{ result: any }>(
+      'select public.record_cue_check($1,$2,$3::jsonb) result',
+      [crypto.randomUUID(), executionId,
+        JSON.stringify({ timing: 'immediate', observedAt: new Date().toISOString(), overallResult: 'better' })],
+    )).rows[0].result;
+    return created;
+  }
+
+  async function cueCounts() {
+    await db.exec('set session authorization postgres');
+    try {
+      const counts = await db.query(`
+        select
+          (select count(*) from public.cue_checks where user_id = '${USER_A}')::int as a_records,
+          (select count(*) from public.cue_check_revisions where user_id = '${USER_A}')::int as a_revisions,
+          (select count(*) from strandcue_private.cue_check_operations where user_id = '${USER_A}')::int as a_operations,
+          (select count(*) from public.cue_checks where user_id = '${USER_B}')::int as b_records,
+          (select count(*) from public.cue_check_revisions where user_id = '${USER_B}')::int as b_revisions,
+          (select count(*) from strandcue_private.cue_check_operations where user_id = '${USER_B}')::int as b_operations`);
+      return counts.rows[0];
+    } finally {
+      await asUser(db, USER_A);
+    }
+  }
+
+  it('blocks Cue Check access immediately after the deletion request', async () => {
+    const created = await seedCueCheckFor(USER_A, 'user_a');
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await expect(db.query(`select public.get_cue_check($1) result`, [created.recordId]))
+      .rejects.toThrow(/account-not-active/i);
+    await expect(db.query('select public.list_cue_checks(25,null) result'))
+      .rejects.toThrow(/account-not-active/i);
+    await expect(db.query(`select public.record_cue_check($1,$2,$3::jsonb)`,
+      [crypto.randomUUID(), crypto.randomUUID(),
+        JSON.stringify({ timing: 'immediate', observedAt: new Date().toISOString(), overallResult: 'better' })]))
+      .rejects.toThrow(/account-not-active/i);
+  });
+
+  it('purges Cue Check records, history and operation receipts with the profile', async () => {
+    await seedCueCheckFor(USER_A, 'user_a');
+    await seedCueCheckFor(USER_B, 'user_b');
+    await asUser(db, USER_A);
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await db.exec('set session authorization postgres');
+    await db.query(`select public.deletion_purge()`);
+    const after = await cueCounts();
+    expect(after).toEqual({
+      a_records: 0, a_revisions: 0, a_operations: 0,
+      b_records: 1, b_revisions: 1, b_operations: 1,
+    });
+  });
+
+  it('preserves Cue Check data when cancellation precedes the purge', async () => {
+    const created = await seedCueCheckFor(USER_A, 'user_a');
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await db.query(`select public.deletion_cancel() result`);
+    const detail = (await db.query<{ result: any }>(
+      `select public.get_cue_check($1) result`, [created.recordId])).rows[0].result;
+    expect(detail).toMatchObject({ recordId: created.recordId, lifecycle: 'active', revision: 1 });
+    const after = await cueCounts();
+    expect(after).toMatchObject({ a_records: 1, a_revisions: 1, a_operations: 1 });
+  });
+
+  it('denies direct owner deletion of Cue Check rows', async () => {
+    await seedCueCheckFor(USER_A, 'user_a');
+    await expect(db.exec('delete from public.cue_checks')).rejects.toThrow(/permission denied/i);
+    await expect(db.exec('delete from public.cue_check_revisions')).rejects.toThrow(/permission denied/i);
+  });
+});

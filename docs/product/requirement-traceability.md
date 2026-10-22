@@ -106,9 +106,9 @@ so draft content may not execute and Today yields `content_pending`.
 | TR-06 | R2 | — | — | Not started |
 | TR-07 | R2 | — | — | Not started |
 | TR-08 | R2 | — | — | Not started |
-| CC-01 | R2 | — | — | Not started |
-| CC-02 | R2 | — | — | Not started |
-| CC-03 | R2 | — | — | Not started |
+| CC-01 | R2 | `packages/domain/src/cue-check.ts`; `supabase/migrations/20261024090000_cue_checks.sql` | `tests/domain/cue-check.test.ts`; `tests/database/cue-checks.test.ts` (terminal-execution binding, server-confirmed actual use, owner isolation) | Partial |
+| CC-02 | R2 | `packages/domain/src/cue-check.ts`; `supabase/migrations/20261024090000_cue_checks.sql` | `tests/domain/cue-check.test.ts`; `tests/database/cue-checks.test.ts` (unknown-aware immediate/delayed observations and validation) | Partial |
+| CC-03 | R2 | `supabase/migrations/20261024090000_cue_checks.sql` | `tests/database/cue-checks.test.ts` (append-only corrections/voids, list/detail history); `tests/database/export.test.ts`; `tests/database/deletion.test.ts` | Partial |
 | CC-04 | R2 | — | — | Not started |
 | CC-05 | R2 | — | — | Not started |
 | CC-06 | R2 | — | — | Not started |

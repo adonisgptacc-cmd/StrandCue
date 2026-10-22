@@ -634,7 +634,7 @@ const SCENARIOS: Scenario[] = [
       check(!text.includes(`SC-T5 Bravo ${ctx.suffix}`) && !text.includes(`SC-T5 Iron ${ctx.suffix}`), 'the export contains the other owner\'s data');
       noLeak(text, 'the owner export');
       const schema = document.schemaVersions as { export?: unknown } | undefined;
-      check(schema?.export === 4, 'the export schema version is not the expected one');
+      check(schema?.export === 5, 'the export schema version is not the expected one');
     },
   },
   {
