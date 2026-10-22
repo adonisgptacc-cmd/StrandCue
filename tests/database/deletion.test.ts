@@ -31,7 +31,7 @@ describe('account deletion lifecycle and tombstones', () => {
   beforeEach(async () => { await asUser(db, USER_A); });
   afterEach(async () => {
     await db.exec('set session authorization postgres');
-    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.profiles');
     await db.exec('delete from public.deletion_tombstones');
     await db.exec('delete from strandcue_private.deletion_lifecycle_events');
   });
@@ -296,7 +296,7 @@ describe('account deletion removes Cue Check owner content', () => {
   beforeEach(async () => { await asUser(db, USER_A); });
   afterEach(async () => {
     await db.exec('set session authorization postgres');
-    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.profiles');
     await db.exec('delete from public.deletion_tombstones');
     await db.exec('delete from strandcue_private.deletion_lifecycle_events');
   });

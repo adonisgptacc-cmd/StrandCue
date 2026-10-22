@@ -25,7 +25,7 @@ const principals = {
 
 async function reset() {
   await db.exec('set session authorization postgres');
-  await db.exec('truncate public.profiles cascade');
+  await db.exec('delete from public.profiles');
   await db.exec('alter table public.tool_publications disable trigger user; alter table public.tool_claim_evidence disable trigger user');
   await db.exec('delete from public.tool_claim_evidence; delete from public.tool_publications');
   await db.exec('alter table public.tool_publications enable trigger user; alter table public.tool_claim_evidence enable trigger user');

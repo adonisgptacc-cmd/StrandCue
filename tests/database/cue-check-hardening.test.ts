@@ -51,7 +51,7 @@ describe('head-row integrity', () => {
     await expect(privileged(db, `update public.cue_checks set revision = 2, observation = '{"timing":"immediate","observedAt":"2026-01-01T00:00:00Z","dryness":"more"}'::jsonb where record_id = $1`, [record.recordId]))
       .rejects.toThrow(/cue-check-head-invalid/);
     // A head that matches its revision row is the valid append-only path.
-    await privileged(db, `update public.cue_checks set revision = 2, observation = (select observation from public.cue_check_revisions where record_id = $1 and sequence = 2) where record_id = $1`, [record.recordId]);
+    await privileged(db, `update public.cue_checks set revision = 2, observation = (select observation from public.cue_check_revisions where record_id = $1 and sequence = 2), observed_at = (select (observation ->> 'observedAt')::timestamptz from public.cue_check_revisions where record_id = $1 and sequence = 2), received_at = now() where record_id = $1`, [record.recordId]);
     const { rows } = await privileged<{ revision: number }>(db, 'select revision from public.cue_checks where record_id = $1', [record.recordId]);
     expect(rows[0].revision).toBe(2);
   });

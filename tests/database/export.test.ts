@@ -37,7 +37,7 @@ describe('export jobs immutable history and RLS', () => {
   beforeEach(async () => { await asUser(db, USER_A); });
   afterEach(async () => {
     await db.exec('set session authorization postgres');
-    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.profiles');
     // Consent records survive profile purge by design (7-year retention, no
     // profile foreign key), so they need an explicit wipe between tests.
     await db.exec('delete from public.consent_records');
@@ -336,7 +336,7 @@ describe('export completeness (consent and guidance history)', () => {
   beforeEach(async () => { await asUser(db, USER_A); });
   afterEach(async () => {
     await db.exec('set session authorization postgres');
-    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.profiles');
     await db.exec('delete from public.consent_records');
     await db.exec('delete from public.recommendation_runs');
   });
