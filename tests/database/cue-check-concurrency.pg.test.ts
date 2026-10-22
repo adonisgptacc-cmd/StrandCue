@@ -41,18 +41,18 @@ suite(suiteName, () => {
     await client.query('set role authenticated');
   };
   const backend = async (client: PgClient) => (await client.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
-  const observeBlocking = async (waitingPid: number, blockerPid: number) => {
+  const observeBlocking = async (waitingPid: number, blockerPid: number, waitEvent = 'advisory') => {
     await admin!.query('reset role');
     for (let attempt = 0; attempt < 150; attempt += 1) {
       const observation = (await admin!.query<{ wait_event_type: string; wait_event: string; blockers: number[] }>(
         'select wait_event_type, wait_event, pg_blocking_pids(pid) as blockers from pg_stat_activity where pid=$1', [waitingPid])).rows[0];
-      if (observation?.wait_event_type === 'Lock' && observation.blockers.includes(blockerPid)) {
+      if (observation?.wait_event_type === 'Lock' && observation.wait_event === waitEvent && observation.blockers.includes(blockerPid)) {
         console.log(`LOCAL-PG-CUE-BLOCKING pid=${waitingPid} blocker=${blockerPid} Lock/${observation.wait_event}`);
         return;
       }
       await new Promise(resolve => setTimeout(resolve, 20));
     }
-    throw new Error('The retrying session was not blocked by the serializing lock');
+    throw new Error(`The second session was not blocked by the serializing ${waitEvent} lock`);
   };
 
   const recordSql = 'select public.record_cue_check($1::uuid,$2::uuid,$3::jsonb) as result';

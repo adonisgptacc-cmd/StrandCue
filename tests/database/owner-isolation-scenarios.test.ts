@@ -113,7 +113,7 @@ describe('the live two-owner scenarios against the real migrations (PGlite)', ()
     });
     await reset();
     const results2 = await runOwnerIsolationScenarios({ transport: openDoor, ...principals, probe: probe2 });
-    expect(failing(results2.filter(result => result.area === 'cue-check')).length).toBeGreaterThan(0);
+    expect(failing(results2.filter(result => result.area === 'cue-check')).map(result => result.id)).toContain('cue-check.foreign-and-random-ids-are-indistinguishable');
   }, 120_000);
 
   it('removes its synthetic catalogue fixtures afterwards and leaves no owner data behind', async () => {

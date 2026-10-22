@@ -71,6 +71,27 @@ describe('head-row integrity', () => {
       observed_at = '2026-01-01T00:00:00Z', received_at = now() where record_id = $1`, [record.recordId])).rejects.toThrow(/cue-check-head-invalid/);
   });
 
+  it('rejects a privileged removal that does not match its revision row', async () => {
+    const record = await created();
+    await privileged(db, `insert into public.cue_check_revisions(user_id,record_id,sequence,kind,observation,corrects_id,void_reason)
+      select user_id, record_id, 2, 'void', null, (select id from public.cue_check_revisions r where r.record_id = c.record_id and r.sequence = 1), 'privileged fixture'
+      from public.cue_checks c where record_id = $1`, [record.recordId]);
+    // The revision row says "removed", but the head stays active, or also rewrites the answers.
+    await expect(privileged(db, `update public.cue_checks set revision = 2 where record_id = $1`, [record.recordId])).rejects.toThrow(/cue-check-head-invalid/);
+    await expect(privileged(db, `update public.cue_checks set revision = 2, lifecycle = 'voided', observation = observation || '{"notes":"sneaky"}'::jsonb where record_id = $1`, [record.recordId])).rejects.toThrow(/cue-check-head-invalid/);
+    await expect(privileged(db, `update public.cue_checks set revision = 3, lifecycle = 'voided' where record_id = $1`, [record.recordId])).rejects.toThrow(/cue-check-head-invalid/);
+    await privileged(db, `update public.cue_checks set revision = 2, lifecycle = 'voided' where record_id = $1`, [record.recordId]);
+    const { rows } = await privileged<{ lifecycle: string }>(db, 'select lifecycle from public.cue_checks where record_id = $1', [record.recordId]);
+    expect(rows[0].lifecycle).toBe('voided');
+  });
+
+  it('rejects a privileged revision that points at an existing correction with a different observation', async () => {
+    const record = await created();
+    const corrected = observation({ notes: 'first fix' });
+    await correctCue(db, { recordId: record.recordId, observation: corrected });
+    await expect(privileged(db, `update public.cue_checks set revision = 3, observation = observation || '{"notes":"other"}'::jsonb where record_id = $1`, [record.recordId])).rejects.toThrow(/cue-check-head-invalid/);
+  });
+
   it('keeps the correction and removal RPC paths working', async () => {
     const record = await created();
     const corrected = await correctCue(db, { recordId: record.recordId });

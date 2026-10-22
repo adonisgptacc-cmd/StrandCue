@@ -288,7 +288,11 @@ const cueObservation = (notes: string, extra: Record<string, unknown> = {}) => (
   timing: 'immediate', observedAt: new Date(Date.now() - 60_000).toISOString(), overallResult: 'better', notes, ...extra,
 });
 
-/** A completed execution for owner A bound to a trusted run: the run is seeded privately, everything else goes through the real RPCs. */
+/**
+ * A completed execution for owner A bound to a trusted run: the run is seeded privately, everything else goes
+ * through the real RPCs. The trusted-run function is called directly (its privilege comes from the role the
+ * privileged login inherits), never through SET ROLE, which a non-superuser login may not have.
+ */
 async function seedCueExecution(ctx: Context): Promise<string> {
   const owner = ctx.input.a.id;
   if (owner === null) return fail('owner A has no identity');
@@ -298,9 +302,7 @@ async function seedCueExecution(ctx: Context): Promise<string> {
   const decision = JSON.stringify({ status: 'ready', requestId: runId, steps });
   const runInput = JSON.stringify({ requestId: runId, goal: 'basic_wash' });
   await ctx.probe.exec(`select set_config('request.jwt.claim.sub', '${owner}', false);
-set role strandcue_mutator;
-select strandcue_private.record_trusted_run('${runId}', '${'d'.repeat(64)}', '2026-10-13T08:00:00.000Z'::timestamptz, '1', 'sc-cue-bundle', '1', 'ready', '${runInput}'::jsonb, '${decision}'::jsonb);
-reset role;`);
+select strandcue_private.record_trusted_run('${runId}', '${'d'.repeat(64)}', '2026-10-13T08:00:00.000Z'::timestamptz, '1', 'sc-cue-bundle', '1', 'ready', '${runInput}'::jsonb, '${decision}'::jsonb);`);
   ok(await call$(ctx, 'a', 'start_protocol_execution', { p_operation_id: crypto.randomUUID(), p_execution_id: executionId, p_recommendation_run_id: runId, p_started_at: new Date().toISOString() }), 'start_protocol_execution', z.unknown());
   let revision = 0;
   for (const command of [{ kind: 'complete-step', stepId: 'step-1' }, { kind: 'complete-step', stepId: 'step-2' }, { kind: 'complete' }]) {
