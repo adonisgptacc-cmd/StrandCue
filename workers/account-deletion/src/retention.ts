@@ -9,6 +9,7 @@ export type RetentionCounts = {
   eventsPurged: number;
   operationsPurged: number;
   consentsPurged: number;
+  cueCheckOperationsPurged: number;
 };
 
 function parseCount(value: unknown): number {
@@ -50,7 +51,7 @@ export async function processRetentionCleanup(
   if (exported.error) throw new Error('Retention cleanup failed.');
   const executions: Result = await client.rpc('protocol_execution_retention_cleanup', {});
   if (executions.error) throw new Error('Retention cleanup failed.');
-  let partial: Omit<RetentionCounts, 'consentsPurged'>;
+  let partial: Omit<RetentionCounts, 'consentsPurged' | 'cueCheckOperationsPurged'>;
   try {
     partial = {
       exportsPurged: parseCount(exported.data),
@@ -61,8 +62,19 @@ export async function processRetentionCleanup(
   }
   const consents: Result = await client.rpc('consent_retention_cleanup', { p_as_of: asOfIso });
   if (consents.error) throw new Error('Retention cleanup failed.');
+  const cueCheckOperations: Result = await client.rpc(
+    'cue_check_operation_retention_cleanup',
+    { p_as_of: asOfIso },
+  );
+  if (cueCheckOperations?.error || cueCheckOperations === undefined) {
+    throw new Error('Retention cleanup failed.');
+  }
   try {
-    return { ...partial, consentsPurged: parseCount(consents.data) };
+    return {
+      ...partial,
+      consentsPurged: parseCount(consents.data),
+      cueCheckOperationsPurged: parseCount(cueCheckOperations.data),
+    };
   } catch {
     throw new Error('Retention cleanup failed.');
   }
