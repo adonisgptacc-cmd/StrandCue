@@ -109,8 +109,8 @@ matrix promotes draft content, fills reviewer identities or publishes facts.
 | Requirement group | Status | Evidence |
 |---|---|---|
 | TR-01..TR-08 | Not started | No treatment/wash-count module |
-| CC-01..CC-03 | Partial | Task 4.1 defines unknown-aware private observation contracts. Task 4.2 adds owner-only append-only persistence bound to a terminal trusted execution, copies only server-confirmed actual use, supports correction/void history, and includes that history in export and deletion. The mobile API and visible Journey are not built yet |
-| CC-04..CC-08 | Not started | Honest personal summaries exist as a domain function, but no Cue Check mobile adapter, summary surface, learning loop or Journey UI is integrated yet |
+| CC-01..CC-03 | Partial | Task 4.1 defines unknown-aware private observation contracts. Task 4.2 adds owner-only append-only persistence bound to a terminal trusted execution, copies only server-confirmed actual use, supports correction/void history, and includes that history in export and deletion. Task 4.3 adds the strict typed mobile client boundary and deterministic state machine (`apps/mobile/src/cue-check-api.ts`, `cue-check-errors.ts`, `cue-check-state.ts`; `tests/mobile/cue-check-api.test.ts`, `cue-check-state.test.ts`, `cue-check-integration.test.ts`). The visible Cue Check and Journey screens are not built yet |
+| CC-04..CC-08 | Not started | Honest personal summaries exist as a domain function, and a Cue Check client boundary now exists (Task 4.3), but no summary surface, learning loop or Journey UI is integrated yet |
 | PH-01..PH-09 | Not started | No photo module/storage |
 | WX-01..WX-06 | Not started | No weather module |
 | RA-01..RA-06 | Not started | No routine-audit module |

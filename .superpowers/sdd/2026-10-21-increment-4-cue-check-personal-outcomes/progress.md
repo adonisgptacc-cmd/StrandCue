@@ -368,3 +368,19 @@ Task 4.1: complete (commits 0513846..d00e533, tests: npx vitest run tests/domain
 - Security hardening follow-up added test-first: a privileged direct delete of a Cue Check head was
   initially accepted; the head trigger now blocks it while permitting only foreign-key cascades during
   profile deletion. Cue Check + deletion regression is 75/75 green.
+
+## Task 4.3 mobile Cue Check client boundary
+
+- Started from `cc77ff7` (parent `d00e533`). The session's worktree had been created from an unrelated
+  tip (`d190f21`); with the user's explicit instruction its branch was reset onto `cc77ff7` before any
+  work. No Task 4.1/4.2 commit was rewritten.
+- Added `cue-check-api.ts` (five RPC wrappers, strict commands and response schemas),
+  `cue-check-errors.ts` (closed code list with explicit plain copy, fail-closed mapping) and
+  `cue-check-state.ts` (pure immutable reducer plus framework-free controller).
+- RED: all three new suites failed to load (modules absent). GREEN: 177 focused tests. Coverage: new
+  files 95.0-96.4 statements / 90.9-93.3 branches / 100 functions per file; floors registered in
+  `vitest.config.ts`.
+- Full gates: runtime PASS v24.19.0; typecheck, lint (0 warnings), coverage 180 files / 3814 tests,
+  web export, control-plane audit PASS. Dependency audit exits 1 = HOLD (0 critical, 19 high, 9
+  moderate), unchanged from Task 4.2 and not claimed as a pass.
+- CC-01..CC-03 stay Partial; CC-04..CC-08 unchanged. Task 4.4 not started.
