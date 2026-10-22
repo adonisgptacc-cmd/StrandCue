@@ -32,19 +32,50 @@ describe('public website content', () => {
     }
   });
 
-  it('renders the factual product overview', () => {
+  it('presents the complete person-first StrandCue loop', () => {
     const home = readPage('index.html');
     expect(home).toContain('strandcue');
-    expect(home).toContain('Your hair record');
-    for (const area of ['Hair Passport', 'chemical services', 'activities', 'shelf', 'tools', 'history', 'export', 'deletion']) {
-      expect(home.toLowerCase(), `missing product area: ${area}`).toContain(area.toLowerCase());
+    expect(home).toContain('Your hair. Your products. Your next best step.');
+    expect(home).toContain('id="how-it-works"');
+    const loop = home.match(/<ol class="journey-loop">([\s\S]*?)<\/ol>/)?.[1] ?? '';
+    for (const stage of ['Know your hair', 'Add what you own', 'Tell us about today',
+      'Review your routine', 'Record what happened', 'Notice what works for you']) {
+      expect(loop, `missing StrandCue stage: ${stage}`).toContain(stage);
     }
-    expect(home.toLowerCase(), 'missing factual-record boundary').toMatch(/does not diagnose/);
-    expect(home.toLowerCase()).toContain('does not prescribe');
+    for (const principle of ['Person first', 'Owned first', 'Unknown is valid', 'Exact reviewed facts', 'Honest personal observations']) {
+      expect(home, `missing product principle: ${principle}`).toContain(principle);
+    }
+  });
+
+  it('separates available, in-development and planned capabilities', () => {
+    const home = readPage('index.html');
+    expect(home).toContain('id="status"');
+    expect(home).toContain('Available in the technical alpha');
+    expect(home).toContain('In development');
+    expect(home).toContain('Planned after the core loop');
+    for (const available of ['Structured Hair Passport', 'My Shelf and My Tools foundations', 'Export and account deletion foundations']) {
+      expect(home, `missing alpha capability: ${available}`).toContain(available);
+    }
+    for (const developing of ['Condition-aware Today check-in', 'Explainable routine preview and execution', 'Cue Checks']) {
+      expect(home, `missing in-development capability: ${developing}`).toContain(developing);
+    }
+    for (const planned of ['Private progress photos', 'Barcode and label-assisted product discovery', 'Weather and travel context', 'Routine Audit']) {
+      expect(home, `missing planned capability: ${planned}`).toContain(planned);
+    }
+  });
+
+  it('states the release, cosmetic, photo and personal-observation boundaries', () => {
+    const home = readPage('index.html');
+    expect(home).toContain('Technical alpha');
+    expect(home).toMatch(/Google Play[^<]*not yet available/i);
+    expect(home).not.toMatch(/href="[^"\s]*play\.google\.com/i);
+    expect(home).toContain('does not diagnose');
+    expect(home).toContain('does not prescribe');
+    expect(home).toMatch(/photos[^.]*private progress[^.]*not[^.]*diagnosis/i);
+    expect(home).toMatch(/Cue Checks[^.]*observations[^.]*do not prove/i);
+    expect(home).toContain('no analytics, advertising, cookies, or contact forms');
     expect(home).toContain('Request an export in the app');
     expect(home).toContain('href="/support#export"');
-    expect(home).not.toContain('Export your record from the app when you need a copy.');
-    expect(home.toLowerCase()).toContain('privacy controls');
   });
 
   it('uses the app visual tokens', () => {
