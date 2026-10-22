@@ -183,3 +183,5 @@ so draft content may not execute and Today yields `content_pending`.
 | UX-05 | R5 | Copy tests reject shame/fear language in navigation, shelf and check-in copy | tests/mobile/navigation.test.tsx, tests/mobile/shelf.test.ts, tests/mobile/today-check-in.test.tsx | Partial |
 
 Increment 4 closure evidence for CC-01 to CC-05 (all remain Partial): `tests/mobile/cue-check-increment-journey.test.tsx`, `tests/database/cue-checks.test.ts` (including 'Increment 4 review fixes'), and `.superpowers/sdd/2026-10-21-increment-4-cue-check-personal-outcomes/increment-4-report.md`.
+
+Increment 5 Task I5.0 hardening evidence (no requirement status changed; TR-01 to TR-08 remain Not started): `tests/database/cue-check-hardening.test.ts`, `tests/database/cue-check-concurrency.pg.test.ts` (opt-in real PostgreSQL), `tests/database/owner-isolation-scenarios.test.ts` and `.superpowers/sdd/2026-10-22-increment-5-wash-and-treatment-truth/task-i5.0-report.md`.

@@ -157,3 +157,5 @@ anyone erasing or restoring data:
 - Retries are serialised per owner and operation, so an identical concurrent
   retry returns the stored receipt. Replay is still guaranteed only while the
   30-day receipt exists.
+- Cue Check definers and the shared helpers they reach pin `search_path = pg_catalog, pg_temp`, so a caller's temporary
+  types cannot run code as the definer. Older definers elsewhere keep the empty path until a separate follow-up.
