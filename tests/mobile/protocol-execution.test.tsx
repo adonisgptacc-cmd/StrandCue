@@ -208,10 +208,11 @@ function input(renderer: ReactTestRenderer, label: string) {
 async function render(
   decision: ProtocolDecision = readyDecision(),
   ownerId: string = OWNER,
+  extra: Record<string, unknown> = {},
 ): Promise<ReactTestRenderer> {
   let renderer!: ReactTestRenderer;
   await act(async () => {
-    renderer = create(createElement(ProtocolExecution, { ownerId, decision }));
+    renderer = create(createElement(ProtocolExecution, { ownerId, decision, ...extra }));
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -294,6 +295,95 @@ beforeEach(() => {
       revision: mocks.server.revision,
       status: (mocks.server.execution as { status: string }).status,
       execution: mocks.server.execution,
+    });
+  });
+});
+
+describe('immediate Cue Check prompt', () => {
+  async function finishAll(renderer: ReactTestRenderer): Promise<void> {
+    await start(renderer);
+    await press(renderer, 'Mark done: Step 1');
+    await press(renderer, 'Confirm done: Step 1');
+    await press(renderer, 'Mark done: Step 2');
+    await press(renderer, 'Confirm done: Step 2');
+  }
+
+  it('is not offered while the routine is running or paused', async () => {
+    const onOpenCueCheck = vi.fn();
+    const renderer = await render(readyDecision(), OWNER, { onOpenCueCheck });
+    await start(renderer);
+    expect(hasButton(renderer, 'Tell us how your hair felt')).toBe(false);
+    await press(renderer, 'Pause this plan');
+    expect(hasButton(renderer, 'Tell us how your hair felt')).toBe(false);
+    expect(text(renderer)).not.toContain('how did it go');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('is offered after a confirmed finish and only hands the routine over', async () => {
+    const onOpenCueCheck = vi.fn();
+    const renderer = await render(readyDecision(), OWNER, { onOpenCueCheck });
+    await finishAll(renderer);
+    await press(renderer, 'Finish plan');
+    const transitionsBefore = mocks.transition.mock.calls.length;
+    expect(text(renderer)).toContain('how did it go');
+    await press(renderer, 'Tell us how your hair felt');
+    expect(onOpenCueCheck).toHaveBeenCalledWith({
+      executionId: '22222222-2222-4222-8222-222222222222',
+      status: 'completed',
+    });
+    expect(mocks.transition.mock.calls.length).toBe(transitionsBefore);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('waits for the server to confirm the finish before offering it', async () => {
+    const onOpenCueCheck = vi.fn();
+    const renderer = await render(readyDecision(), OWNER, { onOpenCueCheck });
+    await finishAll(renderer);
+    const real = mocks.transition.getMockImplementation()!;
+    let release: () => void = () => undefined;
+    mocks.transition.mockImplementationOnce(
+      (command: unknown) =>
+        new Promise(resolve => {
+          release = () => resolve(real(command));
+        }),
+    );
+    await press(renderer, 'Finish plan');
+    expect(hasButton(renderer, 'Tell us how your hair felt')).toBe(false);
+    await act(async () => {
+      release();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasButton(renderer, 'Tell us how your hair felt')).toBe(true);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('is offered after stopping early and says so', async () => {
+    const renderer = await render(readyDecision(), OWNER, { onOpenCueCheck: vi.fn() });
+    await start(renderer);
+    await press(renderer, 'Stop this plan');
+    await type(renderer, 'Reason for stopping', 'no time left');
+    await press(renderer, 'Confirm stop');
+    expect(text(renderer)).toContain('you stopped this routine early.');
+    expect(hasButton(renderer, 'Tell us how your hair felt')).toBe(true);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('does not appear without a way to open it', async () => {
+    const renderer = await render();
+    await finishAll(renderer);
+    await press(renderer, 'Finish plan');
+    expect(hasButton(renderer, 'Tell us how your hair felt')).toBe(false);
+    await act(async () => {
+      renderer.unmount();
     });
   });
 });

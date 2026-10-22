@@ -557,6 +557,48 @@ describe('stale and cross-owner protection', () => {
   });
 });
 
+describe('returning after a list has loaded', () => {
+  it('goes back to the list, not to idle, after an empty list was loaded', () => {
+    const state = run([
+      { type: 'list_requested', requestId: 1 },
+      listLoaded(1, []),
+      { type: 'new_draft_started', execution: { executionId: EXECUTION_ID, status: 'completed' } },
+      { type: 'cancelled' },
+    ]);
+    expect(state).toMatchObject({ phase: 'list-ready', listLoaded: true });
+  });
+
+  it('starts every owner as not yet loaded', () => {
+    expect(initialCueCheckState(OWNER_A).listLoaded).toBe(false);
+    const loaded = run([{ type: 'list_requested', requestId: 1 }, listLoaded(1, [])]);
+    expect(cueCheckReducer(loaded, { type: 'owner_changed', ownerKey: OWNER_B }).listLoaded).toBe(false);
+  });
+});
+
+describe('closing a detail view', () => {
+  it('returns to the list and drops the selected record and any outstanding detail read', () => {
+    let state = run([{ type: 'list_requested', requestId: 1 }, listLoaded(1, [receipt(1)])]);
+    state = run(
+      [
+        { type: 'detail_requested', requestId: 2, recordId: recordId(1) },
+        { type: 'detail_loaded', ownerKey: OWNER_A, requestId: 2, detail: detail(1) },
+        { type: 'detail_requested', requestId: 3, recordId: recordId(1), background: true },
+        { type: 'detail_closed' },
+      ],
+      state,
+    );
+    expect(state).toMatchObject({ phase: 'list-ready', selected: null, selectedId: null, activeRequest: null });
+    expect(state.items).toHaveLength(1);
+    const late = cueCheckReducer(state, { type: 'detail_loaded', ownerKey: OWNER_A, requestId: 3, detail: detail(1) });
+    expect(late.selected).toBeNull();
+  });
+
+  it('is ignored while an edit is open or a save is in flight', () => {
+    const editing = cueCheckReducer(withDetail(1), { type: 'correction_started' });
+    expect(cueCheckReducer(editing, { type: 'detail_closed' })).toBe(editing);
+  });
+});
+
 describe('reads in flight when a draft starts', () => {
   it('drops the outstanding read so its response cannot overwrite the draft', () => {
     let state = run([

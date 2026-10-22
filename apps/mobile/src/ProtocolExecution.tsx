@@ -18,6 +18,8 @@ import { ExecutionProgress } from './ProtocolExecutionProgress';
 import { ExecutionActions } from './ProtocolExecutionActions';
 import { ExecutionDeviationForm } from './ProtocolExecutionDeviationForm';
 import { ExecutionSubstitutionPicker } from './ProtocolExecutionSubstitutionPicker';
+import { CueCheckEntryPoint } from './CueCheckEntryPoint';
+import type { TerminalExecutionContext } from './cue-check-state';
 
 export interface ProtocolExecutionProps {
   readonly ownerId: string;
@@ -50,6 +52,12 @@ export interface ProtocolExecutionProps {
    * the restored view to idle through audited server state.
    */
   readonly onTerminalAbandoned?: (receipt: TerminalAbandonReceipt) => void;
+  /**
+   * Opens the Cue Check form for a routine the server has confirmed as
+   * completed or stopped. Only a hand-off: nothing is recorded by offering or
+   * opening it, and it never appears for a running or paused routine.
+   */
+  readonly onOpenCueCheck?: (execution: TerminalExecutionContext) => void;
 }
 
 /**
@@ -72,7 +80,7 @@ export interface TerminalAbandonReceipt {
  * props-in/render-out view. See the controller for the rules this surface
  * enforces.
  */
-export function ProtocolExecution({ ownerId, decision, initialExecution, initialRevision, onTerminalAbandoned }: ProtocolExecutionProps) {
+export function ProtocolExecution({ ownerId, decision, initialExecution, initialRevision, onTerminalAbandoned, onOpenCueCheck }: ProtocolExecutionProps) {
   const controller = useProtocolExecutionController(ownerId, decision, initialExecution, initialRevision);
   const { ui, armed, execution } = controller;
   // Fix G terminal-abandon gate: notify the parent at most once per
@@ -246,6 +254,13 @@ export function ProtocolExecution({ ownerId, decision, initialExecution, initial
       onArmAbandon={() => controller.arm({ flow: 'abandon' })}
       onRetry={() => void controller.handleRetry()}
     />
+
+    {controller.terminal && ui.phase === 'ready' && ui.pending === null && onOpenCueCheck !== undefined && (
+      <CueCheckEntryPoint
+        execution={{ executionId: execution.executionId, status: execution.status }}
+        onOpen={onOpenCueCheck}
+      />
+    )}
 
     {armed !== null && armed.flow === 'abandon' && !controller.terminal && (
       <ExecutionDeviationForm

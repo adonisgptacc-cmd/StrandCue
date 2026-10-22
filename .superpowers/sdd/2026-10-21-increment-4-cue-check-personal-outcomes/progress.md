@@ -384,3 +384,18 @@ Task 4.1: complete (commits 0513846..d00e533, tests: npx vitest run tests/domain
   web export, control-plane audit PASS. Dependency audit exits 1 = HOLD (0 critical, 19 high, 9
   moderate), unchanged from Task 4.2 and not claimed as a pass.
 - CC-01..CC-03 stay Partial; CC-04..CC-08 unchanged. Task 4.4 not started.
+
+## Task 4.4 accessible Cue Check and Journey history
+
+- Started from clean `b1b6047` (Task 4.3). Added the visible journey: an immediate prompt after a
+  server-confirmed finish or stop, a Journey "Check-ins" view (routines, history, detail with a history of
+  changes, correction, removal from active history, later check-in) and an honest summary rendered from
+  `summarizePersonalOutcomes`.
+- RED: five suites failed to load and three prompt tests failed. GREEN: 120 new tests; 371 Task 4.1-4.3
+  tests; 358 existing mobile tests; full coverage 187 files / 3943 tests, global 95.93 / 90.28 / 98.08 /
+  97.86; 18 new per-file floors, all met with headroom.
+- Review fixes: announcements keyed to the edit session, `detail_closed`, `listLoaded`, distinct later
+  heading, dead code removed.
+- Gates: runtime, typecheck, lint, coverage, web export, control-plane PASS; dependency audit exit 1 =
+  HOLD (0/19/9), unchanged. No device, emulator, TalkBack or hosted evidence was run.
+- CC-01..CC-03 stay Partial; CC-04..CC-05 move to Partial; CC-06..CC-08 Not started. Task 4.5 not started.

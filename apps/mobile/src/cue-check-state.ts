@@ -77,6 +77,8 @@ export interface CueCheckState {
   readonly items: readonly CueCheckReceipt[];
   readonly nextCursor: CueCheckCursor | null;
   readonly hasMore: boolean;
+  /** True once a first list load succeeded; an empty list is then "ready", not "not started". */
+  readonly listLoaded: boolean;
   readonly selectedId: string | null;
   readonly selected: CueCheckSelected | null;
   readonly compose: CueCheckCompose | null;
@@ -105,6 +107,7 @@ export type CueCheckAction =
   | { readonly type: 'save_requested'; readonly requestId: number; readonly operationId: string }
   | { readonly type: 'save_succeeded'; readonly ownerKey: string; readonly requestId: number; readonly receipt: CueCheckReceipt }
   | { readonly type: 'request_failed'; readonly ownerKey: string; readonly requestId: number; readonly failure: CueCheckFailure }
+  | { readonly type: 'detail_closed' }
   | { readonly type: 'cancelled' };
 
 export function initialCueCheckState(ownerKey: string): CueCheckState {
@@ -115,6 +118,7 @@ export function initialCueCheckState(ownerKey: string): CueCheckState {
     items: [],
     nextCursor: null,
     hasMore: false,
+    listLoaded: false,
     selectedId: null,
     selected: null,
     compose: null,
@@ -202,9 +206,9 @@ function appendPage(items: readonly CueCheckReceipt[], page: readonly CueCheckRe
   return [...items, ...fresh];
 }
 
-function restingPhase(state: Pick<CueCheckState, 'selected' | 'items' | 'nextCursor'>): CueCheckPhase {
+function restingPhase(state: Pick<CueCheckState, 'selected' | 'listLoaded'>): CueCheckPhase {
   if (state.selected !== null) return 'detail-ready';
-  return state.items.length > 0 || state.nextCursor !== null ? 'list-ready' : 'idle';
+  return state.listLoaded ? 'list-ready' : 'idle';
 }
 
 function composePhase(compose: CueCheckCompose): CueCheckPhase {
@@ -267,6 +271,7 @@ export function cueCheckReducer(state: CueCheckState, action: CueCheckAction): C
         items: action.page.items,
         nextCursor: action.page.nextCursor,
         hasMore: action.page.nextCursor !== null,
+        listLoaded: true,
         activeRequest: null,
         failure: null,
       };
@@ -429,6 +434,18 @@ export function cueCheckReducer(state: CueCheckState, action: CueCheckAction): C
       }
       return { ...state, phase: 'failed', failure: action.failure, activeRequest: null };
     }
+    case 'detail_closed': {
+      if (state.compose !== null || SAVING.has(state.phase) || state.selectedId === null) return state;
+      const closed = {
+        ...state,
+        selected: null,
+        selectedId: null,
+        failure: state.failure?.source === 'detail' ? null : state.failure,
+        reloadRequired: false,
+        activeRequest: state.activeRequest?.kind === 'detail' ? null : state.activeRequest,
+      };
+      return { ...closed, phase: restingPhase(closed) };
+    }
     case 'cancelled': {
       if (SAVING.has(state.phase)) return state;
       const selected = state.selected;
@@ -463,6 +480,7 @@ export interface CueCheckController {
   readonly startCorrection: () => void;
   readonly startVoid: () => void;
   readonly cancel: () => void;
+  readonly closeDetail: () => void;
   readonly save: () => Promise<void>;
   readonly retry: () => Promise<void>;
 }
@@ -599,6 +617,7 @@ export function createCueCheckController(options: CueCheckControllerOptions): Cu
     startCorrection: () => dispatch({ type: 'correction_started' }),
     startVoid: () => dispatch({ type: 'void_started' }),
     cancel: () => dispatch({ type: 'cancelled' }),
+    closeDetail: () => dispatch({ type: 'detail_closed' }),
     save,
     retry,
   };

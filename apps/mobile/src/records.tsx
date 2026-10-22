@@ -13,6 +13,8 @@ import { MyHairOverview } from './MyHairOverview';
 import { useOwnerLoad } from './owner-load';
 import { Services } from './services';
 import { Activities } from './activities';
+import { CueCheckJourney } from './CueCheckJourney';
+import type { TerminalExecutionContext } from './cue-check-state';
 import { Shelf } from './shelf';
 import { Tools } from './tools';
 import { ExportScreen } from './screens/ExportScreen';
@@ -131,7 +133,8 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [errorState, setErrorState] = useState({ notice, error: notice });
   const [destination, setDestination] = useState<DestinationId>(INITIAL_DESTINATION);
   const [hairView, setHairView] = useState<'Passport'|'Services'>('Passport');
-  const [journeyView, setJourneyView] = useState<'History'|'Activities'>('History');
+  const [journeyView, setJourneyView] = useState<'History'|'Activities'|'Check-ins'>('History');
+  const [cueIntent, setCueIntent] = useState<TerminalExecutionContext|null>(null);
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
   const [username, setUsername] = useState('');
@@ -263,16 +266,25 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     setEditing(false);
     setTarget(undefined);
   };
-  const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
+  /** A finished routine asked for its Cue Check: open the Journey check-ins on it. */
+  const openCueCheck = (execution: TerminalExecutionContext) => {
+    setCueIntent(execution);
+    setJourneyView('Check-ins');
+    setDestination('journey');
+    setEditing(false);
+    setTarget(undefined);
+  };
+  const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : journeyView === 'Check-ins' ? 'How your hair felt' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
-    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectRoute}/>}
+    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectRoute} onCueCheck={openCueCheck}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
-    {destination === 'journey' && <View style={styles.row}>{(['History','Activities'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
+    {destination === 'journey' && <View style={styles.row}>{(['History','Activities','Check-ins'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}
     {!!error && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button title="Retry loading" secondary onPress={() => void refresh()}/></View>}
     {destination === 'my_hair' && hairView === 'Services' && <Services owner={user.id} />}
     {destination === 'journey' && journeyView === 'Activities' && <Activities owner={user.id} />}
+    {destination === 'journey' && journeyView === 'Check-ins' && <CueCheckJourney owner={user.id} intent={cueIntent} onIntentHandled={() => setCueIntent(null)} />}
     {destination === 'my_shelf' && <Shelf owner={user.id} />}
     {destination === 'my_tools' && <Tools owner={user.id} />}
     {destination === 'my_hair' && hairView === 'Passport' && !editing && <><Text style={styles.subtitle}>A picture of your hair, built from what you’ve recorded. It grows with you.</Text>
