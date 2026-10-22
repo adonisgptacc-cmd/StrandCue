@@ -44,9 +44,64 @@ describe('the live two-owner scenarios against the real migrations (PGlite)', ()
     expect(failing(results).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
     const areas = new Set(results.map(result => result.area));
     for (const area of OWNER_ISOLATION_REQUIRED_AREAS) expect(areas, area).toContain(area);
-    expect(results.length).toBe(42);
+    expect(results.length).toBe(51);
+    expect(results.filter(result => result.area === 'cue-check')).toHaveLength(9);
     expect(new Set(results.map(result => result.id)).size).toBe(results.length);
     expect(summarizeScenarioResults(results)).toMatchObject({ status: 'PASS', fail: 0, blocked: 0 });
+  }, 120_000);
+
+  it('proves the Cue Check isolation scenarios individually, each with its own named result', async () => {
+    const { transport, probe } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const cue = results.filter(result => result.area === 'cue-check');
+    expect(cue.map(result => result.id)).toEqual([
+      'cue-check.owner-records-and-reads-their-own',
+      'cue-check.b-cannot-read-a',
+      'cue-check.b-cannot-correct-or-void-as-a',
+      'cue-check.foreign-and-random-ids-are-indistinguishable',
+      'cue-check.anonymous-callers-are-denied',
+      'cue-check.direct-writes-and-private-receipts-are-denied',
+      'cue-check.export-holds-only-the-owners-records-and-no-receipts',
+      'cue-check.owner-switch-leaves-no-prior-owner-rows',
+      'cue-check.client-supplied-bound-facts-are-refused',
+    ]);
+    expect(failing(cue).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
+  }, 120_000);
+
+  it('blocks, never passes, the Cue Check scenarios when no privileged probe can seed a routine', async () => {
+    const { transport } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe: null });
+    const cue = results.filter(result => result.area === 'cue-check');
+    expect(cue).toHaveLength(9);
+    expect(cue.some(result => result.status === 'PASS')).toBe(false);
+    for (const result of cue) expect(result.status).toBe('BLOCKED');
+  }, 120_000);
+
+  it('fails the Cue Check scenarios when isolation is broken (every caller acts as the first owner)', async () => {
+    const { transport, probe } = pgliteTransport(db, { leaky: true });
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const cue = results.filter(result => result.area === 'cue-check');
+    expect(cue).toHaveLength(9);
+    const broken = new Set(failing(cue).map(result => result.id));
+    expect(broken.has('cue-check.b-cannot-read-a')).toBe(true);
+    expect(broken.has('cue-check.anonymous-callers-are-denied')).toBe(true);
+    expect(broken.has('cue-check.b-cannot-correct-or-void-as-a')).toBe(true);
+  }, 120_000);
+
+  it('fails closed when a Cue Check response is malformed or an expected denial succeeds', async () => {
+    const { transport, probe } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/list_cue_checks') ? { status: 200, text: '<html>gateway</html>' } : result),
+    });
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const broken = failing(results.filter(result => result.area === 'cue-check'));
+    expect(broken.length).toBeGreaterThan(0);
+    expect(broken.some(result => /malformed|not JSON/i.test(result.detail))).toBe(true);
+    const { transport: openDoor, probe: probe2 } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/get_cue_check') && result.status >= 400 ? { status: 200, text: '{"recordId":"x"}' } : result),
+    });
+    await reset();
+    const results2 = await runOwnerIsolationScenarios({ transport: openDoor, ...principals, probe: probe2 });
+    expect(failing(results2.filter(result => result.area === 'cue-check')).length).toBeGreaterThan(0);
   }, 120_000);
 
   it('removes its synthetic catalogue fixtures afterwards and leaves no owner data behind', async () => {

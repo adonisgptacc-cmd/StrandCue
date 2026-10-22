@@ -50,7 +50,7 @@ export interface ScenarioInput {
 }
 
 export const OWNER_ISOLATION_REQUIRED_AREAS = [
-  'passport', 'shelf', 'shelf-catalogue', 'tools', 'tool-catalogue', 'direct-write', 'anonymous', 'export', 'idempotency',
+  'passport', 'shelf', 'shelf-catalogue', 'tools', 'tool-catalogue', 'direct-write', 'anonymous', 'export', 'idempotency', 'cue-check',
 ] as const;
 
 class ScenarioFailure extends Error {}
@@ -220,6 +220,13 @@ const shelfListSchema = listOf(z.object({ id: uuid, manualName: z.string().nulla
 const toolListSchema = listOf(z.object({ id: uuid, manualModel: z.string().nullable() }).passthrough());
 const exportReceipt = z.object({ jobId: uuid }).passthrough();
 const exportDownload = z.object({ document: z.record(z.string(), z.unknown()) }).passthrough();
+const cueStep = z.object({ stepId: z.string(), position: z.number().int(), action: z.string() }).passthrough();
+const cueReceipt = z.object({
+  recordId: uuid, executionId: uuid, lifecycle: z.enum(['active', 'voided']), revision: z.number().int().positive(),
+  confirmedSteps: z.array(cueStep), observation: z.record(z.string(), z.unknown()),
+}).passthrough();
+const cueDetail = cueReceipt.extend({ revisions: z.array(z.object({ revisionId: uuid, kind: z.string() }).passthrough()) });
+const cueList = listOf(cueReceipt);
 const passportView = z.object({ revisions: z.array(z.object({ id: uuid }).passthrough()) }).passthrough();
 
 // --- Runner -----------------------------------------------------------------------------------
@@ -275,6 +282,35 @@ async function exportDocument(ctx: Context, who: 'a' | 'b'): Promise<Record<stri
 }
 
 const requireState = (ctx: Context, key: string): string => ctx.state[key] ?? fail(`an earlier scenario did not provide ${key}`);
+
+const cueObservation = (notes: string, extra: Record<string, unknown> = {}) => ({
+  timing: 'immediate', observedAt: new Date(Date.now() - 60_000).toISOString(), overallResult: 'better', notes, ...extra,
+});
+
+/** A completed execution for owner A bound to a trusted run: the run is seeded privately, everything else goes through the real RPCs. */
+async function seedCueExecution(ctx: Context): Promise<string> {
+  const owner = ctx.input.a.id;
+  if (owner === null) return fail('owner A has no identity');
+  const runId = crypto.randomUUID();
+  const executionId = crypto.randomUUID();
+  const steps = [1, 2].map(n => ({ stepId: `step-${n}`, position: n, action: `SC-CUE action ${n}`, productId: null, productVersionId: null, toolId: null, toolVersionId: null, waitSeconds: null, rinse: null, reasons: ['synthetic'] }));
+  const decision = JSON.stringify({ status: 'ready', requestId: runId, steps });
+  const runInput = JSON.stringify({ requestId: runId, goal: 'basic_wash' });
+  await ctx.probe.exec(`select set_config('request.jwt.claim.sub', '${owner}', false);
+set role strandcue_mutator;
+select strandcue_private.record_trusted_run('${runId}', '${'d'.repeat(64)}', '2026-10-13T08:00:00.000Z'::timestamptz, '1', 'sc-cue-bundle', '1', 'ready', '${runInput}'::jsonb, '${decision}'::jsonb);
+reset role;`);
+  ok(await call$(ctx, 'a', 'start_protocol_execution', { p_operation_id: crypto.randomUUID(), p_execution_id: executionId, p_recommendation_run_id: runId, p_started_at: new Date().toISOString() }), 'start_protocol_execution', z.unknown());
+  let revision = 0;
+  for (const command of [{ kind: 'complete-step', stepId: 'step-1' }, { kind: 'complete-step', stepId: 'step-2' }, { kind: 'complete' }]) {
+    ok(await call$(ctx, 'a', 'apply_protocol_execution_command', { p_operation_id: crypto.randomUUID(), p_execution_id: executionId, p_expected_revision: revision, p_command: command, p_at: new Date().toISOString() }), 'apply_protocol_execution_command', z.unknown());
+    revision += 1;
+  }
+  return executionId;
+}
+
+const cueRecordArgs = (executionId: string, observation: Record<string, unknown>, operationId: string = crypto.randomUUID()) =>
+  ({ p_operation_id: operationId, p_execution_id: executionId, p_observation: observation });
 
 const SCENARIOS: Scenario[] = [
   // ---- Passport ----
@@ -759,6 +795,135 @@ const SCENARIOS: Scenario[] = [
       const current2 = await shelfHistory(ctx, 'a', shelf);
       await sameCounts(ctx, 'a stale shelf change', async () => {
         denied(await call$(ctx, 'a', 'shelf_change', { p_operation_id: crypto.randomUUID(), p_user_product_id: shelf, p_expected_revision: current2.revision - 1, p_manual_brand: null, p_manual_name: null, p_manual_category: null, p_availability: 'low', p_notes: null, p_effective_date: DAY, p_facts: {} }), 'a stale shelf change', /revision-conflict/);
+      });
+    },
+  },
+  // ---- Cue Checks (private owner observations) ----
+  {
+    id: 'cue-check.owner-records-and-reads-their-own', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const executionId = await seedCueExecution(ctx);
+      const note = `SC-CUE-${ctx.suffix}-PRIVATE-NOTE`;
+      const operationId = crypto.randomUUID();
+      ctx.state.cueExecution = executionId;
+      ctx.state.cueNote = note;
+      ctx.state.cueOperation = operationId;
+      const receipt = ok(await call$(ctx, 'a', 'record_cue_check', cueRecordArgs(executionId, cueObservation(note), operationId)), 'record_cue_check (A)', cueReceipt);
+      check(receipt.executionId === executionId && receipt.lifecycle === 'active' && receipt.revision === 1, 'the recorded Cue Check is not the active first revision of the routine asked for');
+      check(receipt.confirmedSteps.length === 2, 'the confirmed steps were not copied from the stored execution');
+      ctx.state.cueRecord = receipt.recordId;
+      const list = ok(await call$(ctx, 'a', 'list_cue_checks', { p_limit: 10, p_cursor: null }), 'list_cue_checks (A)', cueList);
+      check(list.items.length === 1 && list.items[0]?.recordId === receipt.recordId, 'owner A does not see exactly their own Cue Check in the list');
+      const detail = ok(await call$(ctx, 'a', 'get_cue_check', { p_record_id: receipt.recordId }), 'get_cue_check (A)', cueDetail);
+      check(detail.revisions.length === 1 && detail.observation.notes === note, 'owner A cannot read back exactly what they recorded');
+    },
+  },
+  {
+    id: 'cue-check.b-cannot-read-a', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const record = requireState(ctx, 'cueRecord');
+      const list = ok(await call$(ctx, 'b', 'list_cue_checks', { p_limit: 10, p_cursor: null }), 'list_cue_checks (B)', cueList);
+      check(list.items.length === 0, 'owner B listed a Cue Check that is not theirs');
+      denied(await call$(ctx, 'b', 'get_cue_check', { p_record_id: record }), 'B reading A\'s Cue Check', /record-not-found/);
+      nothingVisible(await send(ctx, 'b', 'GET', '/rest/v1/cue_checks?select=*'), 'B reading the Cue Check table');
+      nothingVisible(await send(ctx, 'b', 'GET', '/rest/v1/cue_check_revisions?select=*'), 'B reading the Cue Check revision table');
+    },
+  },
+  {
+    id: 'cue-check.b-cannot-correct-or-void-as-a', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const record = requireState(ctx, 'cueRecord');
+      await sameCounts(ctx, 'B changing A\'s Cue Check', async () => {
+        denied(await call$(ctx, 'b', 'correct_cue_check', { p_operation_id: crypto.randomUUID(), p_record_id: record, p_expected_revision: 1, p_observation: cueObservation('SC-CUE hijack'), p_reason: 'not mine' }), 'B correcting A\'s Cue Check', /record-not-found/);
+        denied(await call$(ctx, 'b', 'void_cue_check', { p_operation_id: crypto.randomUUID(), p_record_id: record, p_expected_revision: 1, p_reason: 'not mine' }), 'B removing A\'s Cue Check', /record-not-found/);
+      });
+      const detail = ok(await call$(ctx, 'a', 'get_cue_check', { p_record_id: record }), 'get_cue_check (A, after B\'s attempts)', cueDetail);
+      check(detail.revision === 1 && detail.lifecycle === 'active', 'B\'s refused attempts changed A\'s Cue Check');
+    },
+  },
+  {
+    id: 'cue-check.foreign-and-random-ids-are-indistinguishable', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const record = requireState(ctx, 'cueRecord');
+      const execution = requireState(ctx, 'cueExecution');
+      const random = crypto.randomUUID();
+      sameRefusal(await call$(ctx, 'b', 'get_cue_check', { p_record_id: record }), await call$(ctx, 'b', 'get_cue_check', { p_record_id: random }), 'get_cue_check');
+      const change = (id: string) => ({ p_operation_id: crypto.randomUUID(), p_record_id: id, p_expected_revision: 1, p_observation: cueObservation('SC-CUE probe'), p_reason: 'probe' });
+      sameRefusal(await call$(ctx, 'b', 'correct_cue_check', change(record)), await call$(ctx, 'b', 'correct_cue_check', change(random)), 'correct_cue_check');
+      const removal = (id: string) => ({ p_operation_id: crypto.randomUUID(), p_record_id: id, p_expected_revision: 1, p_reason: 'probe' });
+      sameRefusal(await call$(ctx, 'b', 'void_cue_check', removal(record)), await call$(ctx, 'b', 'void_cue_check', removal(random)), 'void_cue_check');
+      sameRefusal(await call$(ctx, 'b', 'record_cue_check', cueRecordArgs(execution, cueObservation('SC-CUE probe'))), await call$(ctx, 'b', 'record_cue_check', cueRecordArgs(random, cueObservation('SC-CUE probe'))), 'record_cue_check');
+    },
+  },
+  {
+    id: 'cue-check.anonymous-callers-are-denied', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const record = requireState(ctx, 'cueRecord');
+      const execution = requireState(ctx, 'cueExecution');
+      await sameCounts(ctx, 'anonymous Cue Check calls', async () => {
+        const calls: [string, Record<string, unknown>][] = [
+          ['list_cue_checks', { p_limit: 5, p_cursor: null }], ['get_cue_check', { p_record_id: record }],
+          ['record_cue_check', cueRecordArgs(execution, cueObservation('SC-CUE anonymous'))],
+          ['correct_cue_check', { p_operation_id: crypto.randomUUID(), p_record_id: record, p_expected_revision: 1, p_observation: cueObservation('SC-CUE anonymous'), p_reason: 'x' }],
+          ['void_cue_check', { p_operation_id: crypto.randomUUID(), p_record_id: record, p_expected_revision: 1, p_reason: 'x' }],
+        ];
+        for (const [name, args] of calls) privilegeDenied(await call$(ctx, 'anonymous', name, args), `anonymous calling ${name}`);
+      });
+      for (const table of ['cue_checks', 'cue_check_revisions']) nothingVisible(await send(ctx, 'anonymous', 'GET', `/rest/v1/${table}?select=*`), `anonymous reading ${table}`);
+    },
+  },
+  {
+    id: 'cue-check.direct-writes-and-private-receipts-are-denied', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const record = requireState(ctx, 'cueRecord');
+      await sameCounts(ctx, 'A writing the Cue Check tables directly', async () => {
+        const mutations: [string, 'POST' | 'PATCH' | 'DELETE', string, unknown][] = [
+          ['inserting a Cue Check', 'POST', '/rest/v1/cue_checks', { id: crypto.randomUUID(), record_id: crypto.randomUUID() }],
+          ['rewriting a Cue Check', 'PATCH', `/rest/v1/cue_checks?record_id=eq.${record}`, { lifecycle: 'voided' }],
+          ['deleting a Cue Check', 'DELETE', `/rest/v1/cue_checks?record_id=eq.${record}`, undefined],
+          ['inserting a revision', 'POST', '/rest/v1/cue_check_revisions', { id: crypto.randomUUID(), record_id: record }],
+          ['rewriting a revision', 'PATCH', `/rest/v1/cue_check_revisions?record_id=eq.${record}`, { correction_reason: 'rewritten' }],
+          ['deleting a revision', 'DELETE', `/rest/v1/cue_check_revisions?record_id=eq.${record}`, undefined],
+        ];
+        for (const [what, method, path, body] of mutations) privilegeDenied(await send(ctx, 'a', method, path, body), `A ${what}`);
+      });
+      // The private operation receipts are not an exposed table at all, and never readable.
+      for (const who of ['a', 'b', 'anonymous'] as const) nothingVisible(await send(ctx, who, 'GET', '/rest/v1/cue_check_operations?select=*'), `${who} reading the private Cue Check receipts`);
+    },
+  },
+  {
+    id: 'cue-check.export-holds-only-the-owners-records-and-no-receipts', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const note = requireState(ctx, 'cueNote');
+      const operation = requireState(ctx, 'cueOperation');
+      const mine = await exportDocument(ctx, 'a');
+      const cues = mine.cueChecks as { revisions?: unknown[] }[] | undefined;
+      check(Array.isArray(cues) && cues.length === 1 && Array.isArray(cues[0]?.revisions) && cues[0].revisions.length >= 1, 'the export does not hold exactly the owner\'s one Cue Check with its revisions');
+      const text = JSON.stringify(mine);
+      check(text.includes(note), 'the owner\'s own note is missing from the export');
+      check(!text.includes(operation) && !text.includes('cue_check_operations'), 'a private operation receipt reached the export');
+      const other = JSON.stringify(await exportDocument(ctx, 'b'));
+      check(!other.includes(note) && !other.includes(requireState(ctx, 'cueRecord')), 'owner B\'s export contains owner A\'s Cue Check');
+      const otherCues = (JSON.parse(other) as { cueChecks?: unknown[] }).cueChecks;
+      check(Array.isArray(otherCues) && otherCues.length === 0, 'owner B\'s export does not show an empty Cue Check list');
+    },
+  },
+  {
+    id: 'cue-check.owner-switch-leaves-no-prior-owner-rows', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const note = requireState(ctx, 'cueNote');
+      const record = requireState(ctx, 'cueRecord');
+      // After the switch to owner B, nothing B can ask for may carry anything of A's: list, detail, tables or export.
+      const replies = [
+        await call$(ctx, 'b', 'list_cue_checks', { p_limit: 50, p_cursor: null }),
+        await call$(ctx, 'b', 'get_cue_check', { p_record_id: record }),
+        await send(ctx, 'b', 'GET', '/rest/v1/cue_checks?select=*'),
+        await send(ctx, 'b', 'GET', '/rest/v1/cue_check_revisions?select=*'),
+      ];
+      for (const reply of replies) check(!reply.text.includes(note) && !reply.text.includes(record), 'a reply to owner B carried owner A\'s Cue Check');
+      const back = ok(await call$(ctx, 'a', 'get_cue_check', { p_record_id: record }), 'get_cue_check (A, after the switch)', cueDetail);
+      check(back.observation.notes === note, 'owner A lost their own Cue Check after owner B acted');
+    },
+  },
+  {
+    id: 'cue-check.client-supplied-bound-facts-are-refused', area: 'cue-check', needsProbe: true, run: async ctx => {
+      const execution = requireState(ctx, 'cueExecution');
+      await sameCounts(ctx, 'Cue Checks carrying client-supplied facts', async () => {
+        for (const key of ['userId', 'recommendationRunId', 'goal', 'executionStatus', 'confirmedSteps', 'receivedAt', 'createdAt']) {
+          denied(await call$(ctx, 'a', 'record_cue_check', cueRecordArgs(execution, cueObservation('SC-CUE forged', { [key]: 'x' }))), `a Cue Check carrying a client-supplied ${key}`, /invalid-observation/);
+        }
       });
     },
   },
