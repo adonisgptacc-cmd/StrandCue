@@ -399,3 +399,14 @@ Task 4.1: complete (commits 0513846..d00e533, tests: npx vitest run tests/domain
 - Gates: runtime, typecheck, lint, coverage, web export, control-plane PASS; dependency audit exit 1 =
   HOLD (0/19/9), unchanged. No device, emulator, TalkBack or hosted evidence was run.
 - CC-01..CC-03 stay Partial; CC-04..CC-05 move to Partial; CC-06..CC-08 Not started. Task 4.5 not started.
+
+## Increment 4 integration, independent review and closure
+
+- Four isolated reviewers (code/state, database security, accessibility, wording) reviewed Tasks 4.1-4.4
+  and re-reviewed the fixes. Fixes landed as `ad1a6d1` with a forward migration
+  (`20261024100000_cue_check_review_fixes.sql`); the committed Task 4.2 migration is untouched.
+- Added the combined component journey test; full coverage 188 files / 3982 tests, global
+  95.95 / 90.35 / 98.13 / 97.89; database suites 121 tests; dependency audit HOLD unchanged (0/19/9).
+- Open decisions: reaction-question safety handling; retention of copied steps and operation receipts.
+- NOT RUN: hosted owner isolation, real-database UI journey, device/emulator, TalkBack/VoiceOver.
+- CC-01..CC-05 Partial; CC-06..CC-08 Not started. Increment 5 not started. Report: `increment-4-report.md`.

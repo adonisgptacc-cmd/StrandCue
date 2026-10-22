@@ -181,3 +181,5 @@ so draft content may not execute and Today yields `content_pending`.
 | UX-03 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
 | UX-04 | R1 | apps/mobile/src/navigation.ts, ReleaseStageBanner.tsx (destinations, banner, labels) | tests/mobile/navigation.test.tsx, tests/mobile/release-stage.test.tsx | Partial |
 | UX-05 | R5 | Copy tests reject shame/fear language in navigation, shelf and check-in copy | tests/mobile/navigation.test.tsx, tests/mobile/shelf.test.ts, tests/mobile/today-check-in.test.tsx | Partial |
+
+Increment 4 closure evidence for CC-01 to CC-05 (all remain Partial): `tests/mobile/cue-check-increment-journey.test.tsx`, `tests/database/cue-checks.test.ts` (including 'Increment 4 review fixes'), and `.superpowers/sdd/2026-10-21-increment-4-cue-check-personal-outcomes/increment-4-report.md`.
