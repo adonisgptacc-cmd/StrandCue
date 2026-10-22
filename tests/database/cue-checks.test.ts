@@ -340,7 +340,7 @@ describe('Cue Check persistence (owner-only, append-only)', () => {
 
     it('pins public wrappers and private cores to the hardened shape', async () => {
       const wrappers = await db.query<{ search_path_pinned: boolean; owner: string }>(`
-        select (p.proconfig @> array['search_path=""']) as search_path_pinned,
+        select (p.proconfig @> array['search_path=""'] or p.proconfig @> array['search_path=pg_catalog, pg_temp']) as search_path_pinned,
                pg_get_userbyid(p.proowner) as owner
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname in
@@ -351,7 +351,7 @@ describe('Cue Check persistence (owner-only, append-only)', () => {
         expect(row.owner).toBe('migration_admin');
       }
       const cores = await db.query<{ search_path_pinned: boolean; owner: string }>(`
-        select (p.proconfig @> array['search_path=""']) as search_path_pinned,
+        select (p.proconfig @> array['search_path=""'] or p.proconfig @> array['search_path=pg_catalog, pg_temp']) as search_path_pinned,
                pg_get_userbyid(p.proowner) as owner
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'strandcue_private' and p.proname in

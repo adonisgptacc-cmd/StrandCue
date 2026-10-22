@@ -56,6 +56,21 @@ describe('head-row integrity', () => {
     expect(rows[0].revision).toBe(2);
   });
 
+  it('rejects a privileged change of the receipt time unless the revision advances with it', async () => {
+    const record = await created();
+    await expect(privileged(db, `update public.cue_checks set received_at = now() + interval '1 day' where record_id = $1`, [record.recordId])).rejects.toThrow(/cue-check-head-invalid/);
+    await expect(privileged(db, `update public.cue_checks set updated_at = now() where record_id = $1`, [record.recordId])).resolves.toBeDefined();
+  });
+
+  it('rejects a privileged correction whose revision row carries another timing or an invalid observation', async () => {
+    const record = await created();
+    await privileged(db, `insert into public.cue_check_revisions(user_id,record_id,sequence,kind,observation,corrects_id,correction_reason)
+      select user_id, record_id, 2, 'correct', $2::jsonb, (select id from public.cue_check_revisions r where r.record_id = c.record_id and r.sequence = 1), 'privileged fixture'
+      from public.cue_checks c where record_id = $1`, [record.recordId, JSON.stringify({ timing: 'delayed', observedAt: '2026-01-01T00:00:00Z', dryness: 'more' })]);
+    await expect(privileged(db, `update public.cue_checks set revision = 2, observation = (select observation from public.cue_check_revisions where record_id = $1 and sequence = 2),
+      observed_at = '2026-01-01T00:00:00Z', received_at = now() where record_id = $1`, [record.recordId])).rejects.toThrow(/cue-check-head-invalid/);
+  });
+
   it('keeps the correction and removal RPC paths working', async () => {
     const record = await created();
     const corrected = await correctCue(db, { recordId: record.recordId });
@@ -96,7 +111,7 @@ describe('trusted-run binding', () => {
     expect(await cueCounts(db)).toEqual({ checks: 0, revisions: 0, receipts: 0 });
   });
 
-  it('answers a foreign execution, a random id and a missing run identically', async () => {
+  it('answers a foreign execution, a random id and a run deleted with its execution identically (a run cannot be missing while its execution remains)', async () => {
     const { executionId } = await seedCompletedExecution(db);
     await asUser(db, USER_B);
     await complete(db, 'user_b');
@@ -173,5 +188,46 @@ describe('operation replay', () => {
       () => recordCue(db, { executionId, observation: observation({ styleLongevity: 'longer' }) }),
     ]) await failureOf(run);
     expect(await cueCounts(db)).toEqual(before);
+  });
+});
+
+describe('search_path hardening of the definer cores', () => {
+  // A caller can create temporary types of its own. A definer function that resolves an unqualified type
+  // name through a search path that lists pg_temp first would run the caller's code as strandcue_mutator.
+  it('does not let a caller-created temporary type take over a Cue Check function', async () => {
+    const fresh = await database();
+    try {
+      await asUser(fresh, USER_A);
+      await complete(fresh);
+      const { executionId } = await seedCompletedExecution(fresh);
+      await fresh.exec(`
+        create function pg_temp.pwn(v pg_catalog.jsonb) returns boolean language plpgsql as $$ begin if current_user <> 'authenticated' then raise exception 'PWNED as %', current_user; end if; return true; end $$;
+        create domain pg_temp.jsonb as pg_catalog.jsonb check (pg_temp.pwn(value));
+        create domain pg_temp.uuid as pg_catalog.uuid check (pg_temp.pwn(to_jsonb(value)));
+        create domain pg_temp.timestamptz as pg_catalog.timestamptz check (pg_temp.pwn(to_jsonb(value)));
+      `);
+      const record = await recordCue(fresh, { executionId });
+      expect(record.lifecycle).toBe('active');
+      const corrected = await correctCue(fresh, { recordId: record.recordId });
+      expect(corrected.revision).toBe(2);
+      const list = (await fresh.query<{ result: any }>('select public.list_cue_checks(10, null) result')).rows[0].result;
+      expect(list.items).toHaveLength(1);
+      const detail = (await fresh.query<{ result: any }>('select public.get_cue_check($1) result', [record.recordId])).rows[0].result;
+      expect(detail.revisions).toHaveLength(2);
+      const removed = await voidCue(fresh, { recordId: record.recordId, expectedRevision: 2 });
+      expect(removed.lifecycle).toBe('voided');
+    } finally {
+      await fresh.close();
+    }
+  }, 120_000);
+
+  it('pins pg_catalog first and pg_temp last on every Cue Check definer', async () => {
+    const { rows } = await privileged<{ name: string; config: string[] | null }>(db,
+      `select p.oid::regprocedure::text as name, p.proconfig as config
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where p.prosecdef and (p.proname like 'cue_check%' or p.proname like '%cue_check%')
+          and n.nspname in ('public', 'strandcue_private')`);
+    expect(rows.length).toBeGreaterThanOrEqual(8);
+    for (const row of rows) expect(row.config, row.name).toContain('search_path=pg_catalog, pg_temp');
   });
 });

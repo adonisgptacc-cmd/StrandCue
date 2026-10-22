@@ -139,3 +139,21 @@ The privacy owner settled the Cue Check retention policy on 2026-10-22:
   strictly older than that window. Exact replay is therefore a 30-day
   guarantee. The function returns a count only and does not touch Cue Checks,
   revisions, confirmed steps or owner history.
+
+### Database guards on Cue Check history (Increment 5, Task I5.0)
+
+`20261024120000_cue_check_hardening.sql` adds operational rules that matter to
+anyone erasing or restoring data:
+
+- `TRUNCATE` of `cue_check_revisions` is refused while any history exists. That
+  includes `truncate public.profiles cascade` and `truncate public.cue_checks
+  cascade`. Erasure must delete rows: the account-deletion worker, the deletion
+  purge and reapply functions, or the `auth.users` cascade all do, and none is
+  blocked. `pg_restore --clean` drops tables instead of truncating them.
+- A Cue Check head row changes only through the append-only revision path: a
+  change to its observation, lifecycle, revision or observation time needs
+  `revision = old + 1` and a matching revision row.
+- A Cue Check is created only from a recommendation run marked trusted.
+- Retries are serialised per owner and operation, so an identical concurrent
+  retry returns the stored receipt. Replay is still guaranteed only while the
+  30-day receipt exists.

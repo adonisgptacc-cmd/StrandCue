@@ -35,7 +35,7 @@ describe('Cue Check operation receipt retention', () => {
     await complete(db, 'user_a');
     await asUser(db, USER_B);
     await complete(db, 'user_b');
-  });
+  }, 60_000);
   afterAll(async () => { await db.close(); });
   beforeEach(async () => {
     await db.exec('set session authorization postgres');

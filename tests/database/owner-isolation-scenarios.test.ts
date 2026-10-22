@@ -86,6 +86,18 @@ describe('the live two-owner scenarios against the real migrations (PGlite)', ()
     expect(broken.has('cue-check.b-cannot-read-a')).toBe(true);
     expect(broken.has('cue-check.anonymous-callers-are-denied')).toBe(true);
     expect(broken.has('cue-check.b-cannot-correct-or-void-as-a')).toBe(true);
+    for (const id of ['cue-check.foreign-and-random-ids-are-indistinguishable', 'cue-check.export-holds-only-the-owners-records-and-no-receipts', 'cue-check.owner-switch-leaves-no-prior-owner-rows']) {
+      expect(broken.has(id), id).toBe(true);
+    }
+  }, 120_000);
+
+  it('refuses to treat two successful replies as the same refusal', async () => {
+    const { transport, probe } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/get_cue_check') && result.status >= 400 ? { status: 200, text: '{}' } : result),
+    });
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const same = results.find(result => result.id === 'cue-check.foreign-and-random-ids-are-indistinguishable');
+    expect(same?.status).toBe('FAIL');
   }, 120_000);
 
   it('fails closed when a Cue Check response is malformed or an expected denial succeeds', async () => {

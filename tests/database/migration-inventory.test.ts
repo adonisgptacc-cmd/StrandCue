@@ -56,6 +56,7 @@ const trustedMigrationNames = [
   '20261024100000_cue_check_review_fixes.sql',
   '20261024110000_cue_check_operation_retention.sql',
   '20261024120000_cue_check_hardening.sql',
+  '20261024130000_cue_check_search_path_hardening.sql',
 ] as const;
 
 const candidateMigrationNames = [

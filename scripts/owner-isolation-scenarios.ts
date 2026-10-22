@@ -195,6 +195,7 @@ function nothingVisible(reply: Reply, what: string): void {
 
 /** A foreign id and an id that does not exist must be refused in exactly the same words: the refusal is no oracle for existence. */
 function sameRefusal(foreign: Reply, unknown: Reply, what: string): void {
+  check(isError(foreign) && isError(unknown), `${what}: expected both ids to be refused, got ${foreign.status} and ${unknown.status}`);
   const a = errorBody(foreign, `${what} (foreign id)`);
   const b = errorBody(unknown, `${what} (unknown id)`);
   check(foreign.status === unknown.status && a.code === b.code && a.message === b.message,
