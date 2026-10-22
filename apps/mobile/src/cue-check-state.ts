@@ -1,5 +1,5 @@
 import type { CueCheckApi, CueCheckCursor, CueCheckDetail, CueCheckPage, CueCheckReceipt } from './cue-check-api';
-import { toCueCheckFailure, type CueCheckFailure } from './cue-check-errors';
+import { CueCheckError, toCueCheckFailure, type CueCheckFailure } from './cue-check-errors';
 
 /**
  * Deterministic, immutable state machine for the private Cue Check surface
@@ -14,9 +14,12 @@ import { toCueCheckFailure, type CueCheckFailure } from './cue-check-errors';
  *   older response can never overwrite newer state;
  * - a response carries the owner it was requested for, and an owner change
  *   synchronously resets everything (lists, details, drafts, pending commands,
- *   failures and pagination) while dropping the active request;
+ *   failures and pagination) while dropping the active request (the app also
+ *   keys the whole Journey view by owner, so a new owner always gets a new
+ *   controller; this guard is defence in depth);
  * - a mutation is retried under the operation id of its first attempt only
- *   when its payload is byte-for-byte equivalent, so a retry can never double
+ *   when its payload is equivalent (same fields and values; key order never
+ *   matters to the server), so a retry can never double
  *   record, and a changed payload can never ride an old id.
  *
  * The machine holds the owner's own words as a raw draft and sends them only
@@ -89,6 +92,10 @@ export interface CueCheckState {
   readonly failure: CueCheckFailure | null;
   /** Set by a stale-record failure: reload before any further mutation. */
   readonly reloadRequired: boolean;
+  /** The last confirmed save, so an outcome is announced only when one really happened. */
+  readonly lastSaved: { readonly mode: CueCheckCompose['mode']; readonly requestId: number } | null;
+  /** A refresh of the open record's history failed; the receipt alone is shown. */
+  readonly historyUnavailable: boolean;
 }
 
 export type CueCheckAction =
@@ -128,6 +135,8 @@ export function initialCueCheckState(ownerKey: string): CueCheckState {
     activeRequest: null,
     failure: null,
     reloadRequired: false,
+    lastSaved: null,
+    historyUnavailable: false,
   };
 }
 
@@ -178,7 +187,8 @@ export type CueCheckCommand =
 /**
  * The exact command for the pending mutation, or null when none is pending.
  * It carries only the owner's own words plus ids and the expected revision;
- * every server-derived fact stays out, and a retry rebuilds identical bytes.
+ * every server-derived fact stays out. A retry rebuilds an equivalent command:
+ * the same fields and values, which the server treats as the same operation.
  */
 export function buildCueCheckCommand(state: CueCheckState): CueCheckCommand | null {
   const fields = mutationFields(state);
@@ -308,6 +318,7 @@ export function cueCheckReducer(state: CueCheckState, action: CueCheckAction): C
         selectedId: action.recordId,
         selected: sameRecord ? state.selected : null,
         failure: background ? state.failure : null,
+        historyUnavailable: false,
         activeRequest: { requestId: action.requestId, kind: 'detail', background },
       };
     }
@@ -320,6 +331,7 @@ export function cueCheckReducer(state: CueCheckState, action: CueCheckAction): C
         activeRequest: null,
         failure: null,
         reloadRequired: false,
+        historyUnavailable: false,
       };
       const { compose } = state;
       if (compose !== null && compose.mode !== 'new' && compose.recordId === action.detail.recordId) {
@@ -402,8 +414,20 @@ export function cueCheckReducer(state: CueCheckState, action: CueCheckAction): C
       const { compose } = state;
       // A receipt must belong to what was saved: the same record for a
       // correction or void, the same execution for a new check-in.
-      if (compose !== null && compose.mode !== 'new' && compose.recordId !== action.receipt.recordId) return state;
-      if (compose !== null && compose.mode === 'new' && compose.executionId !== action.receipt.executionId) return state;
+      const mismatched =
+        (compose !== null && compose.mode !== 'new' && compose.recordId !== action.receipt.recordId) ||
+        (compose !== null && compose.mode === 'new' && compose.executionId !== action.receipt.executionId);
+      if (mismatched) {
+        // An untrusted receipt ends the save as a failure the owner can retry or
+        // cancel; leaving the save "in flight" would trap the screen.
+        const source = compose.mode === 'new' ? 'create' : compose.mode === 'correction' ? 'correct' : 'void';
+        return {
+          ...state,
+          phase: 'failed',
+          activeRequest: null,
+          failure: toCueCheckFailure(new CueCheckError('malformed-response'), source),
+        };
+      }
       return {
         ...state,
         phase: 'detail-ready',
@@ -417,12 +441,15 @@ export function cueCheckReducer(state: CueCheckState, action: CueCheckAction): C
         activeRequest: null,
         failure: null,
         reloadRequired: false,
+        lastSaved: { mode: compose?.mode ?? 'new', requestId: action.requestId },
       };
     }
     case 'request_failed': {
       const active = state.activeRequest;
       if (action.ownerKey !== state.ownerKey || active === null || active.requestId !== action.requestId) return state;
-      if (active.background) return { ...state, activeRequest: null };
+      if (active.background) {
+        return { ...state, activeRequest: null, historyUnavailable: active.kind === 'detail' && state.selected !== null };
+      }
       if (active.kind === 'save') {
         return {
           ...state,
@@ -442,6 +469,7 @@ export function cueCheckReducer(state: CueCheckState, action: CueCheckAction): C
         selectedId: null,
         failure: state.failure?.source === 'detail' ? null : state.failure,
         reloadRequired: false,
+        historyUnavailable: false,
         activeRequest: state.activeRequest?.kind === 'detail' ? null : state.activeRequest,
       };
       return { ...closed, phase: restingPhase(closed) };
@@ -474,6 +502,8 @@ export interface CueCheckController {
   readonly loadMore: () => Promise<void>;
   readonly openDetail: (recordId: string) => Promise<void>;
   readonly reload: () => Promise<void>;
+  /** Reload the open record's history without replacing what is on screen. */
+  readonly reloadHistory: () => Promise<void>;
   readonly startNew: (execution: TerminalExecutionContext) => void;
   readonly editDraft: (observation: CueCheckDraft) => void;
   readonly setReason: (reason: string) => void;
@@ -588,6 +618,10 @@ export function createCueCheckController(options: CueCheckControllerOptions): Cu
     if (state.selectedId !== null) await openDetail(state.selectedId);
   };
 
+  const reloadHistory = async (): Promise<void> => {
+    if (state.selectedId !== null) await openDetail(state.selectedId, true);
+  };
+
   const retry = async (): Promise<void> => {
     const failure = state.failure;
     if (failure === null) return;
@@ -611,6 +645,7 @@ export function createCueCheckController(options: CueCheckControllerOptions): Cu
     loadMore,
     openDetail: recordId => openDetail(recordId),
     reload,
+    reloadHistory,
     startNew: execution => dispatch({ type: 'new_draft_started', execution }),
     editDraft: observation => dispatch({ type: 'draft_changed', observation }),
     setReason: reason => dispatch({ type: 'reason_changed', reason }),

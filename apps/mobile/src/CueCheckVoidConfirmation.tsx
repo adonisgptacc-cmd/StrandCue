@@ -30,18 +30,23 @@ export interface CueCheckVoidConfirmationProps {
 export function CueCheckVoidConfirmation(props: CueCheckVoidConfirmationProps) {
   const { timing, whenLabel, reason, saving, failure, onReason, onConfirm, onCancel } = props;
   const errorRef = useRef<unknown>(null);
+  const headingRef = useRef<unknown>(null);
+  const reloadRequired = props.reloadRequired === true;
+  useEffect(() => {
+    focusOn(headingRef);
+  }, []);
   useEffect(() => {
     if (failure !== null) focusOn(errorRef);
   }, [failure]);
-  const ready = reason.trim().length > 0 && reason.trim().length <= REASON_LIMIT;
+  const ready = !reloadRequired && reason.trim().length > 0 && reason.trim().length <= REASON_LIMIT;
+  const hint = reloadRequired ? 'Reload this check-in before removing it.' : 'Add a reason to remove this check-in.';
   const label = saving ? 'Removing…' : 'Remove from active history';
   return <View
     role="alertdialog"
     accessibilityLabel={`Remove this check-in from active history: ${timingLabel(timing)}, ${whenLabel}`}
-    accessibilityViewIsModal
     style={styles.card}
   >
-    <Text accessibilityRole="header" style={styles.heading}>Remove this check-in from active history?</Text>
+    <Text ref={headingRef as never} accessibilityRole="header" style={styles.heading}>Remove this check-in from active history?</Text>
     <Text style={styles.body}>{`${timingLabel(timing)}, ${whenLabel}`}</Text>
     <Text style={styles.body}>This check-in will no longer count as an active check-in.</Text>
     <Text style={styles.body}>Your original answers stay in your private history.</Text>
@@ -50,6 +55,7 @@ export function CueCheckVoidConfirmation(props: CueCheckVoidConfirmationProps) {
       <Text style={styles.label}>Why are you removing this check-in?</Text>
       <TextInput
         accessibilityLabel="Why are you removing this check-in?"
+        editable={!saving}
         maxLength={REASON_LIMIT}
         placeholderTextColor={colors.quiet}
         style={styles.input}
@@ -58,15 +64,16 @@ export function CueCheckVoidConfirmation(props: CueCheckVoidConfirmationProps) {
       />
       <Text style={styles.subtitle}>{`${reason.length} of ${REASON_LIMIT} characters used`}</Text>
     </View>
-    {failure !== null && <View ref={errorRef as never} accessible style={styles.notice}>
-      <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>{failure.message}</Text>
-      {props.reloadRequired === true && props.onReload !== undefined && <Button title="Reload this check-in" onPress={props.onReload} />}
+    {(failure !== null || reloadRequired) && <View style={styles.notice}>
+      {failure !== null && <Text ref={errorRef as never} accessibilityRole="alert" style={styles.error}>{failure.message}</Text>}
+      {reloadRequired && props.onReload !== undefined && <Button title="Reload this check-in" onPress={props.onReload} />}
     </View>}
-    {!ready && <Text style={styles.subtitle}>Add a reason to remove this check-in.</Text>}
+    {!ready && <Text style={styles.subtitle}>{hint}</Text>}
     <View style={styles.row}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityHint={ready ? undefined : hint}
         accessibilityState={{ disabled: !ready && !saving, busy: saving }}
         onPress={() => { if (ready && !saving) onConfirm(); }}
         style={[styles.button, !ready && !saving && { opacity: 0.5 }]}

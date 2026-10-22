@@ -18,9 +18,25 @@ describe('what is announced to a screen reader', () => {
   });
 
   it('announces each confirmed outcome once, even if saving was never drawn', () => {
-    expect(announcementFor(state({ compose: newCompose, phase: 'editing-new' }), state({ phase: 'detail-ready' }))).toBe('Check-in saved.');
-    expect(announcementFor(state({ compose: fixCompose, phase: 'saving-correction' }), state({ phase: 'detail-ready' }))).toBe('Correction saved.');
-    expect(announcementFor(state({ compose: voidCompose, phase: 'voiding' }), state({ phase: 'detail-ready' }))).toBe('Check-in removed from active history.');
+    const editing = state({ compose: newCompose, phase: 'editing-new' });
+    expect(announcementFor(editing, state({ phase: 'detail-ready', lastSaved: { mode: 'new', requestId: 1 } }))).toBe('Check-in saved.');
+    expect(announcementFor(state({ compose: fixCompose }), state({ phase: 'detail-ready', lastSaved: { mode: 'correction', requestId: 2 } }))).toBe('Correction saved.');
+    expect(announcementFor(state({ compose: voidCompose }), state({ phase: 'detail-ready', lastSaved: { mode: 'void', requestId: 3 } }))).toBe('Check-in removed from active history.');
+  });
+
+  it('never claims a save when the owner only cancelled or a reload ended the edit', () => {
+    const before = { mode: 'new', requestId: 1 } as const;
+    for (const compose of [newCompose, fixCompose, voidCompose]) {
+      expect(announcementFor(state({ compose, phase: 'editing-correction', lastSaved: before }), state({ phase: 'detail-ready', lastSaved: before }))).toBeNull();
+    }
+    expect(announcementFor(state({ compose: fixCompose, phase: 'loading-detail', lastSaved: null }), state({ phase: 'detail-ready', lastSaved: null }))).toBeNull();
+  });
+
+  it('announces a load failure once, but leaves failures inside a form to the focused alert', () => {
+    const failure = { code: 'offline', message: 'You appear to be offline. Check your connection and try again.', retryable: true, source: 'list' } as const;
+    expect(announcementFor(base, state({ phase: 'failed', failure }))).toBe(failure.message);
+    expect(announcementFor(state({ phase: 'failed', failure }), state({ phase: 'failed', failure }))).toBeNull();
+    expect(announcementFor(state({ compose: newCompose, phase: 'saving-new' }), state({ compose: newCompose, phase: 'failed', failure: { ...failure, source: 'create' } }))).toBeNull();
   });
 
   it('says nothing for a failure, an unchanged state or a background refresh', () => {

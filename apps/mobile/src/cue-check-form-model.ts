@@ -50,7 +50,7 @@ export function describeChanges(before: CueCheckDraft, after: CueCheckDraft): re
     lines.push({
       label: NOTES_LABEL,
       from: earlier === '' ? 'No note' : 'Earlier note',
-      to: later === '' ? 'Note removed' : earlier === '' ? 'Note added' : 'Note edited',
+      to: later === '' ? 'removed' : earlier === '' ? 'added' : 'edited',
     });
   }
   return lines;
@@ -72,5 +72,6 @@ export function canSaveCorrection(input: {
 
 /** One change as a sentence; no arrows, because a screen reader reads them aloud. */
 export function changeSentence(line: ChangeLine): string {
+  if (line.label === NOTES_LABEL) return `${line.label}: ${line.to}`;
   return `${line.label}: changed from ${line.from} to ${line.to}`;
 }

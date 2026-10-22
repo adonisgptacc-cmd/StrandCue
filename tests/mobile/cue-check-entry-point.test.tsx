@@ -9,6 +9,7 @@ import { entryOptions } from '../../apps/mobile/src/cue-check-entry';
 import { parseRoutines } from '../../apps/mobile/src/cue-check-routines';
 
 vi.mock('react-native', async () => (await import('./support/rn-mock')).rnMock);
+vi.mock('../../apps/mobile/src/focus', () => ({ focusOn: vi.fn() }));
 
 const EXEC_A = '44444444-4444-4444-8444-444444444444';
 const EXEC_B = '44444444-4444-4444-8444-555555555555';
@@ -117,6 +118,15 @@ describe('immediate check prompt after a routine', () => {
     expect(button(renderer, 'Tell us how your hair felt')).toHaveLength(0);
   });
 
+  it('moves focus to the confirmation when the owner puts it off', async () => {
+    const { focusOn } = await import('../../apps/mobile/src/focus');
+    vi.mocked(focusOn).mockClear();
+    const renderer = await render(createElement(CueCheckEntryPoint, { execution: { executionId: EXEC_A, status: 'completed' }, onOpen: vi.fn() }));
+    expect(focusOn).not.toHaveBeenCalled();
+    await act(async () => button(renderer, 'Do this later')[0]!.props.onPress());
+    expect(focusOn).toHaveBeenCalledTimes(1);
+  });
+
   it('carries no causal, medical or promise wording', async () => {
     const renderer = await render(createElement(CueCheckEntryPoint, { execution: { executionId: EXEC_A, status: 'abandoned' }, onOpen: vi.fn() }));
     expect(text(renderer)).not.toMatch(/caus|prov|repair|heal|fix|treat|grew|growth|strengthen|guarantee|safe for everyone/i);
@@ -166,6 +176,16 @@ describe('routines that can take a check-in', () => {
     const stopped = labels.find(label => label.startsWith('Tell us how your hair felt') && label.includes('Stopped'))!;
     await act(async () => button(renderer, stopped)[0]!.props.onPress());
     expect(onStart).toHaveBeenLastCalledWith({ executionId: EXEC_B, status: 'abandoned' }, 'immediate');
+  });
+
+  it('names a routine without a date plainly and marks routine titles as headings', async () => {
+    const routines = parseRoutines(history as never);
+    const renderer = await render(createElement(CueCheckRoutines, { routines, items: [], onStart: vi.fn(), onOpen: vi.fn() }));
+    const labels = renderer.root.findAll(node => node.type === 'button').map(node => node.props.accessibilityLabel as string);
+    expect(labels.some(label => label.includes('date not recorded'))).toBe(true);
+    expect(labels.some(label => /routine \d/.test(label))).toBe(false);
+    const headers = renderer.root.findAll(node => typeof node.type === 'string' && node.props.accessibilityRole === 'header');
+    expect(headers.length).toBeGreaterThanOrEqual(3);
   });
 
   it('shows plain empty copy and never an identifier', async () => {

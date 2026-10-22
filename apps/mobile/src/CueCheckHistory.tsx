@@ -31,13 +31,15 @@ function answerPreview(item: CueCheckReceipt): { readonly shown: string; readonl
   return { shown, more: Math.max(0, answered.length - PREVIEW_COUNT) };
 }
 
-function CheckRow({ item, index, total, onOpen }: {
-  item: CueCheckReceipt; index: number; total: number; onOpen: (recordId: string) => void;
+function CheckRow({ item, index, onOpen }: {
+  item: CueCheckReceipt; index: number; onOpen: (recordId: string) => void;
 }) {
   const removed = item.lifecycle === 'voided';
   const when = formatWhen(item.observedAt);
   const preview = answerPreview(item);
-  const label = `Open check-in ${index + 1} of ${total}: ${timingLabel(item.timing)}, ${when}, ${routineLabel(item.executionStatus)}${removed ? ', removed from active history' : ''}`;
+  // The label stands in for the row's visible text, so it carries the same facts.
+  const spoken = preview.shown.replaceAll(' · ', ', ');
+  const label = `Open check-in ${index + 1}: ${timingLabel(item.timing)}, ${goalLabel(item.goal)}, ${when}, ${routineLabel(item.executionStatus)}${removed ? ', removed from active history' : ''}${spoken === '' ? '' : `, ${spoken}`}`;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={() => onOpen(item.recordId)} style={[styles.pill, { gap: 4, alignItems: 'flex-start' }]}>
     <Text style={styles.heading}>{`${timingLabel(item.timing)} · ${goalLabel(item.goal)}`}</Text>
     <Text style={styles.body}>{when}</Text>
@@ -53,16 +55,20 @@ export function CueCheckHistory({ items, status, hasMore, loadingMore, failure, 
   return <View style={{ gap: 12 }}>
     {status === 'loading' && items.length === 0 && <Text accessibilityLiveRegion="polite" style={styles.body}>Loading your check-ins…</Text>}
     {failure !== null && <View style={styles.notice}>
-      <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>{failure.message}</Text>
+      <Text style={styles.error}>{failure.message}</Text>
       <Button title="Try again" onPress={onRetry} />
     </View>}
     {status === 'ready' && items.length === 0 && <View style={styles.card}>
-      <Text style={styles.heading}>No check-ins yet.</Text>
+      <Text accessibilityRole="header" style={styles.heading}>No check-ins yet.</Text>
       <Text style={styles.body}>After a routine, you can record how your hair felt. Nothing is recorded unless you choose to.</Text>
     </View>}
-    {items.map((item, index) => <CheckRow key={item.recordId} item={item} index={index} total={items.length} onOpen={onOpen} />)}
-    {loadingMore && <Button title="Loading more check-ins…" secondary disabled onPress={() => undefined} />}
-    {!loadingMore && hasMore && failure === null && <Button title="Load more check-ins" secondary onPress={onLoadMore} />}
+    {items.map((item, index) => <CheckRow key={item.recordId} item={item} index={index} onOpen={onOpen} />)}
+    {(loadingMore || (hasMore && failure === null)) && <Button
+      title={loadingMore ? 'Loading more check-ins…' : 'Load more check-ins'}
+      secondary
+      disabled={loadingMore}
+      onPress={onLoadMore}
+    />}
     {status === 'ready' && !hasMore && items.length > 0 && <Text style={styles.subtitle}>That is everything you have recorded.</Text>}
   </View>;
 }

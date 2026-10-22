@@ -13,6 +13,7 @@ import {
   REASON_LIMIT,
   canSaveCorrection,
   canSaveNew,
+  changeSentence,
   describeChanges,
   hasContent,
 } from '../../apps/mobile/src/cue-check-form-model';
@@ -119,6 +120,15 @@ describe('cue check draft rules', () => {
     expect(canSaveNew({ timing: 'immediate', observedAt: OBSERVED_AT, notes: 'x'.repeat(2001) })).toBe(false);
   });
 
+  it('reads a changed note as added, edited or removed, not as a before-and-after of labels', () => {
+    const base = { timing: 'immediate', observedAt: OBSERVED_AT };
+    const sentence = (before: Record<string, unknown>, after: Record<string, unknown>) => changeSentence(describeChanges(before, after)[0]!);
+    expect(sentence({ ...base, notes: 'a' }, { ...base, notes: 'b' })).toBe('Your note: edited');
+    expect(sentence(base, { ...base, notes: 'b' })).toBe('Your note: added');
+    expect(sentence({ ...base, notes: 'a' }, base)).toBe('Your note: removed');
+    expect(sentence({ ...base, dryness: 'less' }, { ...base, dryness: 'more' })).toBe('Dryness: changed from Less dry to Drier');
+  });
+
   it('needs a reason, a real change and a bounded reason to save a correction', () => {
     const original = { timing: 'immediate', observedAt: OBSERVED_AT, dryness: 'less' };
     const changed = { ...original, dryness: 'more' };
@@ -172,6 +182,84 @@ describe('cue check form', () => {
       const out = text(await render(form));
       expect(out).not.toMatch(/caus|proved|proof|repair|heal|fix|treat|grew|growth|strengthen|guarantee|universally safe|diagnos|cure/i);
     }
+  });
+
+  it('shows a plain, non-diagnostic note only when a reaction is reported', async () => {
+    const note = 'StrandCue cannot assess reactions. If you are worried about how your skin or scalp feels, a health professional can help.';
+    const reported = await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: 'some-noticed' } }));
+    expect(text(reported)).toContain(note);
+    for (const reaction of ['none-noticed', 'unknown'] as const) {
+      expect(text(await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: reaction } })))).not.toContain(note);
+    }
+    expect(text(await render(props()))).not.toContain(note);
+  });
+
+  it('offers "Undecided" for would-use-again, distinct from "Not sure"', async () => {
+    const renderer = await render(props());
+    const prompt = 'Would you choose this routine again?';
+    expect(one(renderer, `${prompt}: Undecided`).props.accessibilityRole).toBe('radio');
+    expect(one(renderer, `${prompt}: Not sure`).props.accessibilityRole).toBe('radio');
+    expect(text(renderer)).not.toContain('Maybe');
+  });
+
+  it('blocks saving after a conflict, explains why and always offers the reload', async () => {
+    const original = { timing: 'immediate', observedAt: OBSERVED_AT, dryness: 'less' };
+    const onReload = vi.fn();
+    const renderer = await render(props({ mode: 'correction', original, draft: { ...original, dryness: 'more' }, reason: 'x', reloadRequired: true, onReload, failure: null }));
+    const save = one(renderer, 'Save correction');
+    expect(save.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(text(renderer)).toContain('Reload this check-in before saving.');
+    await act(async () => one(renderer, 'Reload this check-in').props.onPress());
+    expect(onReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns off every answer and field while saving so edits are never silently dropped', async () => {
+    const renderer = await render(props({ saving: true, draft: { timing: 'immediate', observedAt: OBSERVED_AT, notes: 'x' } }));
+    const radios = renderer.root.findAll(node => typeof node.type === 'string' && node.props.accessibilityRole === 'radio');
+    expect(radios.length).toBeGreaterThan(10);
+    for (const radio of radios) expect(radio.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(one(renderer, 'Anything else you noticed?').props.editable).toBe(false);
+  });
+
+  it('ties the reason a save is unavailable to the save control itself', async () => {
+    const renderer = await render(props());
+    expect(one(renderer, 'Save check-in').props.accessibilityHint).toBe('Add at least one answer or a note to save.');
+  });
+
+  it('keeps retry and reload as separate controls beside one announced alert, not inside a grouped element', async () => {
+    const failure = { code: 'offline', message: 'You appear to be offline. Your unsent answers are still here.', retryable: true, source: 'create' } as const;
+    const renderer = await render(props({ failure, draft: { timing: 'immediate', observedAt: OBSERVED_AT, notes: 'x'.repeat(1950) } }));
+    const grouped = renderer.root.findAll(node => typeof node.type === 'string' && node.props.accessible === true);
+    for (const node of grouped) expect(node.findAll(inner => inner.type === 'button')).toHaveLength(0);
+    // One announcement channel: the alert is announced through focus, not also as a live region.
+    expect(renderer.root.findAll(node => typeof node.type === 'string' && node.props.accessibilityLiveRegion !== undefined)).toHaveLength(0);
+  });
+
+  it('does not pull focus back to the heading when the owner edits after a failure', async () => {
+    const failure = { code: 'offline', message: 'You appear to be offline. Your unsent answers are still here.', retryable: true, source: 'create' } as const;
+    const withFailure = props({ failure, draft: { timing: 'immediate', observedAt: OBSERVED_AT, notes: 'a' } });
+    const renderer = await render(withFailure);
+    const afterMount = vi.mocked(focusOn).mock.calls.length;
+    await act(async () => renderer.update(createElement(CueCheckForm, { ...withFailure, failure: null, draft: { ...withFailure.draft, notes: 'ab' } })));
+    await act(async () => renderer.update(createElement(CueCheckForm, { ...withFailure, failure, draft: { ...withFailure.draft, notes: 'ab' } })));
+    // Only the new failure takes focus; clearing it on edit moves nothing.
+    expect(vi.mocked(focusOn).mock.calls.length).toBe(afterMount + 1);
+  });
+
+  it('places the reaction note right after the reaction question, before the next question', async () => {
+    const renderer = await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: 'some-noticed' } }));
+    const out = text(renderer);
+    const reaction = out.indexOf('Did you notice any immediate reaction?');
+    const note = out.indexOf('StrandCue cannot assess reactions.');
+    const next = out.indexOf('Would you choose this routine again?');
+    expect(reaction).toBeGreaterThan(-1);
+    expect(note).toBeGreaterThan(reaction);
+    expect(note).toBeLessThan(next);
+  });
+
+  it('moves focus to the form heading when it opens', async () => {
+    await render(props());
+    expect(focusOn).toHaveBeenCalledTimes(1);
   });
 
   it('records nothing for a skipped question', async () => {

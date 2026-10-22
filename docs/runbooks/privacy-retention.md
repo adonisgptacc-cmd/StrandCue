@@ -118,3 +118,27 @@ of terminal executions older than their windows. To pause retention only,
 there is no separate trigger — pausing the worker pauses both passes;
 resume only after `npm run check` and a manual verification succeed.
 Rotate the service-role key through Supabase and Cloudflare together.
+
+## Cue Checks (Increment 4)
+
+Cue Checks are the owner's own private observations. They are owner content:
+kept for the life of the account, exported (export v5, `cueChecks` and
+`cueCheckRevisions`) and removed by the profile-deletion cascade, including
+their revisions and private operation receipts. They are never purged with the
+execution retention window and no worker pass touches them.
+
+What this means in practice, recorded as the current behaviour rather than a
+settled policy:
+
+- `cue_checks.confirmed_steps` is a copy of the confirmed step ids, action text
+  and product/tool ids taken when the check was recorded. It outlives the
+  execution row it was copied from (90 days after finish for completed
+  routines, 30 days for stopped ones).
+- `strandcue_private.cue_check_operations` keeps each submitted payload and
+  result, including free-text notes, so an identical retry returns the original
+  receipt. It is removed only when the account is deleted.
+
+Open decision for the privacy owner, to be confirmed before launch: keep both
+for the life of the account (current behaviour), or give the copied steps and
+the receipt payloads a shorter window. Changing it needs a retention pass and
+a migration; nothing here has been changed.

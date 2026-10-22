@@ -280,7 +280,6 @@ describe('offline saving and retry', () => {
     const [first, second] = server.callsNamed('record');
     expect(JSON.stringify(second!.args)).toBe(JSON.stringify(first!.args));
     expect((first!.args as { operationId: string }).operationId).toBe((second!.args as { operationId: string }).operationId);
-    expect(server.records.size).toBe(1);
     expect(text()).toContain('Right after your routine');
   });
 
@@ -353,7 +352,7 @@ describe('correct a check-in without rewriting history', () => {
     await press('Correct this check-in');
     await answer('overallResult', 'Worse than usual');
     await type('Why are you correcting this entry?', 'Fix');
-    server.touch(id, { revision: 2 });
+    server.changeElsewhere(id);
     await press('Save correction');
     expect(text()).toContain('This check-in changed on another session. Reload it before trying again.');
     expect(find(`${q('overallResult')}: Worse than usual`)[0]!.props.accessibilityState).toMatchObject({ selected: true });
@@ -406,6 +405,110 @@ describe('remove a check-in from active history', () => {
   });
 });
 
+describe('review fixes: recovery, retry and announcements', () => {
+  it('loads the list on its own when a draft was cancelled before the first load finished', async () => {
+    const server = createFakeCueServer(executions);
+    const release = server.hold('list');
+    await mount(server);
+    await press(startLabel('Completed routine'));
+    await press('Cancel');
+    release();
+    await flush();
+    expect(text()).toContain('No check-ins yet.');
+    expect(text()).not.toContain('Loading your check-ins…');
+    expect(find('Reload check-ins')[0]!.props.accessibilityState?.disabled).not.toBe(true);
+  });
+
+  it('keeps the reload available when reloading after a conflict also fails', async () => {
+    const server = createFakeCueServer(executions);
+    await recordImmediate(server);
+    const id = [...server.records.keys()][0]!;
+    await press('Correct this check-in');
+    await answer('overallResult', 'Worse than usual');
+    await type('Why are you correcting this entry?', 'Fix');
+    server.changeElsewhere(id);
+    await press('Save correction');
+    expect(text()).toContain('This check-in changed on another session. Reload it before trying again.');
+    server.setOffline(true);
+    await press('Reload this check-in');
+    expect(text()).toContain('You appear to be offline. Check your connection and try again.');
+    expect(has('Reload this check-in')).toBe(true);
+    expect(find('Save correction')[0]!.props.accessibilityState).toMatchObject({ disabled: true });
+    server.setOffline(false);
+    await press('Reload this check-in');
+    expect(find('Save correction')[0]!.props.accessibilityState).toMatchObject({ disabled: false });
+    expect(find('Why are you correcting this entry?')[0]!.props.value).toBe('Fix');
+  });
+
+  it('does not keep a request from the routine screen once the check-ins view is left', async () => {
+    const server = createFakeCueServer(executions);
+    const release = server.hold('list');
+    const onIntentHandled = vi.fn();
+    await mount(server, { intent: COMPLETED, onIntentHandled });
+    expect(onIntentHandled).not.toHaveBeenCalled();
+    await act(async () => renderer.unmount());
+    expect(onIntentHandled).toHaveBeenCalledTimes(1);
+    release();
+  });
+
+  it('survives a lost response: the identical retry replays the stored receipt and records once', async () => {
+    const server = createFakeCueServer(executions);
+    await mount(server, { intent: COMPLETED });
+    await answer('overallResult', 'Better than usual');
+    server.loseResponse('record');
+    await press('Save check-in');
+    expect(text()).toContain('You appear to be offline. Your unsent answers are still here.');
+    expect(server.records.size).toBe(1);
+    await press('Try saving again');
+    const [first, second] = server.callsNamed('record');
+    expect(JSON.stringify(second!.args)).toBe(JSON.stringify(first!.args));
+    expect(server.records.size).toBe(1);
+    expect(text()).toContain('Right after your routine');
+  });
+
+  it('never announces a save when an edit is only cancelled, and announces a real removal exactly once', async () => {
+    const server = createFakeCueServer(executions);
+    await recordImmediate(server);
+    await press('Correct this check-in');
+    await press('Cancel');
+    await press('Remove from active history');
+    await press('Keep this check-in');
+    await press('Add a later check-in for this routine');
+    await press('Cancel');
+    expect(announced()).not.toContain('Correction saved.');
+    expect(announced()).not.toContain('Check-in removed from active history.');
+    expect(announced().filter(line => line === 'Check-in saved.')).toHaveLength(1);
+    await press('Remove from active history');
+    await type('Why are you removing this check-in?', 'Wrong day');
+    await press('Remove from active history');
+    expect(announced().filter(line => line === 'Check-in removed from active history.')).toHaveLength(1);
+  });
+
+  it('announces a routines load failure once', async () => {
+    const server = createFakeCueServer(executions);
+    await mount(server, { loadRoutines: async () => { throw new Error('boom'); } });
+    expect(announced().filter(line => line === 'Your recent routines could not be loaded.')).toHaveLength(1);
+  });
+
+  it('offers a retry when the history refresh after a save fails, rather than loading forever', async () => {
+    const server = createFakeCueServer(executions);
+    await mount(server, { intent: COMPLETED });
+    await answer('overallResult', 'Better than usual');
+    server.failNext('get');
+    await press('Save check-in');
+    expect(text()).toContain('The full history could not be loaded.');
+    expect(text()).not.toContain('Loading the full history…');
+    const releaseHistory = server.hold('get');
+    await press('Try loading the history again');
+    // The retry runs in the background: the record stays on screen meanwhile.
+    expect(text()).not.toContain('Loading this check-in…');
+    expect(text()).toContain('Current answers');
+    releaseHistory();
+    await flush();
+    expect(text()).toContain('First recorded');
+  });
+});
+
 describe('failures around the check-in screens', () => {
   it('says plainly when recent routines cannot be loaded and still shows check-ins', async () => {
     const server = createFakeCueServer(executions);
@@ -421,7 +524,7 @@ describe('failures around the check-in screens', () => {
     const id = [...server.records.keys()][0]!;
     await press('Remove from active history');
     await type('Why are you removing this check-in?', 'Wrong day');
-    server.touch(id, { revision: 2 });
+    server.changeElsewhere(id);
     await press('Remove from active history');
     expect(text()).toContain('This check-in changed on another session. Reload it before trying again.');
     await press('Reload this check-in');
@@ -462,6 +565,8 @@ describe('failures around the check-in screens', () => {
     server.setOffline(false);
     await press('Reload check-ins');
     expect(text()).toContain('Your check-ins');
+    expect(text()).not.toContain('You appear to be offline');
+    expect(text()).toContain('Right after your routine');
   });
 });
 

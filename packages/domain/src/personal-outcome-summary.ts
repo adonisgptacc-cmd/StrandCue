@@ -75,7 +75,7 @@ const INSUFFICIENT_SUBJECTS: { readonly [K in CueCheckObservationField]: string 
   breakage: 'breakage',
   styleLongevity: 'how long your style lasted',
   immediateReaction: 'reactions',
-  wouldUseAgain: 'using this routine again',
+  wouldUseAgain: 'choosing this routine again',
 };
 
 /**
@@ -122,9 +122,9 @@ const REPORTED_PHRASES: {
     'some-noticed': 'noticing a reaction',
   },
   wouldUseAgain: {
-    yes: 'you would use this routine again',
-    no: 'you would not use this routine again',
-    unsure: 'you were unsure about using this routine again',
+    yes: 'you would choose this routine again',
+    no: 'you would not choose this routine again',
+    unsure: 'you were undecided about choosing this routine again',
   },
 };
 

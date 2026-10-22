@@ -45,7 +45,7 @@ export type CueCheckFailureSource = 'list' | 'page' | 'detail' | 'create' | 'cor
 
 /** Every code has explicit copy; the record type makes a missing one a compile error. */
 export const CUE_CHECK_ERROR_COPY: Readonly<Record<CueCheckErrorCode, string>> = {
-  'authentication-required': 'Sign in to record how your hair felt.',
+  'authentication-required': 'Please sign in again to continue.',
   'account-not-active': 'Your account is not active, so check-ins cannot be saved right now.',
   'invalid-operation': 'That request could not be sent. Please try again.',
   'invalid-observation': 'Some answers could not be saved. Check them and try again.',
@@ -58,8 +58,8 @@ export const CUE_CHECK_ERROR_COPY: Readonly<Record<CueCheckErrorCode, string>> =
   'revision-conflict': 'This check-in changed on another session. Reload it before trying again.',
   'record-voided': 'This check-in was removed from your active history.',
   'no-op-correction': 'Nothing changed yet. Change an answer before saving a correction.',
-  'timing-mismatch': 'A correction must keep the same timing as the original check-in.',
-  'operation-conflict': 'This save no longer matches what was sent before. Review your answers and save again.',
+  'timing-mismatch': 'This correction could not be saved. Reload this check-in and try again.',
+  'operation-conflict': 'Your answers changed while saving. Check them and save again.',
   'invalid-reason': 'Add a short reason of up to 500 characters.',
   'quota-exceeded': 'No more entries can be added to this routine record.',
   'invalid-page': 'That page of check-ins could not be loaded. Reload the list.',
@@ -67,17 +67,30 @@ export const CUE_CHECK_ERROR_COPY: Readonly<Record<CueCheckErrorCode, string>> =
   'invalid-receipt-order': 'This check-in cannot be changed right now. Reload it and try again.',
   offline: 'You appear to be offline. Your unsent answers are still here.',
   'malformed-response': 'This check-in could not be read safely.',
-  unavailable: 'Check-ins are not available until the app is set up.',
+  unavailable: 'Check-ins are not available right now. Please try again later.',
   unknown: 'Something went wrong. Your unsent answers are still here.',
 };
 
 /**
- * Reads hold no unsent answers, so the two codes whose copy promises them are
- * restated plainly when a list or detail load fails.
+ * Some copy promises something only true for a save ("your unsent answers are
+ * still here"). Reads hold no answers, and a removal holds only a reason, so
+ * those sources restate it plainly. A response that could not be read after a
+ * write may already have been stored, so the owner is told to check, not that
+ * nothing happened.
  */
 const READ_COPY: Readonly<Partial<Record<CueCheckErrorCode, string>>> = {
   offline: 'You appear to be offline. Check your connection and try again.',
   unknown: 'Something went wrong. Please try again.',
+  'malformed-response': 'Your check-ins could not be shown safely. Please reload.',
+};
+const VOID_COPY: Readonly<Partial<Record<CueCheckErrorCode, string>>> = {
+  offline: 'You appear to be offline. This check-in may not have been removed yet. Your reason is still here.',
+  unknown: 'Something went wrong. This check-in may not have been removed yet.',
+  'operation-conflict': 'This removal changed while sending. Reload this check-in and try again.',
+  'malformed-response': 'We could not confirm this check-in was removed. Go back to your check-ins and reload to see where it stands.',
+};
+const WRITE_COPY: Readonly<Partial<Record<CueCheckErrorCode, string>>> = {
+  'malformed-response': 'We could not confirm this was saved. Go back to your check-ins and reload to see if it is there.',
 };
 
 /** Failures worth retrying as-is: the request itself may be fine. */
@@ -126,6 +139,7 @@ export function mapServerMessage(message: unknown): CueCheckErrorCode {
 export function toCueCheckFailure(error: unknown, source: CueCheckFailureSource): CueCheckFailure {
   const code = error instanceof CueCheckError ? error.code : 'unknown';
   const reading = source === 'list' || source === 'page' || source === 'detail';
-  const message = (reading ? READ_COPY[code] : undefined) ?? CUE_CHECK_ERROR_COPY[code];
+  const table = reading ? READ_COPY : source === 'void' ? VOID_COPY : WRITE_COPY;
+  const message = table[code] ?? CUE_CHECK_ERROR_COPY[code];
   return { code, message, retryable: RETRYABLE.has(code), source };
 }

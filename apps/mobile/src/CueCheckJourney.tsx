@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Text, View } from 'react-native';
+import { AccessibilityInfo, Text, View } from 'react-native';
 
 import type { CueCheckObservationField, CueCheckTiming } from '../../../packages/domain/src/index';
 import type { CueCheckApi } from './cue-check-api';
@@ -29,6 +29,7 @@ export interface CueCheckJourneyProps {
   readonly pageSize?: number;
 }
 
+const ROUTINES_FAILED = 'Your recent routines could not be loaded.';
 const defaultLoadRoutines = () => listProtocolExecutions({ limit: 10, cursor: null });
 const defaultNow = () => new Date();
 
@@ -50,9 +51,11 @@ const SAVING_PHASES = new Set(['saving-new', 'saving-correction', 'voiding']);
 
 function Composer({ state, controller, compose }: { state: CueCheckState; controller: CueCheckController; compose: CueCheckCompose }) {
   const saving = SAVING_PHASES.has(state.phase);
-  const failure = state.failure !== null && state.failure.source !== 'list' && state.failure.source !== 'page' && state.failure.source !== 'detail' ? state.failure : null;
+  // While a form is open every failure shows inside it, including a failed reload.
+  const failure = state.failure;
   const selected = state.selected;
-  if (compose.mode === 'void' && selected !== null) {
+  if (compose.mode === 'void') {
+    if (selected === null) return null;
     return <CueCheckVoidConfirmation
       timing={selected.timing}
       whenLabel={formatWhen(selected.observedAt)}
@@ -94,7 +97,23 @@ function OwnerCueCheckJourney(props: CueCheckJourneyProps) {
   useCueCheckAnnouncements(state);
   const routines = useRoutines(props.loadRoutines ?? defaultLoadRoutines);
 
-  useEffect(() => { void controller.loadList(); }, [controller]);
+  // Load on mount, and again whenever the view is back to "not loaded" with nothing
+  // open, so a draft cancelled before the first load finished can never strand it.
+  useEffect(() => {
+    if (state.phase === 'idle' && state.compose === null) void controller.loadList();
+  }, [controller, state.phase, state.compose]);
+
+  const unhandledIntent = useRef<TerminalExecutionContext | null>(intent);
+  useEffect(() => () => {
+    // Leaving the view with an unhandled request clears it, so it cannot fire later.
+    if (unhandledIntent.current !== null) onIntentHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const routinesFailed = routines.status === 'failed';
+  useEffect(() => {
+    if (routinesFailed) AccessibilityInfo.announceForAccessibility(ROUTINES_FAILED);
+  }, [routinesFailed]);
 
   const begin = (execution: TerminalExecutionContext, timing: CueCheckTiming) => {
     controller.startNew(execution);
@@ -108,6 +127,7 @@ function OwnerCueCheckJourney(props: CueCheckJourneyProps) {
   useEffect(() => {
     if (intent === null || state.phase !== 'list-ready' || handledIntent.current === intent.executionId) return;
     handledIntent.current = intent.executionId;
+    unhandledIntent.current = null;
     const options = entryOptions(intent, state.items);
     if (options.immediate?.kind === 'open') void controller.openDetail(options.immediate.recordId);
     else if (options.immediate !== null) begin(intent, 'immediate');
@@ -128,6 +148,8 @@ function OwnerCueCheckJourney(props: CueCheckJourneyProps) {
     return <CueCheckDetail
       detail={selected}
       canAddLater={later}
+      historyUnavailable={state.historyUnavailable}
+      onReloadHistory={() => void controller.reloadHistory()}
       onCorrect={controller.startCorrection}
       onRemove={controller.startVoid}
       onBack={controller.closeDetail}
@@ -138,7 +160,7 @@ function OwnerCueCheckJourney(props: CueCheckJourneyProps) {
   const loading = state.phase === 'loading-list' || state.phase === 'idle';
   return <View style={{ gap: 20 }}>
     <Text style={styles.subtitle}>Check-ins are private notes about how your hair felt after a routine. They are your own observations, not advice.</Text>
-    {routines.status === 'failed' && <Text accessibilityRole="alert" style={styles.error}>Your recent routines could not be loaded.</Text>}
+    {routinesFailed && <Text accessibilityRole="alert" style={styles.error}>{ROUTINES_FAILED}</Text>}
     {routines.status === 'ready' && <CueCheckRoutines routines={routines.routines} items={state.items} onStart={begin} onOpen={id => void controller.openDetail(id)} />}
     <Text accessibilityRole="header" style={styles.heading}>Your check-ins</Text>
     <CueCheckHistory

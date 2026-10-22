@@ -172,7 +172,7 @@ describe('Cue Check RPC boundary', () => {
   });
 
   it('forwards a valid keyset cursor unchanged', async () => {
-    const cursor = { receivedAt: RECEIVED_AT, id: ROW_ID };
+    const cursor = { createdAt: RECEIVED_AT, id: ROW_ID };
     rpcMocks.rpc.mockResolvedValue({ data: { items: [], nextCursor: cursor }, error: null });
     const page = await listCueChecks({ limit: 5, cursor });
     expect(rpcMocks.rpc).toHaveBeenCalledWith('list_cue_checks', { p_limit: 5, p_cursor: cursor });
@@ -314,10 +314,10 @@ describe('Cue Check command validation', () => {
   });
 
   it.each([
-    { receivedAt: RECEIVED_AT },
-    { receivedAt: RECEIVED_AT, id: 'not-a-uuid' },
-    { receivedAt: 'yesterday', id: ROW_ID },
-    { receivedAt: RECEIVED_AT, id: ROW_ID, extra: 1 },
+    { createdAt: RECEIVED_AT },
+    { createdAt: RECEIVED_AT, id: 'not-a-uuid' },
+    { createdAt: 'yesterday', id: ROW_ID },
+    { createdAt: RECEIVED_AT, id: ROW_ID, extra: 1 },
     'abc',
   ])('rejects cursor %j', async cursor => {
     await expect(listCueChecks({ limit: 10, cursor })).rejects.toMatchObject({ code: 'invalid-cursor' });
@@ -397,7 +397,7 @@ describe('strict response parsing fails closed', () => {
       { items: [], nextCursor: null, extra: 1 },
       { items: [receipt(), receipt()], nextCursor: null },
       { items: [receipt(), receipt({ recordId: REVISION_ID })], nextCursor: null },
-      { items: [], nextCursor: { receivedAt: RECEIVED_AT } },
+      { items: [], nextCursor: { createdAt: RECEIVED_AT } },
       { items: 'x', nextCursor: null },
     ]) {
       rpcMocks.rpc.mockResolvedValue({ data, error: null });
@@ -538,8 +538,38 @@ describe('stable error mapping', () => {
         expect(failure.message.length).toBeGreaterThan(10);
       }
     }
-    expect(toCueCheckFailure(new CueCheckError('offline'), 'void').message).toBe(CUE_CHECK_ERROR_COPY.offline);
+    expect(toCueCheckFailure(new CueCheckError('offline'), 'create').message).toBe(CUE_CHECK_ERROR_COPY.offline);
     expect(toCueCheckFailure(new CueCheckError('unknown'), 'correct').message).toBe(CUE_CHECK_ERROR_COPY.unknown);
+  });
+
+  it('does not promise unsent answers when a removal fails and says what did not happen', () => {
+    for (const code of ['offline', 'unknown'] as const) {
+      const message = toCueCheckFailure(new CueCheckError(code), 'void').message;
+      expect(message).not.toMatch(/unsent answers/i);
+      expect(message).toContain('may not have been removed yet');
+    }
+    expect(toCueCheckFailure(new CueCheckError('offline'), 'void').message).toContain('Your reason is still here.');
+  });
+
+  it('does not talk about answers when a removal hits an operation conflict', () => {
+    expect(toCueCheckFailure(new CueCheckError('operation-conflict'), 'void').message).toBe('This removal changed while sending. Reload this check-in and try again.');
+    expect(toCueCheckFailure(new CueCheckError('operation-conflict'), 'create').message).toContain('Your answers changed');
+  });
+
+  it('tells the owner a save could not be confirmed instead of "read safely"', () => {
+    for (const source of ['create', 'correct', 'void'] as const) {
+      const message = toCueCheckFailure(new CueCheckError('malformed-response'), source).message;
+      expect(message).toContain('could not confirm');
+      expect(message).toMatch(/reload/i);
+    }
+    expect(toCueCheckFailure(new CueCheckError('malformed-response'), 'list').message).toBe('Your check-ins could not be shown safely. Please reload.');
+  });
+
+  it('uses plain, actionable copy for conflict, sign-in, availability and timing cases', () => {
+    expect(CUE_CHECK_ERROR_COPY['operation-conflict']).toBe('Your answers changed while saving. Check them and save again.');
+    expect(CUE_CHECK_ERROR_COPY['authentication-required']).toBe('Please sign in again to continue.');
+    expect(CUE_CHECK_ERROR_COPY.unavailable).toBe('Check-ins are not available right now. Please try again later.');
+    expect(CUE_CHECK_ERROR_COPY['timing-mismatch']).toBe('This correction could not be saved. Reload this check-in and try again.');
   });
 
   it('reports an unconfigured client as unavailable', async () => {

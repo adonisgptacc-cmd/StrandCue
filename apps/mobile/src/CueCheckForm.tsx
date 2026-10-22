@@ -44,11 +44,16 @@ const INTRO: Readonly<Record<'new-immediate' | 'new-delayed' | 'correction', str
   correction: 'Your earlier entry stays in your history. Change what you need to, then say why.',
 };
 
+const REACTION_NOTE =
+  'StrandCue cannot assess reactions. If you are worried about how your skin or scalp feels, a health professional can help.';
+const WRITE_SOURCES: ReadonlySet<string> = new Set(['create', 'correct', 'void']);
+
+/** A running count, with the remaining room spelled out near the limit. Never a live region: it would re-read on every key. */
 function Count({ used, limit }: { used: number; limit: number }) {
   const left = limit - used;
   return <>
     <Text style={styles.subtitle}>{`${used} of ${limit} characters used`}</Text>
-    {left <= 100 && <Text accessibilityLiveRegion="polite" style={styles.subtitle}>{`${left} characters left`}</Text>}
+    {left <= 100 && <Text style={styles.subtitle}>{`${left} characters left`}</Text>}
   </>;
 }
 
@@ -61,16 +66,25 @@ function Count({ used, limit }: { used: number; limit: number }) {
 export function CueCheckForm(props: CueCheckFormProps) {
   const { mode, timing, draft, reason, original, saving, failure, onAnswer, onNotes, onReason, onSave, onCancel } = props;
   const errorRef = useRef<unknown>(null);
+  const headingRef = useRef<unknown>(null);
+  const reloadRequired = props.reloadRequired === true;
+  // Focus the form's own heading when it opens, so the screen reader does not
+  // stay on a control that just disappeared; a failure takes focus instead.
+  useEffect(() => {
+    focusOn(headingRef);
+  }, []);
   useEffect(() => {
     if (failure !== null) focusOn(errorRef);
   }, [failure]);
 
   const correcting = mode === 'correction';
   const changes = correcting ? describeChanges(original ?? {}, draft) : [];
-  const savable = correcting ? canSaveCorrection({ draft, original: original ?? {}, reason }) : canSaveNew(draft);
+  const savable = !reloadRequired && (correcting ? canSaveCorrection({ draft, original: original ?? {}, reason }) : canSaveNew(draft));
   const notes = typeof draft.notes === 'string' ? draft.notes : '';
   const saveLabel = correcting ? (saving ? 'Saving correction…' : 'Save correction') : saving ? 'Saving check-in…' : 'Save check-in';
-  const hint = correcting
+  const hint = reloadRequired
+    ? 'Reload this check-in before saving.'
+    : correcting
     ? changes.length === 0
       ? 'Change an answer or your note to save a correction.'
       : reason.trim() === ''
@@ -82,23 +96,27 @@ export function CueCheckForm(props: CueCheckFormProps) {
 
   return <View style={{ gap: 20 }}>
     <View style={styles.card}>
-      <Text accessibilityRole="header" style={styles.heading}>{correcting ? 'Correct an earlier entry' : timing === 'delayed' ? 'What did you notice later?' : 'How did your hair feel?'}</Text>
+      <Text ref={headingRef as never} accessibilityRole="header" style={styles.heading}>{correcting ? 'Correct an earlier entry' : timing === 'delayed' ? 'What did you notice later?' : 'How did your hair feel?'}</Text>
       <Text style={styles.body}>{correcting ? INTRO.correction : timing === 'delayed' ? INTRO['new-delayed'] : INTRO['new-immediate']}</Text>
     </View>
     <View style={styles.card}>
       {questionsFor(timing).map(question => {
         const stored = draft[question.field];
-        return <CueCheckQuestion
-          key={question.field}
-          question={question}
-          value={typeof stored === 'string' ? stored : undefined}
-          onChange={value => onAnswer(question.field, value)}
-        />;
+        return <View key={question.field} style={{ gap: 8 }}>
+          <CueCheckQuestion
+            question={question}
+            value={typeof stored === 'string' ? stored : undefined}
+            disabled={saving}
+            onChange={value => onAnswer(question.field, value)}
+          />
+          {question.field === 'immediateReaction' && stored === 'some-noticed' && <Text accessibilityLiveRegion="polite" style={styles.subtitle}>{REACTION_NOTE}</Text>}
+        </View>;
       })}
       <View>
         <Text style={styles.label}>{NOTES_PROMPT}</Text>
         <TextInput
           accessibilityLabel={NOTES_PROMPT}
+          editable={!saving}
           multiline
           maxLength={NOTES_LIMIT}
           placeholderTextColor={colors.quiet}
@@ -119,6 +137,7 @@ export function CueCheckForm(props: CueCheckFormProps) {
         <Text style={styles.label}>Why are you correcting this entry?</Text>
         <TextInput
           accessibilityLabel="Why are you correcting this entry?"
+          editable={!saving}
           maxLength={REASON_LIMIT}
           placeholderTextColor={colors.quiet}
           style={styles.input}
@@ -128,16 +147,17 @@ export function CueCheckForm(props: CueCheckFormProps) {
         <Count used={reason.length} limit={REASON_LIMIT} />
       </View>
     </View>}
-    {failure !== null && <View ref={errorRef as never} accessible style={styles.notice}>
-      <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>{failure.message}</Text>
-      {props.reloadRequired === true && props.onReload !== undefined && <Button title="Reload this check-in" onPress={props.onReload} />}
-      {failure.retryable && props.reloadRequired !== true && <Button title="Try saving again" onPress={() => { if (!saving) onSave(); }} />}
+    {(failure !== null || reloadRequired) && <View style={styles.notice}>
+      {failure !== null && <Text ref={errorRef as never} accessibilityRole="alert" style={styles.error}>{failure.message}</Text>}
+      {reloadRequired && props.onReload !== undefined && <Button title="Reload this check-in" onPress={props.onReload} />}
+      {failure !== null && failure.retryable && !reloadRequired && WRITE_SOURCES.has(failure.source) && <Button title="Try saving again" onPress={() => { if (!saving) onSave(); }} />}
     </View>}
     {hint !== '' && <Text style={styles.subtitle}>{hint}</Text>}
     <View style={styles.row}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={saveLabel}
+        accessibilityHint={hint === '' ? undefined : hint}
         accessibilityState={{ disabled: !savable && !saving, busy: saving }}
         onPress={() => { if (savable && !saving) onSave(); }}
         style={[styles.button, !savable && !saving && { opacity: 0.5 }]}

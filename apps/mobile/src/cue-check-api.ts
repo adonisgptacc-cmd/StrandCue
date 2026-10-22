@@ -29,8 +29,13 @@ const uuid = z.string().uuid();
 const reason = z.string().trim().min(1).max(500);
 const expectedRevision = z.number().int().positive();
 
+/**
+ * Pages are keyed on a record's creation instant and row id: both are
+ * immutable, so a correction or removal made elsewhere can never move a record
+ * past an owner's cursor and hide it.
+ */
 export const CueCheckCursorSchema = z
-  .object({ receivedAt: CueCheckTimestampSchema, id: uuid })
+  .object({ createdAt: CueCheckTimestampSchema, id: uuid })
   .strict();
 export type CueCheckCursor = z.output<typeof CueCheckCursorSchema>;
 

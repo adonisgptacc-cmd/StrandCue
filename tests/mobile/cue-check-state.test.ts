@@ -96,7 +96,7 @@ describe('initial and loading states', () => {
   });
 
   it('loads a list and exposes its cursor', () => {
-    const cursor = { receivedAt: RECEIVED_AT, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' };
+    const cursor = { createdAt: RECEIVED_AT, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' };
     let state = run([{ type: 'list_requested', requestId: 1 }]);
     expect(state.phase).toBe('loading-list');
     state = cueCheckReducer(state, listLoaded(1, [receipt(1), receipt(2)], cursor));
@@ -202,7 +202,7 @@ describe('saving a new Cue Check', () => {
     expect(state.items[0]?.recordId).toBe(recordId(1));
   });
 
-  it('ignores a create receipt that belongs to a different execution than the draft', () => {
+  it('treats a create receipt for a different execution as an untrusted response, not a stuck save', () => {
     const state = run([
       start,
       fill,
@@ -214,9 +214,19 @@ describe('saving a new Cue Check', () => {
         receipt: receipt(1, { executionId: '99999999-9999-4999-8999-999999999999' }),
       },
     ]);
-    expect(state.phase).toBe('saving-new');
-    expect(state.selected).toBeNull();
-    expect(state.items).toEqual([]);
+    expect(state).toMatchObject({ phase: 'failed', activeRequest: null, selected: null, items: [] });
+    expect(state.failure).toMatchObject({ code: 'malformed-response', source: 'create' });
+    expect(state.draft).toMatchObject({ overallResult: 'better' });
+    expect(cueCheckReducer(state, { type: 'cancelled' }).phase).not.toBe('failed');
+  });
+
+  it('records which kind of save was confirmed, and cancelling never claims one', () => {
+    const saved = run([start, fill, { type: 'save_requested', requestId: 1, operationId: OP_1 }, { type: 'save_succeeded', ownerKey: OWNER_A, requestId: 1, receipt: receipt(1) }]);
+    expect(saved.lastSaved).toEqual({ mode: 'new', requestId: 1 });
+    const editing = cueCheckReducer(saved, { type: 'correction_started' });
+    expect(editing.lastSaved).toEqual({ mode: 'new', requestId: 1 });
+    expect(cueCheckReducer(editing, { type: 'cancelled' }).lastSaved).toEqual({ mode: 'new', requestId: 1 });
+    expect(initialCueCheckState(OWNER_A).lastSaved).toBeNull();
   });
 
   it('ignores a second save tap while one is in flight', () => {
@@ -457,6 +467,22 @@ describe('correction and void flows', () => {
     expect('revisions' in (state.selected as object)).toBe(true);
   });
 
+  it('flags a failed history refresh so the screen can offer a retry, and clears it on success or close', () => {
+    let state = withDetail(1);
+    state = run([
+      { type: 'detail_requested', requestId: 2, recordId: recordId(1), background: true },
+      { type: 'request_failed', ownerKey: OWNER_A, requestId: 2, failure: { ...offline, source: 'detail' } },
+    ], state);
+    expect(state.historyUnavailable).toBe(true);
+    expect(state.phase).toBe('detail-ready');
+    const reloaded = run([
+      { type: 'detail_requested', requestId: 3, recordId: recordId(1) },
+      { type: 'detail_loaded', ownerKey: OWNER_A, requestId: 3, detail: detail(1) },
+    ], state);
+    expect(reloaded.historyUnavailable).toBe(false);
+    expect(cueCheckReducer(state, { type: 'detail_closed' }).historyUnavailable).toBe(false);
+  });
+
   it('drops a failed background refresh quietly', () => {
     let state = withDetail(1);
     state = cueCheckReducer(state, { type: 'detail_requested', requestId: 2, recordId: recordId(1), background: true });
@@ -523,7 +549,7 @@ describe('stale and cross-owner protection', () => {
 
   it('clears loaded lists, details and pagination on owner change', () => {
     let state = run([{ type: 'list_requested', requestId: 1 }]);
-    state = cueCheckReducer(state, listLoaded(1, [receipt(1)], { receivedAt: RECEIVED_AT, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }));
+    state = cueCheckReducer(state, listLoaded(1, [receipt(1)], { createdAt: RECEIVED_AT, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }));
     state = cueCheckReducer(state, { type: 'owner_changed', ownerKey: OWNER_B });
     expect(state).toMatchObject({ items: [], nextCursor: null, hasMore: false, selected: null, selectedId: null, phase: 'idle' });
   });
@@ -613,7 +639,7 @@ describe('reads in flight when a draft starts', () => {
 });
 
 describe('pagination', () => {
-  const cursor = { receivedAt: RECEIVED_AT, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' };
+  const cursor = { createdAt: RECEIVED_AT, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' };
 
   it('appends the next page without duplicating records', () => {
     let state = run([{ type: 'list_requested', requestId: 1 }]);

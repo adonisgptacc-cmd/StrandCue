@@ -51,11 +51,11 @@ export function CueCheckRoutines({ routines, items, onStart, onOpen }: CueCheckR
   }
   return <View style={{ gap: 12 }}>
     <Text accessibilityRole="header" style={styles.heading}>Routines you can check in on</Text>
-    {routines.map((routine, index) => {
-      const day = routine.finishedAt === null ? `routine ${index + 1}` : formatDay(routine.finishedAt);
+    {routines.map(routine => {
+      const day = routine.finishedAt === null ? 'date not recorded' : formatDay(routine.finishedAt);
       const name = `${routineLabel(routine.status)}, ${day}`;
       return <View key={routine.executionId} style={styles.card}>
-        <Text style={styles.heading}>{routineLabel(routine.status)}</Text>
+        <Text accessibilityRole="header" style={styles.heading}>{routineLabel(routine.status)}</Text>
         <Text style={styles.subtitle}>{routine.finishedAt === null ? 'Date not recorded' : day}</Text>
         <RoutineActions routine={routine} name={name} items={items} onStart={onStart} onOpen={onOpen} />
       </View>;

@@ -192,7 +192,7 @@ describe('Cue Check journey through the real client boundary', () => {
   });
 
   it('list → next page without duplicates', async () => {
-    const cursor = { receivedAt: RECEIVED_AT, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
+    const cursor = { createdAt: RECEIVED_AT, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
     rpcMocks.rpc
       .mockResolvedValueOnce({ data: { items: [receipt(1), receipt(2)], nextCursor: cursor }, error: null })
       .mockResolvedValueOnce({ data: { items: [receipt(2), receipt(3)], nextCursor: null }, error: null });
@@ -307,7 +307,7 @@ describe('Cue Check journey through the real client boundary', () => {
     c.startNew({ executionId: EXECUTION_ID, status: 'completed' });
     c.editDraft({ timing: 'immediate', observedAt: OBSERVED_AT, overallResult: 'better' });
     await c.save();
-    expect(c.getState().failure?.message).toBe(CUE_CHECK_ERROR_COPY['malformed-response']);
+    expect(c.getState().failure?.message).toContain('could not confirm this was saved');
     expect(c.getState().draft).toMatchObject({ overallResult: 'better' });
   });
 
@@ -332,7 +332,7 @@ describe('Cue Check journey through the real client boundary', () => {
   });
 
   it('retries a failed list and a failed page from the right place', async () => {
-    const cursor = { receivedAt: RECEIVED_AT, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
+    const cursor = { createdAt: RECEIVED_AT, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
     rpcMocks.rpc
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockResolvedValueOnce({ data: { items: [receipt(1)], nextCursor: cursor }, error: null })
@@ -367,7 +367,6 @@ describe('boundaries this work must not cross', () => {
       if (name === 'record_cue_check') return { data: receipt(2), error: null };
       return { data: detail(1), error: null };
     });
-    const generateProtocol = vi.fn();
     const c = controller();
     await c.loadList();
     await c.openDetail(recordId(1));
@@ -376,7 +375,6 @@ describe('boundaries this work must not cross', () => {
     await c.save();
     expect(rpcNames().length).toBeGreaterThan(0);
     for (const name of rpcNames()) expect(CUE_RPCS).toContain(name);
-    expect(generateProtocol).not.toHaveBeenCalled();
     expect(rpcMocks.from).not.toHaveBeenCalled();
   });
 

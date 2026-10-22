@@ -61,7 +61,7 @@ export function createFakeCueServer(executions: readonly FakeExecution[]) {
       gates.delete(name);
       await gate;
     }
-    if (offline) throw new CueCheckError('offline');
+    if (offline || failures.delete(name)) throw new CueCheckError('offline');
   };
 
   const receiptOf = (record: StoredRecord): CueCheckReceipt =>
@@ -79,7 +79,9 @@ export function createFakeCueServer(executions: readonly FakeExecution[]) {
     return result as unknown as CueCheckReceipt;
   };
 
-  const api: CueCheckApi = {
+  const lose = new Set<string>();
+  const failures = new Set<string>();
+  const raw: CueCheckApi = {
     async recordCueCheck(command) {
       const c = command as { operationId: string; executionId: string; observation: Json };
       await enter('record', c);
@@ -206,11 +208,11 @@ export function createFakeCueServer(executions: readonly FakeExecution[]) {
       });
     },
     async listCueChecks(query) {
-      const q = query as { limit: number; cursor: { receivedAt: string; id: string } | null };
+      const q = query as { limit: number; cursor: { createdAt: string; id: string } | null };
       await enter('list', q);
       const ordered = [...records.values()].sort((left, right) => {
-        const a = String(left.receipt.receivedAt);
-        const b = String(right.receipt.receivedAt);
+        const a = String(left.receipt.createdAt);
+        const b = String(right.receipt.createdAt);
         return a === b ? (left.rowId < right.rowId ? 1 : -1) : a < b ? 1 : -1;
       });
       const start = q.cursor === null ? 0 : ordered.findIndex(record => record.rowId === q.cursor!.id) + 1;
@@ -219,7 +221,7 @@ export function createFakeCueServer(executions: readonly FakeExecution[]) {
       const more = start + q.limit < ordered.length;
       const page = {
         items: slice.map(receiptOf),
-        nextCursor: more && last !== undefined ? { receivedAt: String(last.receipt.receivedAt), id: last.rowId } : null,
+        nextCursor: more && last !== undefined ? { createdAt: String(last.receipt.createdAt), id: last.rowId } : null,
       };
       return page as unknown as CueCheckPage;
     },
@@ -242,6 +244,21 @@ export function createFakeCueServer(executions: readonly FakeExecution[]) {
     },
   };
 
+  // A response can be lost after the server committed: run the call, then fail.
+  const wrap = <A extends unknown[], R>(name: string, call: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      const result = await call(...args);
+      if (lose.delete(name)) throw new CueCheckError('offline');
+      return result;
+    };
+  const api: CueCheckApi = {
+    recordCueCheck: wrap('record', raw.recordCueCheck),
+    correctCueCheck: wrap('correct', raw.correctCueCheck),
+    voidCueCheck: wrap('void', raw.voidCueCheck),
+    listCueChecks: wrap('list', raw.listCueChecks),
+    getCueCheck: wrap('get', raw.getCueCheck),
+  };
+
   return {
     api,
     calls,
@@ -260,6 +277,32 @@ export function createFakeCueServer(executions: readonly FakeExecution[]) {
         }),
       );
       return release;
+    },
+    /** The next call to `name` fails as offline before reaching the server. */
+    failNext(name: string): void {
+      failures.add(name);
+    },
+    /** The server commits the next call to `name`, but its response never arrives. */
+    loseResponse(name: string): void {
+      lose.add(name);
+    },
+    /** Another session corrects a record: a coherent new revision, so the history stays valid. */
+    changeElsewhere(recordId: string): void {
+      const record = records.get(recordId)!;
+      const head = record.revisions[record.revisions.length - 1]!;
+      const receivedAt = tick();
+      const observation = { ...(record.receipt.observation as Json), notes: 'changed on another device' };
+      record.revisions.push({
+        revisionId: uuid('bbbbbbbb', 9000 + record.revisions.length),
+        sequence: record.revisions.length + 1,
+        kind: 'correct',
+        observation,
+        correctsId: head.revisionId,
+        correctionReason: 'Changed elsewhere',
+        voidReason: null,
+        receivedAt,
+      });
+      record.receipt = { ...record.receipt, revision: (record.receipt.revision as number) + 1, observation, receivedAt, updatedAt: receivedAt };
     },
     /** Another session changes a record behind the owner's back. */
     touch(recordId: string, change: Json): void {

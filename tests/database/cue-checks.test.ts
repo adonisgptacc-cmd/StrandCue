@@ -972,6 +972,72 @@ describe('Cue Check persistence (owner-only, append-only)', () => {
     });
   });
 
+  describe('Increment 4 review fixes', () => {
+    it('pages on the immutable creation instant, so a change made elsewhere cannot skip or repeat a record', async () => {
+      await complete(db);
+      const created: string[] = [];
+      for (let index = 0; index < 3; index += 1) {
+        const { executionId } = await seedTerminalExecution(db, {});
+        created.push((await recordCue(db, { executionId, observation: immediateObservation({ notes: `record ${index}` }) })).recordId);
+      }
+      const firstPage = await listCues(db, 1);
+      expect(firstPage.items.map((row: any) => row.recordId)).toEqual([created[2]]);
+      // The oldest record, on a page the owner has not loaded yet, is corrected and another is removed.
+      await correctCue(db, { recordId: created[0], observation: immediateObservation({ notes: 'changed elsewhere' }) });
+      await voidCue(db, { recordId: created[1] });
+      const secondPage = await listCues(db, 1, firstPage.nextCursor);
+      const thirdPage = await listCues(db, 1, secondPage.nextCursor);
+      const seen = [...firstPage.items, ...secondPage.items, ...thirdPage.items].map((row: any) => row.recordId);
+      expect(seen).toEqual([created[2], created[1], created[0]]);
+      expect(thirdPage.nextCursor).toBeNull();
+    });
+
+    it('rejects an observation without a timing with the stable code', async () => {
+      await complete(db);
+      const { executionId } = await seedTerminalExecution(db, {});
+      const failure = await failureOf(() => recordCue(db, { executionId, observation: { observedAt: nowIso(), overallResult: 'better' } }));
+      expect(failure.message).toMatch(/invalid-observation/);
+      expect(failure.message).not.toMatch(/null value in column/i);
+    });
+
+    it('does not let the head row rewrite derived facts or leave the removed state', async () => {
+      await complete(db);
+      const { executionId } = await seedTerminalExecution(db, {});
+      const created = await recordCue(db, { executionId });
+      await expect(privileged(db, `update public.cue_checks set goal = 'heat_style' where record_id = $1`, [created.recordId])).rejects.toThrow(/cue-check-binding-immutable/i);
+      await expect(privileged(db, `update public.cue_checks set confirmed_steps = '[]'::jsonb where record_id = $1`, [created.recordId])).rejects.toThrow(/cue-check-binding-immutable/i);
+      await expect(privileged(db, `update public.cue_checks set execution_status = 'abandoned' where record_id = $1`, [created.recordId])).rejects.toThrow(/cue-check-binding-immutable/i);
+      await voidCue(db, { recordId: created.recordId });
+      await expect(privileged(db, `update public.cue_checks set lifecycle = 'active' where record_id = $1`, [created.recordId])).rejects.toThrow(/cue-check-binding-immutable/i);
+    });
+
+    it('returns an issued export receipt and document untouched when its operation is replayed', async () => {
+      await complete(db);
+      const { executionId } = await seedTerminalExecution(db, {});
+      await recordCue(db, { executionId });
+      const operationId = crypto.randomUUID();
+      const exportRequest = async () => {
+        // Exports need a recent sign-in; seeding resets the session, so refresh it each time.
+        await db.query(`select set_config('request.jwt.claims', $1, false)`, [JSON.stringify({
+          sub: USER_A, role: 'authenticated', email: `${USER_A}@example.test`, is_anonymous: false,
+          amr: [{ method: 'password', timestamp: Math.floor(Date.now() / 1000) }],
+        })]);
+        return (await db.query<{ result: any }>('select public.export_request($1, $2) result', [operationId, 'json'])).rows[0].result;
+      };
+      const first = await exportRequest();
+      const documentOf = async () => (await db.query<{ document: any }>('select document from public.export_jobs where id = $1', [first.jobId])).rows[0].document;
+      const before = await documentOf();
+      expect(before.cueChecks).toHaveLength(1);
+      const { executionId: second } = await seedTerminalExecution(db, {});
+      await recordCue(db, { executionId: second });
+      const replay = await exportRequest();
+      expect(replay).toEqual(first);
+      expect(await documentOf()).toEqual(before);
+      const count = (await db.query<{ record_count: number }>('select record_count from public.export_jobs where id = $1', [first.jobId])).rows[0].record_count;
+      expect(count).toBe(first.recordCount);
+    });
+  });
+
   describe('input validation and quotas', () => {
     it('rejects malformed observations at the public boundary', async () => {
       await complete(db);
@@ -1083,11 +1149,11 @@ describe('Cue Check persistence (owner-only, append-only)', () => {
       }
       const invalidCursors: [string, unknown][] = [
         ['a non-object cursor', 'not-an-object'],
-        ['a cursor missing keys', { receivedAt: nowIso() }],
-        ['a cursor with extra keys', { receivedAt: nowIso(), id: crypto.randomUUID(), extra: 1 }],
-        ['a cursor with non-string values', { receivedAt: 5, id: 7 }],
-        ['a cursor with an invalid timestamp', { receivedAt: 'not-a-time', id: crypto.randomUUID() }],
-        ['a cursor with an invalid uuid', { receivedAt: nowIso(), id: 'not-a-uuid' }],
+        ['a cursor missing keys', { createdAt: nowIso() }],
+        ['a cursor with extra keys', { createdAt: nowIso(), id: crypto.randomUUID(), extra: 1 }],
+        ['a cursor with non-string values', { createdAt: 5, id: 7 }],
+        ['a cursor with an invalid timestamp', { createdAt: 'not-a-time', id: crypto.randomUUID() }],
+        ['a cursor with an invalid uuid', { createdAt: nowIso(), id: 'not-a-uuid' }],
       ];
       for (const [label, cursor] of invalidCursors) {
         await expect(listCues(db, 25, cursor), label).rejects.toThrow(/invalid-cursor/i);
@@ -1107,12 +1173,12 @@ describe('Cue Check persistence (owner-only, append-only)', () => {
       const full = await listCues(db);
       expect(full.items).toHaveLength(3);
       expect(full.nextCursor).toBeNull();
-      const receipts = full.items.map((row: any) => new Date(row.receivedAt).getTime());
+      const receipts = full.items.map((row: any) => new Date(row.createdAt).getTime());
       expect([...receipts].sort((left, right) => right - left)).toEqual(receipts);
 
       const firstPage = await listCues(db, 2);
       expect(firstPage.items).toHaveLength(2);
-      expect(firstPage.nextCursor).toMatchObject({ receivedAt: expect.any(String), id: expect.any(String) });
+      expect(firstPage.nextCursor).toMatchObject({ createdAt: expect.any(String), id: expect.any(String) });
       const secondPage = await listCues(db, 2, firstPage.nextCursor);
       expect(secondPage.items).toHaveLength(1);
       expect(secondPage.nextCursor).toBeNull();

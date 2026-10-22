@@ -18,7 +18,7 @@ import { questionFor } from './cue-check-copy';
 
 const UNREADABLE_DATE = 'a date that could not be read';
 
-/** A date and time in the device's own locale, for the owner's eyes. */
+/** A date and time in the South African English format used across the app, for the owner's eyes. */
 export function formatWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return UNREADABLE_DATE;

@@ -96,9 +96,9 @@ const EXPECTED_PHRASES: Record<string, Record<string, string>> = {
     'some-noticed': 'noticing a reaction',
   },
   wouldUseAgain: {
-    yes: 'you would use this routine again',
-    no: 'you would not use this routine again',
-    unsure: 'you were unsure about using this routine again',
+    yes: 'you would choose this routine again',
+    no: 'you would not choose this routine again',
+    unsure: 'you were undecided about choosing this routine again',
   },
 };
 
@@ -113,7 +113,7 @@ const EXPECTED_SUBJECTS: Record<string, string> = {
   breakage: 'breakage',
   styleLongevity: 'how long your style lasted',
   immediateReaction: 'reactions',
-  wouldUseAgain: 'using this routine again',
+  wouldUseAgain: 'choosing this routine again',
 };
 
 describe('personal outcome summaries', () => {
@@ -360,21 +360,21 @@ describe('personal outcome summaries', () => {
         numerator: 2,
         denominator: 4,
         unknownCount: 1,
-        wording: 'You reported you would use this routine again in 2 of 4 comparable uses you answered.',
+        wording: 'You reported you would choose this routine again in 2 of 4 comparable uses you answered.',
       }),
       expect.objectContaining({
         observation: 'wouldUseAgain',
         reportedValue: 'no',
         numerator: 1,
         denominator: 4,
-        wording: 'You reported you would not use this routine again in 1 of 4 comparable uses you answered.',
+        wording: 'You reported you would not choose this routine again in 1 of 4 comparable uses you answered.',
       }),
       expect.objectContaining({
         observation: 'wouldUseAgain',
         reportedValue: 'unsure',
         numerator: 1,
         denominator: 4,
-        wording: 'You reported you were unsure about using this routine again in 1 of 4 comparable uses you answered.',
+        wording: 'You reported you were undecided about choosing this routine again in 1 of 4 comparable uses you answered.',
       }),
     ]);
   });

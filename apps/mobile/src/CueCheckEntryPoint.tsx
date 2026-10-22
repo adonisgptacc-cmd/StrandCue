@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { isTerminalStatus } from './cue-check-entry';
 import type { TerminalExecutionContext } from './cue-check-state';
+import { focusOn } from './focus';
 import { Button, styles } from './ui';
 
 export interface CueCheckEntryPointProps {
@@ -19,10 +20,15 @@ export interface CueCheckEntryPointProps {
  */
 export function CueCheckEntryPoint({ execution, onOpen }: CueCheckEntryPointProps) {
   const [later, setLater] = useState(false);
+  const laterRef = useRef<unknown>(null);
+  // The buttons vanish when the owner puts this off: move focus to the reply.
+  useEffect(() => {
+    if (later) focusOn(laterRef);
+  }, [later]);
   if (!isTerminalStatus(execution.status)) return null;
   if (later) {
     return <View style={styles.notice}>
-      <Text style={styles.body}>You can add this any time from Journey.</Text>
+      <Text ref={laterRef as never} style={styles.body}>You can add this any time from Journey.</Text>
     </View>;
   }
   const stopped = execution.status === 'abandoned';

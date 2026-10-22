@@ -53,6 +53,7 @@ const trustedMigrationNames = [
   '20261023120000_tool_owner_facts.sql',
   '20261023130000_tool_catalogue_publication.sql',
   '20261024090000_cue_checks.sql',
+  '20261024100000_cue_check_review_fixes.sql',
 ] as const;
 
 const candidateMigrationNames = [

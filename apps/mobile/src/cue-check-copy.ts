@@ -112,7 +112,7 @@ export const CUE_QUESTIONS: readonly CueQuestion[] = [
     options: [
       { value: 'yes', label: 'Yes' },
       { value: 'no', label: 'No' },
-      { value: 'unsure', label: 'Maybe' },
+      { value: 'unsure', label: 'Undecided' },
     ],
   },
 ];

@@ -163,9 +163,19 @@ describe('check-in list in Journey', () => {
     const names = buttons(renderer).filter(label => label.startsWith('Open check-in'));
     expect(names).toHaveLength(2);
     expect(new Set(names).size).toBe(2);
-    expect(names[0]).toContain('1 of 2');
+    expect(names[0]).toContain('Open check-in 1:');
+    expect(names[0]).toContain('Basic wash');
+    expect(names[0]).toContain('Overall result: Better than usual');
+    expect(names[0]).not.toMatch(/ of \d/);
     await press(renderer, names[1]!);
     expect(p.onOpen).toHaveBeenCalledWith(receipt(2).recordId);
+  });
+
+  it('marks the empty-state title as a heading and announces a failure through one channel', async () => {
+    const empty = await render(createElement(CueCheckHistory, historyProps()));
+    expect(empty.root.findAll(node => typeof node.type === 'string' && node.props.accessibilityRole === 'header').length).toBeGreaterThan(0);
+    const failed = await render(createElement(CueCheckHistory, historyProps({ status: 'failed', failure: { code: 'offline', message: 'x', retryable: true, source: 'list' } })));
+    expect(failed.root.findAll(node => typeof node.type === 'string' && node.props.accessibilityLiveRegion !== undefined)).toHaveLength(0);
   });
 
   it('shows loading, empty, failed and end states', async () => {
@@ -175,7 +185,7 @@ describe('check-in list in Journey', () => {
     const failed = await render(
       createElement(CueCheckHistory, historyProps({ status: 'failed', onRetry, failure: { code: 'offline', message: 'You appear to be offline. Check your connection and try again.', retryable: true, source: 'list' } })),
     );
-    expect(failed.root.find(node => typeof node.type === 'string' && node.props.accessibilityRole === 'alert').props.children).toContain('You appear to be offline');
+    expect(text(failed)).toContain('You appear to be offline');
     await press(failed, 'Try again');
     expect(onRetry).toHaveBeenCalledTimes(1);
     const end = await render(createElement(CueCheckHistory, historyProps({ items: [receipt(1)] })));
@@ -202,7 +212,8 @@ describe('check-in detail and history of changes', () => {
     const out = text(renderer);
     expect(out).toContain('Right after your routine');
     expect(out).toContain('Basic wash');
-    expect(out).toContain('You felt this on');
+    expect(out).toContain('Noticed on');
+    expect(out).not.toContain('You felt this on');
     expect(out).toContain(formatWhen(T0));
     expect(out).toContain('Saved to your record');
     expect(out).toContain('Overall, how did this result compare with your usual result?');
@@ -271,6 +282,23 @@ describe('check-in detail and history of changes', () => {
     expect(buttons(hidden)).not.toContain('Add a later check-in for this routine');
   });
 
+  it('offers a retry when the full history could not be loaded, instead of loading forever', async () => {
+    const { revisions: _omit, ...bare } = activeDetail() as DetailRecord & { revisions: unknown };
+    const onReloadHistory = vi.fn();
+    const renderer = await render(createElement(CueCheckDetail, { ...noop, onReloadHistory, historyUnavailable: true, detail: bare as unknown as CueCheckReceipt, canAddLater: false }));
+    expect(text(renderer)).toContain('The full history could not be loaded.');
+    expect(text(renderer)).not.toContain('Loading the full history…');
+    await press(renderer, 'Try loading the history again');
+    expect(onReloadHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves focus to the detail heading when it opens', async () => {
+    const { focusOn } = await import('../../apps/mobile/src/focus');
+    vi.mocked(focusOn).mockClear();
+    await render(createElement(CueCheckDetail, { ...noop, detail: activeDetail(), canAddLater: false }));
+    expect(focusOn).toHaveBeenCalledTimes(1);
+  });
+
   it('says the history is still loading when only the receipt is known', async () => {
     const { revisions: _omit, ...bare } = activeDetail() as DetailRecord & { revisions: unknown };
     const renderer = await render(createElement(CueCheckDetail, { ...noop, detail: bare as unknown as CueCheckReceipt, canAddLater: false }));
@@ -306,6 +334,24 @@ describe('removing a check-in from active history', () => {
     expect(out).toContain('Your original answers stay in your private history.');
     expect(out).toContain('This does not change the product catalogue or anyone else’s records.');
     expect(out).not.toMatch(/erase|delet|permanent|destroy/i);
+  });
+
+  it('is not a modal that hides the rest of the screen, moves focus in, and ties its hint to the button', async () => {
+    const { focusOn } = await import('../../apps/mobile/src/focus');
+    vi.mocked(focusOn).mockClear();
+    const renderer = await render(createElement(CueCheckVoidConfirmation, { ...base, onReason: vi.fn(), onConfirm: vi.fn(), onCancel: vi.fn() }));
+    expect(renderer.root.findAll(node => typeof node.type === 'string' && node.props.accessibilityViewIsModal === true)).toHaveLength(0);
+    expect(focusOn).toHaveBeenCalledTimes(1);
+    const confirm = renderer.root.find(node => node.type === 'button' && node.props.accessibilityLabel === 'Remove from active history');
+    expect(confirm.props.accessibilityHint).toBe('Add a reason to remove this check-in.');
+  });
+
+  it('always offers the reload after a conflict, even without a visible failure', async () => {
+    const onReload = vi.fn();
+    const renderer = await render(createElement(CueCheckVoidConfirmation, { ...base, reason: 'x', reloadRequired: true, onReload, onReason: vi.fn(), onConfirm: vi.fn(), onCancel: vi.fn() }));
+    await press(renderer, 'Reload this check-in');
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(renderer.root.find(node => node.type === 'button' && node.props.accessibilityLabel === 'Remove from active history').props.accessibilityState).toMatchObject({ disabled: true });
   });
 
   it('requires a reason before confirming', async () => {
