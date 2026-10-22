@@ -122,9 +122,17 @@ export const NOT_ANSWERED_LABEL = 'Not answered';
 export const NOTES_PROMPT = 'Anything else you noticed?';
 export const NOTES_LABEL = 'Your note';
 
-/** Style longevity can only be noticed later, so an immediate check never asks it. */
+/**
+ * Style longevity can only be noticed later. Immediate reaction remains a
+ * stored historical field but is dormant until a separately reviewed safety
+ * flow exists, so neither new nor corrected Cue Checks offer it.
+ */
 export function questionsFor(timing: CueCheckTiming): readonly CueQuestion[] {
-  return CUE_QUESTIONS.filter(question => timing === 'delayed' || question.field !== 'styleLongevity');
+  return CUE_QUESTIONS.filter(
+    question =>
+      question.field !== 'immediateReaction' &&
+      (timing === 'delayed' || question.field !== 'styleLongevity'),
+  );
 }
 
 export function questionFor(field: CueCheckObservationField): CueQuestion {

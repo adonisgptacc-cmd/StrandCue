@@ -86,6 +86,12 @@ describe('cue check copy vocabulary', () => {
     expect(questionsFor('delayed').map(q => q.field)).toContain('styleLongevity');
   });
 
+  it('keeps historical reaction wording but never offers the dormant reaction question', () => {
+    expect(questionsFor('immediate').map(q => q.field)).not.toContain('immediateReaction');
+    expect(questionsFor('delayed').map(q => q.field)).not.toContain('immediateReaction');
+    expect(answerLabel('immediateReaction', 'some-noticed')).toBe('I noticed a reaction');
+  });
+
   it('shows "Not sure" for unknown and keeps it distinct from "no reaction noticed"', () => {
     expect(answerLabel('immediateReaction', 'unknown')).toBe(NOT_SURE_LABEL);
     expect(answerLabel('immediateReaction', 'none-noticed')).toBe('No reaction noticed');
@@ -184,14 +190,10 @@ describe('cue check form', () => {
     }
   });
 
-  it('shows a plain, non-diagnostic note only when a reaction is reported', async () => {
-    const note = 'StrandCue cannot assess reactions. If you are worried about how your skin or scalp feels, a health professional can help.';
-    const reported = await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: 'some-noticed' } }));
-    expect(text(reported)).toContain(note);
-    for (const reaction of ['none-noticed', 'unknown'] as const) {
-      expect(text(await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: reaction } })))).not.toContain(note);
-    }
-    expect(text(await render(props()))).not.toContain(note);
+  it('does not render a stored reaction as an editable question', async () => {
+    const renderer = await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: 'some-noticed' } }));
+    expect(text(renderer)).not.toContain('Did you notice any immediate reaction?');
+    expect(text(renderer)).not.toContain('StrandCue cannot assess reactions');
   });
 
   it('offers "Undecided" for would-use-again, distinct from "Not sure"', async () => {
@@ -246,17 +248,6 @@ describe('cue check form', () => {
     expect(vi.mocked(focusOn).mock.calls.length).toBe(afterMount + 1);
   });
 
-  it('places the reaction note right after the reaction question, before the next question', async () => {
-    const renderer = await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: 'some-noticed' } }));
-    const out = text(renderer);
-    const reaction = out.indexOf('Did you notice any immediate reaction?');
-    const note = out.indexOf('StrandCue cannot assess reactions.');
-    const next = out.indexOf('Would you choose this routine again?');
-    expect(reaction).toBeGreaterThan(-1);
-    expect(note).toBeGreaterThan(reaction);
-    expect(note).toBeLessThan(next);
-  });
-
   it('moves focus to the form heading when it opens', async () => {
     await render(props());
     expect(focusOn).toHaveBeenCalledTimes(1);
@@ -285,17 +276,6 @@ describe('cue check form', () => {
     await act(async () => one(renderer, clear).props.onPress());
     expect(p.onAnswer).toHaveBeenCalledWith('dryness', undefined);
     expect(byLabel(renderer, 'Clear answer to: How satisfied were you with this use?')).toHaveLength(0);
-  });
-
-  it('announces selected, unselected and distinct unknown states with the question in each name', async () => {
-    const q = 'Did you notice any immediate reaction?';
-    const none = await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: 'none-noticed' } }));
-    expect(one(none, `${q}: No reaction noticed`).props.accessibilityState).toMatchObject({ selected: true });
-    expect(one(none, `${q}: Not sure`).props.accessibilityState).toMatchObject({ selected: false });
-    const unsure = await render(props({ draft: { timing: 'immediate', observedAt: OBSERVED_AT, immediateReaction: 'unknown' } }));
-    expect(one(unsure, `${q}: Not sure`).props.accessibilityState).toMatchObject({ selected: true });
-    expect(one(unsure, `${q}: No reaction noticed`).props.accessibilityState).toMatchObject({ selected: false });
-    expect(one(unsure, `${q}: I noticed a reaction`).props.accessibilityRole).toBe('radio');
   });
 
   it('gives every control a unique accessible name', async () => {

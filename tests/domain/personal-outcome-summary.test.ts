@@ -117,6 +117,12 @@ const EXPECTED_SUBJECTS: Record<string, string> = {
 };
 
 describe('personal outcome summaries', () => {
+  it('never summarizes historical reaction answers', () => {
+    const records = Array.from({ length: MINIMUM_COMPARABLE_SAMPLE }, () =>
+      makeRecord({ timing: 'immediate', immediateReaction: 'some-noticed' }),
+    );
+    expect(summarizePersonalOutcomes(records, CONTEXT)).toEqual([]);
+  });
   it('defines the explicit minimum comparable sample', () => {
     expect(MINIMUM_COMPARABLE_SAMPLE).toBe(3);
   });
@@ -524,8 +530,6 @@ describe('personal outcome summaries', () => {
       ['styleLongevity', 'shorter', 'delayed'],
       ['styleLongevity', 'similar', 'delayed'],
       ['styleLongevity', 'longer', 'delayed'],
-      ['immediateReaction', 'none-noticed', 'immediate'],
-      ['immediateReaction', 'some-noticed', 'immediate'],
       ['wouldUseAgain', 'yes', 'immediate'],
       ['wouldUseAgain', 'no', 'immediate'],
       ['wouldUseAgain', 'unsure', 'immediate'],

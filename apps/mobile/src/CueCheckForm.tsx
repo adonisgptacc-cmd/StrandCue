@@ -44,8 +44,6 @@ const INTRO: Readonly<Record<'new-immediate' | 'new-delayed' | 'correction', str
   correction: 'Your earlier entry stays in your history. Change what you need to, then say why.',
 };
 
-const REACTION_NOTE =
-  'StrandCue cannot assess reactions. If you are worried about how your skin or scalp feels, a health professional can help.';
 const WRITE_SOURCES: ReadonlySet<string> = new Set(['create', 'correct', 'void']);
 
 /** A running count, with the remaining room spelled out near the limit. Never a live region: it would re-read on every key. */
@@ -109,7 +107,6 @@ export function CueCheckForm(props: CueCheckFormProps) {
             disabled={saving}
             onChange={value => onAnswer(question.field, value)}
           />
-          {question.field === 'immediateReaction' && stored === 'some-noticed' && <Text accessibilityLiveRegion="polite" style={styles.subtitle}>{REACTION_NOTE}</Text>}
         </View>;
       })}
       <View>
