@@ -20,6 +20,7 @@ const criticalModules = [
   'packages/domain/src/guidance/prepared-input.ts', 'packages/domain/src/guidance/prepare-guidance.ts',
   'packages/domain/src/guidance/schemas.ts', 'packages/domain/src/current-condition.ts',
   'packages/domain/src/cue-check.ts', 'packages/domain/src/personal-outcome-summary.ts',
+  'packages/domain/src/care-events.ts',
   'apps/mobile/src/cue-check-api.ts', 'apps/mobile/src/cue-check-errors.ts', 'apps/mobile/src/cue-check-state.ts',
   'apps/mobile/src/cue-check-copy.ts', 'apps/mobile/src/cue-check-form-model.ts', 'apps/mobile/src/cue-check-records.ts',
   'apps/mobile/src/cue-check-entry.ts', 'apps/mobile/src/cue-check-routines.ts', 'apps/mobile/src/cue-check-announce.ts',
