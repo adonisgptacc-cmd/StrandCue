@@ -137,7 +137,10 @@ export function pgliteTransport(db: PGlite, options: PgliteTransportOptions = {}
         (select count(*) from strandcue_private.tool_operations)::text tool_operations,
         (select count(*) from public.cue_checks)::text cue_checks,
         (select count(*) from public.cue_check_revisions)::text cue_check_revisions,
-        (select count(*) from strandcue_private.cue_check_operations)::text cue_check_operations`);
+        (select count(*) from strandcue_private.cue_check_operations)::text cue_check_operations,
+        (select count(*) from public.treatment_programmes)::text treatment_programmes,
+        (select count(*) from public.treatment_programme_events)::text treatment_programme_events,
+        (select count(*) from strandcue_private.treatment_programme_operations)::text treatment_programme_operations`);
       return Object.fromEntries(Object.entries(rows[0]).map(([key, value]) => [key, Number(value)]));
     }),
   };

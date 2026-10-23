@@ -2,6 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
 import { asUser, complete, current, database, mutate, USER_A, USER_B } from './harness.ts';
+import {
+  changeProgramme, enrolProgramme, getProgramme, publishedRule, seedExecutionCare, seedProgrammeCatalogue,
+} from './support/programme-fixtures.ts';
 
 async function freshAuth(db: PGlite, userId: string) {
   await asUser(db, userId);
@@ -405,5 +408,96 @@ describe('account deletion removes Cue Check owner content', () => {
     await seedCueCheckFor(USER_A, 'user_a');
     await expect(db.exec('delete from public.cue_checks')).rejects.toThrow(/permission denied/i);
     await expect(db.exec('delete from public.cue_check_revisions')).rejects.toThrow(/permission denied/i);
+  });
+});
+
+describe('account deletion removes treatment-programme owner content', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); await seedProgrammeCatalogue(db); }, 120_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('delete from public.profiles');
+    await db.exec('delete from public.deletion_tombstones');
+    await db.exec('delete from strandcue_private.deletion_lifecycle_events');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  const WASHES = ['2026-09-05T08:00:00.000Z', '2026-09-08T08:00:00.000Z'];
+
+  /** An owner with a completed programme: head, enrol/pause/resume/complete history, a snapshot, receipts. */
+  async function seedProgrammeFor(owner: string, username: string) {
+    await asUser(db, owner);
+    await complete(db, username);
+    const { identity } = await publishedRule(db);
+    await seedExecutionCare(db, owner, [
+      { kind: 'application', at: '2026-09-02T08:00:00.000Z', session: 'app' },
+      ...WASHES.map((at, index) => ({ kind: 'wash' as const, at, session: `w${index}` })),
+    ]);
+    await asUser(db, owner);
+    const record = await enrolProgramme(db, { ruleId: identity.ruleId });
+    const id = record.enrolmentId;
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { kind: 'pause', pausedAt: '2026-09-09T00:00:00.000Z', reasonCode: 'travel' } });
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: { kind: 'resume', resumedAt: '2026-09-13T00:00:00.000Z', resumptionRuleId: 'resume-fixture', resumptionRuleVersion: '1' } });
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 3, command: { kind: 'complete', completedAt: '2026-09-20T10:00:00.000Z' } });
+    return id as string;
+  }
+
+  async function programmeCounts() {
+    await db.exec('set session authorization postgres');
+    try {
+      const counts = await db.query(`
+        select
+          (select count(*) from public.treatment_programmes where user_id = '${USER_A}')::int as a_heads,
+          (select count(*) from public.treatment_programme_events where user_id = '${USER_A}')::int as a_events,
+          (select count(*) from strandcue_private.treatment_programme_operations where user_id = '${USER_A}')::int as a_receipts,
+          (select count(*) from strandcue_private.execution_step_care where user_id = '${USER_A}')::int as a_care,
+          (select count(*) from public.treatment_programmes where user_id = '${USER_B}')::int as b_heads,
+          (select count(*) from public.treatment_programme_events where user_id = '${USER_B}')::int as b_events,
+          (select count(*) from strandcue_private.treatment_programme_operations where user_id = '${USER_B}')::int as b_receipts,
+          (select count(*) from strandcue_private.programme_rule_publications)::int as rules,
+          (select count(*) from public.product_versions)::int as versions`);
+      return counts.rows[0] as Record<string, number>;
+    } finally {
+      await asUser(db, USER_A);
+    }
+  }
+
+  it('blocks programme access immediately after the deletion request', async () => {
+    const id = await seedProgrammeFor(USER_A, 'user_a');
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await expect(getProgramme(db, id)).rejects.toThrow(/account-not-active/i);
+    await expect(db.query('select public.list_programmes(20,null) result')).rejects.toThrow(/account-not-active/i);
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 4, command: { kind: 'select-application', eventId: 'x' } })).rejects.toThrow(/account-not-active/i);
+  });
+
+  it('purges every programme owner-data row with the profile and leaves shared authority rows alone', async () => {
+    await seedProgrammeFor(USER_A, 'user_a');
+    await seedProgrammeFor(USER_B, 'user_b');
+    const before = await programmeCounts();
+    expect(before).toMatchObject({ a_heads: 1, a_events: 4, a_receipts: 4, b_heads: 1, b_events: 4, b_receipts: 4 });
+    expect(before.a_care).toBeGreaterThan(0);
+    await asUser(db, USER_A);
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await db.exec('set session authorization postgres');
+    await db.query('select public.deletion_purge()');
+    const after = await programmeCounts();
+    expect(after).toMatchObject({ a_heads: 0, a_events: 0, a_receipts: 0, a_care: 0, b_heads: 1, b_events: 4, b_receipts: 4 });
+    // Shared catalogue and reviewed-rule rows are untouched by an owner's deletion.
+    expect(after.rules).toBe(before.rules);
+    expect(after.versions).toBe(before.versions);
+  });
+
+  it('preserves programme data when cancellation precedes the purge and denies direct owner deletion', async () => {
+    const id = await seedProgrammeFor(USER_A, 'user_a');
+    await freshAuth(db, USER_A);
+    await deletionRequest(db);
+    await db.query('select public.deletion_cancel() result');
+    expect((await getProgramme(db, id)).status).toBe('completed');
+    await expect(db.exec('delete from public.treatment_programmes')).rejects.toThrow(/permission denied/i);
+    await expect(db.exec('delete from public.treatment_programme_events')).rejects.toThrow(/permission denied/i);
+    expect(await programmeCounts()).toMatchObject({ a_heads: 1, a_events: 4 });
   });
 });

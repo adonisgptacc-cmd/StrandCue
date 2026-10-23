@@ -50,7 +50,7 @@ export interface ScenarioInput {
 }
 
 export const OWNER_ISOLATION_REQUIRED_AREAS = [
-  'passport', 'shelf', 'shelf-catalogue', 'tools', 'tool-catalogue', 'direct-write', 'anonymous', 'export', 'idempotency', 'cue-check',
+  'passport', 'shelf', 'shelf-catalogue', 'tools', 'tool-catalogue', 'direct-write', 'anonymous', 'export', 'idempotency', 'cue-check', 'treatment-programme',
 ] as const;
 
 class ScenarioFailure extends Error {}
@@ -228,6 +228,7 @@ const cueReceipt = z.object({
 }).passthrough();
 const cueDetail = cueReceipt.extend({ revisions: z.array(z.object({ revisionId: uuid, kind: z.string() }).passthrough()) });
 const cueList = listOf(cueReceipt);
+const programmeList = listOf(z.object({ enrolmentId: uuid }).passthrough());
 const passportView = z.object({ revisions: z.array(z.object({ id: uuid }).passthrough()) }).passthrough();
 
 // --- Runner -----------------------------------------------------------------------------------
@@ -311,6 +312,11 @@ select strandcue_private.record_trusted_run('${runId}', '${'d'.repeat(64)}', '20
   }
   return executionId;
 }
+
+const programmeEnrolArgs = (ruleId: string) => ({
+  p_operation_id: crypto.randomUUID(), p_product_id: FX.productShampoo, p_product_version_id: FX.vShampoo, p_rule_id: ruleId, p_rule_version: '1',
+  p_start_date: { precision: 'day', value: '2026-09-01' }, p_selected_application_event_id: null,
+});
 
 const cueRecordArgs = (executionId: string, observation: Record<string, unknown>, operationId: string = crypto.randomUUID()) =>
   ({ p_operation_id: operationId, p_execution_id: executionId, p_observation: observation });
@@ -673,7 +679,7 @@ const SCENARIOS: Scenario[] = [
       check(!text.includes(`SC-T5 Bravo ${ctx.suffix}`) && !text.includes(`SC-T5 Iron ${ctx.suffix}`), 'the export contains the other owner\'s data');
       noLeak(text, 'the owner export');
       const schema = document.schemaVersions as { export?: unknown } | undefined;
-      check(schema?.export === 5, 'the export schema version is not the expected one');
+      check(schema?.export === 6, 'the export schema version is not the expected one');
     },
   },
   {
@@ -928,6 +934,78 @@ const SCENARIOS: Scenario[] = [
           denied(await call$(ctx, 'a', 'record_cue_check', cueRecordArgs(execution, cueObservation('SC-CUE forged', { [key]: 'x' }))), `a Cue Check carrying a client-supplied ${key}`, /invalid-observation/);
         }
       });
+    },
+  },
+  // ---- Treatment programmes (private owner enrolments; no reviewed rule exists, so none can be enrolled) ----
+  {
+    id: 'treatment-programme.anonymous-callers-are-denied', area: 'treatment-programme', needsProbe: true, run: async ctx => {
+      const enrolment = crypto.randomUUID();
+      await sameCounts(ctx, 'anonymous programme calls', async () => {
+        const calls: [string, Record<string, unknown>][] = [
+          ['list_programmes', { p_limit: 5, p_cursor: null }], ['get_programme', { p_enrolment_id: enrolment }],
+          ['enrol_programme', programmeEnrolArgs('anonymous-rule')],
+          ['change_programme', { p_operation_id: crypto.randomUUID(), p_enrolment_id: enrolment, p_expected_revision: 1, p_command: { kind: 'pause', pausedAt: '2026-09-09T00:00:00.000Z', reasonCode: 'travel' } }],
+        ];
+        for (const [name, args] of calls) privilegeDenied(await call$(ctx, 'anonymous', name, args), `anonymous calling ${name}`);
+      });
+      for (const table of ['treatment_programmes', 'treatment_programme_events']) nothingVisible(await send(ctx, 'anonymous', 'GET', `/rest/v1/${table}?select=*`), `anonymous reading ${table}`);
+    },
+  },
+  {
+    id: 'treatment-programme.enrolment-is-blocked-without-reviewed-content', area: 'treatment-programme', needsProbe: true, run: async ctx => {
+      // The honest state of a deployment with no published treatment rule: nothing can be enrolled, nothing is written.
+      await sameCounts(ctx, 'enrolling without a reviewed rule', async () => {
+        for (const who of ['a', 'b'] as const) {
+          denied(await call$(ctx, who, 'enrol_programme', programmeEnrolArgs(`no-such-rule-${ctx.suffix}`)), `${who} enrolling against a rule that is not published`, /rule-content-pending/);
+          const list = ok(await call$(ctx, who, 'list_programmes', { p_limit: 10, p_cursor: null }), `list_programmes (${who})`, programmeList);
+          check(list.items.length === 0 && list.nextCursor === null, `owner ${who} lists a programme although none can exist`);
+        }
+      });
+    },
+  },
+  {
+    id: 'treatment-programme.foreign-and-random-ids-are-refused-identically', area: 'treatment-programme', needsProbe: true, run: async ctx => {
+      const first = crypto.randomUUID();
+      const second = crypto.randomUUID();
+      for (const who of ['a', 'b'] as const) {
+        sameRefusal(await call$(ctx, who, 'get_programme', { p_enrolment_id: first }), await call$(ctx, who, 'get_programme', { p_enrolment_id: second }), `get_programme (${who})`);
+        const change = (id: string) => ({ p_operation_id: crypto.randomUUID(), p_enrolment_id: id, p_expected_revision: 1, p_command: { kind: 'complete', completedAt: '2026-09-20T00:00:00.000Z' } });
+        sameRefusal(await call$(ctx, who, 'change_programme', change(first)), await call$(ctx, who, 'change_programme', change(second)), `change_programme (${who})`);
+        denied(await call$(ctx, who, 'get_programme', { p_enrolment_id: first }), `${who} reading an enrolment that does not exist`, /programme-not-found/);
+      }
+    },
+  },
+  {
+    id: 'treatment-programme.direct-writes-and-private-tables-are-denied', area: 'treatment-programme', needsProbe: true, run: async ctx => {
+      const enrolment = crypto.randomUUID();
+      await sameCounts(ctx, 'A writing the programme tables directly', async () => {
+        const mutations: [string, 'POST' | 'PATCH' | 'DELETE', string, unknown][] = [
+          ['inserting a programme', 'POST', '/rest/v1/treatment_programmes', { enrolment_id: enrolment, rule_id: 'x' }],
+          ['rewriting a programme', 'PATCH', `/rest/v1/treatment_programmes?enrolment_id=eq.${enrolment}`, { status: 'completed' }],
+          ['deleting a programme', 'DELETE', `/rest/v1/treatment_programmes?enrolment_id=eq.${enrolment}`, undefined],
+          ['inserting a lifecycle event', 'POST', '/rest/v1/treatment_programme_events', { enrolment_id: enrolment, kind: 'complete' }],
+          ['rewriting a lifecycle event', 'PATCH', `/rest/v1/treatment_programme_events?enrolment_id=eq.${enrolment}`, { snapshot: {} }],
+          ['deleting a lifecycle event', 'DELETE', `/rest/v1/treatment_programme_events?enrolment_id=eq.${enrolment}`, undefined],
+        ];
+        for (const [what, method, path, body] of mutations) privilegeDenied(await send(ctx, 'a', method, path, body), `A ${what}`);
+      });
+      // Receipts, reviewed rule publications and the trusted step classification are not exposed tables at all.
+      for (const table of ['treatment_programme_operations', 'programme_rule_publications', 'execution_step_care']) {
+        for (const who of ['a', 'b', 'anonymous'] as const) nothingVisible(await send(ctx, who, 'GET', `/rest/v1/${table}?select=*`), `${who} reading ${table}`);
+      }
+    },
+  },
+  {
+    id: 'treatment-programme.export-carries-no-programme-rows-or-private-material', area: 'treatment-programme', needsProbe: true, run: async ctx => {
+      for (const who of ['a', 'b'] as const) {
+        const document = await exportDocument(ctx, who);
+        const programmes = document.treatmentProgrammes;
+        check(Array.isArray(programmes) && programmes.length === 0, `owner ${who}'s export does not show an empty programme list`);
+        const versions = document.schemaVersions as Record<string, unknown> | undefined;
+        check(versions?.treatmentProgrammes === 1 && versions?.treatmentProgrammeEvents === 1, `owner ${who}'s export lacks the programme schema versions`);
+        const text = JSON.stringify(document);
+        for (const forbidden of ['treatment_programme_operations', 'programme_rule_publications', 'execution_step_care', 'reviewed_by', 'authored_by']) check(!text.includes(forbidden), `owner ${who}'s export carried ${forbidden}`);
+      }
     },
   },
   // ---- Archive last, so the earlier scenarios see live items ----

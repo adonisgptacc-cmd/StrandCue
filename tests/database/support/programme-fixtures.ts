@@ -2,7 +2,7 @@ import type { PGlite } from '@electric-sql/pglite';
 
 import { CareEventSchema, type CareEvent } from '../../../packages/domain/src/care-events.ts';
 import { asUser, USER_A } from '../harness.ts';
-import { privileged } from './cue-fixtures.ts';
+import { privileged, seedRun } from './cue-fixtures.ts';
 
 /**
  * Synthetic treatment-programme fixtures (Task I5.4). Test data only: a catalogue product, a reviewed
@@ -105,11 +105,14 @@ type SeededCare = CareSpec & { executionId: string; runId: string; stepId: strin
 export async function seedExecutionCare(db: PGlite, owner: string, specs: readonly CareSpec[]): Promise<SeededCare[]> {
   const sessions = new Map<string, { executionId: string; runId: string; specs: CareSpec[] }>();
   for (const spec of specs) {
-    if (!sessions.has(spec.session)) sessions.set(spec.session, { executionId: crypto.randomUUID(), runId: crypto.randomUUID(), specs: [] });
+    if (!sessions.has(spec.session)) sessions.set(spec.session, { executionId: crypto.randomUUID(), runId: '', specs: [] });
     sessions.get(spec.session)!.specs.push(spec);
   }
   const seeded: SeededCare[] = [];
   for (const session of sessions.values()) {
+    // The execution references an immutable trusted recommendation run.
+    await asUser(db, owner);
+    session.runId = await seedRun(db, owner);
     const steps = session.specs.map((spec, index) => {
       const stepId = `step-${index + 1}`;
       const productId = spec.productId === undefined ? PRODUCT_ID : spec.productId;

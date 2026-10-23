@@ -39,3 +39,9 @@
 - Focused tests: 102/102. Full coverage: 193 files passed / 5 skipped; 4204 tests passed / 22 skipped. `treatment-programme.ts`: 92.16 statements / 86.36 branches / 100 functions / 92.3 lines. Independent code and security/privacy re-reviews: approved with zero Critical, High or Medium findings.
 - TR-05, TR-06, TR-07 and TR-08 move to Partial. Reviewed production treatment rules, persistence, mobile UI, hosted isolation and device evidence remain absent.
 - Dependency audit remains HOLD unless its final command exits zero. Nothing pushed, merged, deployed or published.
+## Task I5.4 owner-only treatment-programme persistence: complete
+
+- Forward migration `20261025120000_treatment_programmes.sql`: enrolments, append-only lifecycle (enrol, change, pause, resume, maintenance, complete, abandon), server-built immutable completion snapshot, private receipts (30-day retention), export v6, cascade deletion, forced RLS, hardened definers, quotas and idempotency. Counts, due status and state are derived on every read from the owner's own events and the exact reviewed rule publication; the client supplies none of them.
+- Production stays honestly blocked: the reviewed-rule store and the trusted step-classification store are created empty and have no writer, so enrolment returns `rule-content-pending`. A reviewed-content release and a classification writer are still needed.
+- Tests: 66 programme tests (PGlite, differential against the domain evaluator), 7 opt-in real PostgreSQL two-session tests, owner-isolation area `treatment-programme` (56 scenarios). Full coverage 194 files / 4280 tests; dependency audit HOLD; hosted, device and UI evidence NOT RUN.
+- Three review rounds; the execution-purge High and all Mediums fixed test-first. TR-01 and TR-05..TR-08 stay Partial. I5.5 not started. Report: `task-i5.4-report.md`.

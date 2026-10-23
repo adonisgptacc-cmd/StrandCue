@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -6,7 +8,7 @@ import { asUser, complete, database, USER_A, USER_B, UNVERIFIED } from './harnes
 import { failureOf, privileged } from './support/cue-fixtures.ts';
 import {
   OTHER_VERSION_ID, PRODUCT_ID, UNVERIFIED_VERSION_ID, VERSION_ID,
-  changeProgramme, composeEventId, enrolProgramme, getProgramme, listProgrammes, nextIdentity, programmeCounts,
+  changeProgramme, enrolProgramme, getProgramme, listProgrammes, nextIdentity, programmeCounts,
   publishedRule, recordWashActivity, ruleFixture, seedExecutionCare, seedProgrammeCatalogue, seedRulePublication, tsCareEvents,
   type CareSpec, type RuleJson,
 } from './support/programme-fixtures.ts';
@@ -34,6 +36,15 @@ afterEach(async () => {
   await db.exec('delete from public.consent_records');
 });
 afterAll(async () => { await db?.close(); });
+
+/** Clears every owner row and recreates owner A: a fresh account with no care events. */
+async function freshOwner() {
+  await db.exec('set session authorization postgres');
+  await db.exec('delete from public.profiles');
+  await db.exec('delete from public.consent_records');
+  await asUser(db, USER_A);
+  await complete(db, 'user_a');
+}
 
 const careSpecs = (washes: number, options: { shampoo?: 'yes' | 'no' | 'unknown' } = {}): CareSpec[] => [
   { kind: 'application', at: APP_AT, session: 'app' },
@@ -73,11 +84,11 @@ async function parity(programme: Programme, activities: { eventId: string; activ
   const rule = { ...programme.rule, publicationStatus: 'published', publication: record.rulePublication };
   const expected = evaluateProgramme(enrolment, tsCareEvents(programme.seeded, activities), rule, evaluation.asOf);
   expect({
-    state: evaluation.state, dueStatus: evaluation.dueStatus, count: evaluation.count, range: evaluation.range,
+    state: evaluation.state, dueStatus: evaluation.dueStatus, count: evaluation.count, range: evaluation.range, unit: evaluation.unit, ruleId: evaluation.ruleId,
     missing: evaluation.missing.map((item: any) => item.code), used: evaluation.eventsUsed.map((item: any) => item.eventId),
     application: evaluation.application?.eventId ?? null, reasons: evaluation.reasonCodes, snapshot: evaluation.fromCompletedSnapshot,
   }).toEqual({
-    state: expected.state, dueStatus: expected.dueStatus, count: expected.count, range: expected.range,
+    state: expected.state, dueStatus: expected.dueStatus, count: expected.count, range: expected.range, unit: expected.unit, ruleId: expected.ruleId,
     missing: expected.missing.map(item => item.code), used: expected.eventsUsed.map(item => item.eventId),
     application: expected.application?.eventId ?? null, reasons: [...expected.reasonCodes], snapshot: expected.fromCompletedSnapshot,
   });
@@ -174,6 +185,32 @@ describe('schema, grants and hardening', () => {
     await db.exec('delete from public.profiles');
     expect(await programmeCounts(db)).toEqual({ heads: 0, events: 0, receipts: 0 });
   });
+  it('replays safely: running the migration again changes no owner, ACL, setting, policy, trigger or behaviour', async () => {
+    const migration = await readFile('supabase/migrations/20261025120000_treatment_programmes.sql', 'utf8');
+    const fingerprint = async () => {
+      const part = async (sql: string) => (await privileged<{ h: string }>(db, `select coalesce(md5(string_agg(x, ',' order by x)), '') h from (${sql}) t(x)`)).rows[0]!.h;
+      return {
+        functions: await part(`select concat_ws('|', p.oid::regprocedure::text, pg_get_userbyid(p.proowner), coalesce((select string_agg(a::text, ',' order by a::text) from unnest(p.proacl) a), ''), coalesce(p.proconfig::text, ''), p.prosecdef::text)
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where (n.nspname = 'public' and p.proname ~ 'programme')
+            or (n.nspname = 'strandcue_private' and (p.proname like 'programme\_%' or p.proname like 'export_build_csv%' or p.proname like 'request_export%'))`),
+        tables: await part(`select concat_ws('|', c.oid::regclass::text, pg_get_userbyid(c.relowner), coalesce((select string_agg(a::text, ',' order by a::text) from unnest(c.relacl) a), ''), c.relrowsecurity::text, c.relforcerowsecurity::text)
+          from pg_class c where c.oid::regclass::text ~ '(treatment_programme|programme_rule_publications|execution_step_care)' and c.relkind = 'r'`),
+        policies: await part(`select concat_ws('|', schemaname, tablename, policyname, cmd, roles::text, coalesce(qual, ''), coalesce(with_check, ''))
+          from pg_policies where tablename ~ '(treatment_programme|programme_rule_publications|execution_step_care)'`),
+        triggers: await part(`select concat_ws('|', tgrelid::regclass::text, tgname) from pg_trigger where not tgisinternal and tgrelid::regclass::text ~ '(treatment_programme|programme_rule_publications)'`),
+        indexes: await part(`select indexname from pg_indexes where tablename ~ '(treatment_programme|programme_rule_publications|execution_step_care)'`),
+      };
+    };
+    const before = await fingerprint();
+    await db.exec('set session authorization postgres');
+    await db.exec(migration);
+    await db.exec(migration);
+    expect(await fingerprint()).toEqual(before);
+    await asUser(db, USER_A);
+    const programme = await enrolled({ washes: 1, selected: true });
+    expect((await getProgramme(db, programme.record.enrolmentId)).evaluation).toMatchObject({ count: 1 });
+  }, 60_000);
 });
 
 describe('authentication and account state', () => {
@@ -253,6 +290,7 @@ describe('enrolment and the reviewed rule', () => {
     for (const options of [
       { ruleId: 'x'.repeat(201) }, { ruleId: '' }, { ruleId: identity.ruleId, ruleVersion: 'v'.repeat(201) }, { ruleId: identity.ruleId, ruleVersion: '' },
       { ruleId: identity.ruleId, startDate: { precision: 'unknown', value: null } },
+      { ruleId: identity.ruleId, startDate: { precision: 'approximate', value: '2026-09' } },
       { ruleId: identity.ruleId, startDate: { precision: 'day', value: '2999-01-01' } },
       { ruleId: identity.ruleId, startDate: { precision: 'exact', value: '2026-09-01T08:00:00' } },
       { ruleId: identity.ruleId, startDate: { precision: 'day', value: '2026-09-01', extra: 1 } },
@@ -268,6 +306,18 @@ describe('enrolment and the reviewed rule', () => {
     const { identity } = await publishedRule(db);
     await expect(enrolProgramme(db, { ruleId: identity.ruleId, selectedApplicationEventId: 'not-an-event' })).rejects.toThrow(/application-missing/);
     expect(await programmeCounts(db)).toEqual({ heads: 0, events: 0, receipts: 0 });
+  });
+
+  it('accepts a start after an earlier application (a new cycle) and reports the mismatch honestly until it is closed or a newer application arrives', async () => {
+    const { identity } = await publishedRule(db);
+    await seedExecutionCare(db, USER_A, careSpecs(1));
+    await asUser(db, USER_A);
+    const record = await enrolProgramme(db, { ruleId: identity.ruleId, startDate: { precision: 'day', value: '2026-09-10' } });
+    expect((await getProgramme(db, record.enrolmentId)).evaluation.missing.map((item: any) => item.code)).toEqual(['application-before-enrolment']);
+    await seedExecutionCare(db, USER_A, [{ kind: 'application', at: '2026-09-12T08:00:00.000Z', session: 'second-cycle' }]);
+    await asUser(db, USER_A);
+    const detail = await getProgramme(db, record.enrolmentId);
+    expect(detail.evaluation.missing.map((item: any) => item.code)).toEqual(['multiple-treatment-applications']);
   });
 
   it('enforces a duplicate-active guard and per-owner quotas atomically', async () => {
@@ -336,9 +386,7 @@ describe('derived state, counts and due status', () => {
     for (const washes of [0, 1, 2, 3, 5]) {
       const programme = await enrolled({ washes, selected: washes % 2 === 0 });
       await parity(programme);
-      await db.exec('set session authorization postgres');
-      await db.exec('delete from public.profiles');
-      await asUser(db, USER_A); await complete(db, 'user_a');
+      await freshOwner();
     }
   }, 120_000);
 
@@ -361,9 +409,7 @@ describe('derived state, counts and due status', () => {
       const programme = await enrolled({ specs, rule: { applicationWashCounts } });
       const { evaluation } = await parity(programme);
       expect(evaluation.count).toBe(applicationWashCounts ? 2 : 1);
-      await db.exec('set session authorization postgres');
-      await db.exec('delete from public.profiles');
-      await asUser(db, USER_A); await complete(db, 'user_a');
+      await freshOwner();
     }
   });
 
@@ -378,8 +424,16 @@ describe('derived state, counts and due status', () => {
     await parity(programme, [
       { eventId: day.eventId, activityId: day.activityId, date: { precision: 'day', value: '2026-09-06' } },
       { eventId: month.eventId, activityId: month.activityId, date: { precision: 'approximate', value: '2026-09' } },
-      { eventId: composeEventId(['activity-recorded', 'x']), activityId: 'x', date: { precision: 'day', value: '2026-08-01' } },
-    ].slice(0, 2));
+    ]);
+  });
+
+  it('reads the offset-form confirmation instant the real execution core writes and normalises it to UTC', async () => {
+    const programme = await enrolled({ washes: 2, selected: true });
+    const wash = programme.seeded.find(item => item.kind === 'wash')!;
+    await privileged(db, `update public.protocol_executions set execution = jsonb_set(execution, '{steps,0,confirmedAt}', '"2026-09-05T10:00:00.057+02:00"'::jsonb) where execution_id = $1`, [wash.executionId]);
+    const detail = await getProgramme(db, programme.record.enrolmentId);
+    expect(detail.evaluation).toMatchObject({ count: 2 });
+    expect(detail.evaluation.eventsUsed.find((item: any) => item.eventId === wash.eventId).date).toEqual({ precision: 'exact', value: '2026-09-05T08:00:00.057Z' });
   });
 
   it('fails closed on a confirmed step with no trusted classification', async () => {
@@ -460,12 +514,29 @@ describe('lifecycle: pause, resume, maintenance and completion', () => {
     expect(evaluation.eventsUsed.map((item: any) => item.eventId)).not.toContain(programme.seeded.find(item => item.at === WASH_ATS[2])!.eventId);
   });
 
-  it('refuses to resume when the rule defines no approved resumption', async () => {
+  it('refuses to pause when the rule defines no approved resumption, so no programme can be stranded', async () => {
     const programme = await enrolled({ washes: 1, selected: true, rule: { resumptionRule: undefined } });
-    await changeProgramme(db, { enrolmentId: programme.record.enrolmentId, expectedRevision: 1, command: PAUSE });
-    await expect(changeProgramme(db, { enrolmentId: programme.record.enrolmentId, expectedRevision: 2, command: RESUME })).rejects.toThrow(/pause-resumption-required/);
-    const detail = await getProgramme(db, programme.record.enrolmentId);
-    expect(detail.evaluation).toMatchObject({ state: 'paused', dueStatus: 'needs_input' });
+    const before = await programmeCounts(db);
+    await expect(changeProgramme(db, { enrolmentId: programme.record.enrolmentId, expectedRevision: 1, command: PAUSE })).rejects.toThrow(/pause-resumption-required/);
+    expect(await programmeCounts(db)).toEqual(before);
+  });
+
+  it('refuses a resume whose pause window would hide the confirmed application, or a maintenance dated inside the pause window', async () => {
+    const programme = await enrolled({ washes: 5, selected: true });
+    const id = programme.record.enrolmentId;
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { ...PAUSE, pausedAt: '2026-09-02T00:00:00.000Z' } });
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: { ...RESUME, resumedAt: '2026-09-03T00:00:00.000Z' } })).rejects.toThrow(/invalid-chronology/);
+    await freshOwner();
+    // Another application outside the window survives, and the selected one is outside it: the resume is allowed.
+    const survivor = await enrolled({ specs: [...careSpecs(1), { kind: 'application', at: '2026-09-10T08:00:00.000Z', session: 'app-late' }], selected: true });
+    await changeProgramme(db, { enrolmentId: survivor.record.enrolmentId, expectedRevision: 1, command: { ...PAUSE, pausedAt: '2026-09-09T00:00:00.000Z' } });
+    await expect(changeProgramme(db, { enrolmentId: survivor.record.enrolmentId, expectedRevision: 2, command: { ...RESUME, resumedAt: '2026-09-11T00:00:00.000Z' } })).resolves.toBeDefined();
+    await freshOwner();
+    const second = await enrolled({ washes: 5, selected: true });
+    const sid = second.record.enrolmentId;
+    await changeProgramme(db, { enrolmentId: sid, expectedRevision: 1, command: PAUSE });
+    await changeProgramme(db, { enrolmentId: sid, expectedRevision: 2, command: RESUME });
+    await expect(changeProgramme(db, { enrolmentId: sid, expectedRevision: 3, command: { kind: 'maintenance', transitionedAt: '2026-09-10T00:00:00.000Z', ruleId: second.identity.ruleId, ruleVersion: '1' } })).rejects.toThrow(/invalid-chronology/);
   });
 
   it('records a maintenance transition only when the count at that instant meets the reviewed threshold', async () => {
@@ -488,9 +559,7 @@ describe('lifecycle: pause, resume, maintenance and completion', () => {
   it('refuses a maintenance transition with no reviewed maintenance policy or with an unknown-date wash', async () => {
     const noPolicy = await enrolled({ washes: 5, selected: true, rule: { transitionPolicy: { initialPhaseLimit: 1, reassessmentThreshold: 3 } } });
     await expect(changeProgramme(db, { enrolmentId: noPolicy.record.enrolmentId, expectedRevision: 1, command: { kind: 'maintenance', transitionedAt: '2026-09-12T00:00:00.000Z', ruleId: noPolicy.identity.ruleId, ruleVersion: '1' } })).rejects.toThrow(/maintenance-not-proven/);
-    await db.exec('set session authorization postgres');
-    await db.exec('delete from public.profiles');
-    await asUser(db, USER_A); await complete(db, 'user_a');
+    await freshOwner();
     const unknown = await enrolled({ washes: 3, selected: true });
     await recordWashActivity(db, USER_A, '2026-09-10T09:00:00.000Z', 'exact_year');
     await expect(changeProgramme(db, { enrolmentId: unknown.record.enrolmentId, expectedRevision: 1, command: { kind: 'maintenance', transitionedAt: '2026-09-12T00:00:00.000Z', ruleId: unknown.identity.ruleId, ruleVersion: '1' } })).rejects.toThrow(/maintenance-not-proven/);
@@ -515,6 +584,17 @@ describe('lifecycle: pause, resume, maintenance and completion', () => {
     expect(ids).toContain(app.eventId);
     expect(ids).toHaveLength(4);
     expect(Date.parse(snapshot.asOf)).toBeGreaterThanOrEqual(Date.parse(completedAt));
+    await parity(programme);
+  });
+
+  it('builds a backdated completion from the evidence that existed at that time, never later events', async () => {
+    const programme = await enrolled({ washes: 5, selected: true });
+    const completedAt = '2026-09-09T00:00:00.000Z';
+    const done = await changeProgramme(db, { enrolmentId: programme.record.enrolmentId, expectedRevision: 1, command: { kind: 'complete', completedAt } });
+    const snapshot = done.completed.snapshot;
+    expect(snapshot).toMatchObject({ count: 2, completedAt, asOf: completedAt });
+    for (const reference of snapshot.eventsUsed) expect(Date.parse(reference.date.value)).toBeLessThanOrEqual(Date.parse(completedAt));
+    expect(() => CompletedSnapshotSchema.parse(snapshot)).not.toThrow();
     await parity(programme);
   });
 
@@ -546,14 +626,93 @@ describe('lifecycle: pause, resume, maintenance and completion', () => {
     const after = await programmeCounts(db);
     expect({ heads: after.heads, events: after.events - 1, receipts: after.receipts - 1 }).toEqual(before);
 
+    await freshOwner();
     const none = await enrolled({ specs: [] });
     await expect(changeProgramme(db, { enrolmentId: none.record.enrolmentId, expectedRevision: 1, command: { kind: 'complete', completedAt: '2026-09-20T00:00:00.000Z' } })).rejects.toThrow(/application-missing/);
+    await freshOwner();
     const two = await enrolled({ specs: [...careSpecs(1), { kind: 'application', at: '2026-09-03T08:00:00.000Z', session: 'app2' }] });
     await expect(changeProgramme(db, { enrolmentId: two.record.enrolmentId, expectedRevision: 1, command: { kind: 'complete', completedAt: '2026-09-20T00:00:00.000Z' } })).rejects.toThrow(/application-ambiguous/);
+    await freshOwner();
     const shampoo = await enrolled({ rule: { unit: 'shampoo-session' }, specs: careSpecs(2, { shampoo: 'unknown' }) });
     await expect(changeProgramme(db, { enrolmentId: shampoo.record.enrolmentId, expectedRevision: 1, command: { kind: 'complete', completedAt: '2026-09-20T00:00:00.000Z' } })).rejects.toThrow(/count-not-proven/);
     const rows = await privileged(db, `select count(*)::int n from public.treatment_programme_events where kind = 'complete'`);
     expect(rows.rows[0]).toEqual({ n: 0 });
+  }, 60_000);
+
+  it('lets an owner close a programme the rule can no longer serve, frees its slot and derives nothing for it', async () => {
+    const programme = await enrolled({ washes: 2, selected: true });
+    const id = programme.record.enrolmentId;
+    await privileged(db, `update strandcue_private.programme_rule_publications set state = 'withdrawn' where artifact_id = $1`, [programme.identity.artifactId]);
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { kind: 'select-application', eventId: programme.seeded[0]!.eventId } })).rejects.toThrow(/rule-withdrawn/);
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { kind: 'abandon', reason: 'x' } })).rejects.toThrow(/invalid-command/);
+    const closed = await changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { kind: 'abandon' } });
+    expect(closed).toMatchObject({ status: 'abandoned', revision: 2 });
+    const detail = await getProgramme(db, id);
+    expect(detail.evaluation).toBeNull();
+    expect(detail.history.map((item: any) => item.kind)).toEqual(['enrol', 'abandon']);
+    expect((await listProgrammes(db)).items[0].evaluation).toBeNull();
+    for (const command of [{ kind: 'abandon' }, { kind: 'complete', completedAt: '2026-09-20T00:00:00.000Z' }, PAUSE]) {
+      await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command })).rejects.toThrow(/already-abandoned/);
+    }
+    // The slot is free again: the same rule can be enrolled once it is published afresh.
+    const next = await publishedRule(db);
+    await expect(enrolProgramme(db, { ruleId: next.identity.ruleId })).resolves.toBeDefined();
+    await expect(privileged(db, `update public.treatment_programmes set status = 'active', revision = revision + 1 where enrolment_id = $1`, [id])).rejects.toThrow(/programme-head-invalid/);
+  });
+
+  it('keeps the executions behind an active programme through the execution purge and releases them afterwards', async () => {
+    const programme = await enrolled({ washes: 2, selected: true });
+    const finishOld = async () => privileged(db,
+      `update public.protocol_executions set status = 'completed', execution = jsonb_set(execution, '{finishedAt}', '"2026-01-01T00:00:00.000Z"'::jsonb) where user_id = $1`, [USER_A]);
+    const executions = async () => Number((await privileged<{ n: string }>(db, 'select count(*)::text n from public.protocol_executions')).rows[0]!.n);
+    await finishOld();
+    const total = await executions();
+    expect(total).toBeGreaterThan(0);
+    await privileged(db, 'select public.protocol_execution_retention_cleanup()');
+    expect(await executions()).toBe(total);
+    expect((await getProgramme(db, programme.record.enrolmentId)).evaluation).toMatchObject({ count: 2 });
+    await changeProgramme(db, { enrolmentId: programme.record.enrolmentId, expectedRevision: 1, command: { kind: 'complete', completedAt: '2026-09-20T00:00:00.000Z' } });
+    await privileged(db, 'select public.protocol_execution_retention_cleanup()');
+    expect(await executions()).toBe(0);
+    expect((await getProgramme(db, programme.record.enrolmentId)).completed.snapshot.count).toBe(2);
+  });
+
+  it('releases the executions behind a programme when it is abandoned,', async () => {
+    const programme = await enrolled({ washes: 2, selected: true });
+    await privileged(db, `update public.protocol_executions set status = 'completed', execution = jsonb_set(execution, '{finishedAt}', '"2026-01-01T00:00:00.000Z"'::jsonb)`);
+    await privileged(db, 'select public.protocol_execution_retention_cleanup()');
+    expect(Number((await privileged<{ n: string }>(db, 'select count(*)::text n from public.protocol_executions')).rows[0]!.n)).toBeGreaterThan(0);
+    await changeProgramme(db, { enrolmentId: programme.record.enrolmentId, expectedRevision: 1, command: { kind: 'abandon' } });
+    await privileged(db, 'select public.protocol_execution_retention_cleanup()');
+    expect(Number((await privileged<{ n: string }>(db, 'select count(*)::text n from public.protocol_executions')).rows[0]!.n)).toBe(0);
+  });
+
+  it('truncates stated instants to the millisecond so a pause and resume cannot collapse into an unusable pair', async () => {
+    const programme = await enrolled({ washes: 2, selected: true });
+    const id = programme.record.enrolmentId;
+    const paused = await changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { ...PAUSE, pausedAt: '2026-09-09T00:00:00.000400Z' } });
+    expect(paused.paused.pausedAt).toBe('2026-09-09T00:00:00.000Z');
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: { ...RESUME, resumedAt: '2026-09-09T00:00:00.000600Z' } })).rejects.toThrow(/invalid-chronology/);
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: { ...RESUME, resumedAt: '2026-09-13T24:00:00.000Z' } })).rejects.toThrow(/invalid-command/);
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: { ...RESUME, resumedAt: '2026-09-13T23:59:60.000Z' } })).rejects.toThrow(/invalid-command/);
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: RESUME });
+  });
+
+  it('derives a long history in linear time', async () => {
+    const programme = await enrolled({ specs: [{ kind: 'application', at: APP_AT, session: 'app' }], selected: true });
+    const executionId = crypto.randomUUID();
+    await privileged(db, `with run as (select request_id from public.recommendation_runs where user_id = $1 limit 1),
+      ex as (insert into public.protocol_executions(user_id, execution_id, recommendation_run_id, decision, execution, revision, status)
+        select $1, $2::uuid, run.request_id, '{}'::jsonb,
+               jsonb_build_object('steps', (select jsonb_agg(jsonb_build_object('stepId', 'w' || g, 'position', g, 'state', 'confirmed',
+                 'confirmedAt', to_char(timestamptz '2026-09-05 00:00+00' + g * interval '10 minutes', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+                 'planned', jsonb_build_object('productId', null, 'productVersionId', null))) from generate_series(1, 900) g)), 1, 'completed' from run returning execution_id, recommendation_run_id)
+      insert into strandcue_private.execution_step_care(user_id, execution_id, step_id, run_id, kind, shampoo_used)
+        select $1, ex.execution_id, 'w' || g, ex.recommendation_run_id, 'wash', 'yes' from ex, generate_series(1, 900) g`, [USER_A, executionId]);
+    const started = Date.now();
+    const detail = await getProgramme(db, programme.record.enrolmentId);
+    expect(detail.evaluation).toMatchObject({ count: 900, dueStatus: 'due' });
+    expect(Date.now() - started).toBeLessThan(8_000);
   }, 60_000);
 
   it('selects one of several confirmed applications explicitly', async () => {
@@ -610,21 +769,23 @@ describe('idempotency, concurrency-shaped retries and revisions', () => {
     expect(await programmeCounts(db)).toEqual(before);
   });
 
-  it('caps lifecycle revisions and per-owner private receipts with a stable code', async () => {
+  it('caps lifecycle revisions but always leaves room to complete, and caps per-owner private receipts, with stable codes', async () => {
     const programme = await enrolled({ specs: [...careSpecs(0), { kind: 'application', at: '2026-09-03T08:00:00.000Z', session: 'a2' }] });
     const id = programme.record.enrolmentId;
     const [first, second] = [programme.seeded[0]!.eventId, programme.seeded[1]!.eventId];
     let revision = 1;
-    for (let index = 0; index < 49; index += 1) {
+    for (let index = 0; index < 48; index += 1) {
       const result = await changeProgramme(db, { enrolmentId: id, expectedRevision: revision, command: { kind: 'select-application', eventId: index % 2 === 0 ? second : first } });
       revision = result.revision;
     }
-    expect(revision).toBe(50);
+    expect(revision).toBe(49);
     const before = await programmeCounts(db);
-    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 50, command: { kind: 'select-application', eventId: first } })).rejects.toThrow(/quota-exceeded/);
+    await expect(changeProgramme(db, { enrolmentId: id, expectedRevision: 49, command: { kind: 'select-application', eventId: first } })).rejects.toThrow(/quota-exceeded/);
     expect(await programmeCounts(db)).toEqual(before);
+    const done = await changeProgramme(db, { enrolmentId: id, expectedRevision: 49, command: { kind: 'complete', completedAt: '2026-09-20T00:00:00.000Z' } });
+    expect(done).toMatchObject({ status: 'completed', revision: 50 });
     await privileged(db, `insert into strandcue_private.treatment_programme_operations(user_id, operation_id, payload, result)
-                          select $1, gen_random_uuid(), '{}'::jsonb, '{}'::jsonb from generate_series(1, 500)`, [USER_A]);
+                          select $1, gen_random_uuid(), '{}'::jsonb, '{}'::jsonb from generate_series(1, 2000)`, [USER_A]);
     const { identity } = await publishedRule(db);
     await expect(enrolProgramme(db, { ruleId: identity.ruleId })).rejects.toThrow(/quota-exceeded/);
   }, 120_000);
@@ -721,6 +882,7 @@ describe('append-only history and authority integrity', () => {
       { ...good, count: -1 }, { ...good, eventsUsed: [...good.eventsUsed, good.eventsUsed[0]] }, { ...good, eventsUsed: [...good.eventsUsed].reverse() },
       { ...good, eventsUsed: good.eventsUsed.filter((item: any) => item.kind !== 'application') }, { ...good, completedAt: '2026-08-01T00:00:00.000Z' },
       { ...good, asOf: '2026-09-01T00:00:00.000Z' }, { ...good, extra: true }, { ...good, state: 'initial' },
+      { ...good, eventsUsed: [{ ...good.eventsUsed[0], date: { precision: 'zzz', value: 5 } }, ...good.eventsUsed.slice(1)] },
     ];
     for (const snapshot of bad) {
       await expect(privileged(db,
@@ -806,25 +968,46 @@ describe('private operation receipt retention', () => {
 
 describe('search-path hardening', () => {
   it('does not let a caller-created temporary type run code as a definer', async () => {
-    const programme = await enrolled({ washes: 2, selected: true });
-    await asUser(db, USER_A);
-    await db.exec(`
-      create function pg_temp.pwn_check(v text) returns boolean language plpgsql as $$ begin
-        if current_user <> 'authenticated' then raise exception 'PWNED as %', current_user; end if; return true; end $$;
-      create domain pg_temp.jsonb as pg_catalog.jsonb check (pg_temp.pwn_check(value::text));
-      create domain pg_temp.uuid as pg_catalog.uuid check (pg_temp.pwn_check(value::text));
-      create domain pg_temp.timestamptz as pg_catalog.timestamptz check (pg_temp.pwn_check(value::text));
-      create domain pg_temp.text as pg_catalog.text check (pg_temp.pwn_check(value));
-    `);
-    const id = programme.record.enrolmentId;
-    expect((await getProgramme(db, id)).enrolmentId).toBe(id);
-    expect((await listProgrammes(db)).items).toHaveLength(1);
-    await changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { kind: 'pause', pausedAt: '2026-09-09T00:00:00.000Z', reasonCode: 'travel' } });
-    await changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: { kind: 'resume', resumedAt: '2026-09-13T00:00:00.000Z', resumptionRuleId: 'resume-fixture', resumptionRuleVersion: '1' } });
-    await changeProgramme(db, { enrolmentId: id, expectedRevision: 3, command: { kind: 'complete', completedAt: '2026-09-20T10:00:00.000Z' } });
-    const next = await publishedRule(db);
-    await enrolProgramme(db, { ruleId: next.identity.ruleId });
-  });
+    // A dedicated database: pg_temp objects live for the whole session and would shadow names for every later test.
+    const attack = await database();
+    try {
+      await seedProgrammeCatalogue(attack);
+      await asUser(attack, USER_A);
+      await complete(attack, 'user_a');
+      const { identity } = await publishedRule(attack);
+      const next = await publishedRule(attack); // seeded before the shadow types exist: fixtures run as a privileged role
+      const seeded = await seedExecutionCare(attack, USER_A, careSpecs(4));
+      await asUser(attack, USER_A);
+      const record = await enrolProgramme(attack, { ruleId: identity.ruleId, selectedApplicationEventId: seeded[0]!.eventId });
+      const id = record.enrolmentId;
+      await attack.exec(`
+        create function pg_temp.pwn_check(v text) returns boolean language plpgsql as $$ begin
+          if current_user <> 'authenticated' then raise exception 'PWNED as %', current_user; end if; return true; end $$;
+        create domain pg_temp.jsonb as pg_catalog.jsonb check (pg_temp.pwn_check(value::text));
+        create domain pg_temp.uuid as pg_catalog.uuid check (pg_temp.pwn_check(value::text));
+        create domain pg_temp.timestamptz as pg_catalog.timestamptz check (pg_temp.pwn_check(value::text));
+        create domain pg_temp.text as pg_catalog.text check (pg_temp.pwn_check(value));
+        create domain pg_temp.int4 as pg_catalog.int4 check (pg_temp.pwn_check(value::text));
+        create domain pg_temp.bool as pg_catalog.bool check (pg_temp.pwn_check(value::text));
+      `);
+      expect((await getProgramme(attack, id)).enrolmentId).toBe(id);
+      expect((await listProgrammes(attack)).items).toHaveLength(1);
+      await changeProgramme(attack, { enrolmentId: id, expectedRevision: 1, command: { kind: 'pause', pausedAt: '2026-09-09T00:00:00.000Z', reasonCode: 'travel' } });
+      await changeProgramme(attack, { enrolmentId: id, expectedRevision: 2, command: { kind: 'resume', resumedAt: '2026-09-13T00:00:00.000Z', resumptionRuleId: 'resume-fixture', resumptionRuleVersion: '1' } });
+      await changeProgramme(attack, { enrolmentId: id, expectedRevision: 3, command: { kind: 'maintenance', transitionedAt: '2026-09-16T00:00:00.000Z', ruleId: identity.ruleId, ruleVersion: '1' } });
+      await expect(enrolProgramme(attack, { ruleId: next.identity.ruleId })).resolves.toBeDefined();
+      const rows = await attack.query<{ result: unknown }>(`select public.get_programme($1) result`, [id]);
+      expect(rows.rows).toHaveLength(1);
+      // Negative control: the same attack does reach a definer whose search path is not pinned, so the
+      // checks above would have failed had the pin been missing.
+      await attack.exec('set session authorization postgres');
+      await attack.exec(`alter function strandcue_private.programme_get_core(pg_catalog.uuid) set search_path = ''`);
+      await asUser(attack, USER_A);
+      await expect(getProgramme(attack, id)).rejects.toThrow(/PWNED as strandcue_mutator/);
+    } finally {
+      await attack.close();
+    }
+  }, 180_000);
 });
 
 describe('error responses', () => {
@@ -841,5 +1024,25 @@ describe('error responses', () => {
       expect(message).toMatch(/^[a-z]+(-[a-z]+)*$/);
       expect(message).not.toMatch(/select |insert |from |public\.|strandcue_private|[0-9a-f]{8}-[0-9a-f]{4}|secret-note-text/i);
     }
+  });
+
+  it('reports an unexpected database failure as one stable code with no SQL text', async () => {
+    const programme = await enrolled({ washes: 1, selected: true });
+    await privileged(db, 'revoke select on strandcue_private.execution_step_care from strandcue_mutator');
+    try {
+      const failure = await failureOf(() => getProgramme(db, programme.record.enrolmentId));
+      expect(failure.message).toBe('programme-unavailable');
+      expect((await failureOf(() => listProgrammes(db))).message).toBe('programme-unavailable');
+    } finally {
+      await privileged(db, 'grant select on strandcue_private.execution_step_care to strandcue_mutator');
+    }
+  });
+
+  it('treats a malformed confirmation instant as an underivable event, not a database error', async () => {
+    const programme = await enrolled({ washes: 1, selected: true });
+    await privileged(db, `update public.protocol_executions set execution = jsonb_set(execution, '{steps,0,confirmedAt}', '"yesterday"'::jsonb)
+                           where execution_id = $1`, [programme.seeded.find(item => item.kind === 'wash')!.executionId]);
+    const detail = await getProgramme(db, programme.record.enrolmentId);
+    expect(detail.evaluation).toMatchObject({ dueStatus: 'needs_input', missing: [{ code: 'invalid-or-unsupported-event-facts' }] });
   });
 });

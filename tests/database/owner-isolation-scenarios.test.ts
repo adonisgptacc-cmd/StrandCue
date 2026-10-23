@@ -44,7 +44,8 @@ describe('the live two-owner scenarios against the real migrations (PGlite)', ()
     expect(failing(results).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
     const areas = new Set(results.map(result => result.area));
     for (const area of OWNER_ISOLATION_REQUIRED_AREAS) expect(areas, area).toContain(area);
-    expect(results.length).toBe(51);
+    expect(results.length).toBe(56);
+    expect(results.filter(result => result.area === 'treatment-programme')).toHaveLength(5);
     expect(results.filter(result => result.area === 'cue-check')).toHaveLength(9);
     expect(new Set(results.map(result => result.id)).size).toBe(results.length);
     expect(summarizeScenarioResults(results)).toMatchObject({ status: 'PASS', fail: 0, blocked: 0 });
@@ -66,6 +67,41 @@ describe('the live two-owner scenarios against the real migrations (PGlite)', ()
       'cue-check.client-supplied-bound-facts-are-refused',
     ]);
     expect(failing(cue).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
+  }, 120_000);
+
+  it('proves the treatment-programme isolation scenarios individually, each with its own named result', async () => {
+    const { transport, probe } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const programme = results.filter(result => result.area === 'treatment-programme');
+    expect(programme.map(result => result.id)).toEqual([
+      'treatment-programme.anonymous-callers-are-denied',
+      'treatment-programme.enrolment-is-blocked-without-reviewed-content',
+      'treatment-programme.foreign-and-random-ids-are-refused-identically',
+      'treatment-programme.direct-writes-and-private-tables-are-denied',
+      'treatment-programme.export-carries-no-programme-rows-or-private-material',
+    ]);
+    expect(failing(programme).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
+  }, 120_000);
+
+  it('blocks, never passes, the treatment-programme scenarios when no privileged probe can count rows', async () => {
+    const { transport } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe: null });
+    const programme = results.filter(result => result.area === 'treatment-programme');
+    expect(programme).toHaveLength(5);
+    for (const result of programme) expect(result.status).toBe('BLOCKED');
+  }, 120_000);
+
+  it('fails the treatment-programme scenarios when isolation is broken or a refusal turns into a success', async () => {
+    const { transport, probe } = pgliteTransport(db, { leaky: true });
+    const broken = new Set(failing((await runOwnerIsolationScenarios({ transport, ...principals, probe })).filter(result => result.area === 'treatment-programme')).map(result => result.id));
+    expect(broken.has('treatment-programme.anonymous-callers-are-denied')).toBe(true);
+    const { transport: openDoor, probe: probe2 } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/enrol_programme') && result.status >= 400 ? { status: 200, text: '{"enrolmentId":"x"}' } : result),
+    });
+    await reset();
+    const results = await runOwnerIsolationScenarios({ transport: openDoor, ...principals, probe: probe2 });
+    expect(failing(results.filter(result => result.area === 'treatment-programme')).map(result => result.id))
+      .toContain('treatment-programme.enrolment-is-blocked-without-reviewed-content');
   }, 120_000);
 
   it('blocks, never passes, the Cue Check scenarios when no privileged probe can seed a routine', async () => {

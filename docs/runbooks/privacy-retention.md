@@ -159,3 +159,43 @@ anyone erasing or restoring data:
   30-day receipt exists.
 - Cue Check definers and the shared helpers they reach pin `search_path = pg_catalog, pg_temp`, so a caller's temporary
   types cannot run code as the definer. Older definers elsewhere keep the empty path until a separate follow-up.
+
+## Treatment programmes (Increment 5, Task I5.4)
+
+A treatment programme is the owner's own record that they started a programme with an exact product and product
+version under an exact reviewed rule, plus the append-only history of what they did next. It is owner content:
+kept for the life of the account, exported (export v6, `treatmentProgrammes` and `treatmentProgrammeEvents`) and
+removed by the profile-deletion cascade together with its lifecycle history, completion snapshot and private
+operation receipts.
+
+- A wash count, due status or programme state is never stored. Each read derives it from the owner's canonical
+  care events and the exact reviewed rule publication named by the enrolment. The only stored derived result is
+  the completion snapshot, built once by the server at completion and immutable afterwards (including against a
+  privileged rewrite; erasure still works because it deletes rows through the cascade).
+- `strandcue_private.treatment_programme_operations` keeps each submitted command and its result for 30 days. The
+  scheduled pass calls `treatment_programme_operation_retention_cleanup(as-of)`, which removes only receipts
+  strictly older than that window and returns a count. It does not touch programmes, lifecycle history, snapshots,
+  reviewed rules or audit history. Exact replay is therefore a 30-day guarantee. Hosted deployment of the
+  scheduled call remains a HOLD.
+- `TRUNCATE` of `treatment_programmes` or `treatment_programme_events` is refused while any history exists,
+  including through `truncate public.profiles cascade`. Erasure deletes rows (the deletion worker, purge and
+  reapply, or the `auth.users` cascade) and none of those is blocked.
+- Two service-internal tables sit beside the owner tables and are not owner data, not exported and not
+  owner-readable: `strandcue_private.programme_rule_publications` (reviewed rule content, immutable once published,
+  bound to its sha-256 digest, a different reviewer from the author) and `strandcue_private.execution_step_care`
+  (the trusted classification of a confirmed execution step as wash or application). Both are created empty by
+  the migration. **Operator note:** no writer for either exists yet. Until reviewed rule content is published and a
+  trusted step-classification writer exists, enrolment is refused with `rule-content-pending` and no execution step
+  can become a programme care event. Publishing a rule is a reviewed-content release, never a migration side effect.
+- Execution evidence: a programme's counts are derived from confirmed, classified execution steps. The 90-day (completed) and
+  30-day (abandoned) execution purge would erase them, so `protocol_execution_retention_cleanup()` now skips an execution whose
+  steps are classified as wash or application while the owner has an active programme. Completing or closing the programme
+  releases them for the normal purge; a completed programme keeps its own immutable snapshot. This extends how long such
+  executions are kept, only for owners who chose to run a programme.
+- Closing: `change_programme` with `{kind: 'abandon'}` ends a programme the rule can no longer serve (for example after a
+  rule withdrawal). History is kept, nothing is derived for it afterwards, and its enrolment slot is freed.
+- Receipts are capped at 2,000 per owner (retained 30 days). An issued export is never rewritten on replay.
+- Legal hold: the existing operator mechanism (`protocol_executions.legal_hold`) governs only execution
+  retention. Programme tables have no hold flag because no retention pass deletes programme facts, history or
+  snapshots; only the 30-day receipt cleanup runs, and receipts are replay material rather than evidence. A hold
+  that must survive an owner's own account deletion would be a new design decision and is not introduced here.

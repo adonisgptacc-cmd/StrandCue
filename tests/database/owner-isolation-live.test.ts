@@ -61,7 +61,7 @@ function backend(options: { failProvisioning?: boolean; failDelete?: boolean } =
   const psql: PsqlRunner = async sql => {
     if (sql.includes('shelf_operations')) {
       const counts = await probe.counts();
-      return [counts.user_products, counts.user_product_revisions, counts.shelf_operations, counts.user_tools, counts.user_tool_revisions, counts.tool_operations, counts.cue_checks, counts.cue_check_revisions, counts.cue_check_operations].join('|');
+      return [counts.user_products, counts.user_product_revisions, counts.shelf_operations, counts.user_tools, counts.user_tool_revisions, counts.tool_operations, counts.cue_checks, counts.cue_check_revisions, counts.cue_check_operations, counts.treatment_programmes, counts.treatment_programme_events, counts.treatment_programme_operations].join('|');
     }
     await probe.exec(sql);
     return '';
@@ -74,7 +74,7 @@ describe('the live two-owner runner (PGlite behind a fake HTTP backend)', () => 
     const { fetcher, psql } = backend();
     const report = await runOwnerIsolationLive({ env: LOCAL_ENV, fetcher, psql, random: () => crypto.randomUUID().replaceAll('-', '') });
     expect(report.scenarios.filter(result => result.status !== 'PASS').map(result => `${result.id}: ${result.detail}`)).toEqual([]);
-    expect(report.scenarios).toHaveLength(51);
+    expect(report.scenarios).toHaveLength(56);
     expect(report.cleanup).toBe('DONE');
     expect(report.owners.map(owner => owner.label)).toEqual(['SC-ANDROID-T5-OWNER-A', 'SC-ANDROID-T5-OWNER-B']);
     // Nothing identifying is reported whole, and the fixtures are gone.
@@ -85,7 +85,7 @@ describe('the live two-owner runner (PGlite behind a fake HTTP backend)', () => 
     expect(report.tables?.results.filter(result => result.status === 'BLOCKED').map(result => result.table)).toEqual(
       expect.arrayContaining(['recommendation_runs', 'protocol_executions', 'protocol_execution_events']));
     expect(report.status).toBe('BLOCKED');
-    expect(formatLiveRunReport(report)).toMatch(/^OWNER-ISOLATION-LIVE-BLOCKED target=local-loopback ref=\*\*\* scenarios pass=51 fail=0 blocked=0 cleanup=DONE /);
+    expect(formatLiveRunReport(report)).toMatch(/^OWNER-ISOLATION-LIVE-BLOCKED target=local-loopback ref=\*\*\* scenarios pass=56 fail=0 blocked=0 cleanup=DONE /);
     await db.exec('set session authorization postgres');
     const { rows } = await db.query<{ n: string }>(`select ((select count(*) from public.tool_versions) + (select count(*) from public.product_versions where id::text like 'c5%'))::text n`);
     expect(rows[0].n).toBe('0');
