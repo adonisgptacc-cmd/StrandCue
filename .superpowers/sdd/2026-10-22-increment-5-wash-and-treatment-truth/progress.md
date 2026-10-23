@@ -30,3 +30,12 @@
 - Independent code, security/privacy and product-truth reviews found no Critical, High or Medium findings.
 - TR-01 Partial (named-unit counting evidence added); TR-02, TR-03, TR-04 Partial; TR-05..TR-08 Not started; TL-04 remains Partial.
 - Dependency audit HOLD (0 critical, 19 high, 9 moderate). Nothing pushed, merged, deployed or published.
+
+## Task I5.3 treatment-programme state and due status: complete
+
+- Pure internal `evaluateProgramme(enrolment, events, rule, asOf)` combines owner-scoped enrolment facts, I5.1 canonical care events, I5.2 named-unit counting and an exact reviewed-rule publication binding.
+- Exact product/version applications only; maintenance counts are derived at transition time; pause/resume chronology and pause-window exclusion fail closed; completed snapshots bind publication and canonical evidence.
+- The module stays out of the public barrel. I5.4 must construct inputs and completion snapshots through an authenticated owner-scoped server join and must not accept authoritative client-built results.
+- Focused tests: 102/102. Full coverage: 193 files passed / 5 skipped; 4204 tests passed / 22 skipped. `treatment-programme.ts`: 92.16 statements / 86.36 branches / 100 functions / 92.3 lines. Independent code and security/privacy re-reviews: approved with zero Critical, High or Medium findings.
+- TR-05, TR-06, TR-07 and TR-08 move to Partial. Reviewed production treatment rules, persistence, mobile UI, hosted isolation and device evidence remain absent.
+- Dependency audit remains HOLD unless its final command exits zero. Nothing pushed, merged, deployed or published.
