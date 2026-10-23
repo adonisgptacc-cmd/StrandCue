@@ -19,3 +19,14 @@
 - Focused tests: 46/46. Full coverage: 191 files passed, 5 skipped; 4057 tests passed, 22 skipped. `care-events.ts`: 95.16/89.28/100/95.88.
 - Two independent final reviews found no Critical, High or Medium issues. TR-01 is Partial; TR-02..TR-08 remain Not started; TL-04 remains Partial.
 - Report: `task-i5.1-report.md`. I5.2 not started.
+
+## Task I5.2 wash counting by named unit: complete
+
+- Pure `countWashes(events, rule, asOf)` counts only active canonical `wash` events after one confirmed treatment application, by named unit (`wash` | `shampoo-session`).
+- Two lathers in one wash count as one shampoo session; the application wash is counted only when the rule explicitly says so; same-day events are not assumed to be the same session; shared confirmed run/session identity proves the application-wash relationship.
+- Unknown facts produce `needs_input` with structured missing-fact records; manufacturer range preserved exactly; invalid/negative ranges rejected; future and non-wash events excluded.
+- Strict Zod schemas, deeply frozen byte-deterministic output, no clock/network/database, no product-effectiveness or medical language, inputs never mutated.
+- Focused tests: 45/45. `wash-count.ts` coverage: 92.74 statements / 85.56 branches / 93.75 functions / 93.04 lines (all above 80%).
+- Independent code, security/privacy and product-truth reviews found no Critical, High or Medium findings.
+- TR-01 Partial (named-unit counting evidence added); TR-02, TR-03, TR-04 Partial; TR-05..TR-08 Not started; TL-04 remains Partial.
+- Dependency audit HOLD (0 critical, 19 high, 9 moderate). Nothing pushed, merged, deployed or published.
