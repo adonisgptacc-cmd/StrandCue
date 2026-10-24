@@ -93,6 +93,14 @@ vi.mock('../../apps/mobile/src/activities.tsx', () => ({
   Activities: () => createElement('span', null, 'ACTIVITIES SCREEN'),
 }));
 
+vi.mock('../../apps/mobile/src/ProgrammeJourney.tsx', () => ({
+  ProgrammeJourney: ({ onNavigate }: { onNavigate: (destination: string) => void }) => createElement('div', null,
+    createElement('span', null, 'PROGRAMMES SCREEN'),
+    createElement('button', { accessibilityLabel: 'Test routine-history recovery', onPress: () => onNavigate('journey_routines') }),
+    createElement('button', { accessibilityLabel: 'Test activity-history recovery', onPress: () => onNavigate('journey_activities') }),
+  ),
+}));
+
 vi.mock('../../apps/mobile/src/shelf.tsx', () => ({
   Shelf: () => createElement('span', null, 'SHELF SCREEN'),
 }));
@@ -249,6 +257,26 @@ describe('product destinations', () => {
     await act(async () => { press(renderer, 'Activities'); });
     text = renderedText(renderer);
     expect(text).toContain('ACTIVITIES SCREEN');
+
+    await act(async () => { press(renderer, 'Programmes'); });
+    text = renderedText(renderer);
+    expect(text).toContain('Your treatment programmes');
+    expect(text).toContain('PROGRAMMES SCREEN');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('routes programme recovery to the requested Journey view', async () => {
+    const renderer = await renderRecords();
+    await act(async () => { press(renderer, 'Journey: activities and history'); });
+    await act(async () => { press(renderer, 'Programmes'); });
+
+    await act(async () => { press(renderer, 'Test routine-history recovery'); });
+    expect(renderedText(renderer)).toContain('Every change has a story.');
+
+    await act(async () => { press(renderer, 'Programmes'); });
+    await act(async () => { press(renderer, 'Test activity-history recovery'); });
+    expect(renderedText(renderer)).toContain('Your activities');
+    expect(renderedText(renderer)).toContain('ACTIVITIES SCREEN');
     await act(async () => { renderer.unmount(); });
   });
 

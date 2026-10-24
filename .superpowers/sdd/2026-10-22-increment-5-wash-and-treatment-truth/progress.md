@@ -45,3 +45,13 @@
 - Production stays honestly blocked: the reviewed-rule store and the trusted step-classification store are created empty and have no writer, so enrolment returns `rule-content-pending`. A reviewed-content release and a classification writer are still needed.
 - Tests: 66 programme tests (PGlite, differential against the domain evaluator), 7 opt-in real PostgreSQL two-session tests, owner-isolation area `treatment-programme` (56 scenarios). Full coverage 194 files / 4280 tests; dependency audit HOLD; hosted, device and UI evidence NOT RUN.
 - Three review rounds; the execution-purge High and all Mediums fixed test-first. TR-01 and TR-05..TR-08 stay Partial. I5.5 not started. Report: `task-i5.4-report.md`.
+
+## Task I5.5 treatment-programme mobile journey: complete
+
+- Added a strict four-RPC mobile boundary, owner-keyed state/controller, programme list, detail, history and lifecycle actions, plus the Journey > Programmes integration.
+- All server results are schema-validated and deeply frozen. Late responses and owner switches fail closed; blocked or withdrawn reviewed content clears stale actions and permits only an explicit stop command.
+- Owner-facing copy keeps named wash units and reviewed ranges, replaces technical product labels, routes missing facts to real destinations and makes no effectiveness, medical or compliance claim.
+- Focused tests: 181/181. Full coverage: 206 files passed / 6 skipped; 4454 tests passed / 29 skipped; global 95.75 / 90.15 / 98.16 / 97.73. Every new critical file meets the 80% per-file floor.
+- Accessibility and wording/product-truth reviews were re-run after fixes and found no remaining Critical, High or Medium findings. Final independent code/security review agents were unavailable because their service quota was exhausted; the staged changes were checked manually against the repository security checklist and secret scan before commit.
+- Runtime, typecheck, lint, web export, control-plane audit, research validation and diff checks pass. Dependency audit remains HOLD (0 critical, 5 high, 9 moderate); package manifests are unchanged.
+- NOT RUN: UI against hosted or local Supabase, hosted owner isolation, emulator/device, TalkBack or VoiceOver. Production reviewed treatment content remains absent; I5.6 not started. Report: `task-i5.5-report.md`.
