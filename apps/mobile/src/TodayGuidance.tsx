@@ -53,11 +53,14 @@ import { GuidanceGapResolver } from './GuidanceGapResolver';
 import { TodayCheckIn } from './TodayCheckIn';
 import { ProtocolExecution, type TerminalAbandonReceipt } from './ProtocolExecution';
 import type { GuidanceRoute } from './navigation';
+import type { TerminalExecutionContext } from './cue-check-state';
 import { Button, styles } from './ui';
 
 export interface TodayGuidanceProps {
   readonly ownerId: string;
   readonly onNavigate: (route: GuidanceRoute) => void;
+  /** Opens the Cue Check form for a finished routine; see ProtocolExecution. */
+  readonly onCueCheck?: (execution: TerminalExecutionContext) => void;
 }
 
 /**
@@ -159,7 +162,7 @@ function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
  *    Task 3.1; that record is not this draft.) The draft is cleared the
  *    moment the owner changes, signs out or deletes the account.
  */
-export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
+export function TodayGuidance({ ownerId, onNavigate, onCueCheck }: TodayGuidanceProps) {
   const [preflight, dispatch] = useReducer(preflightReducer, ownerId, initialPreflight);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -522,6 +525,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           initialExecution={restore.execution}
           initialRevision={restore.revision ?? undefined}
           onTerminalAbandoned={handleTerminalAbandoned}
+          onOpenCueCheck={onCueCheck}
         />
       </>
     )}
@@ -620,7 +624,7 @@ export function TodayGuidance({ ownerId, onNavigate }: TodayGuidanceProps) {
           && startedRequest?.ownerId === ownerId
           && startedRequest.requestId === result.requestId
           && result.decision.steps.length > 0 && (
-          <ProtocolExecution key={ownerId} ownerId={ownerId} decision={result.decision} />
+          <ProtocolExecution key={ownerId} ownerId={ownerId} decision={result.decision} onOpenCueCheck={onCueCheck} />
         )}
 
         {result.status === 'needs_input' && (

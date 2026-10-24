@@ -52,6 +52,14 @@ const trustedMigrationNames = [
   '20261022120000_product_detail_publication.sql',
   '20261023120000_tool_owner_facts.sql',
   '20261023130000_tool_catalogue_publication.sql',
+  '20261024090000_cue_checks.sql',
+  '20261024100000_cue_check_review_fixes.sql',
+  '20261024110000_cue_check_operation_retention.sql',
+  '20261024120000_cue_check_hardening.sql',
+  '20261024130000_cue_check_search_path_hardening.sql',
+  '20261024140000_cue_check_recent_auth_search_path.sql',
+  '20261025120000_treatment_programmes.sql',
+  '20261025130000_programme_execution_retention_scope.sql',
 ] as const;
 
 const candidateMigrationNames = [

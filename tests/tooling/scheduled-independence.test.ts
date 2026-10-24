@@ -10,7 +10,14 @@ const env = {
   STRANDCUE_SUPABASE_SERVICE_KEY: 'service-role-key-with-enough-characters',
 };
 
-const counts = { exportsPurged: 2, executionsPurged: 1, eventsPurged: 3, operationsPurged: 4, consentsPurged: 5 };
+const counts = {
+  exportsPurged: 2,
+  executionsPurged: 1,
+  eventsPurged: 3,
+  operationsPurged: 4,
+  consentsPurged: 5,
+  cueCheckOperationsPurged: 6,
+};
 
 function deletionDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -60,7 +67,7 @@ describe('independent scheduled deletion and retention passes', () => {
     });
     expect(r.log).toHaveBeenCalledExactlyOnceWith({
       event: 'retention_cleanup_run', outcome: 'failed',
-      exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0, consentsPurged: 0, durationMs: 0,
+      exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0, consentsPurged: 0, cueCheckOperationsPurged: 0, durationMs: 0,
     });
   });
 
@@ -85,7 +92,7 @@ describe('independent scheduled deletion and retention passes', () => {
     });
     expect(r.log).toHaveBeenCalledExactlyOnceWith({
       event: 'retention_cleanup_run', outcome: 'failed',
-      exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0, consentsPurged: 0, durationMs: 0,
+      exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0, consentsPurged: 0, cueCheckOperationsPurged: 0, durationMs: 0,
     });
   });
 
@@ -149,7 +156,7 @@ describe('independent scheduled deletion and retention passes', () => {
       defaultDependencies.log({ event: 'account_deletion_worker_run', outcome: 'idle', jobs: 0, durationMs: 0 });
       defaultRetentionDependencies.log({
         event: 'retention_cleanup_run', outcome: 'completed',
-        exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0, consentsPurged: 0, durationMs: 0,
+        exportsPurged: 0, executionsPurged: 0, eventsPurged: 0, operationsPurged: 0, consentsPurged: 0, cueCheckOperationsPurged: 0, durationMs: 0,
       });
       expect(write).toHaveBeenCalledTimes(2);
     } finally {

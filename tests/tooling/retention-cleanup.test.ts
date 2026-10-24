@@ -21,6 +21,7 @@ describe('deterministic retention cleanup worker', () => {
       { data: 2, error: null },
       { data: { executions: 1, events: 3, operations: 4 }, error: null },
       { data: 5, error: null },
+      { data: 6, error: null },
     ]);
     const result = await processRetentionCleanup(rpcClient, '2026-10-16T15:51:00.398Z');
     expect(result).toEqual({
@@ -29,11 +30,15 @@ describe('deterministic retention cleanup worker', () => {
       eventsPurged: 3,
       operationsPurged: 4,
       consentsPurged: 5,
+      cueCheckOperationsPurged: 6,
     });
     expect(rpcClient.rpc).toHaveBeenNthCalledWith(1, 'export_retention_cleanup', {});
     expect(rpcClient.rpc).toHaveBeenNthCalledWith(2, 'protocol_execution_retention_cleanup', {});
     expect(rpcClient.rpc).toHaveBeenNthCalledWith(
       3, 'consent_retention_cleanup', { p_as_of: '2026-10-16T15:51:00.398Z' },
+    );
+    expect(rpcClient.rpc).toHaveBeenNthCalledWith(
+      4, 'cue_check_operation_retention_cleanup', { p_as_of: '2026-10-16T15:51:00.398Z' },
     );
   });
 
@@ -89,10 +94,11 @@ describe('private scheduled retention worker', () => {
       { data: 2, error: null },
       { data: { executions: 1, events: 3, operations: 4 }, error: null },
       { data: 5, error: null },
+      { data: 6, error: null },
     ]);
     const processRetention = vi.fn().mockResolvedValue({
       exportsPurged: 2, executionsPurged: 1, eventsPurged: 3, operationsPurged: 4,
-      consentsPurged: 5,
+      consentsPurged: 5, cueCheckOperationsPurged: 6,
     });
     const log = vi.fn();
     await expect(
@@ -101,7 +107,7 @@ describe('private scheduled retention worker', () => {
       }),
     ).resolves.toEqual({
       exportsPurged: 2, executionsPurged: 1, eventsPurged: 3, operationsPurged: 4,
-      consentsPurged: 5,
+      consentsPurged: 5, cueCheckOperationsPurged: 6,
     });
     expect(processRetention).toHaveBeenCalledExactlyOnceWith(
       rpcClient, '1970-01-01T00:00:00.042Z',
@@ -113,7 +119,7 @@ describe('private scheduled retention worker', () => {
       executionsPurged: 1,
       eventsPurged: 3,
       operationsPurged: 4,
-      consentsPurged: 5,
+      consentsPurged: 5, cueCheckOperationsPurged: 6,
       durationMs: 0,
     });
   });
@@ -134,7 +140,7 @@ describe('private scheduled retention worker', () => {
       executionsPurged: 0,
       eventsPurged: 0,
       operationsPurged: 0,
-      consentsPurged: 0,
+      consentsPurged: 0, cueCheckOperationsPurged: 0,
       durationMs: 0,
     });
     expect(JSON.stringify(log.mock.calls)).not.toContain(providerError.message);
@@ -159,6 +165,7 @@ describe('consent retention in the worker pass', () => {
       { data: 2, error: null },
       { data: { executions: 1, events: 3, operations: 4 }, error: null },
       { data: 5, error: null },
+      { data: 6, error: null },
     ]);
     const result = await processRetentionCleanup(rpcClient, AS_OF);
     expect(result).toEqual({
@@ -166,7 +173,7 @@ describe('consent retention in the worker pass', () => {
       executionsPurged: 1,
       eventsPurged: 3,
       operationsPurged: 4,
-      consentsPurged: 5,
+      consentsPurged: 5, cueCheckOperationsPurged: 6,
     });
     expect(rpcClient.rpc).toHaveBeenNthCalledWith(1, 'export_retention_cleanup', {});
     expect(rpcClient.rpc).toHaveBeenNthCalledWith(2, 'protocol_execution_retention_cleanup', {});
@@ -203,10 +210,11 @@ describe('consent retention in the worker pass', () => {
       { data: 2, error: null },
       { data: { executions: 1, events: 3, operations: 4 }, error: null },
       { data: 5, error: null },
+      { data: 6, error: null },
     ]);
     const processRetention = vi.fn().mockResolvedValue({
       exportsPurged: 2, executionsPurged: 1, eventsPurged: 3, operationsPurged: 4,
-      consentsPurged: 5,
+      consentsPurged: 5, cueCheckOperationsPurged: 6,
     });
     const log = vi.fn();
     await expect(
@@ -221,7 +229,7 @@ describe('consent retention in the worker pass', () => {
       executionsPurged: 1,
       eventsPurged: 3,
       operationsPurged: 4,
-      consentsPurged: 5,
+      consentsPurged: 5, cueCheckOperationsPurged: 6,
       durationMs: 0,
     });
   });
@@ -241,7 +249,7 @@ describe('consent retention in the worker pass', () => {
       executionsPurged: 0,
       eventsPurged: 0,
       operationsPurged: 0,
-      consentsPurged: 0,
+      consentsPurged: 0, cueCheckOperationsPurged: 0,
       durationMs: 0,
     });
   });

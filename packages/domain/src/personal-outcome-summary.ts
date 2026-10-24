@@ -39,6 +39,9 @@ import { frozen } from './guidance/schemas.ts';
 export const MINIMUM_COMPARABLE_SAMPLE = 3;
 
 const TIMING_ORDER = ['immediate', 'delayed'] as const satisfies readonly CueCheckTiming[];
+const PERSONAL_OUTCOME_FIELDS = CUE_CHECK_OBSERVATION_FIELDS.filter(
+  field => field !== 'immediateReaction',
+);
 
 /** The comparable context being summarized; records outside it never combine. */
 export const PersonalOutcomeSummarizationContextSchema = z
@@ -75,7 +78,7 @@ const INSUFFICIENT_SUBJECTS: { readonly [K in CueCheckObservationField]: string 
   breakage: 'breakage',
   styleLongevity: 'how long your style lasted',
   immediateReaction: 'reactions',
-  wouldUseAgain: 'using this routine again',
+  wouldUseAgain: 'choosing this routine again',
 };
 
 /**
@@ -122,9 +125,9 @@ const REPORTED_PHRASES: {
     'some-noticed': 'noticing a reaction',
   },
   wouldUseAgain: {
-    yes: 'you would use this routine again',
-    no: 'you would not use this routine again',
-    unsure: 'you were unsure about using this routine again',
+    yes: 'you would choose this routine again',
+    no: 'you would not choose this routine again',
+    unsure: 'you were undecided about choosing this routine again',
   },
 };
 
@@ -326,7 +329,7 @@ export function summarizePersonalOutcomes(
   }
 
   const summaries: PersonalOutcomeSummary[] = [];
-  for (const field of CUE_CHECK_OBSERVATION_FIELDS) {
+  for (const field of PERSONAL_OUTCOME_FIELDS) {
     for (const timing of TIMING_ORDER) {
       const fieldSchema: z.ZodType = CueCheckOutcomeFieldSchemas[field];
       const candidates = comparable.filter(record => {

@@ -52,8 +52,10 @@ interface Owner { readonly label: string; readonly email: string; readonly passw
 
 const PRIVILEGED_COUNTS_SQL = `select (select count(*) from public.user_products), (select count(*) from public.user_product_revisions),
   (select count(*) from strandcue_private.shelf_operations), (select count(*) from public.user_tools),
-  (select count(*) from public.user_tool_revisions), (select count(*) from strandcue_private.tool_operations)`;
-const COUNT_KEYS = ['user_products', 'user_product_revisions', 'shelf_operations', 'user_tools', 'user_tool_revisions', 'tool_operations'] as const;
+  (select count(*) from public.user_tool_revisions), (select count(*) from strandcue_private.tool_operations),
+  (select count(*) from public.cue_checks), (select count(*) from public.cue_check_revisions), (select count(*) from strandcue_private.cue_check_operations),
+  (select count(*) from public.treatment_programmes), (select count(*) from public.treatment_programme_events), (select count(*) from strandcue_private.treatment_programme_operations)`;
+const COUNT_KEYS = ['user_products', 'user_product_revisions', 'shelf_operations', 'user_tools', 'user_tool_revisions', 'tool_operations', 'cue_checks', 'cue_check_revisions', 'cue_check_operations', 'treatment_programmes', 'treatment_programme_events', 'treatment_programme_operations'] as const;
 
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();

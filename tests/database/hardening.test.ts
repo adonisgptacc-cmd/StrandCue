@@ -25,7 +25,8 @@ describe('database hardening audit', () => {
       select p.oid::regprocedure::text signature from pg_proc p
         join pg_namespace n on n.oid = p.pronamespace
       where n.nspname in ('public', 'strandcue_private')
-        and not p.proconfig @> array['search_path=""']
+        -- Either the empty path, or the stricter pinned form that lists the catalogue first and pg_temp last.
+        and not (p.proconfig @> array['search_path=""'] or p.proconfig @> array['search_path=pg_catalog, pg_temp'])
     `);
     expect(violators.rows).toEqual([]);
   });

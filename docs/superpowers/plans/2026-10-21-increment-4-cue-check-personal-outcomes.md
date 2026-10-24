@@ -74,13 +74,13 @@
 - Every mutation accepts a stable operation ID and expected revision; the server derives owner, run, execution and confirmed actual-use bindings.
 - Store server receipt time separately from owner-observed time and preserve observation precision.
 
-- [ ] Write failing PGlite tests for ownership, active-account enforcement, anonymous/direct-write denial, terminal execution binding, exact run agreement and confirmed-actual-use projection.
-- [ ] Write failing tests for identical retry convergence, conflicting operation reuse, expected-revision conflicts, correction chains, void history, size quotas and refusal atomicity.
-- [ ] Write failing export/deletion tests and a proof that catalogue evidence/publication rows never change.
-- [ ] Run the database suites and record RED.
-- [ ] Implement one forward-only migration with RLS, narrow grants, append-only guards, relational integrity, bounded payloads and stable public error codes.
-- [ ] Verify the full migration set applies from zero and reruns fail safely where expected.
-- [ ] Run database suites and coverage; commit `feat: persist owner-only Cue Checks`.
+- [x] Write failing PGlite tests for ownership, active-account enforcement, anonymous/direct-write denial, terminal execution binding, exact run agreement and confirmed-actual-use projection.
+- [x] Write failing tests for identical retry convergence, conflicting operation reuse, expected-revision conflicts, correction chains, void history, size quotas and refusal atomicity.
+- [x] Write failing export/deletion tests and a proof that catalogue evidence/publication rows never change.
+- [x] Run the database suites and record RED.
+- [x] Implement one forward-only migration with RLS, narrow grants, append-only guards, relational integrity, bounded payloads and stable public error codes.
+- [x] Verify the full migration set applies from zero and reruns fail safely where expected.
+- [x] Run database suites and coverage; commit `feat: persist owner-only Cue Checks`.
 
 ### Task 4.3: add the mobile Cue Check API and state machine
 

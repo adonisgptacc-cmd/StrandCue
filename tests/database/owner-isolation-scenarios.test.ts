@@ -25,7 +25,7 @@ const principals = {
 
 async function reset() {
   await db.exec('set session authorization postgres');
-  await db.exec('truncate public.profiles cascade');
+  await db.exec('delete from public.profiles');
   await db.exec('alter table public.tool_publications disable trigger user; alter table public.tool_claim_evidence disable trigger user');
   await db.exec('delete from public.tool_claim_evidence; delete from public.tool_publications');
   await db.exec('alter table public.tool_publications enable trigger user; alter table public.tool_claim_evidence enable trigger user');
@@ -44,9 +44,112 @@ describe('the live two-owner scenarios against the real migrations (PGlite)', ()
     expect(failing(results).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
     const areas = new Set(results.map(result => result.area));
     for (const area of OWNER_ISOLATION_REQUIRED_AREAS) expect(areas, area).toContain(area);
-    expect(results.length).toBe(42);
+    expect(results.length).toBe(56);
+    expect(results.filter(result => result.area === 'treatment-programme')).toHaveLength(5);
+    expect(results.filter(result => result.area === 'cue-check')).toHaveLength(9);
     expect(new Set(results.map(result => result.id)).size).toBe(results.length);
     expect(summarizeScenarioResults(results)).toMatchObject({ status: 'PASS', fail: 0, blocked: 0 });
+  }, 120_000);
+
+  it('proves the Cue Check isolation scenarios individually, each with its own named result', async () => {
+    const { transport, probe } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const cue = results.filter(result => result.area === 'cue-check');
+    expect(cue.map(result => result.id)).toEqual([
+      'cue-check.owner-records-and-reads-their-own',
+      'cue-check.b-cannot-read-a',
+      'cue-check.b-cannot-correct-or-void-as-a',
+      'cue-check.foreign-and-random-ids-are-indistinguishable',
+      'cue-check.anonymous-callers-are-denied',
+      'cue-check.direct-writes-and-private-receipts-are-denied',
+      'cue-check.export-holds-only-the-owners-records-and-no-receipts',
+      'cue-check.owner-switch-leaves-no-prior-owner-rows',
+      'cue-check.client-supplied-bound-facts-are-refused',
+    ]);
+    expect(failing(cue).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
+  }, 120_000);
+
+  it('proves the treatment-programme isolation scenarios individually, each with its own named result', async () => {
+    const { transport, probe } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const programme = results.filter(result => result.area === 'treatment-programme');
+    expect(programme.map(result => result.id)).toEqual([
+      'treatment-programme.anonymous-callers-are-denied',
+      'treatment-programme.enrolment-is-blocked-without-reviewed-content',
+      'treatment-programme.foreign-and-random-ids-are-refused-identically',
+      'treatment-programme.direct-writes-and-private-tables-are-denied',
+      'treatment-programme.export-carries-no-programme-rows-or-private-material',
+    ]);
+    expect(failing(programme).map(result => `${result.id}: ${result.detail}`)).toEqual([]);
+  }, 120_000);
+
+  it('blocks, never passes, the treatment-programme scenarios when no privileged probe can count rows', async () => {
+    const { transport } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe: null });
+    const programme = results.filter(result => result.area === 'treatment-programme');
+    expect(programme).toHaveLength(5);
+    for (const result of programme) expect(result.status).toBe('BLOCKED');
+  }, 120_000);
+
+  it('fails the treatment-programme scenarios when isolation is broken or a refusal turns into a success', async () => {
+    const { transport, probe } = pgliteTransport(db, { leaky: true });
+    const broken = new Set(failing((await runOwnerIsolationScenarios({ transport, ...principals, probe })).filter(result => result.area === 'treatment-programme')).map(result => result.id));
+    expect(broken.has('treatment-programme.anonymous-callers-are-denied')).toBe(true);
+    const { transport: openDoor, probe: probe2 } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/enrol_programme') && result.status >= 400 ? { status: 200, text: '{"enrolmentId":"x"}' } : result),
+    });
+    await reset();
+    const results = await runOwnerIsolationScenarios({ transport: openDoor, ...principals, probe: probe2 });
+    expect(failing(results.filter(result => result.area === 'treatment-programme')).map(result => result.id))
+      .toContain('treatment-programme.enrolment-is-blocked-without-reviewed-content');
+  }, 120_000);
+
+  it('blocks, never passes, the Cue Check scenarios when no privileged probe can seed a routine', async () => {
+    const { transport } = pgliteTransport(db);
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe: null });
+    const cue = results.filter(result => result.area === 'cue-check');
+    expect(cue).toHaveLength(9);
+    expect(cue.some(result => result.status === 'PASS')).toBe(false);
+    for (const result of cue) expect(result.status).toBe('BLOCKED');
+  }, 120_000);
+
+  it('fails the Cue Check scenarios when isolation is broken (every caller acts as the first owner)', async () => {
+    const { transport, probe } = pgliteTransport(db, { leaky: true });
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const cue = results.filter(result => result.area === 'cue-check');
+    expect(cue).toHaveLength(9);
+    const broken = new Set(failing(cue).map(result => result.id));
+    expect(broken.has('cue-check.b-cannot-read-a')).toBe(true);
+    expect(broken.has('cue-check.anonymous-callers-are-denied')).toBe(true);
+    expect(broken.has('cue-check.b-cannot-correct-or-void-as-a')).toBe(true);
+    for (const id of ['cue-check.foreign-and-random-ids-are-indistinguishable', 'cue-check.export-holds-only-the-owners-records-and-no-receipts', 'cue-check.owner-switch-leaves-no-prior-owner-rows']) {
+      expect(broken.has(id), id).toBe(true);
+    }
+  }, 120_000);
+
+  it('refuses to treat two successful replies as the same refusal', async () => {
+    const { transport, probe } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/get_cue_check') && result.status >= 400 ? { status: 200, text: '{}' } : result),
+    });
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const same = results.find(result => result.id === 'cue-check.foreign-and-random-ids-are-indistinguishable');
+    expect(same?.status).toBe('FAIL');
+  }, 120_000);
+
+  it('fails closed when a Cue Check response is malformed or an expected denial succeeds', async () => {
+    const { transport, probe } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/list_cue_checks') ? { status: 200, text: '<html>gateway</html>' } : result),
+    });
+    const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });
+    const broken = failing(results.filter(result => result.area === 'cue-check'));
+    expect(broken.length).toBeGreaterThan(0);
+    expect(broken.some(result => /malformed|not JSON/i.test(result.detail))).toBe(true);
+    const { transport: openDoor, probe: probe2 } = pgliteTransport(db, {
+      mangle: (path, result) => (path.includes('/rpc/get_cue_check') && result.status >= 400 ? { status: 200, text: '{"recordId":"x"}' } : result),
+    });
+    await reset();
+    const results2 = await runOwnerIsolationScenarios({ transport: openDoor, ...principals, probe: probe2 });
+    expect(failing(results2.filter(result => result.area === 'cue-check')).map(result => result.id)).toContain('cue-check.foreign-and-random-ids-are-indistinguishable');
   }, 120_000);
 
   it('removes its synthetic catalogue fixtures afterwards and leaves no owner data behind', async () => {

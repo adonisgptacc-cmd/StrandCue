@@ -1,6 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
 import { asUser, BASELINE, complete, database, mutate, USER_A, USER_B } from './harness.ts';
+import {
+  changeProgramme, enrolProgramme, publishedRule, seedExecutionCare, seedProgrammeCatalogue,
+} from './support/programme-fixtures.ts';
 
 const DAY = { precision: 'day', value: '2024-01-15' };
 
@@ -37,7 +40,7 @@ describe('export jobs immutable history and RLS', () => {
   beforeEach(async () => { await asUser(db, USER_A); });
   afterEach(async () => {
     await db.exec('set session authorization postgres');
-    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.profiles');
     // Consent records survive profile purge by design (7-year retention, no
     // profile foreign key), so they need an explicit wipe between tests.
     await db.exec('delete from public.consent_records');
@@ -244,6 +247,8 @@ const EXPORT_CATEGORY_FILES: Record<string, string[]> = {
   consentRecords: ['consent_records.csv'],
   recommendationRuns: ['recommendation_runs.csv'],
   protocolExecutions: ['protocol_executions.csv', 'protocol_execution_events.csv'],
+  cueChecks: ['cue_checks.csv', 'cue_check_revisions.csv'],
+  treatmentProgrammes: ['treatment_programmes.csv', 'treatment_programme_events.csv'],
   schemaVersions: ['schema_versions.csv'],
 };
 
@@ -254,10 +259,12 @@ const EXPORT_CATEGORY_FILES: Record<string, string[]> = {
 const EXPORTED_OWNER_TABLES = new Set([
   'public.activities', 'public.activity_heat_events', 'public.activity_products',
   'public.activity_revisions', 'public.activity_tools', 'public.chemical_services',
-  'public.consent_records', 'public.hair_passports', 'public.heat_events',
+  'public.consent_records', 'public.cue_check_revisions', 'public.cue_checks',
+  'public.hair_passports', 'public.heat_events',
   'public.passport_revisions', 'public.profiles', 'public.protocol_execution_events',
   'public.protocol_executions', 'public.recommendation_runs', 'public.service_observations',
-  'public.service_revisions', 'public.service_zones', 'public.user_product_revisions',
+  'public.service_revisions', 'public.service_zones', 'public.treatment_programme_events',
+  'public.treatment_programmes', 'public.user_product_revisions',
   'public.user_products', 'public.user_tool_revisions', 'public.user_tools',
 ]);
 const EXCLUDED_OWNER_TABLES = new Map<string, string>([
@@ -265,13 +272,16 @@ const EXCLUDED_OWNER_TABLES = new Map<string, string>([
   ['public.deletion_tombstones', 'deletion lifecycle mapping, not user content: surviving fields repeat tombstone fields already covered by profile (username); excluded by the service-internals rule — a cancel-then-restore account can hold lifecycle rows while active, so unreachability is not claimed'],
   ['strandcue_private.activity_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.consent_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.cue_check_operations', 'service-internal idempotency material (operation ids, command payloads and receipts), never owner content'],
   ['strandcue_private.deletion_lifecycle_events', 'Task 9 owner lifecycle history kept in service schema: excluded by the service-internals rule; surviving fields repeat tombstone fields already covered by profile (username)'],
   ['strandcue_private.deletion_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.execution_step_care', 'service-derived classification of already-exported execution steps (wash or application); carries no owner-entered content and no reviewer data'],
   ['strandcue_private.export_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.passport_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.protocol_execution_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.service_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.shelf_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.treatment_programme_operations', 'service-internal idempotency material (operation ids, command payloads and receipts), never owner content'],
   ['strandcue_private.tool_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.username_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.username_option_limits', 'service-internal rate-limit state, never owner content'],
@@ -289,6 +299,8 @@ const EXPORTED_OWNER_COLUMNS: Record<string, string[]> = {
   'public.activity_tools': ['id', 'owner', 'activity_id', 'tool_version', 'applied_at', 'created_at'],
   'public.chemical_services': ['id', 'user_id', 'revision', 'created_at'],
   'public.consent_records': ['id', 'user_id', 'purpose', 'granted', 'recorded_at'],
+  'public.cue_checks': ['id', 'user_id', 'record_id', 'execution_id', 'recommendation_run_id', 'goal', 'timing', 'lifecycle', 'revision', 'observed_at', 'received_at', 'observation', 'confirmed_steps', 'execution_status', 'created_at', 'updated_at'],
+  'public.cue_check_revisions': ['id', 'user_id', 'record_id', 'sequence', 'kind', 'observation', 'corrects_id', 'correction_reason', 'void_reason', 'received_at'],
   'public.hair_passports': ['id', 'user_id', 'revision', 'current_projection', 'created_at'],
   'public.heat_events': ['service_revision_id', 'service_id', 'user_id', 'method', 'temperature_c', 'passes', 'duration_minutes', 'source', 'provided_fields'],
   'public.passport_revisions': ['id', 'user_id', 'passport_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason'],
@@ -299,6 +311,8 @@ const EXPORTED_OWNER_COLUMNS: Record<string, string[]> = {
   'public.service_observations': ['id', 'service_id', 'user_id', 'effective_date', 'effective_start', 'effective_end', 'effect_status', 'source', 'recorded_at'],
   'public.service_revisions': ['id', 'user_id', 'service_id', 'sequence', 'base_revision', 'kind', 'facts', 'heat_state', 'effective_start', 'effective_end', 'recorded_at', 'corrects_id', 'correction_reason'],
   'public.service_zones': ['service_revision_id', 'service_id', 'user_id', 'region', 'segment'],
+  'public.treatment_programme_events': ['id', 'user_id', 'enrolment_id', 'sequence', 'kind', 'occurred_at', 'reason_code', 'rule_id', 'rule_version', 'selected_application_event_id', 'snapshot', 'recorded_at'],
+  'public.treatment_programmes': ['enrolment_id', 'user_id', 'product_id', 'product_version_id', 'rule_id', 'rule_version', 'artifact_id', 'artifact_version', 'content_digest', 'start_precision', 'start_value', 'selected_application_event_id', 'status', 'revision', 'created_at', 'updated_at'],
   'public.user_product_revisions': ['id', 'owner', 'user_product_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason', 'match_version_id'],
   'public.user_products': ['id', 'owner', 'version_id', 'manual_brand', 'manual_name', 'manual_category', 'availability', 'matched', 'matched_at', 'match_confirmed', 'revision', 'notes', 'created_at', 'updated_at', 'manual_variant', 'manual_size', 'manual_barcode', 'opened_on', 'expiry_on', 'pao', 'quantity_band', 'repurchase_intent'],
   'public.user_tool_revisions': ['id', 'owner', 'user_tool_id', 'sequence', 'base_revision', 'kind', 'effective_date', 'effective_start', 'effective_end', 'recorded_at', 'source', 'patch', 'corrects_id', 'correction_reason', 'match_version_id'],
@@ -331,7 +345,7 @@ describe('export completeness (consent and guidance history)', () => {
   beforeEach(async () => { await asUser(db, USER_A); });
   afterEach(async () => {
     await db.exec('set session authorization postgres');
-    await db.exec('truncate public.profiles cascade');
+    await db.exec('delete from public.profiles');
     await db.exec('delete from public.consent_records');
     await db.exec('delete from public.recommendation_runs');
   });
@@ -348,8 +362,10 @@ describe('export completeness (consent and guidance history)', () => {
     const times = document.consentRecords.map((row: any) => new Date(row.recorded_at).getTime());
     expect([...times].sort((a, b) => a - b)).toEqual(times);
     expect(document.schemaVersions).toMatchObject({
-      export: 4, consentRecords: 1, recommendationRuns: 1,
+      export: 6, consentRecords: 1, recommendationRuns: 1,
       protocolExecutions: 2, protocolExecutionEvents: 1,
+      cueChecks: 1, cueCheckRevisions: 1,
+      treatmentProgrammes: 1, treatmentProgrammeEvents: 1,
     });
   });
 
@@ -409,7 +425,7 @@ describe('export completeness (consent and guidance history)', () => {
     expect(csv.files['schema_versions.csv'].split('\n')[0]).toBe('family,version');
     const csvVersions = Object.fromEntries(
       csv.files['schema_versions.csv'].split('\n').slice(1).map((line: string) => line.split(',')));
-    expect(csvVersions).toEqual({ export: '4', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '2', protocolExecutionEvents: '1' });
+    expect(csvVersions).toEqual({ export: '6', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '2', protocolExecutionEvents: '1', cueChecks: '1', cueCheckRevisions: '1', treatmentProgrammes: '1', treatmentProgrammeEvents: '1' });
     expect(csvVersions).toEqual(Object.fromEntries(Object.entries(json.schemaVersions).map(([family, version]) => [family, String(version)])));
   });
 
@@ -418,13 +434,15 @@ describe('export completeness (consent and guidance history)', () => {
     await seedConsentAndGuidance(db);
     const { receipt, body: document } = await downloadDocument(db, 'json');
     const eventRows = document.protocolExecutions.reduce((sum: number, row: any) => sum + row.events.length, 0);
+    const cueRevisionRows = document.cueChecks.reduce((sum: number, row: any) => sum + row.revisions.length, 0);
     const expected = document.passport.revisions.length
       + document.chemicalServices.flatMap((service: any) => service.revisions).length
       + document.activities.flatMap((activity: any) => activity.revisions).length
       + document.userProducts.flatMap((product: any) => product.revisions).length
       + document.userTools.flatMap((tool: any) => tool.revisions).length
       + document.consentRecords.length + document.recommendationRuns.length
-      + document.protocolExecutions.length + eventRows;
+      + document.protocolExecutions.length + eventRows
+      + document.cueChecks.length + cueRevisionRows;
     expect(expected).toBeGreaterThan(document.passport.revisions.length);
     expect(receipt.recordCount).toBe(expected);
   });
@@ -450,15 +468,114 @@ describe('export completeness (consent and guidance history)', () => {
     expect(document.recommendationRuns).toHaveLength(1);
   });
 
+  /** Seeds one owner with a terminal execution plus a corrected Cue Check. */
+  async function seedCueCheckFor(db: PGlite, owner: string, username: string) {
+    await asUser(db, owner);
+    await complete(db, username);
+    const runId = crypto.randomUUID();
+    const executionId = crypto.randomUUID();
+    await db.exec('set session authorization postgres');
+    await db.exec('set session authorization strandcue_mutator');
+    try {
+      await db.query(
+        `select strandcue_private.record_trusted_run($1,$2,$3::timestamptz,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`,
+        [runId, 'd'.repeat(64), '2026-10-13T08:00:00.000Z', '1', 'bundle-synthetic', '1', 'ready',
+          JSON.stringify({ requestId: runId, goal: 'basic_wash' }),
+          JSON.stringify(guidanceDecision(runId))],
+      );
+    } finally {
+      await asUser(db, owner);
+    }
+    await db.query(`select public.start_protocol_execution($1,$2,$3,$4::timestamptz)`,
+      [crypto.randomUUID(), executionId, runId, new Date().toISOString()]);
+    const transition = (expectedRevision: number, command: unknown) =>
+      db.query(`select public.apply_protocol_execution_command($1,$2,$3,$4::jsonb,$5::timestamptz)`,
+        [crypto.randomUUID(), executionId, expectedRevision, JSON.stringify(command), new Date().toISOString()]);
+    await transition(0, { kind: 'complete-step', stepId: 'step-1' });
+    await transition(1, { kind: 'complete-step', stepId: 'step-2' });
+    await transition(2, { kind: 'complete' });
+    const observation = { timing: 'immediate', observedAt: new Date().toISOString(), overallResult: 'better', frizz: 'less' };
+    const created = (await db.query<{ result: any }>(
+      'select public.record_cue_check($1,$2,$3::jsonb) result',
+      [crypto.randomUUID(), executionId, JSON.stringify(observation)],
+    )).rows[0].result;
+    await db.query('select public.correct_cue_check($1,$2,$3,$4::jsonb,$5) result',
+      [crypto.randomUUID(), created.recordId, 1,
+        JSON.stringify({ ...observation, frizz: 'same', notes: 'reconsidered' }), 'reconsidered']);
+    return { runId, executionId, recordId: created.recordId };
+  }
+
+  it('includes Cue Check records and revision history in the JSON document', async () => {
+    const { runId, executionId, recordId } = await seedCueCheckFor(db, USER_A, 'user_a');
+    const { body: document } = await downloadDocument(db, 'json');
+    expect(document.cueChecks).toHaveLength(1);
+    const record = document.cueChecks[0];
+    expect(record).toMatchObject({
+      record_id: recordId,
+      execution_id: executionId,
+      recommendation_run_id: runId,
+      goal: 'basic_wash',
+      timing: 'immediate',
+      lifecycle: 'active',
+      revision: 2,
+      execution_status: 'completed',
+    });
+    expect(record.revisions).toHaveLength(2);
+    expect(record.revisions[0]).toMatchObject({ kind: 'create', sequence: 1 });
+    expect(record.revisions[1]).toMatchObject({ kind: 'correct', sequence: 2, correction_reason: 'reconsidered' });
+    // Confirmed actual use travels with the record; planned-but-unconfirmed
+    // steps never appear as performed.
+    expect(record.confirmed_steps.map((step: any) => step.stepId)).toEqual(['step-1', 'step-2']);
+  });
+
+  it('carries the same Cue Check rows in the CSV bundle', async () => {
+    await seedCueCheckFor(db, USER_A, 'user_a');
+    const { body: json } = await downloadDocument(db, 'json');
+    const { body: csv } = await downloadDocument(db, 'csv');
+    expect(csv.files['cue_checks.csv'].split('\n')[0])
+      .toBe('id,user_id,record_id,execution_id,recommendation_run_id,goal,timing,lifecycle,revision,observed_at,received_at,observation,confirmed_steps,execution_status,created_at,updated_at');
+    expect(csv.files['cue_check_revisions.csv'].split('\n')[0])
+      .toBe('id,user_id,record_id,sequence,kind,observation,corrects_id,correction_reason,void_reason,received_at');
+    // Row parity: the CSV files and the JSON family carry the same rows.
+    expect(json.cueChecks).toHaveLength(csv.files['cue_checks.csv'].split('\n').length - 1);
+    const revisionRows = json.cueChecks.reduce((sum: number, row: any) => sum + row.revisions.length, 0);
+    expect(revisionRows).toBe(csv.files['cue_check_revisions.csv'].split('\n').length - 1);
+    expect(csv.files['cue_check_revisions.csv']).toContain('reconsidered');
+  });
+
+  it('counts Cue Check rows in record_count', async () => {
+    await seedCueCheckFor(db, USER_A, 'user_a');
+    const { receipt, body: document } = await downloadDocument(db, 'json');
+    const cueRows = document.cueChecks.reduce((sum: number, row: any) => sum + 1 + row.revisions.length, 0);
+    const expected = document.recommendationRuns.length
+      + document.protocolExecutions.length
+      + document.protocolExecutions.reduce((sum: number, row: any) => sum + row.events.length, 0)
+      + cueRows;
+    expect(receipt.recordCount).toBe(expected);
+  });
+
+  it('keeps other owners Cue Checks out of the export and never ships operation material', async () => {
+    await seedCueCheckFor(db, USER_A, 'user_a');
+    const foreign = await seedCueCheckFor(db, USER_B, 'user_b');
+    await asUser(db, USER_A);
+    const { body: document } = await downloadDocument(db, 'json');
+    const serialized = JSON.stringify(document);
+    expect(serialized).not.toContain(foreign.recordId);
+    expect(document.cueChecks).toHaveLength(1);
+    // Operation-ledger payloads and fingerprints are private service data.
+    expect(serialized).not.toContain('operationId');
+    expect(serialized).not.toContain('operation_id');
+  });
+
   it('fails when a new owner-linked table exists but is unclassified', async () => {
     const names = await listOwnerTables(db);
     expect(unclassifiedOwnerTables(names)).toEqual([]);
     // The registry itself stays honest: every entry still exists and every
-    // exclusion carries its reason. 21 exported + 14 excluded = 35 owner
-    // tables = 23 public + 12 strandcue_private.
-    expect(names).toHaveLength(35);
-    expect(EXPORTED_OWNER_TABLES.size).toBe(21);
-    expect(EXCLUDED_OWNER_TABLES.size).toBe(14);
+    // exclusion carries its reason. 25 exported + 17 excluded = 42 owner
+    // tables = 27 public + 15 strandcue_private.
+    expect(names).toHaveLength(42);
+    expect(EXPORTED_OWNER_TABLES.size).toBe(25);
+    expect(EXCLUDED_OWNER_TABLES.size).toBe(17);
     for (const name of [...EXPORTED_OWNER_TABLES, ...EXCLUDED_OWNER_TABLES.keys()]) {
       expect(names, `registry entry ${name} still exists`).toContain(name);
     }
@@ -505,5 +622,111 @@ describe('export completeness (consent and guidance history)', () => {
     }
     // Rolled back: the probe is gone and the registry is clean again.
     expect(unclassifiedOwnerTables(await listOwnerTables(db))).toEqual([]);
+  });
+});
+
+describe('export version 6: treatment programmes', () => {
+  let db: PGlite;
+  beforeAll(async () => { db = await database(); await seedProgrammeCatalogue(db); }, 120_000);
+  beforeEach(async () => { await asUser(db, USER_A); });
+  afterEach(async () => {
+    await db.exec('set session authorization postgres');
+    await db.exec('delete from public.profiles');
+    await db.exec('delete from public.consent_records');
+  });
+  afterAll(async () => { await db?.close(); });
+
+  const WASHES = ['2026-09-05T08:00:00.000Z', '2026-09-08T08:00:00.000Z', '2026-09-11T08:00:00.000Z', '2026-09-14T08:00:00.000Z'];
+
+  async function seedProgrammeFor(owner: string, username: string) {
+    await asUser(db, owner);
+    await complete(db, username);
+    const { identity } = await publishedRule(db);
+    await seedExecutionCare(db, owner, [
+      { kind: 'application', at: '2026-09-02T08:00:00.000Z', session: 'app' },
+      ...WASHES.map((at, index) => ({ kind: 'wash' as const, at, session: `w${index}` })),
+    ]);
+    await asUser(db, owner);
+    const record = await enrolProgramme(db, { ruleId: identity.ruleId });
+    const id = record.enrolmentId;
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 1, command: { kind: 'pause', pausedAt: '2026-09-09T00:00:00.000Z', reasonCode: 'travel' } });
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 2, command: { kind: 'resume', resumedAt: '2026-09-13T00:00:00.000Z', resumptionRuleId: 'resume-fixture', resumptionRuleVersion: '1' } });
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 3, command: { kind: 'maintenance', transitionedAt: '2026-09-16T00:00:00.000Z', ruleId: identity.ruleId, ruleVersion: '1' } });
+    return { id: id as string, identity };
+  }
+
+  it('exports the owner programme, its lifecycle history and no count, due status, receipt or reviewer data', async () => {
+    const { id, identity } = await seedProgrammeFor(USER_A, 'user_a');
+    const { body: document } = await downloadDocument(db, 'json');
+    expect(document.schemaVersions).toMatchObject({ export: 6, treatmentProgrammes: 1, treatmentProgrammeEvents: 1 });
+    expect(document.treatmentProgrammes).toHaveLength(1);
+    const programme = document.treatmentProgrammes[0];
+    expect(programme).toMatchObject({ enrolment_id: id, rule_id: identity.ruleId, rule_version: '1', artifact_id: identity.artifactId, status: 'active', revision: 4 });
+    expect(Object.keys(programme).sort()).toEqual([...EXPORTED_OWNER_COLUMNS['public.treatment_programmes']!, 'events'].sort());
+    expect(programme.events.map((event: any) => event.kind)).toEqual(['enrol', 'pause', 'resume', 'maintenance']);
+    for (const event of programme.events) {
+      expect(Object.keys(event).sort()).toEqual([...EXPORTED_OWNER_COLUMNS['public.treatment_programme_events']!].sort());
+    }
+    expect(programme.events[3]).toMatchObject({ kind: 'maintenance', rule_id: identity.ruleId });
+    const serialized = JSON.stringify(document);
+    for (const forbidden of ['Programme rule fixture', 'operationId', 'operation_id', 'count_at_transition', 'due_status', 'dueStatus', 'wash_count']) {
+      expect(serialized, forbidden).not.toContain(forbidden);
+    }
+    // Receipts and the trusted classification table never appear.
+    expect(serialized).not.toContain('execution_step_care');
+    expect(serialized).not.toContain('shampoo_used');
+  });
+
+  it('carries the same programme rows in the CSV bundle with agreeing schema versions', async () => {
+    await seedProgrammeFor(USER_A, 'user_a');
+    const { body: json } = await downloadDocument(db, 'json');
+    const { body: csv } = await downloadDocument(db, 'csv');
+    expect(csv.files['treatment_programmes.csv'].split('\n')[0]).toBe(EXPORTED_OWNER_COLUMNS['public.treatment_programmes']!.join(','));
+    expect(csv.files['treatment_programme_events.csv'].split('\n')[0]).toBe(EXPORTED_OWNER_COLUMNS['public.treatment_programme_events']!.join(','));
+    expect(json.treatmentProgrammes).toHaveLength(csv.files['treatment_programmes.csv'].split('\n').length - 1);
+    const eventRows = json.treatmentProgrammes.reduce((sum: number, row: any) => sum + row.events.length, 0);
+    expect(eventRows).toBe(csv.files['treatment_programme_events.csv'].split('\n').length - 1);
+    const csvVersions = Object.fromEntries(csv.files['schema_versions.csv'].split('\n').slice(1).map((line: string) => line.split(',')));
+    expect(csvVersions).toEqual(Object.fromEntries(Object.entries(json.schemaVersions).map(([family, version]) => [family, String(version)])));
+    expect(csvVersions.export).toBe('6');
+    expect(Object.keys(csv.files)).not.toContain('treatment_programme_operations.csv');
+  });
+
+  it('never rewrites an issued export on replay, even after the programme changes', async () => {
+    const { id } = await seedProgrammeFor(USER_A, 'user_a');
+    const operationId = crypto.randomUUID();
+    const issue = async () => {
+      await freshAuth(db, USER_A);
+      const receipt = await exportRequest(db, operationId, 'json');
+      const download = await db.query<{ result: any }>('select public.export_download($1) result', [receipt.jobId]);
+      return { receipt, document: download.rows[0].result.document };
+    };
+    const first = await issue();
+    const { identity } = await publishedRule(db);
+    await enrolProgramme(db, { ruleId: identity.ruleId });
+    await changeProgramme(db, { enrolmentId: id, expectedRevision: 4, command: { kind: 'abandon' } });
+    const replay = await issue();
+    expect(replay.receipt).toEqual(first.receipt);
+    expect(replay.document).toEqual(first.document);
+    expect(JSON.stringify(replay.document)).not.toContain(identity.ruleId);
+  });
+
+  it('counts programme rows in record_count and keeps other owners out of the export', async () => {
+    const mine = await seedProgrammeFor(USER_A, 'user_a');
+    const foreign = await seedProgrammeFor(USER_B, 'user_b');
+    await asUser(db, USER_A);
+    const { receipt, body: document } = await downloadDocument(db, 'json');
+    const rows = document.treatmentProgrammes.reduce((sum: number, row: any) => sum + 1 + row.events.length, 0);
+    const expected = document.passport.revisions.length + document.chemicalServices.flatMap((service: any) => service.revisions).length
+      + document.activities.flatMap((activity: any) => activity.revisions).length + document.userProducts.flatMap((product: any) => product.revisions).length
+      + document.userTools.flatMap((tool: any) => tool.revisions).length + document.consentRecords.length + document.recommendationRuns.length
+      + document.protocolExecutions.length + document.protocolExecutions.reduce((sum: number, row: any) => sum + row.events.length, 0)
+      + document.cueChecks.length + document.cueChecks.reduce((sum: number, row: any) => sum + row.revisions.length, 0) + rows;
+    expect(receipt.recordCount).toBe(expected);
+    const serialized = JSON.stringify(document);
+    expect(serialized).toContain(mine.id);
+    expect(serialized).not.toContain(foreign.id);
+    expect(serialized).not.toContain(USER_B);
+    expect(document.treatmentProgrammes).toHaveLength(1);
   });
 });
