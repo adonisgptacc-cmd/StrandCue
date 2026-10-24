@@ -1,3 +1,5 @@
+import { createElement, useLayoutEffect, type ReactNode } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProgrammeJourney } from '../../apps/mobile/src/ProgrammeJourney.tsx';
@@ -59,10 +61,10 @@ withSetup(() => {
     return { server, controller };
   }
 
-  const journey = (server: ReturnType<typeof build>['server'], offer: typeof OFFER | null = OFFER) =>
+  const journey = (server: ReturnType<typeof build>['server'], offer: typeof OFFER | null = OFFER, owner = 'owner-a') =>
     mount({
       type: ProgrammeJourney as never,
-      props: { owner: 'owner-a', api: server.api, programmeOffer: offer, now: () => new Date('2026-09-20T10:00:00.000Z') },
+      props: { owner, api: server.api, programmeOffer: offer, now: () => new Date('2026-09-20T10:00:00.000Z') },
     });
 
   describe('the full owner journey over the committed contract', () => {
@@ -107,6 +109,15 @@ withSetup(() => {
       expect(state.selected?.status).toBe('completed');
       expect(state.selected?.evaluation?.fromCompletedSnapshot).toBe(true);
       expect(state.selected?.completed?.snapshot.count).toBe(3);
+      server.replaceCareForTest([
+        ...REVIEWED_SEED.care,
+        { kind: 'wash', at: '2026-09-18T08:00:00.000Z', session: 'after-completion' },
+      ]);
+      await controller.openDetail(state.selected!.enrolmentId);
+      expect(controller.getState().selected?.evaluation).toMatchObject({
+        fromCompletedSnapshot: true,
+        count: 3,
+      });
       // The snapshot is server-built: no client write carried any derived fact.
       const [call] = server.callsNamed('change_programme');
       const sent = JSON.stringify((call!.args as { command: unknown }).command);
@@ -282,6 +293,92 @@ withSetup(() => {
       // The server remains authoritative and refuses the unreviewed offer.
       expect(server.callsNamed('enrol_programme')).toHaveLength(1);
       expect(findByLabel(renderer, 'Open treatment programme 1')).toHaveLength(0);
+    });
+  });
+
+  describe('Increment 5 closure journey', () => {
+    it('recomputes accumulated washes, backdated facts and unknown dates without crossing owner or guidance boundaries', async () => {
+      const seedWith = (care: typeof REVIEWED_SEED.care) => ({ ...REVIEWED_SEED, care });
+      const application = REVIEWED_SEED.care[0]!;
+      const afterApplication = REVIEWED_SEED.care[1]!;
+
+      const one = build(seedWith([application, afterApplication]));
+      await one.controller.enrol({ offer: OFFER, startDate: { precision: 'exact', value: START } });
+      await one.controller.loadList();
+      await one.controller.openDetail(one.controller.getState().items[0]!.enrolmentId);
+      expect(one.controller.getState().selected?.evaluation).toMatchObject({ count: 1, state: 'initial', dueStatus: 'not_due' });
+
+      const three = build(seedWith(REVIEWED_SEED.care));
+      await three.controller.enrol({ offer: OFFER, startDate: { precision: 'exact', value: START } });
+      await three.controller.loadList();
+      await three.controller.openDetail(three.controller.getState().items[0]!.enrolmentId);
+      expect(three.controller.getState().selected?.evaluation).toMatchObject({ count: 3, state: 'reassessment', dueStatus: 'eligible' });
+
+      // Correcting the same recorded source to before the application recomputes this enrolment.
+      one.server.replaceCareForTest([
+        application,
+        { ...afterApplication, at: '2026-09-01T07:00:00.000Z', session: 'corrected-wash' },
+      ]);
+      await one.controller.openDetail(one.controller.getState().selectedId!);
+      expect(one.controller.getState().selected?.evaluation).toMatchObject({ count: 0, state: 'initial', dueStatus: 'not_due' });
+
+      // An owner-recorded unknown-date wash blocks guessing.
+      one.server.replaceCareForTest([
+        application,
+        { ...afterApplication, dateUnknown: true, source: 'activity-recorded', session: 'unknown-date-wash' },
+      ]);
+      await one.controller.openDetail(one.controller.getState().selectedId!);
+      expect(one.controller.getState().selected?.evaluation).toMatchObject({ state: 'initial', dueStatus: 'needs_input' });
+
+      // Owner switching clears every prior-owner paint while the new read is held.
+      const ownerCommits: string[] = [];
+      let ownerRenderer!: ReactTestRenderer;
+      const CaptureOwnerCommits = ({ children }: { children: ReactNode }) => {
+        useLayoutEffect(() => {
+          if (ownerRenderer !== undefined) ownerCommits.push(JSON.stringify(ownerRenderer.toJSON()));
+        });
+        return children as never;
+      };
+      await act(async () => {
+        ownerRenderer = create(createElement(CaptureOwnerCommits, null, createElement(ProgrammeJourney, {
+          owner: 'owner-a', api: three.server.api, programmeOffer: null,
+          now: () => new Date('2026-09-20T10:00:00.000Z'),
+        })));
+        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+      });
+      await press(ownerRenderer, 'Open treatment programme 1');
+      expect(visibleText(ownerRenderer)).toContain('Washes so far: 3');
+      const ownerB = createFakeProgrammeServer(PRODUCTION_SEED);
+      const releaseOwnerB = ownerB.hold('list_programmes');
+      const switchCommitStart = ownerCommits.length;
+      await act(async () => {
+        ownerRenderer.update(createElement(CaptureOwnerCommits, null, createElement(ProgrammeJourney, {
+          owner: 'owner-b', api: ownerB.api, programmeOffer: null,
+          now: () => new Date('2026-09-20T10:00:00.000Z'),
+        })));
+        await Promise.resolve();
+      });
+      const switchCommits = ownerCommits.slice(switchCommitStart);
+      expect(switchCommits.length).toBeGreaterThan(0);
+      for (const commit of switchCommits) {
+        expect(commit).not.toContain('Washes so far: 3');
+        expect(commit).not.toContain('Fixture treatment product');
+      }
+      releaseOwnerB();
+      await act(async () => {
+        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+      });
+
+      const { generateTodayGuidance } = await import('../../apps/mobile/src/guidance/today-guidance-service.ts');
+      const guidance = await generateTodayGuidance({
+        ownerId: 'owner-a', goalId: 'basic_wash', requestId: 'increment-5-closure',
+        asOf: '2026-10-24T09:00:00.000Z', loadedAt: '2026-10-24T09:00:05.000Z',
+      });
+      expect(guidance.status).toBe('content_pending');
+      expect(guards.run).not.toHaveBeenCalled();
+      expect(guards.catalogue).not.toHaveBeenCalled();
+      expect(guards.start).not.toHaveBeenCalled();
+      expect(guards.transition).not.toHaveBeenCalled();
     });
   });
 });

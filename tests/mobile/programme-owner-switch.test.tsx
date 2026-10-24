@@ -1,3 +1,5 @@
+import { createElement } from 'react';
+import { act } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProgrammeJourney } from '../../apps/mobile/src/ProgrammeJourney.tsx';
@@ -6,11 +8,13 @@ import { multiRuleSeed, createFakeProgrammeServer } from './support/programme-fa
 import {
   findByLabel,
   mount,
+  press,
   snapshotOf,
   typeInto,
   visibleText,
   withSetup,
 } from './support/programme-harness.tsx';
+import { rnMock } from './support/rn-mock.ts';
 vi.mock('react-native', async () => (await import('./support/rn-mock.ts')).rnMock);
 vi.mock('expo-crypto', async () => (await import('./support/expo-crypto-mock.ts')).expoCryptoMock);
 vi.mock('../../apps/mobile/src/focus', () => ({ focusOn: vi.fn() }));
@@ -202,6 +206,36 @@ withSetup(() => {
       for (const field of fields) {
         expect((field as { props: { value?: string } }).props.value ?? '').toBe('');
       }
+    });
+
+    it('announces the first save for each owner when controller request ids repeat', async () => {
+      const a = createFakeProgrammeServer(multiRuleSeed(1));
+      const b = createFakeProgrammeServer(multiRuleSeed(1));
+      const renderer = await mount({
+        type: ProgrammeJourney as never,
+        props: {
+          owner: OWNER_A, api: a.api, programmeOffer: OFFER,
+          now: () => new Date('2026-09-20T10:00:00.000Z'),
+        },
+      });
+      await typeInto(renderer, 'Programme start date (YYYY-MM-DD)', '2026-09-01');
+      await press(renderer, 'Start this treatment programme');
+      expect(rnMock.AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith('Programme saved');
+      const savesAfterA = rnMock.AccessibilityInfo.announceForAccessibility.mock.calls
+        .filter(call => call[0] === 'Programme saved').length;
+
+      await act(async () => {
+        renderer.update(createElement(ProgrammeJourney, {
+          owner: OWNER_B, api: b.api, programmeOffer: OFFER,
+          now: () => new Date('2026-09-20T10:00:00.000Z'),
+        }));
+        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+      });
+      await typeInto(renderer, 'Programme start date (YYYY-MM-DD)', '2026-09-01');
+      await press(renderer, 'Start this treatment programme');
+      const savesAfterB = rnMock.AccessibilityInfo.announceForAccessibility.mock.calls
+        .filter(call => call[0] === 'Programme saved').length;
+      expect(savesAfterB).toBe(savesAfterA + 1);
     });
   });
 });

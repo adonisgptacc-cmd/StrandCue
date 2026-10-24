@@ -31,6 +31,10 @@ export interface ProgrammeCareSpec {
   readonly kind: CareKind;
   /** An exact confirmed instant. */
   readonly at: string;
+  /** Test-only model of a recorded care event whose calendar position is unknown. */
+  readonly dateUnknown?: boolean;
+  /** Owner-recorded care is not tied to a confirmed protocol step. */
+  readonly source?: 'execution-confirmed' | 'activity-recorded';
   /** Specs sharing a label belong to one confirmed execution session. */
   readonly session: string;
   readonly shampoo?: 'yes' | 'no' | 'unknown';
@@ -122,15 +126,25 @@ function careEvents(seed: ProgrammeServerSeed): readonly CareEvent[] {
       const product = productId !== null && productVersionId !== null
         ? { identity: 'known' as const, productId, productVersionId }
         : { identity: 'unknown' as const };
+      if (spec.dateUnknown === true && spec.source !== 'activity-recorded') {
+        throw new Error('Only an owner-recorded activity may have an unknown date in the programme fixture.');
+      }
+      const activityRecorded = spec.source === 'activity-recorded';
       const base = {
-        eventId: composeEventId(['execution-confirmed', session.executionId, stepId]),
-        date: { precision: 'exact' as const, value: spec.at },
-        provenance: 'execution-confirmed' as const,
+        eventId: activityRecorded
+          ? composeEventId(['activity-recorded', session.executionId])
+          : composeEventId(['execution-confirmed', session.executionId, stepId]),
+        date: spec.dateUnknown === true
+          ? { precision: 'unknown' as const, value: null }
+          : { precision: 'exact' as const, value: spec.at },
+        provenance: activityRecorded ? 'activity-recorded' as const : 'execution-confirmed' as const,
         lifecycle: 'active' as const,
-        source: { recordId: session.executionId, revision: null, stepId, position: index + 1, runId: session.runId },
+        source: activityRecorded
+          ? { recordId: session.executionId, revision: 1, stepId: null, position: null, runId: null }
+          : { recordId: session.executionId, revision: null, stepId, position: index + 1, runId: session.runId },
       };
       events.push(CareEventSchema.parse(spec.kind === 'wash'
-        ? { ...base, kind: 'wash', wash: { shampooUsed: spec.shampoo ?? 'yes', lathers: { state: 'unknown' }, product, zones: [] } }
+        ? { ...base, kind: 'wash', wash: { shampooUsed: activityRecorded ? 'unknown' : (spec.shampoo ?? 'yes'), lathers: { state: 'unknown' }, product: activityRecorded ? { identity: 'unknown' } : product, zones: [] } }
         : { ...base, kind: 'application', application: { product, zones: [] } }));
     });
   }
@@ -289,6 +303,7 @@ function publishedRuleFor(seed: ProgrammeServerSeed, ruleId: string, ruleVersion
 }
 
 export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
+  let currentSeed: ProgrammeServerSeed = { ...seed, care: [...seed.care] };
   const programmes = new Map<string, StoredProgramme>();
   const operations = new Map<string, { payload: string; result: Json }>();
   const calls: { name: string; args: unknown }[] = [];
@@ -341,9 +356,9 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
       };
       await enter('enrol_programme', c);
       return idempotent('enrol', c.operationId, c, () => {
-        const published = publishedRuleFor(seed, c.offer.ruleId, c.offer.ruleVersion);
+        const published = publishedRuleFor(currentSeed, c.offer.ruleId, c.offer.ruleVersion);
         if (published === undefined) {
-          const withdrawn = seed.rules.find(rule =>
+          const withdrawn = currentSeed.rules.find(rule =>
             rule.state === 'withdrawn' && rule.ruleId === c.offer.ruleId && rule.ruleVersion === c.offer.ruleVersion);
           if (withdrawn !== undefined) throw failed('rule-withdrawn');
           throw failed('rule-content-pending');
@@ -361,7 +376,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
           && programme.status === 'active');
         if (duplicate) throw failed('duplicate-active');
         if (c.selectedApplicationEventId !== undefined) {
-          const events = careEvents(seed);
+          const events = careEvents(currentSeed);
           if (!events.some(event => event.eventId === c.selectedApplicationEventId && event.kind === 'application')) {
             throw failed('application-missing');
           }
@@ -386,7 +401,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
           events: [{ sequence: 1, kind: 'enrol', recordedAt: at }],
         };
         programmes.set(created.enrolmentId, created);
-        return recordOf(created, seed) as unknown as Json;
+        return recordOf(created, currentSeed) as unknown as Json;
       });
     },
     async changeProgramme(command: unknown) {
@@ -427,7 +442,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
         if (programme.revision !== c.expectedRevision) throw failed('revision-conflict');
         if (programme.status === 'completed') throw failed('already-completed');
         if (programme.status === 'abandoned') throw failed('already-abandoned');
-        const rule = seed.rules.find(entry =>
+        const rule = currentSeed.rules.find(entry =>
           entry.artifactId === programme.artifactId && entry.artifactVersion === programme.artifactVersion);
         if (inner.kind !== 'abandon') {
           if (rule === undefined) throw failed('rule-publication-mismatch');
@@ -451,7 +466,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
             sequence: next, kind: 'pause', recordedAt: at, occurredAt: when, reasonCode: inner.reasonCode as string,
           });
         } else if (inner.kind === 'complete') {
-          const evaluation = evaluate(programme, seed);
+          const evaluation = evaluate(programme, currentSeed);
           if (evaluation.dueStatus === 'needs_input' || evaluation.count === undefined || evaluation.application === null) {
             throw failed(evaluation.missing[0]?.code === 'interruption-without-resumption'
               ? 'pause-resumption-required'
@@ -495,7 +510,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
           });
           programme.status = 'completed';
         } else if (inner.kind === 'select-application') {
-          const events = careEvents(seed);
+          const events = careEvents(currentSeed);
           if (!events.some(event => event.eventId === inner.eventId && event.kind === 'application')) {
             throw failed('application-missing');
           }
@@ -510,7 +525,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
         }
         programme.revision = next;
         programme.updatedAt = at;
-        return recordOf(programme, seed) as unknown as Json;
+        return recordOf(programme, currentSeed) as unknown as Json;
       });
     },
     async listProgrammes(query: unknown) {
@@ -530,8 +545,8 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
       const more = start + q.limit < ordered.length;
       const page: Json = {
         items: slice.map(programme => {
-          const record = { ...(recordOf(programme, seed) as unknown as Json) };
-          record.evaluation = programme.status === 'abandoned' ? null : evaluate(programme, seed);
+          const record = { ...(recordOf(programme, currentSeed) as unknown as Json) };
+          record.evaluation = programme.status === 'abandoned' ? null : evaluate(programme, currentSeed);
           return record;
         }),
         nextCursor: more && last !== undefined
@@ -544,7 +559,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
       await enter('get_programme', enrolmentId);
       const programme = programmes.get(enrolmentId as string);
       if (programme === undefined) throw failed('programme-not-found');
-      return detailOf(programme, seed);
+      return detailOf(programme, currentSeed);
     },
   };
 
@@ -568,7 +583,10 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
     seed,
     callsNamed: (name: string) => calls.filter(call => call.name === name),
     /** Every rule the fake holds, so a test can assert nothing was invented. */
-    rules: () => seed.rules,
+    rules: () => currentSeed.rules,
+    replaceCareForTest: (care: readonly ProgrammeCareSpec[]) => {
+      currentSeed = { ...currentSeed, care: [...care] };
+    },
     setClock: (iso: string) => {
       clockMs = Date.parse(iso);
     },
@@ -596,7 +614,7 @@ export function createFakeProgrammeServer(seed: ProgrammeServerSeed) {
         sequence: programme.revision + 1,
         kind: 'change',
         recordedAt: at,
-        selectedApplicationEventId: careEvents(seed).find(event => event.kind === 'application')?.eventId,
+        selectedApplicationEventId: careEvents(currentSeed).find(event => event.kind === 'application')?.eventId,
       });
       programme.revision += 1;
       programme.updatedAt = at;

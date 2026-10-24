@@ -187,6 +187,7 @@ describe('schema, grants and hardening', () => {
   });
   it('replays safely: running the migration again changes no owner, ACL, setting, policy, trigger or behaviour', async () => {
     const migration = await readFile('supabase/migrations/20261025120000_treatment_programmes.sql', 'utf8');
+    const retentionScope = await readFile('supabase/migrations/20261025130000_programme_execution_retention_scope.sql', 'utf8');
     const fingerprint = async () => {
       const part = async (sql: string) => (await privileged<{ h: string }>(db, `select coalesce(md5(string_agg(x, ',' order by x)), '') h from (${sql}) t(x)`)).rows[0]!.h;
       return {
@@ -205,7 +206,9 @@ describe('schema, grants and hardening', () => {
     const before = await fingerprint();
     await db.exec('set session authorization postgres');
     await db.exec(migration);
+    await db.exec(retentionScope);
     await db.exec(migration);
+    await db.exec(retentionScope);
     expect(await fingerprint()).toEqual(before);
     await asUser(db, USER_A);
     const programme = await enrolled({ washes: 1, selected: true });
@@ -675,6 +678,65 @@ describe('lifecycle: pause, resume, maintenance and completion', () => {
     await privileged(db, 'select public.protocol_execution_retention_cleanup()');
     expect(await executions()).toBe(0);
     expect((await getProgramme(db, programme.record.enrolmentId)).completed.snapshot.count).toBe(2);
+  });
+
+  it('holds only execution evidence that can contribute to an active programme', async () => {
+    const programme = await enrolled({ washes: 1, selected: true });
+    const [preStart] = await seedExecutionCare(db, USER_A, [
+      { kind: 'wash', at: '2026-08-01T08:00:00.000Z', session: 'pre-start' },
+    ]);
+    const [unrelatedApplication] = await seedExecutionCare(db, USER_A, [
+      {
+        kind: 'application', at: '2026-09-10T08:00:00.000Z', session: 'other-product',
+        productId: PRODUCT_ID, versionId: OTHER_VERSION_ID,
+      },
+    ]);
+    const [matchingApplication] = await seedExecutionCare(db, USER_A, [
+      { kind: 'application', at: '2026-09-12T08:00:00.000Z', session: 'matching-product' },
+    ]);
+
+    const held = async (executionId: string) => (await privileged<{ held: boolean }>(db,
+      'select strandcue_private.programme_execution_held($1, $2) held', [USER_A, executionId])).rows[0]!.held;
+    expect(await held(preStart!.executionId)).toBe(false);
+    expect(await held(unrelatedApplication!.executionId)).toBe(false);
+    expect(await held(matchingApplication!.executionId)).toBe(true);
+
+    await privileged(db,
+      `update public.protocol_executions
+          set status = 'completed', execution = jsonb_set(execution, '{finishedAt}', '"2026-01-01T00:00:00.000Z"'::jsonb)
+        where user_id = $1`, [USER_A]);
+    await privileged(db, 'select public.protocol_execution_retention_cleanup()');
+
+    const { rows } = await privileged<{ execution_id: string }>(db,
+      `select execution_id::text from public.protocol_executions where user_id = $1 order by execution_id`, [USER_A]);
+    const remaining = rows.map(row => row.execution_id);
+    expect(remaining).not.toContain(preStart!.executionId);
+    expect(remaining).not.toContain(unrelatedApplication!.executionId);
+    expect(remaining).toContain(matchingApplication!.executionId);
+    expect(programme.seeded.every(item => remaining.includes(item.executionId))).toBe(true);
+  });
+
+  it('compares offset timestamps to a day-precision programme start after canonical normalization', async () => {
+    const { identity } = await publishedRule(db);
+    const [application] = await seedExecutionCare(db, USER_A, [{
+      kind: 'application',
+      at: '2026-08-31T23:30:00-02:00',
+      session: 'offset-application',
+    }]);
+    await asUser(db, USER_A);
+    await enrolProgramme(db, {
+      ruleId: identity.ruleId,
+      startDate: { precision: 'day', value: '2026-09-01' },
+      selectedApplicationEventId: application!.eventId,
+    });
+    await privileged(db,
+      `update public.protocol_executions
+          set status = 'completed', execution = jsonb_set(execution, '{finishedAt}', '"2026-01-01T00:00:00.000Z"'::jsonb)
+        where execution_id = $1`, [application!.executionId]);
+    await privileged(db, 'select public.protocol_execution_retention_cleanup()');
+    const { rows } = await privileged<{ n: string }>(db,
+      'select count(*)::text n from public.protocol_executions where execution_id = $1', [application!.executionId]);
+    expect(Number(rows[0]!.n)).toBe(1);
   });
 
   it('releases the executions behind a programme when it is abandoned,', async () => {
