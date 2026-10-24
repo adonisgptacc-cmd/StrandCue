@@ -73,8 +73,8 @@ matrix promotes draft content, fills reviewer identities or publishes facts.
 | TL-02 Distinguish heat methods | Implemented | Task 2.4: direct-contact, heated-air, hooded, steam and unheated are distinct and explicit-unknown is separate; a diffuser is an attachment, unheated refuses any heated method, temperature and adjustable-yes (`packages/domain/src/tools.ts`, SQL core, `tool-form.ts`); `tests/domain/tools-owner.test.ts`, `tests/database/tools-owner.test.ts`, `tests/mobile/tool-form.test.ts` |
 | TL-03 Unknown temperature not inferred | Implemented | `tools.ts` + `tests/domain/tools.test.ts` (wattage never implies temperature) |
 | TL-04 Actual temperature/passes/duration/zones | Partial | `activity.ts` heat fields; not yet a Heat Coach |
-| TL-05 Heat Coach | Not started | — |
-| TL-06 Technique alternatives | Not started | — |
+| TL-05 Heat Coach | Not started | Design authority fixed in `docs/superpowers/specs/2026-10-24-heat-coach-design.md`; no runtime assessment yet |
+| TL-06 Technique alternatives | Not started | Design authority fixes reviewed-alternative boundaries; no runtime assessment yet |
 
 ## Deterministic recommendation engine
 

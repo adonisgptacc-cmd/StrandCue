@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const root = new URL('../..', import.meta.url);
@@ -9,6 +9,8 @@ const read = (relativePath: string): string =>
 const CANONICAL_SPEC_PATH =
   'docs/superpowers/specs/2026-10-10-canonical-product-spec.md';
 const TRACEABILITY_PATH = 'docs/product/requirement-traceability.md';
+const HEAT_COACH_DESIGN_PATH =
+  'docs/superpowers/specs/2026-10-24-heat-coach-design.md';
 
 // Normalized-LF SHA-256 of the approved canonical specification (10 Oct 2026).
 // Recompute from the approved file after normalizing CRLF to LF; never copy
@@ -72,5 +74,40 @@ describe('canonical product authority', () => {
     for (const id of ids) {
       expect(countTableRows(traceability, id)).toBe(1);
     }
+  });
+
+  it('pins Heat Coach vocabulary, lifecycle, unit policy and draft production state', () => {
+    const design = read(HEAT_COACH_DESIGN_PATH);
+    expect(design).toContain('content_pending | needs_input | restricted | lower_heat | no_heat | appropriate | unavailable');
+    expect(design).toContain('not_needed | optional | supports_goal | unknown');
+    expect(design).toContain('today | my_hair | services | my_shelf | my_tools');
+    expect(design).toContain('draft | reviewed | withdrawn');
+    expect(design).toContain('No runtime unit conversion creates a reviewed limit');
+    expect(design).toContain('Production Heat Coach publication: `draft`');
+  });
+
+  it.each(['TL-05', 'TL-06'])('%s cannot be called implemented without named Heat Coach proof', id => {
+    const row = read(TRACEABILITY_PATH)
+      .split(/\r?\n/u)
+      .find(line => line.startsWith(`| ${id} |`));
+    expect(row).toBeDefined();
+    if (row?.endsWith('| Implemented |')) {
+      expect(row).toContain(HEAT_COACH_DESIGN_PATH);
+      expect(row).toContain('tests/domain/heat-coach.test.ts');
+    }
+  });
+
+  it('keeps prohibited promise wording out of Heat Coach authority and runtime paths', () => {
+    const paths = [
+      HEAT_COACH_DESIGN_PATH,
+      'packages/domain/src/heat-coach.ts',
+      'apps/mobile/src/HeatCoach.tsx',
+      'apps/mobile/src/heat-coach-copy.ts',
+    ];
+    const combined = paths
+      .filter(path => existsSync(new URL(path, root)))
+      .map(path => read(path))
+      .join('\n');
+    expect(combined).not.toMatch(/\b(?:safe|risk[- ]free|damage[- ]free|guaranteed)\b/iu);
   });
 });

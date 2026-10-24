@@ -78,8 +78,8 @@ so draft content may not execute and Today yields `content_pending`.
 | TL-02 | R0 | packages/domain/src/tools.ts (heat-method taxonomy: direct-contact, heated-air, hooded, steam, unheated, explicit unknown; Task 2.4) | tests/domain/tools-owner.test.ts, tests/database/tools-owner.test.ts, tests/mobile/tool-form.test.ts | Implemented |
 | TL-03 | R0 | packages/domain/src/tools.ts (unknown temperature never inferred from wattage/model name) | tests/domain/tools.test.ts | Implemented |
 | TL-04 | R0 | packages/domain/src/activity.ts (heat type/setting/passes/duration/zones); packages/domain/src/care-events.ts (internal confirmed-event preservation) | tests/domain/activity.test.ts, tests/domain/activity-bounds.test.ts, tests/domain/care-events.test.ts | Partial |
-| TL-05 | R2 | — | — | Not started |
-| TL-06 | R2 | — | — | Not started |
+| TL-05 | R2 | `docs/superpowers/specs/2026-10-24-heat-coach-design.md` (authority only) | `tests/tooling/product-authority.test.ts` | Not started |
+| TL-06 | R2 | `docs/superpowers/specs/2026-10-24-heat-coach-design.md` (authority only) | `tests/tooling/product-authority.test.ts` | Not started |
 | EN-01 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
 | EN-02 | R1 | packages/domain/src/recommendations/ (deterministic validation, hard-rule application, candidate ranking; official-direction and treatment-state adapters remain) | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Partial |
 | EN-03 | R1 | packages/domain/src/recommendations/ | tests/domain/recommendations/ (schemas, rules, protocol, engine suites) | Implemented |
