@@ -23,6 +23,7 @@ const criticalModules = [
   'packages/domain/src/care-events.ts',
   'packages/domain/src/wash-count.ts',
   'packages/domain/src/treatment-programme.ts',
+  'packages/domain/src/heat-coach.ts',
   'apps/mobile/src/cue-check-api.ts', 'apps/mobile/src/cue-check-errors.ts', 'apps/mobile/src/cue-check-state.ts',
   'apps/mobile/src/cue-check-copy.ts', 'apps/mobile/src/cue-check-form-model.ts', 'apps/mobile/src/cue-check-records.ts',
   'apps/mobile/src/cue-check-entry.ts', 'apps/mobile/src/cue-check-routines.ts', 'apps/mobile/src/cue-check-announce.ts',
