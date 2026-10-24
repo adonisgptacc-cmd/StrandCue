@@ -55,3 +55,11 @@
 - Accessibility and wording/product-truth reviews were re-run after fixes and found no remaining Critical, High or Medium findings. Final independent code/security review agents were unavailable because their service quota was exhausted; the staged changes were checked manually against the repository security checklist and secret scan before commit.
 - Runtime, typecheck, lint, web export, control-plane audit, research validation and diff checks pass. Dependency audit remains HOLD (0 critical, 5 high, 9 moderate); package manifests are unchanged.
 - NOT RUN: UI against hosted or local Supabase, hosted owner isolation, emulator/device, TalkBack or VoiceOver. Production reviewed treatment content remains absent; I5.6 not started. Report: `task-i5.5-report.md`.
+
+## I5.6 — integration, review and governance closure
+
+- Added the test-only Increment 5 closure journey: confirmed application, accumulating washes, state/due changes, same-enrolment recomputation after a backdated correction, owner-recorded unknown-date `needs_input`, frozen completion, captured owner-switch renders, and production `content_pending` with no recommendation/catalogue/execution writes.
+- Database/privacy review found execution over-retention: any active programme held all classified executions for the owner. Forward migration `20261025130000_programme_execution_retention_scope.sql` now holds only temporally eligible washes, exact-product applications, and ambiguous source evidence that the canonical reader itself blocks on.
+- A stronger captured-render test exposed and fixed a one-frame prior-owner paint in `ProgrammeJourney`; visible and announced state is now synchronously owner-keyed before effects run.
+- TR-01..TR-08 and TL-04 remain Partial; TL-05 remains Not started. No reviewed production treatment rule or trusted classification writer was invented.
+- External evidence remains NOT RUN: hosted isolation, real-database UI, device/emulator, TalkBack and VoiceOver.

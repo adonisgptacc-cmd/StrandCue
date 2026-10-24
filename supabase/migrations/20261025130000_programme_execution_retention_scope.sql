@@ -58,4 +58,3 @@ returns boolean language sql stable set search_path = pg_catalog, pg_temp as $$
        )
   )
 $$;
-
