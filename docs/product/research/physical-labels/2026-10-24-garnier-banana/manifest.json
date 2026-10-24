@@ -1,0 +1,68 @@
+{
+  "status": "draft_research",
+  "capturedAt": "2026-10-24",
+  "marketContext": "ZA retail store",
+  "authorization": "User explicitly authorised copying the ten supplied photographs into the Git research archive on 2026-10-24.",
+  "files": [
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.09 (1).jpeg",
+      "archivedName": "mask-400ml-back-formula-and-directions-01.jpeg",
+      "bytes": 294488,
+      "sha256": "38b79cb0533873b5be41dc4f9fd529bd68cf50b33691f9b3e245c95f1a4228d3"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.09 (2).jpeg",
+      "archivedName": "mask-400ml-back-directions-and-ingredients.jpeg",
+      "bytes": 260006,
+      "sha256": "990046c76a6a9136a90bfadae91014031c83bef049201e383bcfc164717f3252"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.09.jpeg",
+      "archivedName": "mask-400ml-barcode-and-formula-facts.jpeg",
+      "bytes": 253484,
+      "sha256": "b7f6e8995e94672d7aaa94a87460ef02b2a1c6ca48e30f6eaf6ca7ff5e4c5978"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.10 (1).jpeg",
+      "archivedName": "mask-400ml-front.jpeg",
+      "bytes": 235512,
+      "sha256": "903bd4513766efd6e51a2f003ce0717f3f313ebef6620c4cf4e97e56e262a8ad"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.10 (2).jpeg",
+      "archivedName": "mask-400ml-front-claims.jpeg",
+      "bytes": 252093,
+      "sha256": "ddfc7fcf07a51dbe72a831c9ef62d9ce9093a7ccca6d1ffbe442da0f1b906584"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.10.jpeg",
+      "archivedName": "mask-400ml-front-natural-origin.jpeg",
+      "bytes": 250039,
+      "sha256": "e9579c02985a6cbe50921487843745e91b173636c4f944e1c37a09e820a5ea66"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.11 (1).jpeg",
+      "archivedName": "conditioner-350ml-front.jpeg",
+      "bytes": 242572,
+      "sha256": "51064fcfb8b1d04624a553adb8307e24d814f470f513454544cb243421578da1"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.11 (2).jpeg",
+      "archivedName": "conditioner-350ml-side-formula-facts.jpeg",
+      "bytes": 258087,
+      "sha256": "0e7c949136efde7ca96aa26d04323dadc02798927e53443850285be0116ede39"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.11.jpeg",
+      "archivedName": "conditioner-350ml-barcode-and-manufacturer.jpeg",
+      "bytes": 226912,
+      "sha256": "e4b86a6047f564d6d9bcaa76a852ba781d172b4ac6412d9c86719b82639c7986"
+    },
+    {
+      "sourceName": "WhatsApp Image 2026-10-24 at 19.27.12.jpeg",
+      "archivedName": "conditioner-350ml-back-directions-and-ingredients.jpeg",
+      "bytes": 261926,
+      "sha256": "72ada309d3b3c499d8549609ad8646424fc1d6961c8231279f93503387b299dd"
+    }
+  ]
+}
