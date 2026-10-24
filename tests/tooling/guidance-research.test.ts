@@ -6,12 +6,14 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CHECKED_IN_EVIDENCE_REGISTRY } from '../../apps/mobile/src/guidance/evidence-registry.ts';
+import { CURRENT_HEAT_RULE_PUBLICATION } from '../../apps/mobile/src/guidance/heat-rule-publication.ts';
 import { GuidanceEvidenceRegistrySchema } from '../../packages/domain/src/guidance/index.ts';
 import {
   catalogueVersionsFromSeedSql,
   catalogueVersionsFromSnapshot,
   resolveCatalogue,
   runGuidanceResearch,
+  validateHeatResearchDraft,
   validateGuidanceResearch,
   type GuidanceResearchCatalogueVersion,
 } from '../../scripts/validate-guidance-research.ts';
@@ -162,6 +164,16 @@ function codes(
 }
 
 describe('guidance research pack checked into the repository', () => {
+  it('keeps production Heat Coach research as an empty draft', () => {
+    expect(validateHeatResearchDraft(CURRENT_HEAT_RULE_PUBLICATION)).toEqual([]);
+    expect(validateHeatResearchDraft({ ...CURRENT_HEAT_RULE_PUBLICATION, state: 'reviewed' })).toContainEqual(
+      expect.objectContaining({ code: 'HEAT_PUBLICATION_NOT_DRAFT' }),
+    );
+    expect(validateHeatResearchDraft({ ...CURRENT_HEAT_RULE_PUBLICATION, rules: [{}] })).toContainEqual(
+      expect.objectContaining({ code: 'HEAT_PUBLICATION_NOT_EMPTY' }),
+    );
+  });
+
   it('parses the evidence registry with the reviewed evidence contract', () => {
     const parsed = GuidanceEvidenceRegistrySchema.parse(
       JSON.parse(read(`${PACK}/evidence-registry.json`)),

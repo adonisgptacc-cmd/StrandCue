@@ -21,6 +21,7 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import { CURRENT_HEAT_RULE_PUBLICATION } from '../apps/mobile/src/guidance/heat-rule-publication.ts';
 import {
   GuidanceEvidenceMarketSchema,
   GuidanceEvidenceRegistrySchema,
@@ -42,6 +43,8 @@ export const GUIDANCE_RESEARCH_FINDING_CODES = [
   'INVENTORY_IDENTITY_INCOMPLETE',
   'INVENTORY_NOT_ZA',
   'INVENTORY_UNRESOLVED',
+  'HEAT_PUBLICATION_NOT_DRAFT',
+  'HEAT_PUBLICATION_NOT_EMPTY',
   'RESEARCH_LOG',
 ] as const;
 
@@ -131,6 +134,19 @@ function isFixtureVersionId(versionId: string): boolean {
 
 function finding(code: GuidanceResearchFindingCode, message: string): GuidanceResearchFinding {
   return Object.freeze({ code, message });
+}
+
+/** Production research may prepare evidence, but cannot silently publish Heat Coach content. */
+export function validateHeatResearchDraft(input: unknown): readonly GuidanceResearchFinding[] {
+  const raw = typeof input === 'object' && input !== null ? input as Record<string, unknown> : {};
+  const findings: GuidanceResearchFinding[] = [];
+  if (raw.state !== 'draft') {
+    findings.push(finding('HEAT_PUBLICATION_NOT_DRAFT', 'Production Heat Coach publication must remain draft during research'));
+  }
+  if (!Array.isArray(raw.rules) || raw.rules.length !== 0) {
+    findings.push(finding('HEAT_PUBLICATION_NOT_EMPTY', 'Production Heat Coach draft must contain no rules'));
+  }
+  return Object.freeze(findings);
 }
 
 function shapeFindings(artifact: string, issues: readonly z.core.$ZodIssue[]): GuidanceResearchFinding[] {
@@ -593,7 +609,10 @@ export async function runGuidanceResearch(
       resolveCatalogue(packDirectory, migrationsDirectory),
     ]);
 
-    const findings = validateGuidanceResearch({ inventory, registry, researchLog }, catalogue);
+    const findings = [
+      ...validateGuidanceResearch({ inventory, registry, researchLog }, catalogue),
+      ...validateHeatResearchDraft(CURRENT_HEAT_RULE_PUBLICATION),
+    ];
     for (const item of findings) {
       process.stderr.write(`GUIDANCE-RESEARCH-HOLD ${item.code}: ${item.message}\n`);
     }
