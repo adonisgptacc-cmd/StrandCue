@@ -8,7 +8,7 @@ import {
   summarizeScenarioResults,
   type ScenarioResult,
 } from '../../scripts/owner-isolation-scenarios.ts';
-import { database, USER_A, USER_B } from './harness.ts';
+import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
 import { pgliteTransport } from '../helpers/postgrest-pglite-transport.ts';
 
 /**
@@ -38,6 +38,33 @@ afterAll(async () => { await db?.close(); });
 const failing = (results: readonly ScenarioResult[]) => results.filter(result => result.status !== 'PASS');
 
 describe('the live two-owner scenarios against the real migrations (PGlite)', () => {
+  it('keeps Heat Coach assessment reads owner-only and foreign ids indistinguishable from random ids', async () => {
+    const publication = crypto.randomUUID();
+    let digest = `sha256:${'d'.repeat(64)}`;
+    const intent = { method:{state:'unknown'},temperature:{state:'unknown'},setting:{state:'unknown'},passes:{state:'unknown'},durationMinutes:{state:'unknown'},zones:[] };
+    await asUser(db, USER_A); await complete(db, 'owner_a');
+    await db.exec('set session authorization postgres');
+    const inserted=await db.query<{content_digest:string}>(`with source as (select $2::jsonb rule), bound as (select rule,encode(sha256(convert_to(rule::text,'UTF8')),'hex') digest from source)
+      insert into strandcue_private.heat_rule_publications(id,content_digest,rule,state,authored_by,reviewed_by,reviewed_at,published_at)
+      select $1,'sha256:'||digest,rule||jsonb_build_object('digest',digest),'published','isolation author','isolation reviewer',now(),now() from bound returning content_digest`, [publication,JSON.stringify({reasonCode:'reviewed_limit',copyKey:'heat.reviewed_limit',requiredProductCapability:null,allowedMethods:['heated-air'],limits:{temperatures:[]}})]);
+    digest=inserted.rows[0]!.content_digest;
+    await asUser(db, USER_A);
+    const created=(await db.query<{result:any}>('select public.create_heat_coach_assessment($1,$2,$3,$4::jsonb) result',[crypto.randomUUID(),publication,digest,JSON.stringify(intent)])).rows[0].result;
+    await asUser(db, USER_B); await complete(db, 'owner_b');
+    const messages:string[]=[];
+    for (const id of [created.assessmentId,crypto.randomUUID()]) {
+      try { await db.query('select public.get_heat_coach_assessment($1)',[id]); }
+      catch (error) { messages.push(String((error as Error).message)); }
+    }
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toContain('assessment-not-found');
+    expect(messages[1]).toContain('assessment-not-found');
+    expect((await db.query<{result:any}>('select public.list_heat_coach_assessments(10,null) result')).rows[0].result.items).toEqual([]);
+    await db.exec('set session authorization postgres');
+    await db.exec('alter table strandcue_private.heat_rule_publications disable trigger heat_rule_guard');
+    await db.query('delete from strandcue_private.heat_rule_publications where id=$1',[publication]);
+    await db.exec('alter table strandcue_private.heat_rule_publications enable trigger heat_rule_guard');
+  });
   it('passes every scenario for correctly isolated owners, across every required area', async () => {
     const { transport, probe } = pgliteTransport(db);
     const results = await runOwnerIsolationScenarios({ transport, ...principals, probe });

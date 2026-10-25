@@ -199,3 +199,20 @@ operation receipts.
   retention. Programme tables have no hold flag because no retention pass deletes programme facts, history or
   snapshots; only the 30-day receipt cleanup runs, and receipts are replay material rather than evidence. A hold
   that must survive an owner's own account deletion would be a new design decision and is not introduced here.
+
+## Heat Coach assessments (Increment 6, Task I6.3)
+
+Heat Coach assessments are owner content. Each assessment preserves the exact server-constructed input,
+server decision, reviewed-publication binding, source revision map and source fingerprint. They remain until
+account deletion, appear in export v7, and are removed by the profile cascade. A restored assessment is marked
+stale when a bound source revision or exact published rule no longer matches; its stored decision is never
+silently recomputed or rewritten.
+
+`strandcue_private.heat_coach_operations` contains private idempotency payloads and receipts. It is never
+owner-readable or exported. I6.3 does not introduce a new scheduled deletion pass: operation-receipt cleanup
+must be added to the existing reviewed retention worker before public launch. Until then this is an explicit
+retention HOLD, while account deletion still removes every receipt by cascade.
+
+`strandcue_private.heat_rule_publications` is shared reviewed content, starts empty, is not owner data and is
+not removed with an owner. A migration must never populate it. Publication remains a separate two-person
+reviewed-content release.
