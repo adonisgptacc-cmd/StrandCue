@@ -191,6 +191,29 @@ describe('evaluateHeatCoach', () => {
     expect(decision.state).toBe('restricted');
   });
 
+  it('does not let a missing heat fact mask an active hard restriction', () => {
+    const decision = evaluateHeatCoach(
+      input({ temperature: { state: 'unknown' }, setting: { state: 'unknown' } }),
+      publication({
+        hardRestrictions: [{ concerns: ['dryness'], servicePresence: null, zones: [], outcome: 'restricted', reasonCode: 'dryness_rule', copyKey: 'heat.restriction.dryness' }],
+      }),
+    );
+    expect(decision.state).toBe('restricted');
+    expect(decision.reasons[0]?.reasonCode).toBe('dryness_rule');
+  });
+
+  it('does not let an unheated or not-needed request mask an active hard restriction', () => {
+    const decision = evaluateHeatCoach(
+      input({ method: { state: 'known', value: 'unheated' }, toolOwnerItemId: null, productOwnerItemId: null }),
+      publication({
+        necessityRules: [{ necessity: 'not_needed', goals: ['basic_wash'], concerns: [] }],
+        hardRestrictions: [{ concerns: ['dryness'], servicePresence: null, zones: [], outcome: 'restricted', reasonCode: 'dryness_rule', copyKey: 'heat.restriction.dryness' }],
+      }),
+    );
+    expect(decision.state).toBe('restricted');
+    expect(decision.reasons[0]?.reasonCode).toBe('dryness_rule');
+  });
+
   it('returns no_heat for a matching no-heat restriction', () => {
     const decision = evaluateHeatCoach(input(), publication({
       hardRestrictions: [{ concerns: ['dryness'], servicePresence: null, zones: [], outcome: 'no_heat', reasonCode: 'no_heat_rule', copyKey: 'heat.restriction.no_heat' }],

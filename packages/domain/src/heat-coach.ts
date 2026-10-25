@@ -250,16 +250,16 @@ export function evaluateHeatCoach(rawInput: unknown, rawPublication: unknown): H
   if (instant < Date.parse(publication.validFrom) || (publication.validUntil !== null && instant > Date.parse(publication.validUntil))) {
     return decision({ ...common, state: 'unavailable', reasons: [reason('publication_unavailable', 'heat.unavailable.publication')] });
   }
+  const restriction = publication.hardRestrictions.find(rule => matchesRestriction(input, rule));
+  if (restriction !== undefined) {
+    return decision({ ...common, state: restriction.outcome, reasons: [reason(restriction.reasonCode, restriction.copyKey)] });
+  }
   const requestedMethod = knownValue(input.request.method);
   if (common.necessity === 'not_needed' || requestedMethod === 'unheated') {
     return decision({ ...common, state: 'no_heat', selected: { ...EMPTY_SELECTED, method: 'unheated', zones: input.request.zones } });
   }
   const missingFacts = missing(input, publication);
   if (missingFacts.length > 0) return decision({ ...common, state: 'needs_input', missing: missingFacts });
-  const restriction = publication.hardRestrictions.find(rule => matchesRestriction(input, rule));
-  if (restriction !== undefined) {
-    return decision({ ...common, state: restriction.outcome, reasons: [reason(restriction.reasonCode, restriction.copyKey)] });
-  }
   const method = knownValue(input.request.method)!;
   const tool = input.preparedInput.tools.find(item => item.ownerItemId === input.request.toolOwnerItemId);
   const exactTool = tool !== undefined && tool.identity === 'exact' && tool.versionId !== null && tool.review === 'reviewed' && tool.satisfiesExactCapability;

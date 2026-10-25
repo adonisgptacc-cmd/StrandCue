@@ -44,3 +44,8 @@ The final diff was reviewed for caller-controlled decisions, owner isolation, ac
 - `confirmedCareEvents` and the prepared activity/heat-history projection remain empty at this boundary because no trusted database projection yet emits the full domain `CareEvent` contract. This keeps the recent confirmed-heat count at zero and must be resolved before enabling an owner-facing “use this heat plan” action.
 - Receipt cleanup exists but must be wired into the reviewed retention worker and alerting before public launch.
 - No hosted migration, deployment, publication, reviewer identity, capability mapping, or production content was added.
+# Post-review correction status
+
+Independent review found that I6.3 cannot be treated as complete. The SQL evaluator does not yet conform to every I6.1 rule behavior, and no reviewed product/tool capability publication model exists for constructing trusted eligibility bindings. Additional unresolved findings cover full publication-contract enforcement, atomic source/input capture and owner-wide quota serialization. These are BLOCKING for I6.4 and require a separately designed I6.3a correction; no capability mapping or publication fact was invented here.
+
+The bounded safe correction in this follow-up changes only domain precedence: an active reviewed hard restriction is evaluated before missing facts, heat necessity or an unheated selection. Two regression tests failed before the change (`needs_input` and `no_heat` respectively) and pass afterward. Production Heat Coach remains an empty draft.
