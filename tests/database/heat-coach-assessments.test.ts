@@ -1,4 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
+import { readFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { HeatCoachDecisionSchema, HeatCoachInputSchema } from '../../packages/domain/src/index.ts';
@@ -56,6 +57,19 @@ afterEach(async () => {
 afterAll(async () => { await db?.close(); });
 
 describe('Heat Coach assessment trust boundary', () => {
+  it('replays the forward evaluator and capture corrections without privilege drift', async () => {
+    await privileged('select 1');
+    await db.exec(await readFile('supabase/migrations/20261027120000_align_heat_coach_evaluator.sql', 'utf8'));
+    await db.exec(await readFile('supabase/migrations/20261027121000_harden_heat_coach_capture.sql', 'utf8'));
+    const privileges = await privileged<{ member: boolean; core: boolean }>(`select
+      exists(select 1 from pg_auth_members memberships
+        join pg_roles granted on granted.oid=memberships.roleid
+        join pg_roles recipient on recipient.oid=memberships.member
+        where granted.rolname='strandcue_mutator' and recipient.rolname=current_user) member,
+      has_function_privilege('authenticated','strandcue_private.create_heat_coach_assessment_core(uuid,uuid,text,jsonb)','EXECUTE') core`);
+    expect(privileges.rows[0]).toEqual({ member: false, core: true });
+  });
+
   it('creates an immutable server-owned assessment bound to the exact publication', async () => {
     const validity = await privileged<{ valid: boolean }>(
       'select strandcue_private.heat_intent_valid($1::jsonb) valid',
@@ -72,6 +86,12 @@ describe('Heat Coach assessment trust boundary', () => {
     expect(HeatCoachInputSchema.parse(result.input)).toEqual(result.input);
     expect(HeatCoachDecisionSchema.parse(result.result)).toEqual(result.result);
     expect(result.sourceFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+    const restored = (await db.query<{ result: any }>(
+      'select public.get_heat_coach_assessment($1) result',
+      [result.assessmentId],
+    )).rows[0]!.result;
+    expect(result.stale).toBe(restored.stale);
+    expect(result.sourceRevisions).toEqual(restored.sourceRevisions);
 
     await expect(db.exec(`update public.heat_coach_assessments set result='{}'::jsonb`)).rejects.toThrow(/permission denied|immutable/i);
     await expect(db.exec(`delete from public.heat_coach_assessments`)).rejects.toThrow(/permission denied|immutable/i);
@@ -261,22 +281,31 @@ describe('Heat Coach assessment trust boundary', () => {
 
   it('marks the historical decision stale after a bound source revision changes without recomputing it', async () => {
     await mutate(db);
-    const own = await create({ operationId: crypto.randomUUID() });
+    const operationId = crypto.randomUUID();
+    const own = await create({ operationId });
     const before = own.result;
     await mutate(db, { revision: 1, kind: 'change', patch: { concerns: ['frizz'] } });
     const restored = (await db.query<{ result: any }>('select public.get_heat_coach_assessment($1) result', [own.assessmentId])).rows[0]!.result;
     expect(restored.stale).toBe(true);
     expect(restored.result).toEqual(before);
+    const replay = await create({ operationId });
+    expect(replay.assessmentId).toBe(own.assessmentId);
+    expect(replay.stale).toBe(true);
+    const current = await create({ operationId: crypto.randomUUID() });
+    expect(current.assessmentId).not.toBe(own.assessmentId);
+    expect(current.stale).toBe(false);
   });
 
   it('marks a historical decision stale after its publication is withdrawn without recomputing it', async () => {
-    const own = await create({ operationId: crypto.randomUUID() });
+    const operationId = crypto.randomUUID();
+    const own = await create({ operationId });
     const before = own.result;
     await privileged(`update strandcue_private.heat_rule_publications set state='withdrawn' where id=$1`, [RULE_ID]);
     await asUser(db, USER_A);
     const restored = (await db.query<{ result: any }>('select public.get_heat_coach_assessment($1) result', [own.assessmentId])).rows[0]!.result;
     expect(restored.stale).toBe(true);
     expect(restored.result).toEqual(before);
+    expect((await create({ operationId })).stale).toBe(true);
   });
 
   it('refuses anonymous, unverified and deleting accounts on every RPC', async () => {

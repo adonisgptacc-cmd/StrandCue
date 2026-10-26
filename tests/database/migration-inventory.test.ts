@@ -61,6 +61,8 @@ const trustedMigrationNames = [
   '20261025120000_treatment_programmes.sql',
   '20261025130000_programme_execution_retention_scope.sql',
   '20261026120000_heat_coach_assessments.sql',
+  '20261027120000_align_heat_coach_evaluator.sql',
+  '20261027121000_harden_heat_coach_capture.sql',
 ] as const;
 
 const candidateMigrationNames = [
