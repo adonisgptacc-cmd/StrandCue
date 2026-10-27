@@ -4,6 +4,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { HeatCoachDecisionSchema, HeatCoachInputSchema } from '../../packages/domain/src/index.ts';
 import { asUser, complete, database, mutate, USER_A, USER_B, UNVERIFIED } from './harness.ts';
+import { seedSyntheticHeatCapabilityRegistry, SYNTHETIC_PRODUCT_VERSION_ID, SYNTHETIC_TOOL_VERSION_ID } from './support/heat-capability-fixtures.ts';
+import { seedSyntheticHeatRule } from './support/heat-publication-fixtures.ts';
 
 const RULE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OPERATION_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -27,23 +29,16 @@ const create = async (options: { operationId?: string; publicationId?: string; d
   )).rows[0]!.result;
 
 const seedRule = async (state: 'draft' | 'published' | 'withdrawn' = 'published') => {
+  const registry = await seedSyntheticHeatCapabilityRegistry(privileged);
   const rule = {
-    schemaVersion: 1, publicationId: RULE_ID, ruleVersion: '1.0.0', digest: DIGEST,
+    schemaVersion: 1, publicationId: RULE_ID, ruleVersion: '1.0.0',
     lifecycle: state === 'published' ? 'reviewed' : state, validFrom: '2026-01-01T00:00:00.000Z', validUntil: null,
-    requiredProductCapability: 'heat-protect', allowedMethods: ['heated-air'],
-    limits: { temperatures: [{ unit: 'C', maximum: 180 }], namedSettings: [], maximumPasses: 2, maximumDurationMinutes: 20 },
+    requiredProductCapability: 'heat-protection', allowedMethods: ['heated-air'],
+    limits: { temperatures: [{ unit: 'C', maximum: 180 }, { unit: 'F', maximum: 356 }], namedSettings: [], maximumPasses: 2, maximumDurationMinutes: 20 },
     necessityRules: [], hardRestrictions: [], alternatives: [], reasonCode: 'reviewed_limit', copyKey: 'heat.reviewed_limit',
   };
-  const inserted = await privileged<{ content_digest:string }>(
-    `with source as (select $2::jsonb - 'digest' rule), bound as (
-       select rule,encode(sha256(convert_to(rule::text,'UTF8')),'hex') digest from source)
-     insert into strandcue_private.heat_rule_publications
-      (id, content_digest, rule, state, authored_by, reviewed_by, reviewed_at, published_at)
-     select $1,'sha256:'||digest,rule||jsonb_build_object('digest',digest),$3,'fixture-author','fixture-reviewer',now(),now() from bound
-     returning content_digest`,
-    [RULE_ID, JSON.stringify(rule), state],
-  );
-  DIGEST=inserted.rows[0]!.content_digest;
+  const inserted = await seedSyntheticHeatRule(privileged, RULE_ID, rule, registry, state);
+  DIGEST = inserted.contentDigest;
 };
 
 beforeAll(async () => { db = await database(); });
@@ -57,10 +52,30 @@ afterEach(async () => {
 afterAll(async () => { await db?.close(); });
 
 describe('Heat Coach assessment trust boundary', () => {
+  it('uses the published exact capability registry when capturing a server assessment', async () => {
+    const productId = crypto.randomUUID();
+    const toolId = crypto.randomUUID();
+    await privileged(`insert into public.user_products(id,owner,version_id,matched,match_confirmed,matched_at)
+      values($1,$2,$3,true,true,now())`, [productId, USER_A, SYNTHETIC_PRODUCT_VERSION_ID]);
+    await privileged(`insert into public.user_tools(id,owner,version_id,matched,match_confirmed,matched_at)
+      values($1,$2,$3,true,true,now())`, [toolId, USER_A, SYNTHETIC_TOOL_VERSION_ID]);
+    await asUser(db, USER_A);
+    const result = await create();
+    expect(result.input.preparedInput.products).toContainEqual(expect.objectContaining({
+      ownerItemId: productId, review: 'reviewed', verifiedCapabilities: ['heat-protection'], satisfiesExactCapability: true,
+    }));
+    expect(result.input.preparedInput.tools).toContainEqual(expect.objectContaining({
+      ownerItemId: toolId, review: 'reviewed', verifiedCapabilities: ['heat-tool'], satisfiesExactCapability: true,
+    }));
+  });
+
   it('replays the forward evaluator and capture corrections without privilege drift', async () => {
     await privileged('select 1');
     await db.exec(await readFile('supabase/migrations/20261027120000_align_heat_coach_evaluator.sql', 'utf8'));
     await db.exec(await readFile('supabase/migrations/20261027121000_harden_heat_coach_capture.sql', 'utf8'));
+    await db.exec(await readFile('supabase/migrations/20261027122000_heat_capability_registry.sql', 'utf8'));
+    await db.exec(await readFile('supabase/migrations/20261027123000_validate_heat_publication.sql', 'utf8'));
+    await db.exec(await readFile('supabase/migrations/20261027124000_bind_heat_registry_assessment.sql', 'utf8'));
     const privileges = await privileged<{ member: boolean; core: boolean }>(`select
       exists(select 1 from pg_auth_members memberships
         join pg_roles granted on granted.oid=memberships.roleid
@@ -306,6 +321,26 @@ describe('Heat Coach assessment trust boundary', () => {
     expect(restored.stale).toBe(true);
     expect(restored.result).toEqual(before);
     expect((await create({ operationId })).stale).toBe(true);
+  });
+
+  it('marks a reviewed exact product binding stale when its catalogue version retires', async () => {
+    const productId = crypto.randomUUID();
+    await privileged(`insert into public.user_products(id,owner,version_id,matched,match_confirmed,matched_at)
+      values($1,$2,$3,true,true,now())`, [productId, USER_A, SYNTHETIC_PRODUCT_VERSION_ID]);
+    await asUser(db, USER_A);
+    const own = await create();
+    expect(own.stale).toBe(false);
+    await privileged('begin');
+    try {
+      await privileged("update public.product_versions set lifecycle='retired' where id=$1", [SYNTHETIC_PRODUCT_VERSION_ID]);
+      await asUser(db, USER_A);
+      const restored = (await db.query<{ result: any }>(
+        'select public.get_heat_coach_assessment($1) result', [own.assessmentId])).rows[0]!.result;
+      expect(restored.stale).toBe(true);
+      expect(restored.result).toEqual(own.result);
+    } finally {
+      await db.exec('rollback');
+    }
   });
 
   it('refuses anonymous, unverified and deleting accounts on every RPC', async () => {

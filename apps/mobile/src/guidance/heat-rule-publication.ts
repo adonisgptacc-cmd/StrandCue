@@ -9,7 +9,7 @@ import { frozen, nonEmptyString } from '../../../../packages/domain/src/guidance
 import { DRAFT_HEAT_RULE_PUBLICATION } from './heat-rule-publication.draft.ts';
 
 const IsoInstantSchema = z.iso.datetime({ offset: true });
-const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+const SqlDigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
 const NamedHumanSchema = nonEmptyString;
 const CanonicalIdsSchema = z.array(z.string().uuid()).refine(
   values => new Set(values).size === values.length && values.every((value, index) => index === 0 || values[index - 1]! < value),
@@ -42,7 +42,7 @@ const CopyReviewSchema = z.object({
   copyKey: z.string().regex(/^heat\.[a-z0-9_.-]{1,100}$/u),
   text: nonEmptyString.max(500),
   evidenceIds: CanonicalTextIdsSchema,
-  contentDigest: DigestSchema,
+  contentDigest: SqlDigestSchema,
   status: z.enum(['draft', 'reviewed', 'withdrawn']),
   authoredBy: NamedHumanSchema,
   reviewedBy: NamedHumanSchema.nullable(),
@@ -53,20 +53,25 @@ const AdoptionSchema = z.object({
   decision: z.enum(['adopted', 'rejected']),
   reviewer: NamedHumanSchema,
   reviewedAt: IsoInstantSchema,
-  contentDigest: DigestSchema,
+  contentDigest: SqlDigestSchema,
 }).strict();
 
 const ApprovalSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
   reviewer: NamedHumanSchema,
   reviewedAt: IsoInstantSchema,
-  contentDigest: DigestSchema,
+  contentDigest: SqlDigestSchema,
 }).strict();
 
 const ReviewedRuleSchema = z.object({
   publication: HeatRulePublicationSchema,
   evidenceRegistryId: nonEmptyString,
   evidenceRegistryVersion: nonEmptyString,
+  evidenceSnapshotDigest: SqlDigestSchema,
+  capabilityRegistryId: z.string().uuid(),
+  capabilityRegistryDigest: SqlDigestSchema,
+  copyDigest: SqlDigestSchema,
+  reviewedContentDigest: SqlDigestSchema,
   evidence: z.array(EvidenceSnapshotSchema).min(1).max(100),
   capabilities: z.array(CapabilityDecisionSchema).max(100),
   copy: z.array(CopyReviewSchema).max(100),
@@ -125,13 +130,13 @@ export type HeatRulePublicationResult =
   | { readonly ok: true; readonly state: 'reviewed'; readonly publication: HeatRulePublicationSet }
   | { readonly ok: false; readonly state: 'content_pending'; readonly findings: readonly HeatRulePublicationFinding[] };
 
-const HEAT_CAPABILITIES: ReadonlySet<string> = new Set(['heat-protection']);
+const HEAT_CAPABILITIES: ReadonlySet<string> = new Set(['heat-protection', 'heat-tool']);
 
 function finding(code: HeatRulePublicationFindingCode, message: string): HeatRulePublicationFinding {
   return Object.freeze({ code, message });
 }
 
-function refusal(findings: readonly HeatRulePublicationFinding[]): HeatRulePublicationResult {
+function refusal(findings: readonly HeatRulePublicationFinding[]): Extract<HeatRulePublicationResult, { readonly ok: false }> {
   return Object.freeze({ ok: false, state: 'content_pending', findings: Object.freeze([...findings]) });
 }
 
@@ -172,8 +177,8 @@ function reviewFindings(
     if (Date.parse(review.reviewedAt) > nowAt) {
       findings.push(finding('REVIEW_FUTURE', `${label} is dated after the supplied now`));
     }
-    if (review.contentDigest !== record.publication.digest) {
-      findings.push(finding('DIGEST_MISMATCH', `${label} is not bound to the exact publication digest`));
+    if (review.contentDigest !== record.reviewedContentDigest) {
+      findings.push(finding('DIGEST_MISMATCH', `${label} is not bound to the complete reviewed content digest`));
     }
   }
   return findings;
@@ -197,7 +202,7 @@ function copyFindings(record: z.output<typeof ReviewedRuleSchema>, nowAt: number
     } else if (Date.parse(item.reviewedAt) > nowAt) {
       findings.push(finding('REVIEW_FUTURE', `Owner-facing copy '${key}' is reviewed after the supplied now`));
     }
-    if (item !== undefined && item.contentDigest !== record.publication.digest) {
+    if (item !== undefined && item.contentDigest !== `sha256:${record.publication.digest}`) {
       findings.push(finding('DIGEST_MISMATCH', `Owner-facing copy '${key}' is not bound to the exact publication digest`));
     }
     for (const evidenceId of item?.evidenceIds ?? []) {
@@ -268,6 +273,20 @@ function bindingFindings(
     item.kind === 'product' && item.capability === record.publication.requiredProductCapability && item.decision === 'approved')) {
     findings.push(finding('CAPABILITY_BINDING_MISSING', `Required capability '${record.publication.requiredProductCapability}' has no exact approved product binding`));
   }
+  const approved = (kind: 'product' | 'tool', versionId: string, capability: string) => record.capabilities.some(item =>
+    item.kind === kind && item.versionId === versionId && item.capability === capability && item.decision === 'approved');
+  const toolVersions = new Set(record.publication.limits.namedSettings.map(item => item.toolVersionId));
+  for (const alternative of record.publication.alternatives) {
+    if (alternative.toolVersionId !== null) toolVersions.add(alternative.toolVersionId);
+    if (alternative.productVersionId !== null && !approved('product', alternative.productVersionId, 'heat-protection')) {
+      findings.push(finding('CAPABILITY_BINDING_MISSING', `Alternative product version '${alternative.productVersionId}' has no exact approved heat-protection binding`));
+    }
+  }
+  for (const versionId of toolVersions) {
+    if (!approved('tool', versionId, 'heat-tool')) {
+      findings.push(finding('CAPABILITY_BINDING_MISSING', `Tool version '${versionId}' has no exact approved heat-tool binding`));
+    }
+  }
   return findings;
 }
 
@@ -295,6 +314,37 @@ export function validateHeatRulePublication(input: unknown, registry: unknown, n
   return findings.length > 0
     ? refusal(findings)
     : Object.freeze({ ok: true, state: 'reviewed', publication: parsed.data });
+}
+
+/** Build the SQL review envelope from a validated reviewed artifact and its exact evidence registry.
+ * PostgreSQL remains the publication authority: it recomputes every digest and checks the
+ * capability publication before accepting this packet. */
+export function prepareHeatRuleReviewEnvelope(input: unknown, registry: unknown, now: string, publicationId: string) {
+  const validated = validateHeatRulePublication(input, registry, now);
+  if (validated.ok === false) return validated;
+  const record = validated.publication.rules.find(item => item.publication.publicationId === publicationId);
+  if (record === undefined) return refusal([finding('ARTIFACT_SHAPE', `Publication '${publicationId}' is absent from the reviewed set`)]);
+  const source = GuidanceEvidenceRegistrySchema.parse(registry);
+  const sourceById = new Map(source.records.map(item => [item.evidenceId, item]));
+  const evidence = Object.freeze(record.evidence.map(snapshot => {
+    const sourceRecord = sourceById.get(snapshot.evidenceId)!;
+    return Object.freeze({ ...snapshot, status: sourceRecord.status, market: sourceRecord.market, trustTier: sourceRecord.trustTier });
+  }));
+  const reviewEnvelope = Object.freeze({
+    schemaVersion: 1 as const,
+    evidenceRegistryId: record.evidenceRegistryId,
+    evidenceRegistryVersion: record.evidenceRegistryVersion,
+    evidenceSnapshotDigest: record.evidenceSnapshotDigest,
+    evidence,
+    capabilityRegistryId: record.capabilityRegistryId,
+    capabilityRegistryDigest: record.capabilityRegistryDigest,
+    copyDigest: record.copyDigest,
+    copy: record.copy,
+    reviewedContentDigest: record.reviewedContentDigest,
+    adoption: record.adoption,
+    approval: record.approval,
+  });
+  return Object.freeze({ ok: true as const, rule: record.publication, reviewEnvelope });
 }
 
 export const CURRENT_HEAT_RULE_PUBLICATION: HeatRulePublicationSet = HeatRulePublicationSetSchema.parse(DRAFT_HEAT_RULE_PUBLICATION);

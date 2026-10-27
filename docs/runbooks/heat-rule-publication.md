@@ -14,6 +14,21 @@ For every rule, assemble one immutable packet containing:
 - Human A's per-rule adoption decision, real name, timestamp and exact digest;
 - Human B's independent approval decision, different real name, timestamp and the same exact digest.
 
+The server stores a separate, immutable `heat_capability_publications` packet. It contains
+approved `heat-protection` product and `heat-tool` tool bindings for exact active ZA
+catalogue versions, each backed by reviewed claim-scoped evidence and an independent
+row reviewer. A rule's `review_envelope` names that registry by id and digest and
+contains the same evidence snapshot, reviewed copy, and both human decisions.
+The rule content digest covers the executable rule. The reviewed content digest
+covers that rule digest, evidence digest, copy digest, and registry id and digest.
+Human A and B sign the reviewed content digest; copy rows bind to the rule digest.
+
+`prepareHeatRuleReviewEnvelope` maps a validated TypeScript artifact to the SQL
+packet shape. PostgreSQL recomputes every digest from stored JSONB and refuses a
+packet whose values differ. The operator must calculate the database's exact
+digests before obtaining real Human A/B decisions; synthetic test digests are
+never publication evidence. There is no production packet or capability row today.
+
 Evidence must be about the exact version. Product names, categories, ingredients, photographs, marketing claims and general articles cannot establish heat protection, temperature limits or suitable techniques. A tool label such as “Low” or “High” cannot establish a temperature.
 
 ## Human A review
@@ -44,6 +59,11 @@ The gate must refuse publication when:
 - a capability is unknown, rejected, insufficient or lacks exact evidence;
 - numeric limits cover only Celsius or only Fahrenheit;
 - any used owner-facing copy key lacks its own independent review.
+- the capability registry is missing, changed, withdrawn, or names a retired
+  catalogue version; the server also rechecks the registry when assessing and
+  marks affected historical decisions stale.
+- the database packet omits evidence, copy, registry identity, or either
+  distinct Human A/B approval, or its aggregate digest changes after review.
 
 No command in this repository publishes Heat Coach content automatically. After the artifact and all gates are reviewed, a maintainer may include the reviewed artifact in a normal signed application release. That release is a separate authorized action.
 

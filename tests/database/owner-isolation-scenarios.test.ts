@@ -10,6 +10,8 @@ import {
 } from '../../scripts/owner-isolation-scenarios.ts';
 import { asUser, complete, database, USER_A, USER_B } from './harness.ts';
 import { pgliteTransport } from '../helpers/postgrest-pglite-transport.ts';
+import { seedSyntheticHeatCapabilityRegistry, SYNTHETIC_PRODUCT_VERSION_ID, SYNTHETIC_TOOL_VERSION_ID } from './support/heat-capability-fixtures.ts';
+import { seedSyntheticHeatRule } from './support/heat-publication-fixtures.ts';
 
 /**
  * PGlite evidence only. These tests prove the scenario logic and the SQL boundary behind it, and that the suite
@@ -40,14 +42,18 @@ const failing = (results: readonly ScenarioResult[]) => results.filter(result =>
 describe('the live two-owner scenarios against the real migrations (PGlite)', () => {
   it('keeps Heat Coach assessment reads owner-only and foreign ids indistinguishable from random ids', async () => {
     const publication = crypto.randomUUID();
-    let digest = `sha256:${'d'.repeat(64)}`;
     const intent = { method:{state:'unknown'},temperature:{state:'unknown'},setting:{state:'unknown'},passes:{state:'unknown'},durationMinutes:{state:'unknown'},zones:[] };
     await asUser(db, USER_A); await complete(db, 'owner_a');
     await db.exec('set session authorization postgres');
-    const inserted=await db.query<{content_digest:string}>(`with source as (select $2::jsonb rule), bound as (select rule,encode(sha256(convert_to(rule::text,'UTF8')),'hex') digest from source)
-      insert into strandcue_private.heat_rule_publications(id,content_digest,rule,state,authored_by,reviewed_by,reviewed_at,published_at)
-      select $1,'sha256:'||digest,rule||jsonb_build_object('digest',digest),'published','isolation author','isolation reviewer',now(),now() from bound returning content_digest`, [publication,JSON.stringify({reasonCode:'reviewed_limit',copyKey:'heat.reviewed_limit',requiredProductCapability:null,allowedMethods:['heated-air'],limits:{temperatures:[]}})]);
-    digest=inserted.rows[0]!.content_digest;
+    const query = (sql: string, params: unknown[] = []) => db.query<Record<string, unknown>>(sql, params);
+    const registry = await seedSyntheticHeatCapabilityRegistry(query);
+    const inserted = await seedSyntheticHeatRule(query, publication, {
+      schemaVersion: 1, publicationId: publication, ruleVersion: '1.0.0', lifecycle: 'reviewed',
+      validFrom: '2026-01-01T00:00:00.000Z', validUntil: null, requiredProductCapability: null,
+      allowedMethods: ['heated-air'], limits: { temperatures: [], namedSettings: [], maximumPasses: null, maximumDurationMinutes: null },
+      necessityRules: [], hardRestrictions: [], alternatives: [], reasonCode: 'reviewed_limit', copyKey: 'heat.reviewed_limit',
+    }, registry);
+    const digest = inserted.contentDigest;
     await asUser(db, USER_A);
     const created=(await db.query<{result:any}>('select public.create_heat_coach_assessment($1,$2,$3,$4::jsonb) result',[crypto.randomUUID(),publication,digest,JSON.stringify(intent)])).rows[0].result;
     await asUser(db, USER_B); await complete(db, 'owner_b');
@@ -64,6 +70,12 @@ describe('the live two-owner scenarios against the real migrations (PGlite)', ()
     await db.exec('alter table strandcue_private.heat_rule_publications disable trigger heat_rule_guard');
     await db.query('delete from strandcue_private.heat_rule_publications where id=$1',[publication]);
     await db.exec('alter table strandcue_private.heat_rule_publications enable trigger heat_rule_guard');
+    await db.exec('alter table strandcue_private.heat_capability_publications disable trigger heat_capability_guard');
+    await db.query('delete from strandcue_private.heat_capability_publications where id=$1', [registry.id]);
+    await db.exec('alter table strandcue_private.heat_capability_publications enable trigger heat_capability_guard');
+    await db.query('delete from public.product_versions where id=$1', [SYNTHETIC_PRODUCT_VERSION_ID]);
+    await db.query('delete from public.tool_versions where id=$1', [SYNTHETIC_TOOL_VERSION_ID]);
+    await db.exec("delete from public.products where name='Synthetic capability product'; delete from public.brands where name='Synthetic capability brand'; delete from public.tools where name='Synthetic capability tool'; delete from public.tool_brands where name='Synthetic capability tool brand'");
   });
   it('passes every scenario for correctly isolated owners, across every required area', async () => {
     const { transport, probe } = pgliteTransport(db);

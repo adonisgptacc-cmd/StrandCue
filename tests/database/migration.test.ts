@@ -78,7 +78,11 @@ describe('Supabase migration compatibility', () => {
           await db.exec('set session authorization migration_admin');
           continue;
         }
-        await db.exec(await readFile(join('supabase/migrations', migration), 'utf8'));
+        try {
+          await db.exec(await readFile(join('supabase/migrations', migration), 'utf8'));
+        } catch (error) {
+          throw new Error(`Migration ${migration} failed as migration_admin`, { cause: error });
+        }
       }
       await db.exec('reset session authorization');
 

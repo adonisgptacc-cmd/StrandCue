@@ -84,3 +84,56 @@ This is **Partial / BLOCKED**, not completion of I6.3a. Tasks B and C remain req
 - Full `test:coverage`: 4,596 passed / 30 skipped / 1 failed. The sole failure is the live dependency-policy in-process assertion; the separate dependency audit reports HOLD with 0 critical, 5 high and 9 moderate findings plus exception/runner review drift. This is recorded as HOLD, not PASS, and no dependency files changed.
 - `export:web`: PASS; `audit:control-plane`: METADATA-PASS; `git diff --check`: clean.
 - Hosted migration, hosted owner isolation and real-PostgreSQL concurrency: NOT RUN. Nothing was deployed or published.
+
+## Local completion attempt — 27 October 2026
+
+The three previously named I6.3a mechanism gaps now have local implementations:
+
+- Forward-only `20261027122000_heat_capability_registry.sql` stores immutable,
+  digest-bound, evidence-reviewed exact product/tool capabilities. The trusted
+  input constructor reads only owner-confirmed exact matches and rechecks the
+  current ZA catalogue version lifecycle. Production has no capability rows.
+- `20261027123000_validate_heat_publication.sql` refuses a published rule
+  without the exact evidence/copy/registry packet and distinct, dated Human A/B
+  decisions bound to the aggregate reviewed content digest. It rechecks the
+  registry on trusted reads, so withdrawal invalidates new and restored use.
+- `20261027124000_bind_heat_registry_assessment.sql` connects server assessment
+  capture to the registry named by that packet, serializes registry withdrawal
+  with creation, and marks history stale after an exact reviewed catalogue
+  version retires. The TypeScript review artifact and packet adapter now carry
+  the same registry and digest fields. No real rule or reviewer was added.
+
+New tests observed RED before the corresponding fixes for missing server
+capability binding, withdrawn-registry acceptance, missing Human A/B review
+dates, malformed executable rule values, registry withdrawal racing a create,
+retired-version capability reuse and stale restore. The focused contract,
+publication, registry, assessment and migration group reached 72/72 PASS
+before the final stale-restore addition; the final targeted group reached
+65/65 PASS. The final disposable native PostgreSQL 18.6 two-session suite
+reached 5/5 PASS, including owner-wide quota across publication IDs, source
+correction, rule withdrawal and capability-registry withdrawal. All migrations
+were replayed locally; no hosted database was touched.
+
+Gates used Node `v24.19.0`:
+
+| Gate | Result |
+|---|---|
+| `check:runtime`, `typecheck`, lint, guidance research validation | PASS |
+| Web export, control-plane metadata audit | PASS |
+| Coverage excluding the dependency-policy test, two workers | 4,545 passed, 34 skipped; PASS after final SQL correction, all configured coverage floors met (95.68% statements, 90.1% branches, 98.1% functions, 97.65% lines overall) |
+| Exact full `test:coverage` with two workers | 4,626 passed, 34 skipped, 1 failed; HOLD only at the live dependency-policy in-process assertion |
+| `audit:dependencies` | HOLD: 17 findings; 0 critical, 5 high, 9 moderate; exception and runner review drift remains |
+| Hosted migration/isolation, device acceptance | NOT RUN |
+
+An independent review found three High and two Medium issues in the first
+implementation. The fixes and regression tests above address all five; a
+second independent review found nullable digest and nested-rule shape gaps.
+Nine new database regressions failed first; strict JSON types, nested shape
+checks and null-safe digest comparisons then passed all 30 publication tests.
+The corrected migration was replayed on disposable native PostgreSQL 18.6;
+all five two-session race tests passed again. PostgreSQL alone verifies the
+reviewed digests and registry; the TypeScript adapter prepares the envelope
+and does not certify it. Real digest values and distinct human decisions are
+still needed before any production publication. Production Heat Coach remains
+empty and draft, and no push, deploy, publication or hosted Supabase migration
+occurred.

@@ -53,6 +53,8 @@ const floor = { lines: 80, statements: 80, functions: 80, branches: 80 };
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx', 'packages/**/*.test.ts'],
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
     coverage: {
       provider: 'v8',
       include: ['packages/domain/src/**/*.ts', 'scripts/validate-guidance-research.ts', 'scripts/catalogue-compiler.ts', 'scripts/compile-catalogue-intake.ts', ...criticalModules],

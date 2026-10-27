@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CURRENT_HEAT_RULE_PUBLICATION,
+  prepareHeatRuleReviewEnvelope,
   validateHeatRulePublication,
 } from '../../apps/mobile/src/guidance/heat-rule-publication.ts';
 
@@ -9,6 +10,9 @@ const PRODUCT_VERSION_ID = '22222222-2222-4222-8222-222222222222';
 const TOOL_VERSION_ID = '11111111-1111-4111-8111-111111111111';
 const EVIDENCE_ID = '44444444-4444-4444-8444-444444444444';
 const DIGEST = 'a'.repeat(64);
+const REVIEWED_DIGEST = `sha256:${'b'.repeat(64)}`;
+const CAPABILITY_REGISTRY_ID = '55555555-5555-4555-8555-555555555555';
+const CAPABILITY_REGISTRY_DIGEST = `sha256:${'c'.repeat(64)}`;
 const NOW = '2026-10-25T12:00:00+02:00';
 
 function evidenceRecord(overrides: Record<string, unknown> = {}) {
@@ -93,6 +97,11 @@ function rule(overrides: Record<string, unknown> = {}) {
     publication: publication(),
     evidenceRegistryId: 'synthetic-heat-evidence',
     evidenceRegistryVersion: '1',
+    evidenceSnapshotDigest: `sha256:${'d'.repeat(64)}`,
+    capabilityRegistryId: CAPABILITY_REGISTRY_ID,
+    capabilityRegistryDigest: CAPABILITY_REGISTRY_DIGEST,
+    copyDigest: `sha256:${'e'.repeat(64)}`,
+    reviewedContentDigest: REVIEWED_DIGEST,
     evidence: [snapshot()],
     capabilities: [{
       kind: 'product',
@@ -100,13 +109,19 @@ function rule(overrides: Record<string, unknown> = {}) {
       capability: 'heat-protection',
       decision: 'approved',
       evidenceIds: [EVIDENCE_ID],
+    }, {
+      kind: 'tool',
+      versionId: TOOL_VERSION_ID,
+      capability: 'heat-tool',
+      decision: 'approved',
+      evidenceIds: [EVIDENCE_ID],
     }],
     copy: [
-      { copyKey: 'heat.alternative.lower_heat', text: 'Synthetic lower-heat option.', evidenceIds: [EVIDENCE_ID], contentDigest: DIGEST, status: 'reviewed', authoredBy: 'Copy Author', reviewedBy: 'Copy Reviewer', reviewedAt: '2026-10-22T09:00:00+02:00' },
-      { copyKey: 'heat.reviewed_match', text: 'Synthetic reviewed match.', evidenceIds: [EVIDENCE_ID], contentDigest: DIGEST, status: 'reviewed', authoredBy: 'Copy Author', reviewedBy: 'Copy Reviewer', reviewedAt: '2026-10-22T09:00:00+02:00' },
+      { copyKey: 'heat.alternative.lower_heat', text: 'Synthetic lower-heat option.', evidenceIds: [EVIDENCE_ID], contentDigest: `sha256:${DIGEST}`, status: 'reviewed', authoredBy: 'Copy Author', reviewedBy: 'Copy Reviewer', reviewedAt: '2026-10-22T09:00:00+02:00' },
+      { copyKey: 'heat.reviewed_match', text: 'Synthetic reviewed match.', evidenceIds: [EVIDENCE_ID], contentDigest: `sha256:${DIGEST}`, status: 'reviewed', authoredBy: 'Copy Author', reviewedBy: 'Copy Reviewer', reviewedAt: '2026-10-22T09:00:00+02:00' },
     ],
-    adoption: { decision: 'adopted', reviewer: 'Human Alpha', reviewedAt: '2026-10-22T10:00:00+02:00', contentDigest: DIGEST },
-    approval: { decision: 'approved', reviewer: 'Human Beta', reviewedAt: '2026-10-22T11:00:00+02:00', contentDigest: DIGEST },
+    adoption: { decision: 'adopted', reviewer: 'Human Alpha', reviewedAt: '2026-10-22T10:00:00+02:00', contentDigest: REVIEWED_DIGEST },
+    approval: { decision: 'approved', reviewer: 'Human Beta', reviewedAt: '2026-10-22T11:00:00+02:00', contentDigest: REVIEWED_DIGEST },
     ...overrides,
   };
 }
@@ -139,6 +154,34 @@ describe('validateHeatRulePublication', () => {
     }
   });
 
+  it('requires a capability registry identity and binds Human A/B to the whole packet', () => {
+    const missing = { ...rule(), capabilityRegistryId: undefined };
+    expect(refusal(set({ rules: [missing] }))).toContain('ARTIFACT_SHAPE');
+    const oldSignature = rule();
+    oldSignature.adoption.contentDigest = `sha256:${DIGEST}`;
+    expect(refusal(set({ rules: [oldSignature] }))).toContain('DIGEST_MISMATCH');
+  });
+
+  it('prepares the exact SQL review envelope from validated evidence', () => {
+    const prepared = prepareHeatRuleReviewEnvelope(set(), registry(), NOW, publication().publicationId);
+    expect(prepared.ok).toBe(true);
+    if (prepared.ok) {
+      expect(prepared.rule).toEqual(publication());
+      expect(prepared.reviewEnvelope).toMatchObject({
+        schemaVersion: 1,
+        capabilityRegistryId: CAPABILITY_REGISTRY_ID,
+        capabilityRegistryDigest: CAPABILITY_REGISTRY_DIGEST,
+        evidenceSnapshotDigest: `sha256:${'d'.repeat(64)}`,
+        copyDigest: `sha256:${'e'.repeat(64)}`,
+        reviewedContentDigest: REVIEWED_DIGEST,
+        adoption: { contentDigest: REVIEWED_DIGEST },
+        approval: { contentDigest: REVIEWED_DIGEST },
+        evidence: [{ evidenceId: EVIDENCE_ID, status: 'reviewed', market: 'ZA', trustTier: 'T5' }],
+      });
+      expect(Object.isFrozen(prepared.reviewEnvelope)).toBe(true);
+    }
+  });
+
   it('keeps the checked-in production publication empty and content pending', () => {
     expect(CURRENT_HEAT_RULE_PUBLICATION.state).toBe('draft');
     expect(CURRENT_HEAT_RULE_PUBLICATION.rules).toEqual([]);
@@ -149,12 +192,12 @@ describe('validateHeatRulePublication', () => {
   });
 
   it.each([
-    ['same reviewer', { approval: { decision: 'approved', reviewer: 'Human Alpha', reviewedAt: '2026-10-22T11:00:00+02:00', contentDigest: DIGEST } }, 'SELF_REVIEW'],
-    ['placeholder reviewer', { adoption: { decision: 'adopted', reviewer: 'reviewer-a', reviewedAt: '2026-10-22T10:00:00+02:00', contentDigest: DIGEST } }, 'PLACEHOLDER_REVIEWER'],
+    ['same reviewer', { approval: { decision: 'approved', reviewer: 'Human Alpha', reviewedAt: '2026-10-22T11:00:00+02:00', contentDigest: REVIEWED_DIGEST } }, 'SELF_REVIEW'],
+    ['placeholder reviewer', { adoption: { decision: 'adopted', reviewer: 'reviewer-a', reviewedAt: '2026-10-22T10:00:00+02:00', contentDigest: REVIEWED_DIGEST } }, 'PLACEHOLDER_REVIEWER'],
     ['missing decision', { approval: null }, 'ARTIFACT_SHAPE'],
-    ['rejected row', { approval: { decision: 'rejected', reviewer: 'Human Beta', reviewedAt: '2026-10-22T11:00:00+02:00', contentDigest: DIGEST } }, 'APPROVAL_REJECTED'],
-    ['changed digest', { adoption: { decision: 'adopted', reviewer: 'Human Alpha', reviewedAt: '2026-10-22T10:00:00+02:00', contentDigest: 'b'.repeat(64) } }, 'DIGEST_MISMATCH'],
-    ['future review', { approval: { decision: 'approved', reviewer: 'Human Beta', reviewedAt: '2026-10-26T11:00:00+02:00', contentDigest: DIGEST } }, 'REVIEW_FUTURE'],
+    ['rejected row', { approval: { decision: 'rejected', reviewer: 'Human Beta', reviewedAt: '2026-10-22T11:00:00+02:00', contentDigest: REVIEWED_DIGEST } }, 'APPROVAL_REJECTED'],
+    ['changed digest', { adoption: { decision: 'adopted', reviewer: 'Human Alpha', reviewedAt: '2026-10-22T10:00:00+02:00', contentDigest: `sha256:${'f'.repeat(64)}` } }, 'DIGEST_MISMATCH'],
+    ['future review', { approval: { decision: 'approved', reviewer: 'Human Beta', reviewedAt: '2026-10-26T11:00:00+02:00', contentDigest: REVIEWED_DIGEST } }, 'REVIEW_FUTURE'],
   ] as const)('refuses %s', (_label, overrides, code) => {
     expect(refusal(set({ rules: [rule(overrides)] }))).toContain(code);
   });
@@ -173,6 +216,7 @@ describe('validateHeatRulePublication', () => {
     expect(refusal(set({ rules: [rule({ capabilities: [{ kind: 'product', versionId: PRODUCT_VERSION_ID, capability: 'repairs-damage', decision: 'approved', evidenceIds: [EVIDENCE_ID] }] })] }))).toContain('CAPABILITY_UNKNOWN');
     expect(refusal(set({ rules: [rule({ capabilities: [{ kind: 'product', versionId: PRODUCT_VERSION_ID, capability: 'heat-protection', decision: 'rejected', evidenceIds: [EVIDENCE_ID] }] })] }))).toContain('CAPABILITY_NOT_APPROVED');
     expect(refusal(set({ rules: [rule({ capabilities: [] })] }))).toContain('CAPABILITY_BINDING_MISSING');
+    expect(refusal(set({ rules: [rule({ capabilities: [rule().capabilities[0]] })] }))).toContain('CAPABILITY_BINDING_MISSING');
   });
 
   it('requires exact evidence for every product and tool version binding', () => {
@@ -186,7 +230,7 @@ describe('validateHeatRulePublication', () => {
     expect(refusal(set({ rules: [rule({ publication: oneUnit })] }))).toContain('NUMERIC_UNIT_COVERAGE');
     expect(refusal(set({ rules: [rule({ copy: [] })] }))).toContain('COPY_REVIEW_MISSING');
     const changedCopy = rule();
-    changedCopy.copy[0]!.contentDigest = 'b'.repeat(64);
+    changedCopy.copy[0]!.contentDigest = `sha256:${'b'.repeat(64)}`;
     expect(refusal(set({ rules: [changedCopy] }))).toContain('DIGEST_MISMATCH');
   });
 
