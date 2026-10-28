@@ -16,6 +16,7 @@
 - A database assessment is the only source of an executable decision. Do not render raw reason codes, internal identifiers or a “safe” claim.
 - Reviewed explanations and limitations require copy from the exact digest-bound publication. The current assessment RPC carries only copy keys; add a guarded read contract or verified bundled artifact before rendering those fields. Until then, show neutral pending text only.
 - Owner changes synchronously clear visible state and unsent intent. Late replies from a prior owner cannot paint or announce.
+- A request already sent to PostgreSQL may commit after an owner change; the client suppresses its late result. Do not promise cancellation of server persistence without a proven abort contract.
 - `content_pending`, `needs_input`, `restricted`, and `unavailable` cannot expose “Use this heat plan”.
 - No hosted Supabase migration, push, deploy or publication is part of I6.4 development.
 
@@ -39,10 +40,10 @@
 
 **Files:** `apps/mobile/src/heat-coach-state.ts`, `apps/mobile/src/HeatCoachIntent.tsx`, `tests/mobile/heat-coach-state.test.ts`, `tests/mobile/heat-coach-intent.test.tsx`.
 
-- [ ] Write RED tests for owner reset, request ordering, unchanged operation-id retry and intent preservation.
-- [ ] Implement immutable controller transitions and owner-keyed local draft.
-- [ ] Write RED tests for explicit unknown method, exact owned tool, numeric setting with unit, named setting, passes, duration and zones.
-- [ ] Implement intent controls and targeted missing-fact routes; run GREEN.
+- [x] Write RED tests for owner reset, request ordering, unchanged operation-id retry and intent preservation.
+- [x] Implement immutable controller transitions and owner-keyed local draft.
+- [x] Write RED tests for explicit unknown method, exact owned tool, numeric setting with unit, named setting, passes, duration and zones.
+- [x] Implement intent controls and targeted missing-fact routes; run GREEN.
 
 ## Task 3: Decision and journey views
 
