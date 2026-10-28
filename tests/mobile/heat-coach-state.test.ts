@@ -15,6 +15,15 @@ const deferred = <T>() => {
 };
 
 describe('Heat Coach owner controller', () => {
+  it('reopens an assessed intent for a new operation without losing choices', async () => {
+    const controller = createHeatCoachController({ ownerKey: 'owner-a', publication,
+      newOperationId: () => id, api: { createHeatCoachAssessment: async () => receipt } });
+    controller.editIntent({ method: { state: 'known', value: 'heated-air' } });
+    await controller.save();
+    controller.newAssessment();
+    expect(controller.getState()).toMatchObject({ phase: 'editing', receipt: null, pending: null,
+      intent: { method: { state: 'known', value: 'heated-air' } } });
+  });
   it('synchronously clears draft and result on owner change and ignores the old reply', async () => {
     const first = deferred<HeatCoachReceipt>();
     const calls: unknown[] = [];

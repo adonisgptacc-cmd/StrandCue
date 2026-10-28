@@ -26,6 +26,7 @@ export interface HeatCoachController {
   readonly subscribe: (listener: (state: HeatCoachState) => void) => () => void;
   readonly setOwner: (ownerKey: string) => void;
   readonly editIntent: (patch: Partial<HeatCoachIntent>) => void;
+  readonly newAssessment: () => void;
   readonly save: () => Promise<void>;
   readonly retry: () => Promise<void>;
 }
@@ -106,6 +107,10 @@ export function createHeatCoachController(options: HeatCoachControllerOptions): 
       if (ownerKey !== state.ownerKey) publish(initialHeatCoachState(ownerKey, state.ownerEpoch + 1));
     },
     editIntent,
+    newAssessment: () => {
+      if (state.phase === 'ready') publish({ ...state, phase: 'editing', receipt: null,
+        pending: null, activeRequestId: null, failure: null });
+    },
     save,
     retry: async () => { if (state.phase === 'failed') await save(); },
   };

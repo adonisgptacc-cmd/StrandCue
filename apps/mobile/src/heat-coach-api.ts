@@ -84,6 +84,18 @@ export const HeatCoachPageSchema = z.object({ items: z.array(HeatCoachReceiptSch
 export type HeatCoachReceipt = z.output<typeof HeatCoachReceiptSchema>;
 export type HeatCoachPage = z.output<typeof HeatCoachPageSchema>;
 export type HeatCoachIntent = z.output<typeof intent>;
+export const HeatCoachReviewedCopySchema = z.object({
+  assessmentId: uuid, publicationId: uuid, publicationDigest: digest,
+  copy: z.array(z.object({
+    copyKey: z.string().regex(/^heat\.[a-z0-9_.-]{1,100}$/u),
+    text: z.string().min(1).refine(value => value.trim().length > 0),
+  }).strict()),
+}).strict().superRefine((value, context) => {
+  if (value.copy.some((row, index) => index > 0 && row.copyKey <= value.copy[index - 1]!.copyKey)) {
+    context.addIssue({ code: 'custom', path: ['copy'], message: 'Copy keys must be unique and ordered' });
+  }
+});
+export type HeatCoachReviewedCopy = z.output<typeof HeatCoachReviewedCopySchema>;
 
 async function call<T>(name: string, args: Record<string, unknown>, schema: z.ZodType<T>): Promise<T> {
   if (!supabase) throw new HeatCoachError('unavailable');
@@ -125,4 +137,14 @@ export function listHeatCoachAssessments(value: unknown): Promise<HeatCoachPage>
   return call('list_heat_coach_assessments', {
     p_limit: parsed.data.limit, p_cursor: parsed.data.cursor ?? null,
   }, HeatCoachPageSchema);
+}
+
+export async function getHeatCoachReviewedCopy(receipt: HeatCoachReceipt): Promise<HeatCoachReviewedCopy> {
+  const response = await call('get_heat_coach_reviewed_copy', {
+    p_assessment_id: receipt.assessmentId, p_publication_id: receipt.publicationId,
+    p_publication_digest: receipt.publicationDigest,
+  }, HeatCoachReviewedCopySchema);
+  if (response.assessmentId !== receipt.assessmentId || response.publicationId !== receipt.publicationId
+    || response.publicationDigest !== receipt.publicationDigest) throw new HeatCoachError('publication-mismatch');
+  return response;
 }

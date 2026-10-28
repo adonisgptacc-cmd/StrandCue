@@ -25,6 +25,7 @@ export async function prepareSyntheticHeatRule(
           'evidenceIds',jsonb_build_array(evidence->0->>'evidenceId'),'contentDigest',rule_digest,
           'status','reviewed','authoredBy','Synthetic Copy Author','reviewedBy','Synthetic Copy Reviewer',
           'reviewedAt','2026-10-22T00:00:00Z') order by key) from (
+          select 'heat.limitations' key union
           select rule->>'copyKey' key union
           select item->>'copyKey' from jsonb_array_elements(rule->'hardRestrictions') item union
           select item->>'copyKey' from jsonb_array_elements(rule->'alternatives') item

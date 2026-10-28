@@ -49,10 +49,10 @@
 
 **Files:** `apps/mobile/src/HeatCoachDecision.tsx`, `apps/mobile/src/HeatCoach.tsx`, `tests/mobile/heat-coach-decision.test.tsx`, `tests/mobile/heat-coach-journey.test.tsx`.
 
-- [ ] Establish a trusted copy resolver bound to the receipt's publication id/digest. Add a guarded database read RPC or a build artifact whose digest is checked against the receipt; test withdrawal and mismatched digest. Do not use the current draft as reviewed copy.
-- [ ] Write RED tests for all decision states, reviewed copy, limitations and start-action gating.
-- [ ] Implement views with one announcement, logical headings, focus target and accessible 48dp controls.
-- [ ] Verify no identifiers, raw reasons, prior-owner data or false safety claims render.
+- [x] Establish a trusted copy resolver bound to the receipt's publication id/digest. The guarded database RPC rejects owner mismatch, withdrawal, stale sources and mismatched digest; a published packet must contain reviewed limitations copy.
+- [x] Write RED tests for all decision states, reviewed copy, limitations and start-action gating.
+- [x] Implement views with one announcement, logical headings, focus target and accessible 48dp controls.
+- [x] Verify no identifiers, raw reasons, prior-owner data or false safety claims render; recheck server freshness before the start callback.
 
 ## Task 4: Entry points and final gates
 

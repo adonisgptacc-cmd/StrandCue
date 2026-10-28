@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createHeatCoachAssessment, getHeatCoachAssessment, listHeatCoachAssessments } from '../../apps/mobile/src/heat-coach-api';
+import { createHeatCoachAssessment, getHeatCoachAssessment, listHeatCoachAssessments, getHeatCoachReviewedCopy, type HeatCoachReceipt } from '../../apps/mobile/src/heat-coach-api';
 import { HeatCoachError, mapHeatCoachServerMessage } from '../../apps/mobile/src/heat-coach-errors';
 
 const client = vi.hoisted(() => ({ rpc: vi.fn(), available: true }));
@@ -45,6 +45,18 @@ const receipt = {
 beforeEach(() => { client.rpc.mockReset(); client.available = true; });
 
 describe('Heat Coach API boundary', () => {
+  it('accepts only exact digest-bound reviewed copy rows', async () => {
+    const copy = { assessmentId: id, publicationId: id, publicationDigest: digest,
+      copy: [{ copyKey: 'heat.input_missing', text: 'Synthetic reviewed explanation.' }] };
+    client.rpc.mockResolvedValueOnce({ data: copy, error: null })
+      .mockResolvedValueOnce({ data: { ...copy, publicationDigest: `sha256:${'b'.repeat(64)}` }, error: null })
+      .mockResolvedValueOnce({ data: { ...copy, copy: [{ ...copy.copy[0], reviewer: 'private' }] }, error: null });
+    expect(await getHeatCoachReviewedCopy(receipt as HeatCoachReceipt)).toEqual(copy);
+    expect(client.rpc).toHaveBeenCalledWith('get_heat_coach_reviewed_copy', { p_assessment_id: id,
+      p_publication_id: id, p_publication_digest: digest });
+    await expect(getHeatCoachReviewedCopy(receipt as HeatCoachReceipt)).rejects.toMatchObject({ code: 'publication-mismatch' });
+    await expect(getHeatCoachReviewedCopy(receipt as HeatCoachReceipt)).rejects.toMatchObject({ code: 'malformed-response' });
+  });
   it('rejects client-forged decision fields before the RPC', async () => {
     await expect(createHeatCoachAssessment({ ...command, result: { state: 'appropriate' } }))
       .rejects.toMatchObject({ code: 'invalid-heat-intent' });
