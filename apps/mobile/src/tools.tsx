@@ -37,11 +37,14 @@ function entryName(item: ToolItem, items: readonly ToolItem[]): string {
   return same.length > 1 ? `${name}, number ${same.indexOf(item) + 1} of ${same.length}` : name;
 }
 
-function ToolDetailView({ detail, onEdit, onViewCatalogue, onBack }: {
+export interface HeatCoachToolEntry { readonly ownerItemId: string; readonly label: string }
+
+function ToolDetailView({ detail, onEdit, onViewCatalogue, onBack, onOpenHeatCoach }: {
   detail: ToolDetail;
   onEdit: (mode: 'edit' | 'correct' | 'match' | 'archive') => void;
   onViewCatalogue: (versionId: string) => void;
   onBack: () => void;
+  onOpenHeatCoach?: (tool: HeatCoachToolEntry) => void;
 }) {
   const [history, setHistory] = useState(false);
   const archived = detail.availability === 'archived';
@@ -55,6 +58,9 @@ function ToolDetailView({ detail, onEdit, onViewCatalogue, onBack }: {
         : 'Manual entry, not linked to the catalogue.'}</Text>
       {ownerToolLines(detail).map(line => <Text key={line} style={styles.body}>{line}</Text>)}
       {archived && <Text style={styles.body}>This tool is archived. Its history stays readable and nothing was deleted.</Text>}
+      {detail.availability === 'available' && onOpenHeatCoach &&
+        <Button title="Check heat choices for this tool" secondary
+          onPress={() => onOpenHeatCoach({ ownerItemId: detail.id, label: toolDisplayName(detail) })}/>}
       {detail.matched && detail.versionId !== null && <Button title="View catalogue details" secondary onPress={() => onViewCatalogue(detail.versionId as string)} />}
       {!archived && <Button title="Edit this tool" secondary onPress={() => onEdit('edit')} />}
       {!archived && <Button title="Correct this tool's identity" secondary onPress={() => onEdit('correct')} />}
@@ -97,11 +103,11 @@ function ToolDetailView({ detail, onEdit, onViewCatalogue, onBack }: {
 }
 
 // A keyed child removes the old owner's visible facts and invalidates pending work immediately.
-export function Tools({ owner }: { owner: string }) {
-  return <OwnerTools key={owner} owner={owner} />;
+export function Tools({ owner, onOpenHeatCoach }: { owner: string; onOpenHeatCoach?: (tool: HeatCoachToolEntry) => void }) {
+  return <OwnerTools key={owner} owner={owner} onOpenHeatCoach={onOpenHeatCoach} />;
 }
 
-function OwnerTools({ owner }: { owner: string }) {
+function OwnerTools({ owner, onOpenHeatCoach }: { owner: string; onOpenHeatCoach?: (tool: HeatCoachToolEntry) => void }) {
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
   const [items, setItems] = useState<ToolItem[]>([]);
   const [cursor, setCursor] = useState<ToolCursor | null>(null);
@@ -230,7 +236,8 @@ function OwnerTools({ owner }: { owner: string }) {
         if (savedFor(mode.detail.id)) { refuseOverwrite({ edit: 'editing', correct: 'correcting', archive: 'archiving' }[editorMode]); return; }
         startEditor(editorMode, mode.detail.id, undefined, mode.detail);
       }}
-      onViewCatalogue={versionId => setMode({ kind: 'catalogue-detail', detail: mode.detail, versionId })} onBack={back} /> : <>
+      onViewCatalogue={versionId => setMode({ kind: 'catalogue-detail', detail: mode.detail, versionId })}
+      onOpenHeatCoach={onOpenHeatCoach} onBack={back} /> : <>
       <Text style={styles.subtitle}>Styling tools you own. Only what you record is shown here. Nothing is guessed from a brand, a model or a wattage.</Text>
       <Button title="Add a tool" disabled={loading} onPress={() => startEditor('add')} />
       {drafts.map((draft, index) => <View key={draft.command.userToolId} style={styles.notice}>

@@ -106,7 +106,19 @@ vi.mock('../../apps/mobile/src/shelf.tsx', () => ({
 }));
 
 vi.mock('../../apps/mobile/src/tools.tsx', () => ({
-  Tools: () => createElement('span', null, 'TOOLS SCREEN'),
+  Tools: ({ onOpenHeatCoach }: { onOpenHeatCoach?: (tool: { ownerItemId: string; label: string }) => void }) =>
+    createElement('div', null, createElement('span', null, 'TOOLS SCREEN'),
+      createElement('button', { accessibilityLabel: 'Test Heat Coach tool route',
+        onPress: () => onOpenHeatCoach?.({ ownerItemId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', label: 'My dryer' }) })),
+}));
+
+vi.mock('../../apps/mobile/src/HeatCoachEntry.tsx', () => ({
+  HeatCoachEntry: ({ ownerKey, selectedTool, onNavigate }: {
+    ownerKey: string; selectedTool?: { ownerItemId: string; label: string } | null;
+    onNavigate: (destination: string) => void;
+  }) => createElement('div', null,
+    createElement('span', null, `HEAT COACH ${ownerKey} ${selectedTool?.label ?? 'no tool'}`),
+    createElement('button', { accessibilityLabel: 'Test Heat Coach back', onPress: () => onNavigate('today') })),
 }));
 
 vi.mock('../../apps/mobile/src/screens/ExportScreen.tsx', () => ({
@@ -262,6 +274,16 @@ describe('product destinations', () => {
     text = renderedText(renderer);
     expect(text).toContain('Your treatment programmes');
     expect(text).toContain('PROGRAMMES SCREEN');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('opens Heat Coach from the exact My Tools entry and returns to Today', async () => {
+    const renderer = await renderRecords();
+    await act(async () => { press(renderer, 'My Tools: owned tools'); });
+    await act(async () => { press(renderer, 'Test Heat Coach tool route'); });
+    expect(renderedText(renderer)).toContain(`HEAT COACH ${owner} My dryer`);
+    await act(async () => { press(renderer, 'Test Heat Coach back'); });
+    expect(renderedText(renderer)).toContain('Start check-in');
     await act(async () => { renderer.unmount(); });
   });
 

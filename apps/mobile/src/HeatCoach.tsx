@@ -6,7 +6,7 @@ import { HeatCoachIntent, type OwnedHeatItem } from './HeatCoachIntent';
 import { getHeatCoachAssessment, getHeatCoachReviewedCopy, type HeatCoachReceipt, type HeatCoachReviewedCopy } from './heat-coach-api';
 import { HEAT_COACH_ERROR_COPY } from './heat-coach-errors';
 import type { HeatCoachController } from './heat-coach-state';
-import { Button, Page, styles } from './ui';
+import { Button, styles } from './ui';
 
 type Destination = 'today' | 'my_hair' | 'services' | 'my_shelf' | 'my_tools';
 export interface HeatCoachProps {
@@ -66,8 +66,8 @@ export function HeatCoach(props: HeatCoachProps) {
       .catch(() => { if (active) setCopy(null); });
     return () => { active = false; };
   }, [controller, receipt, ownerKey, props.getReviewedCopy]);
-  if (currentState.ownerKey !== ownerKey) return <Page><Text style={styles.body}>Loading your Heat Coach choices…</Text></Page>;
-  return <Page>
+  if (currentState.ownerKey !== ownerKey) return <View><Text style={styles.body}>Loading your Heat Coach choices…</Text></View>;
+  return <View style={{ gap: 20 }}>
     <Text accessibilityRole="header" style={styles.title}>Heat Coach</Text>
     {receipt ? <HeatCoachDecision receipt={receipt} reviewedCopy={copy}
       onUsePlan={() => { void startPlan(receipt); }} onOpenDestination={props.onOpenDestination}/>
@@ -80,5 +80,5 @@ export function HeatCoach(props: HeatCoachProps) {
       <Button title="Try again" onPress={() => { void controller.retry(); }}/>
     </View>}
     {receipt && <Button title="Change heat choices" secondary onPress={controller.newAssessment}/>}
-  </Page>;
+  </View>;
 }

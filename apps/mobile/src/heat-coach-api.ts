@@ -84,6 +84,10 @@ export const HeatCoachPageSchema = z.object({ items: z.array(HeatCoachReceiptSch
 export type HeatCoachReceipt = z.output<typeof HeatCoachReceiptSchema>;
 export type HeatCoachPage = z.output<typeof HeatCoachPageSchema>;
 export type HeatCoachIntent = z.output<typeof intent>;
+export const HeatCoachPublicationIdentitySchema = z.object({
+  publicationId: uuid, publicationDigest: digest,
+}).strict();
+export type HeatCoachPublicationIdentity = z.output<typeof HeatCoachPublicationIdentitySchema>;
 export const HeatCoachReviewedCopySchema = z.object({
   assessmentId: uuid, publicationId: uuid, publicationDigest: digest,
   copy: z.array(z.object({
@@ -123,6 +127,10 @@ export function createHeatCoachAssessment(value: unknown): Promise<HeatCoachRece
     p_operation_id: operationId, p_publication_id: publicationId,
     p_publication_digest: publicationDigest, p_intent: request,
   }, HeatCoachReceiptSchema);
+}
+
+export function getCurrentHeatCoachPublication(): Promise<HeatCoachPublicationIdentity | null> {
+  return call('get_current_heat_coach_publication', {}, HeatCoachPublicationIdentitySchema.nullable());
 }
 
 export function getHeatCoachAssessment(value: unknown): Promise<HeatCoachReceipt> {

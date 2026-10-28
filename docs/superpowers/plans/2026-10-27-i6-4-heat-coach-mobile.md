@@ -56,9 +56,11 @@
 
 ## Task 4: Entry points and final gates
 
-**Files:** `apps/mobile/src/TodayGuidance.tsx`, `apps/mobile/src/records.tsx`, navigation/owner-switch tests.
+**Files:** `apps/mobile/src/TodayGuidance.tsx`, `apps/mobile/src/tools.tsx`, `apps/mobile/src/records.tsx`, `apps/mobile/src/HeatCoachEntry.tsx`, `apps/mobile/src/navigation.ts`, a forward publication-identity migration, and navigation/owner-switch tests.
 
-- [ ] Write RED tests for Today heat-bearing routes and My Tools exact owned-tool entry.
-- [ ] Wire navigation without changing protocol execution history or making client decisions.
-- [ ] Run focused mobile, navigation, accessibility, typecheck, lint, web export and coverage gates; review security and staged diff.
-- [ ] Record remaining dependency/hosted release holds and commit locally as `feat: add the owner-facing Heat Coach journey`.
+**Entry contract:** The screen first resolves one currently valid, published publication ID/digest from the database. No match, draft content or ambiguous publications produce a neutral pending surface. Owned tool/product choices come from owner APIs, never from catalogue claims or client eligibility checks. A My Tools entry carries only the selected owner item ID and its recorded label. A Today entry carries no verdict. “Use this heat plan” rechecks the assessment and confirms that it was saved; I6.5 must bind it to a protocol before any routine start or actual heat event.
+
+- [x] Write RED tests for Today heat-bearing routes and My Tools exact owned-tool entry.
+- [x] Wire navigation without changing protocol execution history or making client decisions.
+- [x] Run focused mobile, navigation, accessibility, typecheck, lint, web export and coverage gates; review security and staged diff. Dependency-policy test is separately held by the existing live audit findings.
+- [x] Record remaining dependency/hosted release holds and commit locally as `feat: add the owner-facing Heat Coach journey`.

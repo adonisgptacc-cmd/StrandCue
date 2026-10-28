@@ -58,6 +58,8 @@ describe('Heat Coach decision', () => {
       expect(view.text).toContain('Synthetic reviewed guidance.');
       expect(view.text).toContain('Synthetic reviewed limitations.');
       expect(view.text).toContain('Heated air');
+      expect(view.text).toContain('Heat need: ');
+      expect(view.text).toContain('Optional');
       expect(view.button('Use this heat plan')).toHaveLength(1);
       await act(async () => view.button('Use this heat plan')[0]!.props.onPress());
       expect(view.onUsePlan).toHaveBeenCalledOnce();

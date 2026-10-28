@@ -61,6 +61,13 @@ export interface TodayGuidanceProps {
   readonly onNavigate: (route: GuidanceRoute) => void;
   /** Opens the Cue Check form for a finished routine; see ProtocolExecution. */
   readonly onCueCheck?: (execution: TerminalExecutionContext) => void;
+  /** Opens a separate owner-entered heat-intent flow; carries no Today verdict. */
+  readonly onOpenHeatCoach?: () => void;
+}
+
+/** A route hint from recorded facts, never a heat decision. */
+export function todayHasHeatContext(checkIn: CheckInDraft): boolean {
+  return checkIn.concerns.includes('heat-concern');
 }
 
 /**
@@ -162,7 +169,7 @@ function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
  *    Task 3.1; that record is not this draft.) The draft is cleared the
  *    moment the owner changes, signs out or deletes the account.
  */
-export function TodayGuidance({ ownerId, onNavigate, onCueCheck }: TodayGuidanceProps) {
+export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach }: TodayGuidanceProps) {
   const [preflight, dispatch] = useReducer(preflightReducer, ownerId, initialPreflight);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -475,6 +482,9 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck }: TodayGuidance
 
   return <View style={{ gap: 16 }}>
     <Text style={styles.kicker}>TODAY · {GOAL_LABEL.toUpperCase()}</Text>
+    {onOpenHeatCoach && restore.phase === 'absent' && startedRequest === null
+      && todayHasHeatContext(preflight.checkIn) &&
+      <Button title="Review heat choices in Heat Coach" secondary onPress={onOpenHeatCoach}/>}
 
     {restore.phase === 'restoring' && (
       <View style={styles.card}>

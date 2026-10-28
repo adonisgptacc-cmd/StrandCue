@@ -7,6 +7,7 @@ export const DestinationIdSchema = z.enum([
   'my_tools',
   'journey',
   'settings',
+  'heat_coach',
 ]);
 
 export type DestinationId = z.infer<typeof DestinationIdSchema>;

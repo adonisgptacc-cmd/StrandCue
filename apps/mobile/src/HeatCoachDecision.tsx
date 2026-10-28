@@ -15,6 +15,8 @@ const DESTINATIONS = {
 } as const;
 const METHODS = { 'direct-contact': 'Direct contact', 'heated-air': 'Heated air',
   hooded: 'Hooded', steam: 'Steam', unheated: 'No heat' } as const;
+const NECESSITY = { not_needed: 'Not needed', optional: 'Optional',
+  supports_goal: 'Supports the recorded goal', unknown: 'Not established' } as const;
 type Destination = keyof typeof DESTINATIONS;
 
 export interface HeatCoachDecisionProps {
@@ -48,6 +50,7 @@ export function HeatCoachDecision({ receipt, reviewedCopy, onUsePlan, onOpenDest
     <Text ref={heading} accessibilityRole="header" style={styles.heading}>{title}</Text>
     {!complete ? <Text style={styles.body}>Reviewed guidance is not available for this assessment. Please check again later.</Text>
       : <>
+        <Text style={styles.body}>Heat need: {NECESSITY[receipt.result.necessity]}</Text>
         <Text accessibilityRole="header" style={styles.label}>Recorded plan</Text>
         <Text style={styles.body}>Method: {receipt.result.selected.method
           ? METHODS[receipt.result.selected.method] : 'Not recorded'}</Text>

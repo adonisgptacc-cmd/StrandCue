@@ -19,6 +19,8 @@ import { changeProgramme, enrolProgramme, getProgramme, listProgrammes, type Pro
 import type { TerminalExecutionContext } from './cue-check-state';
 import { Shelf } from './shelf';
 import { Tools } from './tools';
+import { HeatCoachEntry } from './HeatCoachEntry';
+import type { OwnedHeatItem } from './HeatCoachIntent';
 import { ExportScreen } from './screens/ExportScreen';
 import { DeletionScreen } from './screens/DeletionScreen';
 import { changeUsername, suggestUsernames, usernameErrorMessage, usernameHelperText, usernameIdeasLabel } from './settings-api';
@@ -137,6 +139,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [loading, setLoading] = useState(true);
   const [errorState, setErrorState] = useState({ notice, error: notice });
   const [destination, setDestination] = useState<DestinationId>(INITIAL_DESTINATION);
+  const [heatTool, setHeatTool] = useState<OwnedHeatItem | null>(null);
   const [hairView, setHairView] = useState<'Passport'|'Services'>('Passport');
   const [journeyView, setJourneyView] = useState<'History'|'Activities'|'Check-ins'|'Programmes'>('History');
   const [cueIntent, setCueIntent] = useState<TerminalExecutionContext|null>(null);
@@ -258,7 +261,10 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     {usernameStatus === 'taken' && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>@{normalizeUsernameInput(username)} is already taken.</Text><Text style={styles.body}>Try one of these checked options:</Text><View style={styles.row}>{usernameSuggestions.map(suggestion => <Button key={suggestion} title={`Use @${suggestion}`} secondary onPress={() => changeUsername(suggestion)}/>)}</View></View>}
     <Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy || usernameStatus === 'checking'} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
-  const selectDestination = (next: DestinationId) => {setDestination(next);setEditing(false);setTarget(undefined);};
+  const selectDestination = (next: DestinationId) => {setDestination(next);setHeatTool(null);setEditing(false);setTarget(undefined);};
+  const openHeatCoach = (tool: OwnedHeatItem | null = null) => {
+    setHeatTool(tool); setDestination('heat_coach'); setEditing(false); setTarget(undefined);
+  };
   /**
    * A resolver route may name a destination and, for My Hair, the part of it.
    * A route that stays on Today never reaches here.
@@ -282,7 +288,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : journeyView === 'Check-ins' ? 'How your hair felt' : journeyView === 'Programmes' ? 'Your treatment programmes' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
-    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectRoute} onCueCheck={openCueCheck}/>}
+    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={() => openHeatCoach()}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
     {destination === 'journey' && <View style={styles.row}>{(['History','Activities','Check-ins','Programmes'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}
@@ -298,7 +304,13 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
       }
     }} />}
     {destination === 'my_shelf' && <Shelf owner={user.id} />}
-    {destination === 'my_tools' && <Tools owner={user.id} />}
+    {destination === 'my_tools' && <Tools owner={user.id} onOpenHeatCoach={openHeatCoach} />}
+    {destination === 'heat_coach' && <HeatCoachEntry key={user.id} ownerKey={user.id} selectedTool={heatTool}
+      onNavigate={targetDestination => {
+        if (targetDestination === 'services') { setHairView('Services'); setDestination('my_hair'); }
+        else setDestination(targetDestination);
+        setHeatTool(null);
+      }}/>}
     {destination === 'my_hair' && hairView === 'Passport' && !editing && <><Text style={styles.subtitle}>A picture of your hair, built from what you’ve recorded. It grows with you.</Text>
       {record ? <MyHairOverview record={record} onRecordChange={() => {setEditing(true);setTarget(undefined);}}/> : <View style={styles.card}><Text style={styles.heading}>Start with what you know.</Text><Text style={styles.body}>Hair pattern, how it feels, and what matters to you. “Unknown” is a useful answer too.</Text><Button title="Create my Hair Passport" onPress={() => setEditing(true)}/></View>}
     </>}

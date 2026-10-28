@@ -9,6 +9,7 @@ alter table strandcue_private.heat_rule_publications
 
 grant strandcue_mutator to current_user with set true;
 grant create on schema strandcue_private to strandcue_mutator;
+grant create on schema public to strandcue_mutator;
 
 create function strandcue_private.get_heat_coach_reviewed_copy_core(
   p_assessment_id uuid, p_publication_id uuid, p_publication_digest text
@@ -70,5 +71,6 @@ grant execute on function public.get_heat_coach_reviewed_copy(uuid,uuid,text)
   to authenticated;
 
 revoke create on schema strandcue_private from strandcue_mutator;
+revoke create on schema public from strandcue_mutator;
 revoke set option for strandcue_mutator from current_user;
 revoke strandcue_mutator from current_user;

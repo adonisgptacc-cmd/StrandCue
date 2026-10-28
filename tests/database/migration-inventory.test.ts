@@ -66,6 +66,8 @@ const trustedMigrationNames = [
   '20261027122000_heat_capability_registry.sql',
   '20261027123000_validate_heat_publication.sql',
   '20261027124000_bind_heat_registry_assessment.sql',
+  '20261028160446_heat_coach_reviewed_copy.sql',
+  '20261028162917_heat_coach_publication_locator.sql',
 ] as const;
 
 const candidateMigrationNames = [

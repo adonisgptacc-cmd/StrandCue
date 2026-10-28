@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createHeatCoachAssessment, getHeatCoachAssessment, listHeatCoachAssessments, getHeatCoachReviewedCopy, type HeatCoachReceipt } from '../../apps/mobile/src/heat-coach-api';
+import { createHeatCoachAssessment, getHeatCoachAssessment, listHeatCoachAssessments, getHeatCoachReviewedCopy, getCurrentHeatCoachPublication, type HeatCoachReceipt } from '../../apps/mobile/src/heat-coach-api';
 import { HeatCoachError, mapHeatCoachServerMessage } from '../../apps/mobile/src/heat-coach-errors';
 
 const client = vi.hoisted(() => ({ rpc: vi.fn(), available: true }));
@@ -45,6 +45,15 @@ const receipt = {
 beforeEach(() => { client.rpc.mockReset(); client.available = true; });
 
 describe('Heat Coach API boundary', () => {
+  it('reads only an exact current publication identity or pending null', async () => {
+    client.rpc.mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: { publicationId: id, publicationDigest: digest }, error: null })
+      .mockResolvedValueOnce({ data: { publicationId: id, publicationDigest: digest, rule: {} }, error: null });
+    expect(await getCurrentHeatCoachPublication()).toBeNull();
+    expect(await getCurrentHeatCoachPublication()).toEqual({ publicationId: id, publicationDigest: digest });
+    expect(client.rpc).toHaveBeenCalledWith('get_current_heat_coach_publication', {});
+    await expect(getCurrentHeatCoachPublication()).rejects.toMatchObject({ code: 'malformed-response' });
+  });
   it('accepts only exact digest-bound reviewed copy rows', async () => {
     const copy = { assessmentId: id, publicationId: id, publicationDigest: digest,
       copy: [{ copyKey: 'heat.input_missing', text: 'Synthetic reviewed explanation.' }] };

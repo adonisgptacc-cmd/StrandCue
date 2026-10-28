@@ -136,13 +136,13 @@
 - Consumes: I6.3 RPCs and strict response schemas; existing owner tools, Today draft and destination routing.
 - Produces: owner-keyed controller state and an accessible Today/My Tools Heat Coach surface.
 
-- [ ] **Step 1: Write failing API and reducer tests.** Strictly parse every response/error; unknown codes fail closed; stale responses cannot overwrite a newer request; owner changes synchronously hide prior state and cancel persistence.
-- [ ] **Step 2: Write failing intent tests.** Capture intended method, exact owned tool, known setting/temperature, passes, duration band, zones and whether heat is actually wanted. “Not sure” remains explicit and produces a targeted setup path.
-- [ ] **Step 3: Write failing decision-view tests.** Render necessity, assessment state, restrictions, missing information, eligible lower/no-heat alternatives, reviewed explanation and limitations. Never render internal identifiers, raw reasons or a `safe` label.
-- [ ] **Step 4: Write failing accessibility tests.** One result announcement; logical headings; 48dp Android targets; scalable text; no colour-only meaning; retry retains intent; focus moves to the first missing fact or result; account switch never paints/announces prior-owner data.
-- [ ] **Step 5: Implement the controller and views.** Keep the unsent intent owner-keyed and local. Only the trusted server response enables “Use this heat plan”; `content_pending`, `needs_input`, `restricted` and `unavailable` never expose a start action.
-- [ ] **Step 6: Integrate with Today and My Tools.** Today may propose Heat Coach only for a heat-bearing route. My Tools may open it for a selected owned tool. Existing protocol execution records the actual heat separately from the proposal.
-- [ ] **Step 7: Run focused mobile, navigation, owner-switch and accessibility tests; commit.** Commit `feat: add the owner-facing Heat Coach journey`.
+- [x] **Step 1: Write failing API and reducer tests.** Strictly parse every response/error; unknown codes fail closed; stale responses cannot overwrite a newer request; owner changes synchronously hide prior state and suppress late replies. A sent database write cannot be cancelled by the client.
+- [x] **Step 2: Write failing intent tests.** Capture intended method, exact owned tool, known setting/temperature, passes, duration band, zones and whether heat is actually wanted. “Not sure” remains explicit and produces a targeted setup path.
+- [x] **Step 3: Write failing decision-view tests.** Render necessity, assessment state, restrictions, missing information, eligible lower/no-heat alternatives, reviewed explanation and limitations. Never render internal identifiers, raw reasons or a `safe` label.
+- [x] **Step 4: Write failing accessibility tests.** One result announcement; logical headings; 48dp Android targets; scalable text; no colour-only meaning; retry retains intent; focus moves to the result; account switch never paints/announces prior-owner data.
+- [x] **Step 5: Implement the controller and views.** Keep the unsent intent owner-keyed and local. Only the trusted server response enables “Use this heat plan”; `content_pending`, `needs_input`, `restricted` and `unavailable` never expose a start action.
+- [x] **Step 6: Integrate with Today and My Tools.** Today may propose Heat Coach only for an explicit heat concern. My Tools may open it for a selected owned tool. Existing protocol execution records the actual heat separately from the proposal.
+- [x] **Step 7: Run focused mobile, navigation, owner-switch and accessibility tests; commit.** Commit `feat: add the owner-facing Heat Coach journey`.
 
 ### Task I6.5: Today/protocol integration and correction behavior
 
