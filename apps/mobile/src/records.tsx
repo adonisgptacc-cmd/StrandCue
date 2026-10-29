@@ -140,6 +140,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [errorState, setErrorState] = useState({ notice, error: notice });
   const [destination, setDestination] = useState<DestinationId>(INITIAL_DESTINATION);
   const [heatTool, setHeatTool] = useState<OwnedHeatItem | null>(null);
+  const [pendingHeatAssessment, setPendingHeatAssessment] = useState<{ ownerId: string; assessmentId: string } | null>(null);
   const [hairView, setHairView] = useState<'Passport'|'Services'>('Passport');
   const [journeyView, setJourneyView] = useState<'History'|'Activities'|'Check-ins'|'Programmes'>('History');
   const [cueIntent, setCueIntent] = useState<TerminalExecutionContext|null>(null);
@@ -288,7 +289,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : journeyView === 'Check-ins' ? 'How your hair felt' : journeyView === 'Programmes' ? 'Your treatment programmes' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
-    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={() => openHeatCoach()}/>}
+    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} assessmentId={pendingHeatAssessment?.ownerId === user.id ? pendingHeatAssessment.assessmentId : null} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={() => openHeatCoach()}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
     {destination === 'journey' && <View style={styles.row}>{(['History','Activities','Check-ins','Programmes'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}
@@ -306,6 +307,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     {destination === 'my_shelf' && <Shelf owner={user.id} />}
     {destination === 'my_tools' && <Tools owner={user.id} onOpenHeatCoach={openHeatCoach} />}
     {destination === 'heat_coach' && <HeatCoachEntry key={user.id} ownerKey={user.id} selectedTool={heatTool}
+      onUseAssessment={assessmentId => { setPendingHeatAssessment({ ownerId: user.id, assessmentId }); setDestination('today'); }}
       onNavigate={targetDestination => {
         if (targetDestination === 'services') { setHairView('Services'); setDestination('my_hair'); }
         else setDestination(targetDestination);

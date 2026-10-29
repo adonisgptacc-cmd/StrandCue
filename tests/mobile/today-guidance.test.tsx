@@ -248,11 +248,11 @@ function hasButton(renderer: ReactTestRenderer, label: string): boolean {
   );
 }
 
-async function render(ownerId: string = OWNER, onNavigate: () => void = vi.fn()): Promise<ReactTestRenderer> {
+async function render(ownerId: string = OWNER, onNavigate: () => void = vi.fn(), assessmentId?: string): Promise<ReactTestRenderer> {
   let renderer!: ReactTestRenderer;
   await act(async () => {
     renderer = create(
-      createElement(TodayGuidance, { ownerId, onNavigate: onNavigate as never }),
+      createElement(TodayGuidance, { ownerId, onNavigate: onNavigate as never, assessmentId }),
     );
     await Promise.resolve();
   });
@@ -331,6 +331,16 @@ beforeEach(() => {
 });
 
 describe('today guidance states', () => {
+  it('forwards only an explicitly supplied assessment identity with the check-in', async () => {
+    const assessmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const renderer = await render(OWNER, vi.fn(), assessmentId);
+    await generate(renderer);
+    expect(mocks.generate).toHaveBeenCalledWith(expect.objectContaining({ assessmentId }));
+    const sent = mocks.generate.mock.calls[0][0];
+    expect(sent).not.toHaveProperty('heatVerdict');
+    expect(sent).not.toHaveProperty('selectedHeatMethod');
+    await act(async () => { renderer.unmount(); });
+  });
   it('shows a loading state and disables Generate while generating', async () => {
     let release: (value: unknown) => void = () => undefined;
     mocks.generate.mockImplementation(

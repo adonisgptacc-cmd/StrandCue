@@ -136,6 +136,9 @@ const dependencies: TodayEdgeDependencies = {
     const revision = z.number().int().nonnegative().parse(value);
     return revision;
   },
+  loadAssessment: (token, assessmentId) => rpc(ownerClient(token), 'get_heat_coach_assessment', {
+    p_id: assessmentId,
+  }),
   generate: async (request, token) => {
     const client = ownerClient(token);
     return generateTodayGuidanceFromDependencies(request, {

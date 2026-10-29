@@ -249,6 +249,14 @@ export interface RecommendationAudit {
   readonly missingInputs: readonly string[];
 }
 
+/** Immutable identity of the reviewed Heat Coach assessment used for this run. */
+export interface HeatAssessmentBinding {
+  readonly assessmentId: string;
+  readonly sourceFingerprint: string;
+  readonly publicationId: string;
+  readonly publicationDigest: string;
+}
+
 export interface ProtocolDecision {
   readonly status: DecisionStatus;
   readonly requestId: string;
@@ -259,4 +267,5 @@ export interface ProtocolDecision {
   readonly alternatives: readonly string[];
   readonly missingInputs: readonly string[];
   readonly audit: RecommendationAudit;
+  readonly heatAssessmentBinding?: HeatAssessmentBinding;
 }

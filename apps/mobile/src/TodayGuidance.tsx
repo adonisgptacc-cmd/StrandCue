@@ -58,6 +58,8 @@ import { Button, styles } from './ui';
 
 export interface TodayGuidanceProps {
   readonly ownerId: string;
+  /** Owner-scoped Heat Coach assessment identity; no client verdict travels. */
+  readonly assessmentId?: string | null;
   readonly onNavigate: (route: GuidanceRoute) => void;
   /** Opens the Cue Check form for a finished routine; see ProtocolExecution. */
   readonly onCueCheck?: (execution: TerminalExecutionContext) => void;
@@ -169,7 +171,7 @@ function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
  *    owner-scoped private run record; that record is not this draft. The draft is cleared the
  *    moment the owner changes, signs out or deletes the account.
  */
-export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach }: TodayGuidanceProps) {
+export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, onOpenHeatCoach }: TodayGuidanceProps) {
   const [preflight, dispatch] = useReducer(preflightReducer, ownerId, initialPreflight);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -286,6 +288,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
         goalId: GOAL_ID,
         requestId: requestId(),
         currentCondition,
+        ...(assessmentId ? { assessmentId } : {}),
       });
       if (!live()) return;
 
@@ -333,7 +336,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
     } finally {
       inflight.current = false;
     }
-  }, [preflight.checkIn, preflight.phase]);
+  }, [assessmentId, preflight.checkIn, preflight.phase]);
 
   // Fix G: post-abandon return to idle, gated on the authoritative terminal
   // receipt. The execution surface notifies only after the server confirms

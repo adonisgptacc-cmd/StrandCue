@@ -28,6 +28,8 @@ export interface HeatCoachEntryProps {
   readonly ownerKey: string;
   readonly selectedTool?: OwnedHeatItem | null;
   readonly onNavigate: (destination: Destination) => void;
+  /** Passes only the owned assessment identity into Today; no verdict travels. */
+  readonly onUseAssessment?: (assessmentId: string) => void;
   readonly loadPublication?: () => Promise<Publication | null>;
   readonly loadTools?: (options: { limit: number; cursor: ToolCursor | null }) => Promise<ToolList>;
   readonly loadProducts?: (options: { limit: number; cursor: ShelfCursor | null }) => Promise<ShelfList>;
@@ -116,8 +118,10 @@ export function HeatCoachEntry(props: HeatCoachEntryProps) {
   return <View style={{ gap: 20 }}>
     <HeatCoach ownerKey={ownerKey} controller={state.controller} ownedTools={state.tools}
       ownedProducts={state.products} onOpenDestination={props.onNavigate}
-      onUsePlan={() => setNotice({ ownerKey,
-        text: 'Assessment saved. No routine has started. Return to Today to choose a routine.' })}/>
+      onUsePlan={receipt => {
+        props.onUseAssessment?.(receipt.assessmentId);
+        setNotice({ ownerKey, text: 'Assessment saved. No routine has started. Return to Today to choose a routine.' });
+      }}/>
     {notice?.ownerKey === ownerKey && <Text accessibilityRole="alert" style={styles.body}>{notice.text}</Text>}
   </View>;
 }

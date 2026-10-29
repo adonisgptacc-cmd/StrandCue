@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { HeatCoachEntry } from '../../apps/mobile/src/HeatCoachEntry';
+import { HeatCoach } from '../../apps/mobile/src/HeatCoach';
 
 vi.mock('react-native', async () => (await import('./support/rn-mock')).rnMock);
 vi.mock('../../apps/mobile/src/client', () => ({ supabase: null }));
@@ -76,5 +77,23 @@ describe('Heat Coach entry', () => {
     await act(async () => { resolves[0]!({ publicationId: id, publicationDigest: digest }); });
     expect(JSON.stringify(renderer.toJSON())).not.toContain('My dryer');
     expect(props.loadTools).not.toHaveBeenCalled();
+  });
+
+  it('hands only the saved assessment id back for a Today plan', async () => {
+    const onUseAssessment = vi.fn();
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(HeatCoachEntry, {
+      ownerKey: 'owner-a',
+      loadPublication: async () => ({ publicationId: id, publicationDigest: digest }),
+      loadTools: async () => ({ items: [], nextCursor: null }),
+      loadProducts: async () => ({ items: [], nextCursor: null }),
+      onNavigate: vi.fn(), onUseAssessment,
+    })); });
+    await act(async () => {
+      renderer.root.findByType(HeatCoach).props.onUsePlan({
+        assessmentId: id, result: { state: 'appropriate', selected: { method: 'heated-air' } },
+      });
+    });
+    expect(onUseAssessment).toHaveBeenCalledExactlyOnceWith(id);
   });
 });

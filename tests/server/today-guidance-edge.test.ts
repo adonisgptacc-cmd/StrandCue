@@ -16,6 +16,15 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: edgeMocks.createClient }
 const USER = '11111111-1111-4111-8111-111111111111';
 const REQUEST = '22222222-2222-4222-8222-222222222222';
 const AS_OF = '2026-10-29T08:00:00.000Z';
+const ASSESSMENT = {
+  assessmentId: USER,
+  publicationId: REQUEST,
+  publicationDigest: `sha256:${'b'.repeat(64)}`,
+  sourceFingerprint: `sha256:${'c'.repeat(64)}`,
+  status: 'no_heat',
+  stale: false,
+  input: { preparedInput: { goal: { id: 'basic_wash' }, availableMinutes: 20, currentCondition: {} } },
+} as const;
 
 function readyResult() {
   return {
@@ -28,7 +37,7 @@ function readyResult() {
     inputFingerprint: 'a'.repeat(64),
     input: { requestId: REQUEST, asOf: AS_OF, goal: 'basic_wash' },
     decision: { status: 'ready', requestId: REQUEST, steps: [{ stepId: 'step-1', position: 1, action: 'wait' }] },
-    prepared: { privateFact: 'never returned' },
+    prepared: { privateFact: 'never returned', goal: { id: 'basic_wash' }, availableMinutes: 20, currentCondition: {} },
   };
 }
 
@@ -145,6 +154,69 @@ describe('server Today guidance boundary', () => {
     const response = await handleTodayGuidanceRequest(request({ requestId: REQUEST, goalId: 'basic_wash' }), h.deps);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: 'content_pending' });
+    expect(h.persistReady).not.toHaveBeenCalled();
+  });
+
+  it('checks a requested assessment under the owner token and keeps binding pending', async () => {
+    const loadAssessment = vi.fn(async () => ({ ...ASSESSMENT, status: 'lower_heat' }));
+    const h = harness({ loadAssessment });
+    const response = await handleTodayGuidanceRequest(request({
+      requestId: REQUEST, goalId: 'basic_wash', assessmentId: USER,
+    }), h.deps);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'content_pending' });
+    expect(loadAssessment).toHaveBeenCalledWith('user-token', USER);
+    expect(h.generate).toHaveBeenCalledOnce();
+    expect(h.persistReady).not.toHaveBeenCalled();
+  });
+
+  it('binds an exact current no-heat assessment to the trusted decision', async () => {
+    const h = harness({ loadAssessment: vi.fn(async () => ASSESSMENT) });
+    const response = await handleTodayGuidanceRequest(request({
+      requestId: REQUEST, goalId: 'basic_wash', assessmentId: USER,
+    }), h.deps);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.decision.heatAssessmentBinding).toEqual({
+      assessmentId: USER, publicationId: REQUEST,
+      publicationDigest: ASSESSMENT.publicationDigest,
+      sourceFingerprint: ASSESSMENT.sourceFingerprint,
+    });
+    expect(h.persistReady).toHaveBeenCalledWith(USER, expect.objectContaining({
+      decision: expect.objectContaining({ heatAssessmentBinding: body.decision.heatAssessmentBinding }),
+    }), 3);
+    expect(JSON.stringify(body)).not.toContain('privateFact');
+  });
+
+  it('rejects an assessment with a different saved check-in', async () => {
+    const h = harness({ loadAssessment: vi.fn(async () => ({ ...ASSESSMENT,
+      input: { preparedInput: { ...ASSESSMENT.input.preparedInput, currentCondition: { concerns: ['dryness'] } } },
+    })) });
+    const response = await handleTodayGuidanceRequest(request({
+      requestId: REQUEST, goalId: 'basic_wash', assessmentId: USER,
+    }), h.deps);
+    expect(response.status).toBe(409);
+    expect(h.persistReady).not.toHaveBeenCalled();
+  });
+
+  it('keeps a no-heat assessment pending when the protocol has an unreviewed heat action', async () => {
+    const h = harness({ loadAssessment: vi.fn(async () => ASSESSMENT),
+      generate: vi.fn(async () => ({ ...readyResult(), decision: {
+        ...readyResult().decision, steps: [{ stepId: 'heat', position: 1, action: 'heat', toolId: null, toolVersionId: null }],
+      } })),
+    });
+    const response = await handleTodayGuidanceRequest(request({ requestId: REQUEST, goalId: 'basic_wash', assessmentId: USER }), h.deps);
+    expect(await response.json()).toEqual({ status: 'content_pending' });
+    expect(h.persistReady).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale assessment before generating or writing a run', async () => {
+    const h = harness({ loadAssessment: vi.fn(async () => ({ ...ASSESSMENT, stale: true })) });
+    const response = await handleTodayGuidanceRequest(request({
+      requestId: REQUEST, goalId: 'basic_wash', assessmentId: USER,
+    }), h.deps);
+    expect(response.status).toBe(409);
+    expect(h.generate).not.toHaveBeenCalled();
     expect(h.persistReady).not.toHaveBeenCalled();
   });
 

@@ -13,6 +13,7 @@ export type {
   FrequencyEffect,
   FrequencyUnit,
   HeatExposure,
+  HeatAssessmentBinding,
   HeatRestrictionEffect,
   NotCondition,
   OrderAfterEffect,

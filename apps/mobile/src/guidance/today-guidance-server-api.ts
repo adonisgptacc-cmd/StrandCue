@@ -5,6 +5,13 @@ import { supabase } from '../client';
 
 const uuid = z.string().uuid();
 const fingerprint = z.string().regex(/^[0-9a-f]{64}$/);
+const reviewDigest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const heatAssessmentBinding = z.object({
+  assessmentId: uuid,
+  sourceFingerprint: reviewDigest,
+  publicationId: uuid,
+  publicationDigest: reviewDigest,
+}).strict();
 const receipt = z.object({ id: uuid, requestId: uuid, inputFingerprint: fingerprint, status: z.literal('ready') }).passthrough();
 const decision = z.object({
   status: z.enum(['ready', 'needs_input', 'rule_conflict', 'unsupported']),
@@ -35,6 +42,7 @@ const decision = z.object({
     restrictions: z.array(z.object({ ruleRef: z.string(), description: z.string() })),
     missingInputs: z.array(z.string()),
   }),
+  heatAssessmentBinding: heatAssessmentBinding.optional(),
 });
 const provenance = z.object({
   requestId: uuid,
@@ -74,8 +82,8 @@ export function hasMatchingTrustedReceipt(result: TodayServerResult): result is 
     && result.decision.requestId === result.requestId;
 }
 
-export async function requestTodayGuidance(command: { readonly requestId: string; readonly goalId: 'basic_wash'; readonly currentCondition: CurrentConditionInput }): Promise<TodayServerResult> {
-  const parsed = z.object({ requestId: uuid, goalId: z.literal('basic_wash'), currentCondition: z.unknown() }).strict().parse(command);
+export async function requestTodayGuidance(command: { readonly requestId: string; readonly goalId: 'basic_wash'; readonly currentCondition: CurrentConditionInput; readonly assessmentId?: string | null }): Promise<TodayServerResult> {
+  const parsed = z.object({ requestId: uuid, goalId: z.literal('basic_wash'), currentCondition: z.unknown(), assessmentId: uuid.nullable().optional() }).strict().parse(command);
   if (!supabase) throw new Error('Today guidance is unavailable until the client is configured');
   const { data, error } = await supabase.functions.invoke('today-guidance', { body: parsed });
   if (error) throw new Error('Today guidance could not be loaded. Please try again.');
@@ -87,10 +95,13 @@ export async function requestTodayGuidance(command: { readonly requestId: string
   const value = provenance.parse(data);
   if (value.requestId !== parsed.requestId || value.decision.requestId !== parsed.requestId || value.decision.status !== status) throw new Error('Today guidance response did not match this request');
   if (status === 'ready') {
+    const boundId = value.decision.heatAssessmentBinding?.assessmentId;
+    if (boundId !== (parsed.assessmentId ?? undefined)) throw new Error('Today guidance assessment did not match this request');
     const proof = receipt.parse((data as Record<string, unknown>).receipt);
     if (proof.requestId !== parsed.requestId || proof.inputFingerprint !== value.inputFingerprint) throw new Error('Today guidance receipt did not match this request');
     return { ...value, status, receipt: proof };
   }
+  if (value.decision.heatAssessmentBinding !== undefined) throw new Error('Nonready guidance cannot carry an assessment binding');
   if (status === 'needs_input' || status === 'rule_conflict' || status === 'unsupported') return { ...value, status };
   throw new Error('Unknown Today guidance response');
 }

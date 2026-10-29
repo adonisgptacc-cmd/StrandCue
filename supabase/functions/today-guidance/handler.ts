@@ -6,7 +6,36 @@ const CommandSchema = z.object({
   requestId: z.string().uuid(),
   goalId: z.literal('basic_wash'),
   currentCondition: z.unknown().optional(),
+  assessmentId: z.string().uuid().nullable().optional(),
 }).strict();
+
+const AssessmentSchema = z.object({
+  assessmentId: z.string().uuid(),
+  publicationId: z.string().uuid(),
+  publicationDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  sourceFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  status: z.enum(['content_pending', 'needs_input', 'restricted', 'lower_heat', 'no_heat', 'appropriate', 'unavailable']),
+  stale: z.boolean(),
+  input: z.object({ preparedInput: z.object({
+    goal: z.object({ id: z.literal('basic_wash') }).passthrough(),
+    availableMinutes: z.number().int().nonnegative().nullable(),
+    currentCondition: z.unknown(),
+  }).passthrough() }).passthrough(),
+}).passthrough();
+const PreparedMatchSchema = z.object({
+  goal: z.object({ id: z.literal('basic_wash') }).passthrough(),
+  availableMinutes: z.number().int().nonnegative().nullable(),
+  currentCondition: z.unknown(),
+}).passthrough();
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
+}
 
 const ReadyResultSchema = z.object({
   status: z.literal('ready'),
@@ -36,6 +65,8 @@ export interface TodayEdgeDependencies {
   readonly reserveRequest: (token: string) => Promise<void>;
   /** Reads only under that user's JWT; the RPC derives its own owner. */
   readonly readRevision: (token: string) => Promise<number>;
+  /** The owner-scoped RPC derives its owner from the verified user's JWT. */
+  readonly loadAssessment?: (token: string, assessmentId: string) => Promise<unknown>;
   /** Uses owner-scoped source readers and the checked-in reviewed bundle. */
   readonly generate: (request: TodayGuidanceRequest, token: string) => Promise<unknown>;
   /** Privileged service-only RPC; owner comes solely from authenticate. */
@@ -96,6 +127,17 @@ export async function handleTodayGuidanceRequest(
 
   try {
     await dependencies.reserveRequest(token);
+    let assessment: z.output<typeof AssessmentSchema> | null = null;
+    if (command.assessmentId) {
+      if (!dependencies.loadAssessment) return json({ error: 'source-unavailable' }, 503);
+      try {
+        assessment = AssessmentSchema.parse(await dependencies.loadAssessment(token, command.assessmentId));
+      } catch { return json({ error: 'assessment-unavailable' }, 409); }
+      if (assessment.assessmentId !== command.assessmentId || assessment.stale
+          || !['lower_heat', 'no_heat', 'appropriate'].includes(assessment.status)) {
+        return json({ error: 'assessment-unavailable' }, 409);
+      }
+    }
     const before = await dependencies.readRevision(token);
     const generated = await dependencies.generate(generatedRequest, token);
     const after = await dependencies.readRevision(token);
@@ -117,7 +159,33 @@ export async function handleTodayGuidanceRequest(
     const parsed = ReadyResultSchema.safeParse(generated);
     if (!parsed.success || parsed.data.requestId !== command.requestId
         || parsed.data.asOf !== asOf) return json({ error: 'source-unavailable' }, 503);
-    const result = parsed.data;
+    let result = parsed.data;
+    if (assessment) {
+      const prepared = PreparedMatchSchema.safeParse(result.prepared);
+      const saved = assessment.input.preparedInput;
+      if (!prepared.success || saved.currentCondition === null
+          || prepared.data.goal.id !== saved.goal.id
+          || prepared.data.availableMinutes !== saved.availableMinutes
+          || canonical(prepared.data.currentCondition) !== canonical(saved.currentCondition)) {
+        return json({ error: 'assessment-condition-changed' }, 409);
+      }
+      // The current protocol engine has no reviewed heated-step action. A
+      // lower-heat or direct-heat assessment cannot become an unheated plan.
+      if (assessment.status !== 'no_heat'
+          || !Array.isArray(result.decision.steps)
+          || result.decision.steps.some(step => typeof step !== 'object' || step === null
+            || !['apply', 'wait', 'rinse', 'leave_in'].includes(String((step as Record<string, unknown>).action))
+            || (step as Record<string, unknown>).toolId != null
+            || (step as Record<string, unknown>).toolVersionId != null)) {
+        return json({ status: 'content_pending' });
+      }
+      result = { ...result, decision: { ...result.decision, heatAssessmentBinding: {
+        assessmentId: assessment.assessmentId,
+        sourceFingerprint: assessment.sourceFingerprint,
+        publicationId: assessment.publicationId,
+        publicationDigest: assessment.publicationDigest,
+      } } };
+    }
     const receipt = TrustedReceiptSchema.parse(await dependencies.persistReady(user.id, result, before));
     if (receipt.requestId !== result.requestId
         || receipt.inputFingerprint !== result.inputFingerprint) {
