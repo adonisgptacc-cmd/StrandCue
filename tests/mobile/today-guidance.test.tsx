@@ -11,6 +11,7 @@ import {
   CHECK_IN_CONTINUE_LABEL,
   CHECK_IN_START_LABEL,
   CHECK_IN_SUMMARY_HEADING,
+  EXECUTION_START_LABEL,
   START_OVER_LABEL,
   TIME_INPUT_LABEL,
 } from '../../apps/mobile/src/guidance/guidance-copy';
@@ -453,7 +454,7 @@ describe('today guidance states', () => {
     expect(rendered).not.toContain('rule-wash@1');
     expect(rendered).not.toContain('evidence-1');
     expect(rendered).not.toContain('omitted synthetic conditioner');
-    expect(hasButton(renderer, 'Start this plan')).toBe(true);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
     await act(async () => { renderer.unmount(); });
   });
 
@@ -524,31 +525,33 @@ describe('today guidance states', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('persists the decision exactly once after generating', async () => {
+  it('does not submit a client-generated ready decision to the persistence RPC', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     const renderer = await render();
     await generate(renderer);
-    expect(mocks.recordRun).toHaveBeenCalledTimes(1);
-    const command = mocks.recordRun.mock.calls[0][0];
-    expect(command.status).toBe('ready');
-    expect(command.bundleId).toBe('bundle-synthetic');
-    expect(command.inputFingerprint).toBe('a'.repeat(64));
-    expect(command.input).toEqual(readyResult().input);
-    expect(command.input.historyFacts).toEqual({
-      activityKind: 'wash',
-      precision: 'exact_day',
-      status: 'active',
-    });
-    expect(JSON.stringify(command.input)).not.toMatch(/notes|zones|correctionReason|voidReason/i);
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not offer protocol start for a client-generated ready plan without a trusted server receipt', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    const renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).toContain('step 1');
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+    expect(mocks.executionStart).not.toHaveBeenCalled();
     await act(async () => { renderer.unmount(); });
   });
 
   it('never sends the prepared input, owner item names or tool facts to the persistence call', async () => {
     mocks.generate.mockResolvedValue(readyResult({
+      status: 'needs_input',
+      decision: { status: 'needs_input', steps: [] },
       prepared: { schemaVersion: 1, products: [{ name: 'Synthetic owner-entered name' }], tools: [{ ownerFacts: { wattageWatts: 1800 } }] },
     }));
     const renderer = await render();
     await generate(renderer);
+    expect(mocks.recordRun).toHaveBeenCalledTimes(1);
     const sent = JSON.stringify(mocks.recordRun.mock.calls[0][0]);
     expect(sent).not.toMatch(/prepared|ownerFacts|zoneConcerns|Synthetic owner-entered name|wattage/);
     await act(async () => { renderer.unmount(); });
@@ -562,15 +565,15 @@ describe('today guidance states', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('shows a save failure without regenerating or hiding the plan', async () => {
+  it('does not attempt a client save of an executable plan', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     mocks.recordRun.mockRejectedValue(new Error('run-conflict'));
     const renderer = await render();
     await generate(renderer);
-    expect(text(renderer)).toContain('plan created, audit save failed');
+    expect(text(renderer)).not.toContain('plan created, audit save failed');
     expect(text(renderer)).toContain('step 1');
     expect(mocks.generate).toHaveBeenCalledTimes(1);
-    expect(mocks.recordRun).toHaveBeenCalledTimes(1);
+    expect(mocks.recordRun).not.toHaveBeenCalled();
     await act(async () => { renderer.unmount(); });
   });
 
@@ -779,17 +782,16 @@ describe('task 6 integration: honest states without purchase pressure', () => {
     await act(async () => { renderer.unmount(); });
   });
 
-  it('requires approval again after starting over and generating another plan', async () => {
+  it('keeps start unavailable after starting over and generating another client preview', async () => {
     mocks.generate.mockResolvedValue(readyResult());
     const renderer = await render();
     await generate(renderer);
 
-    await press(renderer, 'Start this plan');
-    expect(renderer.root.findAll(node => node.type === 'button' && node.props.accessibilityLabel === 'Start this plan')).toHaveLength(2);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
 
     await press(renderer, START_OVER_LABEL);
     await generate(renderer);
-    expect(renderer.root.findAll(node => node.type === 'button' && node.props.accessibilityLabel === 'Start this plan')).toHaveLength(1);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
     await act(async () => { renderer.unmount(); });
   });
 });

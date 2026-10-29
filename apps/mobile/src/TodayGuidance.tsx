@@ -157,16 +157,15 @@ function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
  *    may apply, and nothing applies after unmount.
  * 3. Duplicate taps generate once. An in-flight guard plus the reducer's
  *    `generation_started` gate mean one epoch is one generation.
- * 4. A generated plan is persisted exactly once. If saving fails, the plan is
- *    still shown and the failure is stated — it is never regenerated, because
- *    regenerating would silently change the decision being read.
+ * 4. Non-executable outcomes are persisted exactly once. A client-generated
+ *    ready preview cannot be saved as trusted or started. The trusted server
+ *    writer will supply a separate executable receipt.
  * 5. The check-in survives the trip to a destination. It is kept in an
  *    owner-scoped session draft, so opening My Hair, My Shelf or My Tools and
  *    coming back finds the owner's own answers, unchanged. The draft lives in
  *    the app's memory only: it is never written to the Hair Passport and
- *    never sent anywhere. (The facts a *generated plan* used are kept in the
- *    owner-scoped private run record, which is the accepted audit design from
- *    Task 3.1; that record is not this draft.) The draft is cleared the
+ *    never sent anywhere. Non-executable guidance outcomes may have an
+ *    owner-scoped private run record; that record is not this draft. The draft is cleared the
  *    moment the owner changes, signs out or deletes the account.
  */
 export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach }: TodayGuidanceProps) {
@@ -175,13 +174,6 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
   const [saveFailed, setSaveFailed] = useState(false);
   const [retryFailed, setRetryFailed] = useState(false);
   const [focusSection, setFocusSection] = useState<CheckInSection | null>(null);
-  // Start is gated behind a validated preview: the owner must confirm the
-  // preview before execution is mounted, and the stored decision is never
-  // silently swapped for a regenerated one.
-  const [startedRequest, setStartedRequest] = useState<Readonly<{
-    ownerId: string;
-    requestId: string;
-  }> | null>(null);
   // Fix E: process-death recovery. This read-only restore runs on mount and
   // on every owner change, independently of generating new guidance. It never
   // generates, records, or starts anything: a validated restore only exposes
@@ -195,8 +187,8 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
   const resultRef = useRef<Text | null>(null);
 
   /**
-   * The fail-closed preview for the current decision, rebuilt only from the
-   * stored decision and its exact stored context. The checked-in bundle and
+   * The fail-closed preview for the current client decision, rebuilt from its
+   * exact context. The checked-in bundle and
    * evidence registry are the authority for every binding. `null` when there
    * is nothing to preview (idle, check-in, or a non-decision result).
    */
@@ -281,7 +273,6 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
     // from the newest request: anything else is a late response and is
     // discarded before it can render or persist.
     const live = () => mounted.current && owner === ownerToken.current && current === requestEpoch.current;
-    setStartedRequest(null);
     dispatch({ type: 'generation_started', requestEpoch: current });
     setSaveFailed(false);
     setRetryFailed(false);
@@ -299,7 +290,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
 
       dispatch({ type: 'generation_finished', requestEpoch: current, result });
 
-      if (result.status === 'ready' || result.status === 'needs_input'
+      if (result.status === 'needs_input'
         || result.status === 'rule_conflict' || result.status === 'unsupported') {
         setSaving(true);
         try {
@@ -482,7 +473,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
 
   return <View style={{ gap: 16 }}>
     <Text style={styles.kicker}>TODAY · {GOAL_LABEL.toUpperCase()}</Text>
-    {onOpenHeatCoach && restore.phase === 'absent' && startedRequest === null
+    {onOpenHeatCoach && restore.phase === 'absent'
       && todayHasHeatContext(preflight.checkIn) &&
       <Button title="Review heat choices in Heat Coach" secondary onPress={onOpenHeatCoach}/>}
 
@@ -627,14 +618,12 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
         {result.status === 'ready' && previewModel !== null && (
           <ProtocolPreview
             model={previewModel}
-            onStart={() => setStartedRequest({ ownerId, requestId: result.requestId })}
           />
         )}
-        {result.status === 'ready'
-          && startedRequest?.ownerId === ownerId
-          && startedRequest.requestId === result.requestId
-          && result.decision.steps.length > 0 && (
-          <ProtocolExecution key={ownerId} ownerId={ownerId} decision={result.decision} onOpenCueCheck={onCueCheck} />
+        {result.status === 'ready' && (
+          <Text style={styles.subtitle}>
+            Preview only. Starting this routine is unavailable.
+          </Text>
         )}
 
         {result.status === 'needs_input' && (
@@ -666,7 +655,6 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
           accessibilityLabel={START_OVER_LABEL}
           secondary
           onPress={() => {
-            setStartedRequest(null);
             dispatch({ type: 'reset' });
           }}
         />

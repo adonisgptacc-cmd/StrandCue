@@ -36,7 +36,7 @@ import { styles } from './ui';
  * - Scalable text with no fixed line height.
  * - Text at 4.5:1 contrast or better against the card background.
  * - Controls at least 44x44.
- * - After a ready preview is generated, focus moves once to the Start button.
+ * - When Start is offered, focus moves once to that button.
  */
 
 export interface ProtocolPreviewProps {
@@ -51,9 +51,9 @@ export function ProtocolPreview({ model, onStart }: ProtocolPreviewProps) {
   // After a ready preview is generated, move focus to the Start button once so
   // a screen-reader user lands on the action rather than the top of the screen.
   useEffect(() => {
-    if (model.status !== 'ready') return;
+    if (model.status !== 'ready' || onStart === undefined) return;
     focusOn({ current: startRef.current });
-  }, [model.status]);
+  }, [model.status, onStart]);
 
   const ready = model.status === 'ready';
 
