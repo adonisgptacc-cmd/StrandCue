@@ -1,9 +1,12 @@
 # Real-Postgres two-session op-id concurrency proof (DB-002)
 
-The automated suite `protocol-execution-concurrency.pg.test.ts` passed against
+The original operation-id cases in `protocol-execution-concurrency.pg.test.ts` passed against
 the disposable local Supabase stack during the final Increment-4 fix wave on
 2026-10-18. See the Task-25 addendum for exact evidence. It remains opt-in and
 skips by default. Local execution does not prove hosted behavior or close DB-002.
+The new I6.5 source-correction/start cases remain **NOT RUN** until a
+disposable numeric-loopback PostgreSQL target has the full current migration
+chain. A skipped Vitest result is not a concurrency proof.
 
 ## Target and fixture boundary
 
@@ -45,6 +48,24 @@ content. Public start/transition calls execute as `authenticated`.
    and close both clients. After the suite delete only the freshly minted Auth
    owner and verify no owner rows remain in Auth, profile, run, execution,
    event or operations tables. Cascades remove all fixtures.
+
+## I6.5 source-correction/start choreography
+
+The new cases create a server-written trusted ready run with the current
+`guidance_source_revisions` epoch. They call the service-only writer as
+`service_role`, then start as `authenticated`. A synthetic Passport row is the
+source fact that gets corrected; its trigger increments the epoch.
+
+1. A updates the Passport in an open transaction. B starts the run. Require
+   B's exact PID to wait on A's exact PID. Commit A; B must receive
+   `source-changed`, and no execution may exist for that run.
+2. A starts another server-written run in an open transaction. B updates the
+   Passport and must wait on A's exact PID. Commit A; B completes the
+   correction. A new start using that run must receive `source-changed`, and
+   only the first execution may exist.
+
+Both cases close their connections and the suite removes its synthetic Auth
+owner. They require real PostgreSQL for independent sessions and lock proof.
 
 ## What PGlite proves
 

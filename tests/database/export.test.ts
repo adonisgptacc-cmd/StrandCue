@@ -279,6 +279,8 @@ const EXCLUDED_OWNER_TABLES = new Map<string, string>([
   ['strandcue_private.deletion_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.execution_step_care', 'service-derived classification of already-exported execution steps (wash or application); carries no owner-entered content and no reviewer data'],
   ['strandcue_private.export_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
+  ['strandcue_private.guidance_source_revisions', 'service-derived source epoch for race checks; carries no owner-entered content'],
+  ['strandcue_private.today_guidance_rate_limits', 'service-internal per-owner request rate state; carries no owner-entered content'],
   ['strandcue_private.heat_coach_operations', 'service-internal idempotency material (operation ids, request payloads and receipts), never owner content'],
   ['strandcue_private.passport_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.protocol_execution_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
@@ -311,7 +313,7 @@ const EXPORTED_OWNER_COLUMNS: Record<string, string[]> = {
   'public.profiles': ['user_id', 'username', 'eligible', 'country', 'currency', 'temperature_unit', 'account_status', 'revision', 'created_at', 'username_changed_at'],
   'public.protocol_execution_events': ['id', 'user_id', 'execution_id', 'sequence', 'kind', 'command', 'revision', 'recorded_at'],
   'public.protocol_executions': ['id', 'user_id', 'execution_id', 'recommendation_run_id', 'decision', 'execution', 'revision', 'status', 'created_at', 'updated_at', 'legal_hold'],
-  'public.recommendation_runs': ['id', 'user_id', 'request_id', 'input_fingerprint', 'as_of', 'engine_version', 'bundle_id', 'bundle_version', 'status', 'input', 'decision', 'created_at', 'trusted'],
+  'public.recommendation_runs': ['id', 'user_id', 'request_id', 'input_fingerprint', 'as_of', 'engine_version', 'bundle_id', 'bundle_version', 'status', 'input', 'decision', 'created_at', 'trusted', 'source_revision'],
   'public.service_observations': ['id', 'service_id', 'user_id', 'effective_date', 'effective_start', 'effective_end', 'effect_status', 'source', 'recorded_at'],
   'public.service_revisions': ['id', 'user_id', 'service_id', 'sequence', 'base_revision', 'kind', 'facts', 'heat_state', 'effective_start', 'effective_end', 'recorded_at', 'corrects_id', 'correction_reason'],
   'public.service_zones': ['service_revision_id', 'service_id', 'user_id', 'region', 'segment'],
@@ -366,7 +368,7 @@ describe('export completeness (consent and guidance history)', () => {
     const times = document.consentRecords.map((row: any) => new Date(row.recorded_at).getTime());
     expect([...times].sort((a, b) => a - b)).toEqual(times);
     expect(document.schemaVersions).toMatchObject({
-      export: 7, consentRecords: 1, recommendationRuns: 1,
+      export: 8, consentRecords: 1, recommendationRuns: 2,
       protocolExecutions: 2, protocolExecutionEvents: 1,
       cueChecks: 1, cueCheckRevisions: 1,
       treatmentProgrammes: 1, treatmentProgrammeEvents: 1,
@@ -415,6 +417,7 @@ describe('export completeness (consent and guidance history)', () => {
     expect(csv.files['consent_records.csv'].split('\n')[0]).toBe('id,purpose,granted,recorded_at');
     expect(csv.files['consent_records.csv']).toContain('product_analytics');
     expect(csv.files['recommendation_runs.csv'].split('\n')[0]).toContain('request_id');
+    expect(csv.files['recommendation_runs.csv'].split('\n')[0]).toContain('source_revision');
     expect(csv.files['recommendation_runs.csv']).toContain(CONSENT_RUN_ID);
     expect(csv.files['protocol_executions.csv'].split('\n')[0]).toContain('execution_id');
     expect(csv.files['protocol_execution_events.csv'].split('\n')[0]).toContain('sequence');
@@ -430,7 +433,7 @@ describe('export completeness (consent and guidance history)', () => {
     expect(csv.files['schema_versions.csv'].split('\n')[0]).toBe('family,version');
     const csvVersions = Object.fromEntries(
       csv.files['schema_versions.csv'].split('\n').slice(1).map((line: string) => line.split(',')));
-    expect(csvVersions).toEqual({ export: '7', consentRecords: '1', recommendationRuns: '1', protocolExecutions: '2', protocolExecutionEvents: '1', cueChecks: '1', cueCheckRevisions: '1', treatmentProgrammes: '1', treatmentProgrammeEvents: '1', heatCoachAssessments: '1' });
+    expect(csvVersions).toEqual({ export: '8', consentRecords: '1', recommendationRuns: '2', protocolExecutions: '2', protocolExecutionEvents: '1', cueChecks: '1', cueCheckRevisions: '1', treatmentProgrammes: '1', treatmentProgrammeEvents: '1', heatCoachAssessments: '1' });
     expect(csvVersions).toEqual(Object.fromEntries(Object.entries(json.schemaVersions).map(([family, version]) => [family, String(version)])));
   });
 
@@ -577,11 +580,11 @@ describe('export completeness (consent and guidance history)', () => {
     const names = await listOwnerTables(db);
     expect(unclassifiedOwnerTables(names)).toEqual([]);
     // The registry itself stays honest: every entry still exists and every
-    // exclusion carries its reason. 26 exported + 18 excluded = 44 owner
-    // tables. Heat Coach adds one owner record and one private receipt table.
-    expect(names).toHaveLength(44);
+    // exclusion carries its reason. 26 exported + 20 excluded = 46 owner
+    // tables, including the private derived source revision row.
+    expect(names).toHaveLength(46);
     expect(EXPORTED_OWNER_TABLES.size).toBe(26);
-    expect(EXCLUDED_OWNER_TABLES.size).toBe(18);
+    expect(EXCLUDED_OWNER_TABLES.size).toBe(20);
     for (const name of [...EXPORTED_OWNER_TABLES, ...EXCLUDED_OWNER_TABLES.keys()]) {
       expect(names, `registry entry ${name} still exists`).toContain(name);
     }
@@ -664,7 +667,7 @@ describe('export version 6: treatment programmes', () => {
   it('exports the owner programme, its lifecycle history and no count, due status, receipt or reviewer data', async () => {
     const { id, identity } = await seedProgrammeFor(USER_A, 'user_a');
     const { body: document } = await downloadDocument(db, 'json');
-    expect(document.schemaVersions).toMatchObject({ export: 7, treatmentProgrammes: 1, treatmentProgrammeEvents: 1, heatCoachAssessments: 1 });
+    expect(document.schemaVersions).toMatchObject({ export: 8, treatmentProgrammes: 1, treatmentProgrammeEvents: 1, heatCoachAssessments: 1 });
     expect(document.treatmentProgrammes).toHaveLength(1);
     const programme = document.treatmentProgrammes[0];
     expect(programme).toMatchObject({ enrolment_id: id, rule_id: identity.ruleId, rule_version: '1', artifact_id: identity.artifactId, status: 'active', revision: 4 });
@@ -694,7 +697,7 @@ describe('export version 6: treatment programmes', () => {
     expect(eventRows).toBe(csv.files['treatment_programme_events.csv'].split('\n').length - 1);
     const csvVersions = Object.fromEntries(csv.files['schema_versions.csv'].split('\n').slice(1).map((line: string) => line.split(',')));
     expect(csvVersions).toEqual(Object.fromEntries(Object.entries(json.schemaVersions).map(([family, version]) => [family, String(version)])));
-    expect(csvVersions.export).toBe('7');
+    expect(csvVersions.export).toBe('8');
     expect(Object.keys(csv.files)).not.toContain('treatment_programme_operations.csv');
   });
 

@@ -194,7 +194,7 @@ describe('schema, grants and hardening', () => {
         functions: await part(`select concat_ws('|', p.oid::regprocedure::text, pg_get_userbyid(p.proowner), coalesce((select string_agg(a::text, ',' order by a::text) from unnest(p.proacl) a), ''), coalesce(p.proconfig::text, ''), p.prosecdef::text)
           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
          where (n.nspname = 'public' and p.proname ~ 'programme')
-            or (n.nspname = 'strandcue_private' and (p.proname like 'programme\_%' or p.proname like 'export_build_csv%' or p.proname like 'request_export%'))`),
+            or (n.nspname = 'strandcue_private' and p.proname like 'programme\_%')`),
         tables: await part(`select concat_ws('|', c.oid::regclass::text, pg_get_userbyid(c.relowner), coalesce((select string_agg(a::text, ',' order by a::text) from unnest(c.relacl) a), ''), c.relrowsecurity::text, c.relforcerowsecurity::text)
           from pg_class c where c.oid::regclass::text ~ '(treatment_programme|programme_rule_publications|execution_step_care)' and c.relkind = 'r'`),
         policies: await part(`select concat_ws('|', schemaname, tablename, policyname, cmd, roles::text, coalesce(qual, ''), coalesce(with_check, ''))

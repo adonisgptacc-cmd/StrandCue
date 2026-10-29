@@ -4,7 +4,7 @@ import type {
   GuidanceSourceName,
 } from '../../../../packages/domain/src/index';
 import type { CheckInErrorCode, CheckInGoal } from './current-condition-state';
-import type { TodayGuidanceResult } from './today-guidance-service';
+import type { TodayServerResult as TodayGuidanceResult } from './today-guidance-server-api';
 
 /**
  * Every string Today shows, in one place.

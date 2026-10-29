@@ -32,11 +32,11 @@
 
 **Files:** `apps/mobile/src/TodayGuidance.tsx`, `apps/mobile/src/guidance/recommendation-run-api.ts`, new server evaluator/RPC migration, focused Today and SQL tests.
 
-- [ ] Add a failing test showing that a ready Today result cannot currently persist or start: `recordRecommendationRun` rejects `ready` and no trusted writer is called.
-- [ ] Define the exact server request and response contract for ready generation. The server derives owner and source facts, evaluates the reviewed bundle, persists the canonical input and decision with `trusted=true`, and returns its receipt. The mobile client supplies intent/check-in only, not status, decision or trust.
-- [ ] Add SQL and API tests for forged ready payloads, cross-owner request IDs, stale source facts, idempotency and malformed protocol steps; run them red.
-- [ ] Implement the minimal trusted boundary and wire Today to it. Keep nonready persistence semantics and clear save errors.
-- [ ] Run focused tests and review the privilege path, then commit this independently testable repair.
+- [x] Add a failing test showing that a ready Today result cannot currently persist or start: `recordRecommendationRun` rejects `ready` and no trusted writer is called.
+- [x] Define the exact server request and response contract for ready generation. The server derives owner and source facts, evaluates the reviewed bundle, persists the canonical input and decision with `trusted=true`, and returns its receipt. The mobile client supplies intent/check-in only, not status, decision or trust.
+- [x] Add SQL and API tests for forged ready payloads, cross-owner request IDs, stale source facts, idempotency and malformed protocol steps; run them red.
+- [x] Implement the minimal trusted boundary and wire Today to it. Keep nonready persistence semantics and clear save errors.
+- [x] Run focused tests and review the privilege path, then commit this independently testable repair.
 
 ## Task 2: assessment binding and preview
 

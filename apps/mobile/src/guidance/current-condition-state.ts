@@ -5,7 +5,7 @@ import {
   type CurrentConditionConcern,
   type CurrentConditionZone,
 } from '../../../../packages/domain/src/index';
-import type { TodayGuidanceResult } from './today-guidance-service.ts';
+import type { TodayServerResult as TodayGuidanceResult } from './today-guidance-server-api.ts';
 
 /**
  * Today preflight state machine (HP-06, TD-01–TD-04, SF-01, UX-01–UX-04).
@@ -138,8 +138,9 @@ const EMPTY_DRAFT: CheckInDraft = {
 /**
  * The check-in of one owner, kept for as long as that owner is on the
  * screen. It is a session draft and nothing more: it is never written to the
- * Hair Passport, it is never sent anywhere, and it is cleared the moment the
- * owner changes, signs out or deletes the account, so no previous owner's
+ * Hair Passport. Its answers are sent to the authenticated guidance function
+ * only when the owner requests a plan. The draft is cleared when the owner
+ * changes, signs out or deletes the account, so no previous owner's
  * answers can be read by the next one.
  *
  * The answers a *generated plan* used are a separate matter: the facts the

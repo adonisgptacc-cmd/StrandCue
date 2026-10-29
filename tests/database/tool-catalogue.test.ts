@@ -328,7 +328,7 @@ describe('tool catalogue publication boundary', () => {
       await match(db, mine.userToolId, TV_DRYER);
       await publish(db, { version: TV_DRYER, subject: 'capabilities', state: 'review' });
       const document = await exportDocument();
-      expect(document.schemaVersions.export).toBe(7);
+      expect(document.schemaVersions.export).toBe(8);
       const [entry] = document.userTools;
       expect(entry.tool).toMatchObject({ manual_model: 'My dryer', wattage_watts: 1900, adjustable_temp: 'unknown', condition: 'worn', notes: 'Private', matched: true, version_id: TV_DRYER });
       expect(entry.tool.heat_methods).toEqual({ state: 'recorded', methods: ['heated-air'] });
@@ -350,7 +350,7 @@ describe('tool catalogue publication boundary', () => {
       const [header] = files['user_tools.csv'].split('\n');
       for (const column of ['wattage_watts', 'adjustable_temp', 'settings', 'attachments', 'condition', 'heat_methods']) expect(header).toContain(column);
       expect(files['user_tools.csv']).toContain('1900');
-      expect(files['schema_versions.csv']).toContain('export,7');
+      expect(files['schema_versions.csv']).toContain('export,8');
       expect(JSON.stringify(files)).not.toContain(T_SECRET_REVIEWER);
     });
   });

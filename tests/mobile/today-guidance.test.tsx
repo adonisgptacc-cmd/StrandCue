@@ -54,8 +54,13 @@ vi.mock('expo-crypto', () => ({
   },
 }));
 
-vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({
-  generateTodayGuidance: mocks.generate,
+vi.mock('../../apps/mobile/src/guidance/today-guidance-server-api', () => ({
+  requestTodayGuidance: mocks.generate,
+  hasMatchingTrustedReceipt: (result: { status: string; requestId?: string; inputFingerprint?: string; decision?: { requestId?: string }; receipt?: { status?: string; requestId?: string; inputFingerprint?: string } }) =>
+    result.status === 'ready' && result.receipt?.status === 'ready'
+    && result.receipt.requestId === result.requestId
+    && result.receipt.inputFingerprint === result.inputFingerprint
+    && result.decision?.requestId === result.requestId,
 }));
 
 vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
@@ -543,6 +548,35 @@ describe('today guidance states', () => {
     await act(async () => { renderer.unmount(); });
   });
 
+  it('offers start only for a matching trusted server receipt', async () => {
+    mocks.generate.mockResolvedValue(readyResult({
+      receipt: { id: 'run-1', requestId: 'request-1', inputFingerprint: 'a'.repeat(64), status: 'ready' },
+    }));
+    const renderer = await render();
+    await generate(renderer);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(true);
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    await press(renderer, EXECUTION_START_LABEL);
+    expect(mocks.executionGetActive).toHaveBeenCalled();
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    mocks.executionStart.mockRejectedValue(new Error('source-changed'));
+    await press(renderer, EXECUTION_START_LABEL);
+    expect(mocks.executionStart).toHaveBeenCalledTimes(1);
+    expect(mocks.executionStart.mock.calls[0][0].recommendationRunId).toBe('request-1');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('rejects a receipt for a different fingerprint', async () => {
+    mocks.generate.mockResolvedValue(readyResult({
+      receipt: { id: 'run-1', requestId: 'request-1', inputFingerprint: 'b'.repeat(64), status: 'ready' },
+    }));
+    const renderer = await render();
+    await generate(renderer);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('never sends the prepared input, owner item names or tool facts to the persistence call', async () => {
     mocks.generate.mockResolvedValue(readyResult({
       status: 'needs_input',
@@ -817,9 +851,9 @@ describe('task 5 preflight: condition-aware generation', () => {
     await generate(renderer, ['Frizz', 'Dryness'], '20');
     expect(mocks.generate).toHaveBeenCalledTimes(1);
     const request = mocks.generate.mock.calls[0][0];
-    expect(request.ownerId).toBe(OWNER);
+    expect(request).not.toHaveProperty('ownerId');
     expect(request.goalId).toBe('basic_wash');
-    expect(request.now).toBe(request.asOf);
+    expect(request).not.toHaveProperty('asOf');
     const expected = normalizeCurrentCondition(
       {
         observedAt: (request.currentCondition as { observedAt: string }).observedAt,
@@ -827,7 +861,7 @@ describe('task 5 preflight: condition-aware generation', () => {
         goal: 'basic_wash',
         availableMinutes: 20,
       },
-      new Date(request.asOf),
+      new Date((request.currentCondition as { observedAt: string }).observedAt),
     );
     expect(request.currentCondition).toEqual(expected);
     expect(request.currentCondition.concerns).toEqual(['dryness', 'frizz']);

@@ -47,7 +47,7 @@ import {
 } from './guidance/current-condition-state';
 import { resolverItems, type GuidanceResolverItem, type GuidanceResolverRole } from './guidance/guidance-gap-state';
 import { recordRecommendationRun } from './guidance/recommendation-run-api';
-import { generateTodayGuidance } from './guidance/today-guidance-service';
+import { hasMatchingTrustedReceipt, requestTodayGuidance } from './guidance/today-guidance-server-api';
 import { useTodayRestore } from './guidance/today-restore';
 import { GuidanceGapResolver } from './GuidanceGapResolver';
 import { TodayCheckIn } from './TodayCheckIn';
@@ -157,14 +157,15 @@ function CheckInSummary({ draft }: { readonly draft: CheckInDraft }) {
  *    may apply, and nothing applies after unmount.
  * 3. Duplicate taps generate once. An in-flight guard plus the reducer's
  *    `generation_started` gate mean one epoch is one generation.
- * 4. Non-executable outcomes are persisted exactly once. A client-generated
- *    ready preview cannot be saved as trusted or started. The trusted server
- *    writer will supply a separate executable receipt.
+ * 4. Non-executable outcomes are persisted exactly once. Only a server-ready
+ *    result with a matching trusted receipt can offer Start; the database
+ *    independently checks the stored run and source revision.
  * 5. The check-in survives the trip to a destination. It is kept in an
  *    owner-scoped session draft, so opening My Hair, My Shelf or My Tools and
  *    coming back finds the owner's own answers, unchanged. The draft lives in
- *    the app's memory only: it is never written to the Hair Passport and
- *    never sent anywhere. Non-executable guidance outcomes may have an
+ *    the app's memory only: it is never written to the Hair Passport.
+ *    Its answers are sent to the authenticated guidance function only when
+ *    the owner requests a plan. Non-executable guidance outcomes may have an
  *    owner-scoped private run record; that record is not this draft. The draft is cleared the
  *    moment the owner changes, signs out or deletes the account.
  */
@@ -173,6 +174,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const [retryFailed, setRetryFailed] = useState(false);
+  const [startRequested, setStartRequested] = useState(false);
   const [focusSection, setFocusSection] = useState<CheckInSection | null>(null);
   // Fix E: process-death recovery. This read-only restore runs on mount and
   // on every owner change, independently of generating new guidance. It never
@@ -187,7 +189,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
   const resultRef = useRef<Text | null>(null);
 
   /**
-   * The fail-closed preview for the current client decision, rebuilt from its
+   * The fail-closed preview for the current server decision, rebuilt from its
    * exact context. The checked-in bundle and
    * evidence registry are the authority for every binding. `null` when there
    * is nothing to preview (idle, check-in, or a non-decision result).
@@ -200,6 +202,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
   const [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   if (previousOwner !== ownerId) {
     setPreviousOwner(ownerId);
+    setStartRequested(false);
     clearCheckInDraft(previousOwner);
     dispatch({ type: 'owner_changed', ownerId });
   }
@@ -234,7 +237,8 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
   }, [ownerId]);
 
   // The check-in is kept in an owner-scoped session draft so it survives a
-  // trip to another screen. It is session-only and never leaves the device.
+  // trip to another screen. The draft is session-only; its answers are sent
+  // to the authenticated guidance function only on explicit generation.
   useEffect(() => {
     if (preflight.phase === 'idle') {
       clearCheckInDraft(ownerId);
@@ -276,15 +280,12 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
     dispatch({ type: 'generation_started', requestEpoch: current });
     setSaveFailed(false);
     setRetryFailed(false);
+    setStartRequested(false);
     try {
-      const result = await generateTodayGuidance({
-        ownerId,
+      const result = await requestTodayGuidance({
         goalId: GOAL_ID,
         requestId: requestId(),
-        asOf,
-        loadedAt: nowIso(),
         currentCondition,
-        now: asOf,
       });
       if (!live()) return;
 
@@ -332,7 +333,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
     } finally {
       inflight.current = false;
     }
-  }, [ownerId, preflight.checkIn, preflight.phase]);
+  }, [preflight.checkIn, preflight.phase]);
 
   // Fix G: post-abandon return to idle, gated on the authoritative terminal
   // receipt. The execution surface notifies only after the server confirms
@@ -615,12 +616,21 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
           />
         )}
 
-        {result.status === 'ready' && previewModel !== null && (
+        {result.status === 'ready' && previewModel !== null && !startRequested && (
           <ProtocolPreview
             model={previewModel}
+            onStart={hasMatchingTrustedReceipt(result) ? () => setStartRequested(true) : undefined}
           />
         )}
-        {result.status === 'ready' && (
+        {result.status === 'ready' && startRequested && hasMatchingTrustedReceipt(result) && (
+          <ProtocolExecution
+            key={`${ownerId}:${result.receipt.id}`}
+            ownerId={ownerId}
+            decision={result.decision}
+            onOpenCueCheck={onCueCheck}
+          />
+        )}
+        {result.status === 'ready' && !hasMatchingTrustedReceipt(result) && (
           <Text style={styles.subtitle}>
             Preview only. Starting this routine is unavailable.
           </Text>
@@ -655,6 +665,7 @@ export function TodayGuidance({ ownerId, onNavigate, onCueCheck, onOpenHeatCoach
           accessibilityLabel={START_OVER_LABEL}
           secondary
           onPress={() => {
+            setStartRequested(false);
             dispatch({ type: 'reset' });
           }}
         />

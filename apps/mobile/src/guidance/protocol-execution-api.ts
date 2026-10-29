@@ -166,6 +166,7 @@ const STABLE_ERRORS: Readonly<Record<string, string>> = {
   'execution-conflict': 'execution-conflict',
   'execution-not-found': 'execution-not-found',
   'run-not-owned': 'run-not-owned',
+  'source-changed': 'source-changed',
   'execution-terminal': 'execution-terminal',
   'execution-not-active': 'execution-not-active',
   'invalid-status-transition': 'invalid-status-transition',

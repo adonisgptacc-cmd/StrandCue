@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
-import { database } from './harness.ts';
+import { asUser, complete, database, mutate, USER_A } from './harness.ts';
 
 describe('Supabase migration compatibility', () => {
   it('repairs private-schema usage required by username suggestions', async () => {
@@ -53,6 +53,7 @@ describe('Supabase migration compatibility', () => {
       await db.exec(`
         create role anon nologin;
         create role authenticated nologin;
+        create role service_role nologin;
         create role migration_admin login createrole;
         grant create on database postgres to migration_admin;
         grant all on schema public to migration_admin with grant option;
@@ -129,6 +130,33 @@ describe('Supabase migration compatibility', () => {
           has_column_privilege('strandcue_mutator','public.chemical_services','user_id','UPDATE') can_reassign,
           has_column_privilege('strandcue_mutator','public.chemical_services','revision','UPDATE') can_advance
       `)).rows).toEqual([{ can_append: false, can_write: false, can_reassign: false, can_advance: true }]);
+
+      // Exercise the new SECURITY DEFINER path with a non-BYPASSRLS migration
+      // owner. A simple replay would miss profile/epoch policies that make
+      // the function fail only when it actually handles a real user.
+      await db.exec('set session authorization postgres');
+      await db.exec(`insert into auth.users values ('${USER_A}', now())`);
+      await asUser(db, USER_A);
+      await complete(db);
+      expect((await db.query<{ remaining: number }>(
+        'select public.reserve_today_guidance_request() remaining',
+      )).rows[0].remaining).toBe(29);
+      await mutate(db);
+      const sourceRevision = Number((await db.query<{ revision: number }>(
+        'select public.get_guidance_source_revision() revision',
+      )).rows[0].revision);
+      expect(sourceRevision).toBeGreaterThan(0);
+      await db.exec('set session authorization postgres');
+      await db.query("select set_config('request.jwt.claim.sub',$1,false)", ['']);
+      await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ role: 'service_role' })]);
+      await db.exec('set session authorization service_role');
+      const requestId = '44444444-4444-4444-8444-444444444444';
+      const receipt = (await db.query<{ value: { status: string } }>(
+        'select public.record_server_recommendation_run($1::uuid,$2::uuid,$3,$4::timestamptz,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::bigint) value',
+        [USER_A, requestId, 'a'.repeat(64), '2026-10-29T08:00:00Z', '1', 'synthetic', '2', 'ready',
+          JSON.stringify({ requestId }), JSON.stringify({ requestId, status: 'ready', steps: [{ stepId: 'step-1', position: 1, action: 'wait' }] }), sourceRevision],
+      )).rows[0].value;
+      expect(receipt.status).toBe('ready');
     } finally {
       await db.close();
     }

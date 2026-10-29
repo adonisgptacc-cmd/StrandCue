@@ -39,6 +39,24 @@ suite('real-Postgres two-session op-id blocking (DB-002 local proof)', () => {
     } finally { await admin!.query('reset role'); }
     return id;
   };
+  const seedServerRun = async () => {
+    const id = crypto.randomUUID();
+    const fingerprint = 'e'.repeat(64);
+    const decision = {status: 'ready', requestId: id, steps: [{stepId: 'synthetic-1', position: 1,
+      action: 'Synthetic test', productId: null, productVersionId: null, toolId: null,
+      toolVersionId: null, waitSeconds: null, rinse: null, reasons: ['fixture']}]};
+    await admin!.query('reset role');
+    const revision = (await admin!.query<{revision: string}>(
+      'select revision::text from strandcue_private.guidance_source_revisions where user_id=$1', [ownerId],
+    )).rows[0].revision;
+    await admin!.query('set role service_role');
+    try {
+      await admin!.query(`select public.record_server_recommendation_run(
+        $1::uuid,$2::uuid,$3,now(),'synthetic','pgproof-synthetic','1','ready',$4::jsonb,$5::jsonb,$6::bigint)`,
+      [ownerId, id, fingerprint, JSON.stringify({requestId: id, goal: 'basic_wash'}), JSON.stringify(decision), revision]);
+    } finally { await admin!.query('reset role'); }
+    return id;
+  };
   const startSql = 'select public.start_protocol_execution($1::uuid,$2::uuid,$3::uuid,$4::timestamptz) as result';
   const startArgs = (runId: string) => [crypto.randomUUID(), crypto.randomUUID(), runId, new Date().toISOString()];
   const backend = async (client: PgClient) => (await client.query<{pid: number}>('select pg_backend_pid() as pid')).rows[0].pid;
@@ -65,6 +83,7 @@ suite('real-Postgres two-session op-id blocking (DB-002 local proof)', () => {
     await asOwner(admin);
     await admin.query('select public.complete_account($1,true)', [`pgproof_${ownerId.replaceAll('-', '').slice(0,12)}`]);
     await admin.query('reset role');
+    await admin.query('insert into public.hair_passports(user_id,revision) values($1,0) on conflict(user_id) do nothing', [ownerId]);
   });
   afterAll(async () => {
     if (!admin) return;
@@ -127,4 +146,59 @@ suite('real-Postgres two-session op-id blocking (DB-002 local proof)', () => {
       await a.query('commit');
     } finally { await a.query('rollback'); await Promise.all([a.end(), b.end()]); }
   });
+  it('blocks a server-run start behind a source correction, then rejects the stale run without an execution', async () => {
+    const runId = await seedServerRun();
+    const a = await newClient(), b = await newClient();
+    let pending: Promise<unknown> | undefined;
+    try {
+      await asOwner(b);
+      const pidA = await backend(a), pidB = await backend(b);
+      await a.query('begin');
+      await a.query('update public.hair_passports set revision=revision+1 where user_id=$1', [ownerId]);
+      const start = b.query(startSql, startArgs(runId));
+      pending = start;
+      void start.catch(() => undefined);
+      await observeBlocking(pidB, pidA);
+      await a.query('commit');
+      await expect(start).rejects.toThrow(/source-changed/);
+      const count = await admin!.query<{n: number}>(
+        'select count(*)::int n from public.protocol_executions where user_id=$1 and recommendation_run_id=$2',
+        [ownerId, runId],
+      );
+      expect(count.rows[0].n).toBe(0);
+    } finally {
+      await a.query('rollback').catch(() => undefined);
+      await pending?.catch(() => undefined);
+      await Promise.all([a.end(), b.end()]);
+    }
+  }, 60_000);
+  it('blocks a correction behind a started server run and rejects a later new start', async () => {
+    const runId = await seedServerRun();
+    const a = await newClient(), b = await newClient();
+    let pending: Promise<unknown> | undefined;
+    try {
+      await asOwner(a);
+      const pidA = await backend(a), pidB = await backend(b);
+      await a.query('begin');
+      const first = (await a.query<{result: {executionId: string}}>(startSql, startArgs(runId))).rows[0].result;
+      const correction = b.query('update public.hair_passports set revision=revision+1 where user_id=$1', [ownerId]);
+      pending = correction;
+      void correction.catch(() => undefined);
+      await observeBlocking(pidB, pidA);
+      await a.query('commit');
+      await correction;
+      await asOwner(a);
+      await expect(a.query(startSql, startArgs(runId))).rejects.toThrow(/source-changed/);
+      const count = await admin!.query<{n: number}>(
+        'select count(*)::int n from public.protocol_executions where user_id=$1 and recommendation_run_id=$2',
+        [ownerId, runId],
+      );
+      expect(count.rows[0].n).toBe(1);
+      expect(first.executionId).toBeTruthy();
+    } finally {
+      await a.query('rollback').catch(() => undefined);
+      await pending?.catch(() => undefined);
+      await Promise.all([a.end(), b.end()]);
+    }
+  }, 60_000);
 });
