@@ -21,7 +21,9 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
   const publication = crypto.randomUUID();
   const quotaPublicationA = crypto.randomUUID();
   const quotaPublicationB = crypto.randomUUID();
-  const publications = [publication, quotaPublicationA, quotaPublicationB];
+  const startFirstPublication = crypto.randomUUID();
+  const withdrawalFirstPublication = crypto.randomUUID();
+  const publications = [publication, quotaPublicationA, quotaPublicationB, startFirstPublication, withdrawalFirstPublication];
   const digests = new Map<string, string>();
   let registry: SyntheticRegistryIdentity;
   const intent = JSON.stringify({ method: { state: 'unknown' }, temperature: { state: 'unknown' }, setting: { state: 'unknown' }, passes: { state: 'unknown' }, durationMinutes: { state: 'unknown' }, zones: [] });
@@ -54,6 +56,20 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
     }
     throw new Error(`Session ${waitingPid} did not wait on ${blockerPid}'s advisory lock`);
   };
+  const observeRowBlocking = async (waitingPid: number, blockerPid: number) => {
+    await admin.query('reset role');
+    for (let attempt = 0; attempt < 150; attempt += 1) {
+      const row = (await admin.query<{ wait_event_type: string; wait_event: string; blockers: number[] }>(
+        'select wait_event_type,wait_event,pg_blocking_pids(pid) blockers from pg_stat_activity where pid=$1', [waitingPid],
+      )).rows[0];
+      if (row?.wait_event_type === 'Lock' && row.blockers.includes(blockerPid)) {
+        expect(['transactionid', 'tuple']).toContain(row.wait_event);
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new Error(`Session ${waitingPid} did not wait on ${blockerPid}'s publication row`);
+  };
   const withClients = async (run: (a: PgClient, b: PgClient, pids: { a: number; b: number }) => Promise<void>) => {
     const a = await client();
     const b = await client();
@@ -69,6 +85,54 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
     const rule = { schemaVersion: 1, publicationId: id, ruleVersion: '1.0.0', digest: '0'.repeat(64), lifecycle: 'reviewed', validFrom: '2026-01-01T00:00:00.000Z', validUntil: null, requiredProductCapability: null, allowedMethods: ['heated-air'], limits: { temperatures: [], namedSettings: [], maximumPasses: null, maximumDurationMinutes: null }, necessityRules: [], hardRestrictions: [], alternatives: [], reasonCode: 'reviewed_limit', copyKey: 'heat.reviewed_limit' };
     const published = await seedSyntheticHeatRule((sql, values) => admin.query(sql, values), id, rule, registry);
     digests.set(id, published.contentDigest);
+  };
+  const seedBoundRun = async (publicationId: string) => {
+    // The revision helper and publication reads run under owner-confined RLS.
+    // Preserve the fixture owner's claims when switching to the service writer.
+    await asOwner(admin);
+    await admin.query('reset role');
+    const assessmentId = crypto.randomUUID();
+    const requestId = crypto.randomUUID();
+    const sourceFingerprint = `sha256:${'e'.repeat(64)}`;
+    const sourceRevisions = (await admin.query<{ value: unknown }>(
+      'select strandcue_private.heat_source_revisions($1::uuid) value', [owner],
+    )).rows[0].value;
+    await admin.query(`insert into public.heat_coach_assessments
+      (id,owner,publication_id,publication_digest,input,result,status,source_revisions,source_fingerprint)
+      values($1,$2,$3,$4,$5::jsonb,'{}'::jsonb,'no_heat',$6::jsonb,$7)`,
+    [assessmentId, owner, publicationId, digests.get(publicationId),
+      JSON.stringify({ preparedInput: { products: [], tools: [] } }), JSON.stringify(sourceRevisions), sourceFingerprint]);
+    const revision = (await admin.query<{ revision: string }>(
+      'select revision::text from strandcue_private.guidance_source_revisions where user_id=$1', [owner],
+    )).rows[0]?.revision ?? '0';
+    const decision = { status: 'ready', requestId, steps: [{ stepId: 'no-heat-1', position: 1,
+      action: 'wait', toolId: null, toolVersionId: null }], heatAssessmentBinding: {
+      assessmentId, sourceFingerprint, publicationId, publicationDigest: digests.get(publicationId),
+    } };
+    await admin.query('set role service_role');
+    try {
+      await admin.query(`select public.record_server_recommendation_run(
+        $1::uuid,$2::uuid,$3,now(),'1','synthetic','1','ready',$4::jsonb,$5::jsonb,$6::bigint)`,
+      [owner, requestId, 'a'.repeat(64), JSON.stringify({ requestId, goal: 'basic_wash' }), JSON.stringify(decision), revision]);
+    } finally { await admin.query('reset role'); }
+    return requestId;
+  };
+  const startBoundRun = (value: PgClient, requestId: string, operationId = crypto.randomUUID(),
+    executionId = crypto.randomUUID(), startedAt = new Date().toISOString()) =>
+    value.query<{ result: { executionId: string } }>(
+      'select public.start_protocol_execution($1::uuid,$2::uuid,$3::uuid,$4::timestamptz) result',
+      [operationId, executionId, requestId, startedAt],
+    );
+  const executionCounts = async (requestId: string) => {
+    await admin.query('reset role');
+    const rows = (await admin.query<{ executions: number; events: number }>(
+      `select (select count(*)::int from public.protocol_executions where user_id=$1 and recommendation_run_id=$2) executions,
+              (select count(*)::int from public.protocol_execution_events e
+                join public.protocol_executions x on x.user_id=e.user_id and x.execution_id=e.execution_id
+                where x.user_id=$1 and x.recommendation_run_id=$2) events`,
+      [owner, requestId],
+    )).rows[0];
+    return rows;
   };
 
   beforeAll(async () => {
@@ -163,6 +227,51 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
       await a.query('commit');
       const restored = await b.query<{ result: any }>('select public.get_heat_coach_assessment($1::uuid) result', [assessment.assessmentId]);
       expect(restored.rows[0].result.stale).toBe(true);
+    });
+  }, 60_000);
+
+  it('lets a bound no-heat start finish before publication withdrawal and preserves its replay', async () => {
+    const requestId = await seedBoundRun(startFirstPublication);
+    const operationId = crypto.randomUUID();
+    const executionId = crypto.randomUUID();
+    const startedAt = new Date().toISOString();
+    await withClients(async (a, b, pids) => {
+      await asOwner(a);
+      await a.query('begin');
+      const first = (await startBoundRun(a, requestId, operationId, executionId, startedAt)).rows[0].result;
+      const withdrawing = settle(b.query(
+        "update strandcue_private.heat_rule_publications set state='withdrawn' where id=$1 returning id",
+        [startFirstPublication],
+      ));
+      await observeRowBlocking(pids.b, pids.a);
+      await a.query('commit');
+      const outcome = await withdrawing;
+      expect(outcome.ok, String(outcome.ok ? '' : outcome.error.message)).toBe(true);
+      if (outcome.ok) expect(outcome.value.rows).toHaveLength(1);
+      await expect(startBoundRun(a, requestId)).rejects.toThrow(/stale-heat-binding/);
+      const replay = (await startBoundRun(a, requestId, operationId, executionId, startedAt)).rows[0].result;
+      expect(replay).toEqual(first);
+      expect(await executionCounts(requestId)).toEqual({ executions: 1, events: 1 });
+    });
+  }, 60_000);
+
+  it('makes a bound no-heat start wait for withdrawal, then rejects it without writes', async () => {
+    const requestId = await seedBoundRun(withdrawalFirstPublication);
+    await withClients(async (a, b, pids) => {
+      await asOwner(a);
+      await b.query('begin');
+      const withdrawn = await b.query(
+        "update strandcue_private.heat_rule_publications set state='withdrawn' where id=$1 returning id",
+        [withdrawalFirstPublication],
+      );
+      expect(withdrawn.rows).toHaveLength(1);
+      const starting = settle(startBoundRun(a, requestId));
+      await observeRowBlocking(pids.a, pids.b);
+      await b.query('commit');
+      const outcome = await starting;
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.error.message).toMatch(/stale-heat-binding/);
+      expect(await executionCounts(requestId)).toEqual({ executions: 0, events: 0 });
     });
   }, 60_000);
 
