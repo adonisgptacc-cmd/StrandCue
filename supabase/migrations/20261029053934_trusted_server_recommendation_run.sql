@@ -328,7 +328,7 @@ declare
   current_revision bigint;
 begin
   if owner_id is null then raise exception 'authentication-required' using errcode = '42501'; end if;
-  perform 1 from public.profiles where user_id = owner_id and account_status = 'active' for update;
+  perform 1 from public.profiles where user_id = owner_id and account_status = 'active';
   if not found then raise exception 'account-not-active' using errcode = '42501'; end if;
   select * into run from public.recommendation_runs
     where user_id = owner_id and request_id = p_recommendation_run_id for update;

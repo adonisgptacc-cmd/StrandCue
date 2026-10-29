@@ -4,9 +4,12 @@ The original operation-id cases in `protocol-execution-concurrency.pg.test.ts` p
 the disposable local Supabase stack during the final Increment-4 fix wave on
 2026-10-18. See the Task-25 addendum for exact evidence. It remains opt-in and
 skips by default. Local execution does not prove hosted behavior or close DB-002.
-The new I6.5 source-correction/start cases remain **NOT RUN** until a
-disposable numeric-loopback PostgreSQL target has the full current migration
-chain. A skipped Vitest result is not a concurrency proof.
+The new I6.5 source-correction/start cases passed on 2026-10-29 against a
+disposable PostgreSQL 18.6 instance bound to numeric loopback with all 67
+current migrations: 5/5 in this opt-in suite. The first run exposed an
+unnecessary profile lock that serialized independent legacy starts; the
+wrapper was corrected and the full suite rerun green. A skipped Vitest result
+on another machine is not a concurrency proof.
 
 ## Target and fixture boundary
 
