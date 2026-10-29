@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadGuidanceSnapshot } from '../../apps/mobile/src/guidance/guidance-snapshot';
+import { loadGuidanceSnapshotFromSources } from '../../apps/mobile/src/guidance/guidance-snapshot-core';
 
 const apiMocks = vi.hoisted(() => ({
   loadPassport: vi.fn(),
@@ -172,6 +173,23 @@ function load(): Promise<unknown> {
 }
 
 describe('guidance snapshot completeness', () => {
+  it('accepts injected source readers for the same complete snapshot', async () => {
+    const snapshot = await loadGuidanceSnapshotFromSources(OWNER, AS_OF, LOADED_AT, {
+      loadPassport: apiMocks.loadPassport,
+      loadServices: apiMocks.loadServices,
+      listGuidanceActivityHistories: apiMocks.listGuidanceActivityHistories,
+      listUserProducts: apiMocks.listUserProducts,
+      getUserProduct: apiMocks.getUserProduct,
+      listUserTools: apiMocks.listUserTools,
+      getUserTool: apiMocks.getUserTool,
+    });
+    expect(snapshot.ownerId).toBe(OWNER);
+    expect(snapshot.completeness).toEqual({
+      passport: 'complete', services: 'complete', activities: 'complete',
+      products: 'complete', tools: 'complete',
+    });
+    expect(snapshot).toEqual(await loadGuidanceSnapshot(OWNER, AS_OF, LOADED_AT));
+  });
   it('assembles a complete snapshot with exact owner and timestamps', async () => {
     const snapshot = (await load()) as Record<string, any>;
     expect(snapshot.ownerId).toBe(OWNER);

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import { generateTodayGuidance, isClientPersistableGuidanceResult } from '../../apps/mobile/src/guidance/today-guidance-service';
+import { generateTodayGuidanceFromDependencies } from '../../apps/mobile/src/guidance/today-guidance-core';
 import type {
   TodayGuidanceDependencies,
   TodayGuidanceRequest,
@@ -246,6 +247,11 @@ function request(overrides: Partial<TodayGuidanceRequest> = {}): TodayGuidanceRe
 }
 
 describe('today guidance orchestration', () => {
+  it('runs the same deterministic pipeline through an injected server-compatible boundary', async () => {
+    const result = await generateTodayGuidanceFromDependencies(request(), harness().dependencies);
+    expect(result.status).toBe('ready');
+    if (result.status === 'ready') expect(result.inputFingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
   it('never calls the engine when preparation is not ready', async () => {
     const { dependencies, generateProtocol } = harness({
       snapshot: snapshot({ passportFacts: {} }),
