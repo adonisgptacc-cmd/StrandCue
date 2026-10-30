@@ -12,6 +12,8 @@
 
 **30 October local status:** The eligible no-heat route, trusted-run insert and start checks, side-effect checks, real PostgreSQL withdrawal races, and Docker-backed Edge boot check are implemented. Lower/direct-heat protocol actions still need reviewed product content and engine support; production publication remains empty/draft. The dependency-policy gate is HOLD. See the SDD ledger for exact verification counts and limits.
 
+**Supported product binding follow-up:** No-heat product steps now require the exact assessed owned item and version at trusted-run insertion and at start. No-heat tool steps are rejected. Exact tool-version execution remains part of the later reviewed heated-action work and must not be presented as supported yet.
+
 ## Global constraints
 
 - No hosted Supabase writes, production publication, push or deployment during this task.
