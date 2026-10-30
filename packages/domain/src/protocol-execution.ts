@@ -20,10 +20,20 @@
 
 import { z } from 'zod';
 
+import { ZoneSchema } from './activity.ts';
+import { ToolHeatMethodSchema, ToolSettingTemperatureSchema } from './tools.ts';
 import type { ProtocolDecision } from './recommendations/index.ts';
 
 const nonEmptyString = z.string().trim().min(1);
 const uuidString = z.string().uuid();
+const HeatPrescriptionSchema = z.object({
+  method: ToolHeatMethodSchema.refine(method => method !== 'unheated'),
+  temperature: ToolSettingTemperatureSchema,
+  setting: nonEmptyString.max(60).nullable(),
+  passes: z.number().int().nonnegative().max(100),
+  durationMinutes: z.number().int().nonnegative().max(1440),
+  zones: z.array(ZoneSchema.strict()).min(1).max(36),
+}).strict();
 
 const IsoOffsetTimestampSchema = z.iso.datetime({ offset: true });
 
@@ -76,8 +86,25 @@ export const PlannedStepSchema = z
     waitSeconds: z.number().int().nonnegative().nullable(),
     rinse: z.boolean().nullable(),
     reasons: z.array(nonEmptyString),
+    heatActionRef: z.object({
+      publicationId: uuidString,
+      publicationDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    }).strict().optional(),
+    heatPrescription: HeatPrescriptionSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((step, context) => {
+    const hasHeatFields = step.heatActionRef !== undefined || step.heatPrescription !== undefined;
+    if (step.action !== 'heat') {
+      if (hasHeatFields) context.addIssue({ code: 'custom', message: 'Heat fields require a heat action' });
+      return;
+    }
+    if (step.heatActionRef === undefined || step.heatPrescription === undefined
+      || step.toolId === null || step.toolVersionId === null
+      || step.productId !== null || step.productVersionId !== null) {
+      context.addIssue({ code: 'custom', message: 'Heat action requires a complete assessed prescription' });
+    }
+  });
 
 export type PlannedStep = z.output<typeof PlannedStepSchema>;
 
@@ -396,6 +423,8 @@ function copyPlannedStep(step: ProtocolDecision['steps'][number]): PlannedStep {
     waitSeconds: step.waitSeconds,
     rinse: step.rinse,
     reasons: [...step.reasons],
+    ...(step.heatActionRef === undefined ? {} : { heatActionRef: step.heatActionRef }),
+    ...(step.heatPrescription === undefined ? {} : { heatPrescription: step.heatPrescription }),
   });
 }
 

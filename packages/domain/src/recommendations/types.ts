@@ -208,6 +208,7 @@ export interface ProtocolStep {
     readonly publicationId: string;
     readonly publicationDigest: string;
   };
+  readonly heatPrescription?: import('../heat-coach.ts').HeatCoachDecision['selected'];
 }
 
 export interface EffectConflict {

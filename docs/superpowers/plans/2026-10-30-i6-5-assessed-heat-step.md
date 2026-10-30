@@ -46,10 +46,10 @@
 
 **Interfaces:** Consume the Task 1 reference and the owner-scoped assessment `input`/`result`. Produce a structured `heatPrescription` containing `{ method, temperature, setting, passes, durationMinutes, zones }` matching `result.selected`, exact assessed tool ID/version and preceding product step when required; otherwise `content_pending`. This task tests a pure server projection helper and does not activate persistence yet.
 
-- [ ] Add RED tests for `appropriate` and explicitly chosen adjusted `lower_heat`, wrong publication reference, unknown numeric value, unexpressible tool setting, missing protectant and generic tool application.
-- [ ] Run RED tests and confirm expected failure.
-- [ ] Implement the server-only projection and strict schemas; keep handler persistence and SQL bound-start rejection unchanged until Task 3.
-- [ ] Run focused Edge/domain/execution tests, typecheck and lint; commit `feat: project assessed heat prescriptions`.
+- [x] Add RED tests for `appropriate` projection, tampered reviewed limit, duplicate owner identity and execution snapshot preservation. Also cover adjusted `lower_heat`, wrong publication reference, unexpressible setting and missing/late protectant.
+- [x] Run RED tests and confirm the projection, limit and execution failures.
+- [x] Implement the server-only projection and strict schemas; keep handler persistence and SQL bound-start rejection unchanged until Task 3.
+- [x] Run focused Edge/domain/execution tests, typecheck and lint; commit `feat: project assessed heat prescriptions`. The focused execution set passed 166/166; review confirmed no active heated write path.
 
 ### Task 3: database insert/start proof
 

@@ -98,6 +98,27 @@ function run(command: ExecutionCommand, at: string, execution?: ProtocolExecutio
 }
 
 describe('ProtocolExecution run reference', () => {
+  it('preserves the assessed heat prescription in the planned execution', () => {
+    const heatActionRef = { publicationId: '11111111-1111-4111-8111-111111111111',
+      publicationDigest: `sha256:${'a'.repeat(64)}` };
+    const heatPrescription = { method: 'heated-air' as const,
+      temperature: { value: 120, unit: 'C' as const }, setting: 'Low',
+      passes: 1, durationMinutes: 15,
+      zones: [{ region: 'whole_head' as const, segment: 'entire_strand' as const }] };
+    const decision = { ...readyDecision(), steps: [{ ...readyDecision().steps[0]!,
+      action: 'heat', productId: null, productVersionId: null,
+      toolId: 'tool-1', toolVersionId: 'tool-version-1',
+      heatActionRef, heatPrescription }] };
+    const execution = startProtocolExecution({ executionId: 'heat-exec', decision, startedAt: T0 });
+    expect(execution.steps[0]?.planned).toMatchObject({ action: 'heat', heatActionRef, heatPrescription });
+  });
+
+  it('refuses a heat step without a complete assessed prescription', () => {
+    const decision = { ...readyDecision(), steps: [{ ...readyDecision().steps[0]!,
+      action: 'heat', productId: null, productVersionId: null,
+      toolId: 'tool-1', toolVersionId: 'tool-version-1' }] };
+    expect(() => startProtocolExecution({ executionId: 'heat-exec', decision, startedAt: T0 })).toThrow();
+  });
   it('references one immutable recommendation run and copies stable step identities', () => {
     const execution = started();
 
