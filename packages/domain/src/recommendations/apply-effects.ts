@@ -45,6 +45,12 @@ export interface AttributedHeat {
   readonly maxTemperatureCelsius?: number;
 }
 
+export interface AttributedAssessedHeatAction {
+  readonly ruleRef: string;
+  readonly publicationId: string;
+  readonly publicationDigest: string;
+}
+
 export interface AttributedActivation {
   readonly ruleRef: string;
   readonly capability: string;
@@ -58,6 +64,7 @@ export interface HardEffectSet {
   readonly rinses: readonly AttributedRinse[];
   readonly frequencies: readonly AttributedFrequency[];
   readonly heat: readonly AttributedHeat[];
+  readonly assessedHeatActions: readonly AttributedAssessedHeatAction[];
   readonly activations: readonly AttributedActivation[];
 }
 
@@ -94,6 +101,7 @@ function distributeHardEffect(
     rinses: AttributedRinse[];
     frequencies: AttributedFrequency[];
     heat: AttributedHeat[];
+    assessedHeatActions: AttributedAssessedHeatAction[];
     activations: AttributedActivation[];
   },
   advisory: AdvisoryPreference[],
@@ -128,6 +136,10 @@ function distributeHardEffect(
       });
       break;
     }
+    case 'assessed_heat_action':
+      hard.assessedHeatActions.push({ ruleRef, publicationId: effect.publicationId,
+        publicationDigest: effect.publicationDigest });
+      break;
     case 'activation':
       hard.activations.push({ ruleRef, capability: effect.capability });
       break;
@@ -190,6 +202,18 @@ function detectHeatConflicts(hard: HardEffectSet): EffectConflict[] {
         detail: `Heat exposure '${exposure}' is both allowed and prohibited`,
         ruleRefs: [...new Set(entries.map(entry => entry.ruleRef))].sort(),
       });
+    }
+  }
+  if (hard.assessedHeatActions.length > 1) {
+    conflicts.push({ kind: 'heat', detail: 'Multiple assessed heat actions',
+      ruleRefs: [...new Set(hard.assessedHeatActions.map(entry => entry.ruleRef))].sort() });
+  }
+  if (hard.assessedHeatActions.length > 0) {
+    const prohibited = hard.heat.filter(entry => entry.prohibited);
+    if (prohibited.length > 0) {
+      conflicts.push({ kind: 'heat', detail: 'Assessed heat action conflicts with a hard heat restriction',
+        ruleRefs: [...new Set([...hard.assessedHeatActions.map(entry => entry.ruleRef),
+          ...prohibited.map(entry => entry.ruleRef)])].sort() });
     }
   }
   return conflicts;
@@ -291,6 +315,7 @@ export function collectEffects(
     rinses: [] as AttributedRinse[],
     frequencies: [] as AttributedFrequency[],
     heat: [] as AttributedHeat[],
+    assessedHeatActions: [] as AttributedAssessedHeatAction[],
     activations: [] as AttributedActivation[],
   };
   const advisory: AdvisoryPreference[] = [];

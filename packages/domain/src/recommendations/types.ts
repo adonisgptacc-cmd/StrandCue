@@ -104,6 +104,12 @@ export interface HeatRestrictionEffect {
   readonly maxTemperatureCelsius?: number;
 }
 
+export interface AssessedHeatActionEffect {
+  readonly kind: 'assessed_heat_action';
+  readonly publicationId: string;
+  readonly publicationDigest: string;
+}
+
 export interface PreferCapabilityEffect {
   readonly kind: 'prefer_capability';
   readonly capability: string;
@@ -123,6 +129,7 @@ export type RecommendationEffect =
   | RinseEffect
   | FrequencyEffect
   | HeatRestrictionEffect
+  | AssessedHeatActionEffect
   | ActivationEffect
   | PreferCapabilityEffect;
 
@@ -197,6 +204,10 @@ export interface ProtocolStep {
   readonly waitSeconds: number | null;
   readonly rinse: boolean | null;
   readonly reasons: readonly string[];
+  readonly heatActionRef?: {
+    readonly publicationId: string;
+    readonly publicationDigest: string;
+  };
 }
 
 export interface EffectConflict {

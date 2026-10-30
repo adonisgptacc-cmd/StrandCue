@@ -115,6 +115,44 @@ describe('service-only trusted recommendation write', () => {
     })).rejects.toThrow(/malformed-protocol/i);
   });
 
+  it('refuses an unbound heat action at the database trusted writer', async () => {
+    const sourceRevision = await revision(db);
+    await asService(db);
+    await expect(record(db, { sourceRevision, decision: {
+      status: 'ready', requestId: REQUEST,
+      steps: [{ stepId: 'heat-1', position: 1, action: 'heat',
+        heatActionRef: { publicationId: '11111111-1111-4111-8111-111111111111',
+          publicationDigest: `sha256:${'a'.repeat(64)}` } }],
+    } })).rejects.toThrow(/invalid-heat-binding/);
+    await db.exec('set session authorization postgres');
+    expect((await db.query('select id from public.recommendation_runs')).rows).toEqual([]);
+  });
+
+  it('refuses a new start of an unbound heat run stored before the hold', async () => {
+    const sourceRevision = await revision(db);
+    await asService(db);
+    await record(db, { sourceRevision });
+    await db.exec('set session authorization postgres');
+    try {
+      await db.exec('alter table public.recommendation_runs disable trigger all');
+      await db.query(`update public.recommendation_runs set decision=$1::jsonb where request_id=$2`, [
+        JSON.stringify({ status: 'ready', requestId: REQUEST, steps: [
+          { stepId: 'heat-1', position: 1, action: 'heat', heatActionRef: {
+            publicationId: '11111111-1111-4111-8111-111111111111',
+            publicationDigest: `sha256:${'a'.repeat(64)}`,
+          } },
+        ] }), REQUEST,
+      ]);
+    } finally {
+      await db.exec('alter table public.recommendation_runs enable trigger all');
+    }
+    await asUser(db, USER_A);
+    await expect(db.query('select public.start_protocol_execution($1::uuid,$2::uuid,$3::uuid,$4::timestamptz)',
+      [crypto.randomUUID(), crypto.randomUUID(), REQUEST, new Date().toISOString()])).rejects.toThrow(/invalid-heat-binding/);
+    await db.exec('set session authorization postgres');
+    expect((await db.query('select id from public.protocol_executions')).rows).toEqual([]);
+  });
+
   it('replays an identical stored receipt after source changes without starting it', async () => {
     const sourceRevision = await revision(db);
     await asService(db);

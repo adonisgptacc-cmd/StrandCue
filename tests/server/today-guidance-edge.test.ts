@@ -157,6 +157,19 @@ describe('server Today guidance boundary', () => {
     expect(h.persistReady).not.toHaveBeenCalled();
   });
 
+  it('keeps an unbound heat action pending before any trusted write', async () => {
+    const h = harness({ generate: vi.fn(async () => ({ ...readyResult(), decision: {
+      ...readyResult().decision,
+      steps: [{ stepId: 'heat', position: 1, action: 'heat',
+        heatActionRef: { publicationId: USER, publicationDigest: `sha256:${'a'.repeat(64)}` },
+        toolId: null, toolVersionId: null }],
+    } })) });
+    const response = await handleTodayGuidanceRequest(request({ requestId: REQUEST, goalId: 'basic_wash' }), h.deps);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'content_pending' });
+    expect(h.persistReady).not.toHaveBeenCalled();
+  });
+
   it('checks a requested assessment under the owner token and keeps binding pending', async () => {
     const loadAssessment = vi.fn(async () => ({ ...ASSESSMENT, status: 'lower_heat' }));
     const h = harness({ loadAssessment });

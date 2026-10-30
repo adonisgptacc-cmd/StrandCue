@@ -101,6 +101,9 @@ describe('recommendation data contracts', () => {
     ['rinse', { kind: 'rinse', value: true }],
     ['frequency', { kind: 'frequency', unit: 'wash_session', max: 2 }],
     ['heat_restriction', { kind: 'heat_restriction', exposure: 'direct_contact', prohibited: true }],
+    ['assessed_heat_action', { kind: 'assessed_heat_action',
+      publicationId: '11111111-1111-4111-8111-111111111111',
+      publicationDigest: `sha256:${'a'.repeat(64)}` }],
     ['prefer_capability', { kind: 'prefer_capability', capability: 'mild-cleanse' }],
   ])('accepts the %s effect', (_name, effect) => {
     expect(() =>
@@ -131,6 +134,17 @@ describe('recommendation data contracts', () => {
     expect(() =>
       parseRecommendationContext(validContext({ rules: [validRule({ effects: [{ kind: 'teleport' }] })] })),
     ).toThrow();
+  });
+
+  it('rejects a heat action without an exact publication identity', () => {
+    for (const effect of [
+      { kind: 'assessed_heat_action', publicationId: 'not-a-uuid', publicationDigest: `sha256:${'a'.repeat(64)}` },
+      { kind: 'assessed_heat_action', publicationId: '11111111-1111-4111-8111-111111111111', publicationDigest: 'draft' },
+      { kind: 'assessed_heat_action', publicationId: '11111111-1111-4111-8111-111111111111',
+        publicationDigest: `sha256:${'a'.repeat(64)}`, maxTemperature: 300 },
+    ]) {
+      expect(() => parseRecommendationContext(validContext({ rules: [validRule({ effects: [effect] })] }))).toThrow();
+    }
   });
 
   it('rejects invalid dates, waits, frequencies, and temperatures', () => {

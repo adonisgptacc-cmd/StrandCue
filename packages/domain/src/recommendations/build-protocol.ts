@@ -288,6 +288,17 @@ interface StepContent {
   readonly waitSeconds: number | null;
   readonly rinse: boolean | null;
   readonly reasons: readonly string[];
+  readonly heatActionRef?: { readonly publicationId: string; readonly publicationDigest: string };
+}
+
+function assessedHeatStepContents(collected: CollectedEffects): StepContent[] {
+  return collected.hard.assessedHeatActions.map(entry => ({
+    action: 'heat', productId: null, productVersionId: null,
+    toolId: null, toolVersionId: null, waitSeconds: null, rinse: null,
+    reasons: [`${entry.ruleRef} authorizes assessed heat`],
+    heatActionRef: { publicationId: entry.publicationId,
+      publicationDigest: entry.publicationDigest },
+  }));
 }
 
 function applyStepContents(
@@ -378,7 +389,8 @@ function buildReadyDecision(args: ProtocolBuildArgs): ProtocolDecision {
   ])];
   const ordered = orderCapabilities(required, args.collected.hard.order);
   const { contents, selectedKeys } = applyStepContents(args, ordered);
-  const steps: ProtocolStep[] = [...contents, ...timedStepContents(args.collected)].map(
+  const steps: ProtocolStep[] = [...contents, ...timedStepContents(args.collected),
+    ...assessedHeatStepContents(args.collected)].map(
     (content, index) => ({ ...content, stepId: `step-${index + 1}`, position: index + 1 }),
   );
   return {
@@ -423,7 +435,8 @@ export function buildProtocolDecision(args: ProtocolBuildArgs): ProtocolDecision
   ])];
   const hasAction = required.length > 0 ||
     args.collected.hard.waits.length > 0 ||
-    args.collected.hard.rinses.length > 0;
+    args.collected.hard.rinses.length > 0 ||
+    args.collected.hard.assessedHeatActions.length > 0;
   if (!hasAction) {
     return blockedDecision(
       args,

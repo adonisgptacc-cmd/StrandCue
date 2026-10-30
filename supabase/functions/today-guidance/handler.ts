@@ -160,6 +160,14 @@ export async function handleTodayGuidanceRequest(
     if (!parsed.success || parsed.data.requestId !== command.requestId
         || parsed.data.asOf !== asOf) return json({ error: 'source-unavailable' }, 503);
     let result = parsed.data;
+    // The reviewed heat-action reference is not executable until its assessed
+    // prescription and database insert/start checks are in place.
+    if (Array.isArray(result.decision.steps) && result.decision.steps.some(step =>
+      typeof step === 'object' && step !== null
+      && ((step as Record<string, unknown>).action === 'heat'
+        || (step as Record<string, unknown>).heatActionRef != null))) {
+      return json({ status: 'content_pending' });
+    }
     if (assessment) {
       const prepared = PreparedMatchSchema.safeParse(result.prepared);
       const saved = assessment.input.preparedInput;

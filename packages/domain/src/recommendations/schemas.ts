@@ -142,6 +142,12 @@ const HeatRestrictionEffectSchema = z
   })
   .strict();
 
+const AssessedHeatActionEffectSchema = z.object({
+  kind: z.literal('assessed_heat_action'),
+  publicationId: z.string().uuid(),
+  publicationDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+}).strict();
+
 const PreferCapabilityEffectSchema = z
   .object({
     kind: z.literal('prefer_capability'),
@@ -165,6 +171,7 @@ export const RecommendationEffectSchema = z.discriminatedUnion('kind', [
   RinseEffectSchema,
   FrequencyEffectSchema,
   HeatRestrictionEffectSchema,
+  AssessedHeatActionEffectSchema,
   ActivationEffectSchema,
   PreferCapabilityEffectSchema,
 ]);

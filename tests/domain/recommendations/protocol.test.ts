@@ -116,6 +116,50 @@ function decide(raw: Record<string, unknown>): ProtocolDecision {
 }
 
 describe('safe protocol construction and ranking', () => {
+  it('emits a distinct heat reference only from a reviewed hard action', () => {
+    const publicationId = '11111111-1111-4111-8111-111111111111';
+    const publicationDigest = `sha256:${'a'.repeat(64)}`;
+    const decision = decide(rawContext({ rules: [hardRule('rule-heat', TRUE_CONDITION, [
+      { kind: 'assessed_heat_action', publicationId, publicationDigest },
+    ])] }));
+    expect(decision.status).toBe('ready');
+    expect(decision.steps).toEqual([expect.objectContaining({
+      action: 'heat', toolId: null, toolVersionId: null,
+      heatActionRef: { publicationId, publicationDigest },
+    })]);
+  });
+
+  it('does not turn an advisory heat action into a protocol step', () => {
+    const decision = decide(rawContext({ rules: [advisoryRule('rule-heat-note', TRUE_CONDITION, [
+      { kind: 'assessed_heat_action',
+        publicationId: '11111111-1111-4111-8111-111111111111',
+        publicationDigest: `sha256:${'a'.repeat(64)}` },
+    ])] }));
+    expect(decision.status).toBe('unsupported');
+    expect(decision.steps).toEqual([]);
+  });
+
+  it('blocks multiple assessed heat actions before choosing a publication', () => {
+    const decision = decide(rawContext({ rules: [hardRule('rule-heat', TRUE_CONDITION, [
+      { kind: 'assessed_heat_action', publicationId: '11111111-1111-4111-8111-111111111111',
+        publicationDigest: `sha256:${'a'.repeat(64)}` },
+      { kind: 'assessed_heat_action', publicationId: '22222222-2222-4222-8222-222222222222',
+        publicationDigest: `sha256:${'b'.repeat(64)}` },
+    ])] }));
+    expect(decision.status).toBe('rule_conflict');
+    expect(decision.steps).toEqual([]);
+  });
+
+  it('blocks an assessed heat action when a hard heat restriction prohibits exposure', () => {
+    const decision = decide(rawContext({ rules: [hardRule('rule-heat', TRUE_CONDITION, [
+      { kind: 'assessed_heat_action', publicationId: '11111111-1111-4111-8111-111111111111',
+        publicationDigest: `sha256:${'a'.repeat(64)}` },
+      { kind: 'heat_restriction', exposure: 'direct_contact', prohibited: true },
+    ])] }));
+    expect(decision.status).toBe('rule_conflict');
+    expect(decision.steps).toEqual([]);
+  });
+
   it('lets a hard exclusion remove a conflicting candidate', () => {
     const decision = decide(
       rawContext({

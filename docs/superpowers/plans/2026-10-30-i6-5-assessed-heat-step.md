@@ -31,14 +31,14 @@
 
 ### Task 1: reviewed heat-action reference
 
-**Files:** `packages/domain/src/recommendations/{types,schemas,apply-effects,build-protocol}.ts`; relevant recommendation and guidance schema tests.
+**Files:** `packages/domain/src/recommendations/{types,schemas,apply-effects,build-protocol}.ts`; `supabase/functions/today-guidance/handler.ts`; relevant recommendation, guidance schema and Edge tests.
 
 **Interfaces:** Consume an existing reviewed hard rule. Produce an optional protocol step `heatActionRef: { publicationId: string, publicationDigest: string }` only from `assessed_heat_action`, without inventing a prescription or enabling start.
 
-- [ ] Add RED tests: valid reviewed effect emits a distinct heat reference; malformed IDs/digests fail; advisory heat actions emit no step; generic tool `apply` never becomes `heat`.
-- [ ] Run focused tests and confirm the intended failures.
-- [ ] Add the strict effect schema and hard-rule collection; emit an inert heat-action reference from the recommendation engine.
-- [ ] Run recommendation, guidance schema, typecheck and lint checks; commit `feat: represent reviewed heat action references`.
+- [x] Add RED tests: valid reviewed effect emits a distinct heat reference; malformed IDs/digests fail; advisory heat actions emit no step; generic tool `apply` never becomes `heat`; Edge returns `content_pending` for any heat action even without an assessment.
+- [x] Run focused tests and confirm the intended failures.
+- [x] Add the strict effect schema and hard-rule collection; emit a heat-action reference from the recommendation engine. Keep Edge persistence closed to every heat step until Task 3. A SQL insertion/start hold was added after review exposed a service-role bypass.
+- [x] Run recommendation, guidance schema, typecheck and lint checks; commit `feat: represent reviewed heat action references`. Full coverage passed 4,764 tests; migration inventory includes both new forward migrations.
 
 ### Task 2: assessed prescription projection
 

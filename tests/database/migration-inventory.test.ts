@@ -74,6 +74,8 @@ const trustedMigrationNames = [
   '20261030065209_bind_today_check_in_to_heat_assessment.sql',
   '20261030070310_lock_heat_capability_registry_on_start.sql',
   '20261030104309_validate_bound_heat_product_steps.sql',
+  '20261030113144_require_heat_tool_capability.sql',
+  '20261030120304_hold_unimplemented_heat_steps.sql',
 ] as const;
 
 const candidateMigrationNames = [
