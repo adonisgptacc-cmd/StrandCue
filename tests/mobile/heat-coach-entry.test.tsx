@@ -26,6 +26,23 @@ const product = { id, availability: 'available', manualBrand: 'My', manualName: 
   pao: null, quantityBand: null, repurchaseIntent: null, revision: 1 } as const;
 
 describe('Heat Coach entry', () => {
+  it('copies the completed Today check-in into a bound assessment intent', async () => {
+    const currentCondition = { observedAt: '2026-10-29T09:00:00.000Z',
+      concerns: ['heat-concern' as const], goal: 'basic_wash' as const, availableMinutes: 20 };
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(HeatCoachEntry, {
+      ownerKey: 'owner-a', currentCondition,
+      loadPublication: async () => ({ publicationId: id, publicationDigest: digest }),
+      loadTools: async () => ({ items: [], nextCursor: null }),
+      loadProducts: async () => ({ items: [], nextCursor: null }), onNavigate: vi.fn(),
+    })); });
+    expect(renderer.root.findByType(HeatCoach).props.controller.getState().intent).toMatchObject({
+      availableMinutes: 20,
+      currentCondition: { observedAt: currentCondition.observedAt, concerns: ['heat-concern'],
+        explicitNone: false, zones: [], zoneConcerns: [] },
+    });
+  });
+
   it('shows pending without fetching owner items when publication is draft or absent', async () => {
     const loadTools = vi.fn();
     let renderer!: ReactTestRenderer;

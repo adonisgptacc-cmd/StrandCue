@@ -63,8 +63,8 @@ export interface TodayGuidanceProps {
   readonly onNavigate: (route: GuidanceRoute) => void;
   /** Opens the Cue Check form for a finished routine; see ProtocolExecution. */
   readonly onCueCheck?: (execution: TerminalExecutionContext) => void;
-  /** Opens a separate owner-entered heat-intent flow; carries no Today verdict. */
-  readonly onOpenHeatCoach?: () => void;
+  /** Opens heat intent with the completed check-in when available; carries no verdict. */
+  readonly onOpenHeatCoach?: (condition: CurrentConditionInput | null) => void;
 }
 
 /** A route hint from recorded facts, never a heat decision. */
@@ -479,7 +479,14 @@ export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, o
     <Text style={styles.kicker}>TODAY · {GOAL_LABEL.toUpperCase()}</Text>
     {onOpenHeatCoach && restore.phase === 'absent'
       && todayHasHeatContext(preflight.checkIn) &&
-      <Button title="Review heat choices in Heat Coach" secondary onPress={onOpenHeatCoach}/>}
+      <Button title="Review heat choices in Heat Coach" secondary onPress={() => {
+        let condition: CurrentConditionInput | null = null;
+        if (preflight.phase === 'ready_to_generate' || preflight.phase === 'result') {
+          try { condition = normalizeCurrentCondition(currentConditionOf(preflight.checkIn), new Date()); }
+          catch { condition = null; }
+        }
+        onOpenHeatCoach(condition);
+      }}/>}
 
     {restore.phase === 'restoring' && (
       <View style={styles.card}>

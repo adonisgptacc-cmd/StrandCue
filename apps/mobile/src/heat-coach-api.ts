@@ -51,6 +51,7 @@ const intent = z.object({
   passes: knownUnknown(z.number().int().min(0).max(100)),
   durationMinutes: knownUnknown(z.number().int().min(0).max(1440)),
   zones: z.array(ZoneSchema.strict()).max(36),
+  availableMinutes: z.number().int().min(0).max(1440).nullable().optional(),
   currentCondition: condition.nullable().optional(),
 }).strict();
 const createCommand = z.object({ operationId: uuid, publicationId: uuid, publicationDigest: digest, intent }).strict();

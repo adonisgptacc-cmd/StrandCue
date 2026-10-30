@@ -23,7 +23,14 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
   const quotaPublicationB = crypto.randomUUID();
   const startFirstPublication = crypto.randomUUID();
   const withdrawalFirstPublication = crypto.randomUUID();
-  const publications = [publication, quotaPublicationA, quotaPublicationB, startFirstPublication, withdrawalFirstPublication];
+  const registryStartPublication = crypto.randomUUID();
+  const registryWithdrawalPublication = crypto.randomUUID();
+  const registryRunInsertPublication = crypto.randomUUID();
+  const registryRunRejectPublication = crypto.randomUUID();
+  const initialPublications = [publication, quotaPublicationA, quotaPublicationB, startFirstPublication,
+    withdrawalFirstPublication];
+  const publications = [...initialPublications, registryStartPublication, registryWithdrawalPublication,
+    registryRunInsertPublication, registryRunRejectPublication];
   const digests = new Map<string, string>();
   let registry: SyntheticRegistryIdentity;
   const intent = JSON.stringify({ method: { state: 'unknown' }, temperature: { state: 'unknown' }, setting: { state: 'unknown' }, passes: { state: 'unknown' }, durationMinutes: { state: 'unknown' }, zones: [] });
@@ -81,40 +88,38 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
     }
   };
 
-  const publish = async (id: string) => {
+  const publish = async (id: string, capability = registry) => {
     const rule = { schemaVersion: 1, publicationId: id, ruleVersion: '1.0.0', digest: '0'.repeat(64), lifecycle: 'reviewed', validFrom: '2026-01-01T00:00:00.000Z', validUntil: null, requiredProductCapability: null, allowedMethods: ['heated-air'], limits: { temperatures: [], namedSettings: [], maximumPasses: null, maximumDurationMinutes: null }, necessityRules: [], hardRestrictions: [], alternatives: [], reasonCode: 'reviewed_limit', copyKey: 'heat.reviewed_limit' };
-    const published = await seedSyntheticHeatRule((sql, values) => admin.query(sql, values), id, rule, registry);
+    const published = await seedSyntheticHeatRule((sql, values) => admin.query(sql, values), id, rule, capability);
     digests.set(id, published.contentDigest);
   };
-  const seedBoundRun = async (publicationId: string) => {
+  const seedBoundRun = async (publicationId: string, writer = admin, requestId = crypto.randomUUID()) => {
     // The revision helper and publication reads run under owner-confined RLS.
     // Preserve the fixture owner's claims when switching to the service writer.
-    await asOwner(admin);
-    await admin.query('reset role');
+    await asOwner(writer);
+    await writer.query('reset role');
     const assessmentId = crypto.randomUUID();
-    const requestId = crypto.randomUUID();
     const sourceFingerprint = `sha256:${'e'.repeat(64)}`;
-    const sourceRevisions = (await admin.query<{ value: unknown }>(
+    const sourceRevisions = (await writer.query<{ value: unknown }>(
       'select strandcue_private.heat_source_revisions($1::uuid) value', [owner],
     )).rows[0].value;
-    await admin.query(`insert into public.heat_coach_assessments
+    await writer.query(`insert into public.heat_coach_assessments
       (id,owner,publication_id,publication_digest,input,result,status,source_revisions,source_fingerprint)
       values($1,$2,$3,$4,$5::jsonb,'{}'::jsonb,'no_heat',$6::jsonb,$7)`,
     [assessmentId, owner, publicationId, digests.get(publicationId),
       JSON.stringify({ preparedInput: { products: [], tools: [] } }), JSON.stringify(sourceRevisions), sourceFingerprint]);
-    const revision = (await admin.query<{ revision: string }>(
+    const revision = (await writer.query<{ revision: string }>(
       'select revision::text from strandcue_private.guidance_source_revisions where user_id=$1', [owner],
     )).rows[0]?.revision ?? '0';
     const decision = { status: 'ready', requestId, steps: [{ stepId: 'no-heat-1', position: 1,
       action: 'wait', toolId: null, toolVersionId: null }], heatAssessmentBinding: {
       assessmentId, sourceFingerprint, publicationId, publicationDigest: digests.get(publicationId),
     } };
-    await admin.query('set role service_role');
-    try {
-      await admin.query(`select public.record_server_recommendation_run(
+    await writer.query('set role service_role');
+    await writer.query(`select public.record_server_recommendation_run(
         $1::uuid,$2::uuid,$3,now(),'1','synthetic','1','ready',$4::jsonb,$5::jsonb,$6::bigint)`,
       [owner, requestId, 'a'.repeat(64), JSON.stringify({ requestId, goal: 'basic_wash' }), JSON.stringify(decision), revision]);
-    } finally { await admin.query('reset role'); }
+    await writer.query('reset role');
     return requestId;
   };
   const startBoundRun = (value: PgClient, requestId: string, operationId = crypto.randomUUID(),
@@ -148,7 +153,7 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
     }
     await admin.query('insert into public.hair_passports(user_id,revision) values($1,0) on conflict(user_id) do nothing', [sourceOwner]);
     registry = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
-    for (const id of publications) await publish(id);
+    for (const id of initialPublications) await publish(id);
   }, 60_000);
 
   afterAll(async () => {
@@ -307,6 +312,89 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
       const restored = await a.query<{ result: any }>('select public.get_heat_coach_assessment($1::uuid) result', [assessment.assessmentId]);
       expect(restored.rows[0].result.stale).toBe(true);
       await expect(call(a, crypto.randomUUID(), quotaPublicationB)).rejects.toThrow(/heat-content-pending/);
+    });
+  }, 60_000);
+
+  it('makes capability withdrawal wait for an in-flight bound start', async () => {
+    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    await publish(registryStartPublication, capability);
+    const requestId = await seedBoundRun(registryStartPublication);
+    await withClients(async (a, b, pids) => {
+      await asOwner(a);
+      await a.query('begin');
+      const operationId = crypto.randomUUID();
+      const executionId = crypto.randomUUID();
+      const startedAt = new Date().toISOString();
+      const first = (await startBoundRun(a, requestId, operationId, executionId, startedAt)).rows[0].result;
+      const withdrawing = settle(b.query(
+        "update strandcue_private.heat_capability_publications set state='withdrawn' where id=$1", [capability.id],
+      ));
+      await observeRowBlocking(pids.b, pids.a);
+      await a.query('commit');
+      const outcome = await withdrawing;
+      expect(outcome.ok, String(outcome.ok ? '' : outcome.error.message)).toBe(true);
+      await expect(startBoundRun(a, requestId)).rejects.toThrow(/stale-heat-binding/);
+      expect((await startBoundRun(a, requestId, operationId, executionId, startedAt)).rows[0].result).toEqual(first);
+      expect(await executionCounts(requestId)).toEqual({ executions: 1, events: 1 });
+    });
+  }, 60_000);
+
+  it('makes a bound start wait for capability withdrawal, then rejects without writes', async () => {
+    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    await publish(registryWithdrawalPublication, capability);
+    const requestId = await seedBoundRun(registryWithdrawalPublication);
+    await withClients(async (a, b, pids) => {
+      await asOwner(a);
+      await b.query('begin');
+      await b.query("update strandcue_private.heat_capability_publications set state='withdrawn' where id=$1", [capability.id]);
+      const starting = settle(startBoundRun(a, requestId));
+      await observeRowBlocking(pids.a, pids.b);
+      await b.query('commit');
+      const outcome = await starting;
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.error.message).toMatch(/stale-heat-binding/);
+      expect(await executionCounts(requestId)).toEqual({ executions: 0, events: 0 });
+    });
+  }, 60_000);
+
+  it('makes capability withdrawal wait for an in-flight trusted run insert', async () => {
+    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    await publish(registryRunInsertPublication, capability);
+    await withClients(async (a, b, pids) => {
+      await a.query('begin');
+      const requestId = await seedBoundRun(registryRunInsertPublication, a);
+      const withdrawing = settle(b.query(
+        "update strandcue_private.heat_capability_publications set state='withdrawn' where id=$1", [capability.id],
+      ));
+      await observeRowBlocking(pids.b, pids.a);
+      await a.query('commit');
+      const outcome = await withdrawing;
+      expect(outcome.ok, String(outcome.ok ? '' : outcome.error.message)).toBe(true);
+      const stored = await admin.query<{ count: number }>(
+        'select count(*)::int count from public.recommendation_runs where user_id=$1 and request_id=$2', [owner, requestId],
+      );
+      expect(stored.rows[0].count).toBe(1);
+    });
+  }, 60_000);
+
+  it('rejects a trusted run insert after capability withdrawal without persisting it', async () => {
+    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    await publish(registryRunRejectPublication, capability);
+    const requestId = crypto.randomUUID();
+    await withClients(async (a, b, pids) => {
+      await b.query('begin');
+      await b.query("update strandcue_private.heat_capability_publications set state='withdrawn' where id=$1", [capability.id]);
+      await a.query('begin');
+      const inserting = settle(seedBoundRun(registryRunRejectPublication, a, requestId));
+      await observeRowBlocking(pids.a, pids.b);
+      await b.query('commit');
+      const outcome = await inserting;
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.error.message).toMatch(/stale-heat-binding/);
+      const stored = await admin.query<{ count: number }>(
+        'select count(*)::int count from public.recommendation_runs where user_id=$1 and request_id=$2', [owner, requestId],
+      );
+      expect(stored.rows[0].count).toBe(0);
     });
   }, 60_000);
 });

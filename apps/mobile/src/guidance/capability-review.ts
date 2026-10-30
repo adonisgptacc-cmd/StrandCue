@@ -1,4 +1,4 @@
-import type { CapabilityReviewMatrix } from '../../../../packages/domain/src/index';
+import type { CapabilityReviewMatrix } from '../../../../packages/domain/src/index.ts';
 
 /**
  * The claim-to-capability review matrix this build executes against.

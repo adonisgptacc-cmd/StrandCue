@@ -4,13 +4,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { TodayGuidance, todayHasHeatContext } from '../../apps/mobile/src/TodayGuidance';
 import { clearAllCheckInDrafts, type CheckInDraft } from '../../apps/mobile/src/guidance/current-condition-state';
-import { CHECK_IN_START_LABEL, CONCERN_LABELS } from '../../apps/mobile/src/guidance/guidance-copy';
+import { CHECK_IN_CONTINUE_LABEL, CHECK_IN_START_LABEL, CONCERN_LABELS, TIME_INPUT_LABEL } from '../../apps/mobile/src/guidance/guidance-copy';
 
 const mocks = vi.hoisted(() => ({
   generate: vi.fn(), recordRun: vi.fn(), restore: vi.fn(), getActive: vi.fn(),
 }));
 vi.mock('react-native', async () => (await import('./support/rn-mock')).rnMock);
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }));
+vi.mock('../../apps/mobile/src/client', () => ({ supabase: null }));
 vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({ generateTodayGuidance: mocks.generate }));
 vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({ recordRecommendationRun: mocks.recordRun }));
 vi.mock('../../apps/mobile/src/guidance/protocol-preview-model', () => ({ buildProtocolPreview: () => null }));
@@ -67,8 +68,28 @@ describe('Today Heat Coach entry', () => {
     expect(entry(renderer)[0]!.props.style[0].minHeight).toBeGreaterThanOrEqual(48);
     await act(async () => { entry(renderer)[0]!.props.onPress(); });
     expect(onOpenHeatCoach).toHaveBeenCalledOnce();
+    expect(onOpenHeatCoach).toHaveBeenCalledWith(null);
     expect(mocks.generate).not.toHaveBeenCalled();
     await act(async () => { renderer.unmount(); });
+  });
+
+  it('hands the exact completed check-in to Heat Coach without generating a plan', async () => {
+    const onOpenHeatCoach = vi.fn();
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(TodayGuidance, {
+      ownerId: 'owner-a', onNavigate: vi.fn(), onOpenHeatCoach,
+    })); });
+    const button = (label: string) => renderer.root.find(node => node.type === 'button' && node.props.accessibilityLabel === label);
+    await act(async () => { button(CHECK_IN_START_LABEL).props.onPress(); });
+    await act(async () => { button(CONCERN_LABELS['heat-concern']).props.onPress(); });
+    const time = renderer.root.find(node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL);
+    await act(async () => { time.props.onChangeText('20'); });
+    await act(async () => { button(CHECK_IN_CONTINUE_LABEL).props.onPress(); });
+    await act(async () => { entry(renderer)[0]!.props.onPress(); });
+    expect(onOpenHeatCoach).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      goal: 'basic_wash', availableMinutes: 20, concerns: ['heat-concern'], observedAt: expect.any(String),
+    }));
+    expect(mocks.generate).not.toHaveBeenCalled();
   });
 
   it('does not add a button without a parent route', async () => {

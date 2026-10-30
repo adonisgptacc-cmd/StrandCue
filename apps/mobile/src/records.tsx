@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, Text, View } from 'react-native';
 import type { User } from '@supabase/supabase-js';
-import type { PassportRevision } from '../../../packages/domain/src/index';
+import type { CurrentConditionInput, PassportRevision } from '../../../packages/domain/src/index';
 import { supabase, secureStorage } from './client';
 import { normalizeUsernameInput, normalizeUsernameSuffix, parseUsernameOptions, saveErrorMessage } from './contracts';
 import { loadPassport, type PassportRecord } from './passport-api';
@@ -140,6 +140,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [errorState, setErrorState] = useState({ notice, error: notice });
   const [destination, setDestination] = useState<DestinationId>(INITIAL_DESTINATION);
   const [heatTool, setHeatTool] = useState<OwnedHeatItem | null>(null);
+  const [heatCondition, setHeatCondition] = useState<{ ownerId: string; value: CurrentConditionInput } | null>(null);
   const [pendingHeatAssessment, setPendingHeatAssessment] = useState<{ ownerId: string; assessmentId: string } | null>(null);
   const [hairView, setHairView] = useState<'Passport'|'Services'>('Passport');
   const [journeyView, setJourneyView] = useState<'History'|'Activities'|'Check-ins'|'Programmes'>('History');
@@ -263,8 +264,9 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     <Button title={adult ? '✓ I am 18 or older' : 'Confirm: I am 18 or older'} secondary onPress={() => setAdult(!adult)}/>{!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}<Button title={busy ? 'Saving…' : 'Create my private profile'} disabled={busy || usernameStatus === 'checking'} onPress={() => void finishSetup()}/><Button title="Sign out" secondary disabled={busy} onPress={() => void logout()}/></View></Page>;
   const visible = historical ?? record;
   const selectDestination = (next: DestinationId) => {setDestination(next);setHeatTool(null);setEditing(false);setTarget(undefined);};
-  const openHeatCoach = (tool: OwnedHeatItem | null = null) => {
-    setHeatTool(tool); setDestination('heat_coach'); setEditing(false); setTarget(undefined);
+  const openHeatCoach = (tool: OwnedHeatItem | null = null, condition: CurrentConditionInput | null = null) => {
+    setHeatTool(tool); setHeatCondition(condition ? { ownerId: user.id, value: condition } : null);
+    setDestination('heat_coach'); setEditing(false); setTarget(undefined);
   };
   /**
    * A resolver route may name a destination and, for My Hair, the part of it.
@@ -289,7 +291,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : journeyView === 'Check-ins' ? 'How your hair felt' : journeyView === 'Programmes' ? 'Your treatment programmes' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
-    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} assessmentId={pendingHeatAssessment?.ownerId === user.id ? pendingHeatAssessment.assessmentId : null} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={() => openHeatCoach()}/>}
+    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} assessmentId={pendingHeatAssessment?.ownerId === user.id ? pendingHeatAssessment.assessmentId : null} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={condition => openHeatCoach(null, condition)}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
     {destination === 'journey' && <View style={styles.row}>{(['History','Activities','Check-ins','Programmes'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}
@@ -307,6 +309,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     {destination === 'my_shelf' && <Shelf owner={user.id} />}
     {destination === 'my_tools' && <Tools owner={user.id} onOpenHeatCoach={openHeatCoach} />}
     {destination === 'heat_coach' && <HeatCoachEntry key={user.id} ownerKey={user.id} selectedTool={heatTool}
+      currentCondition={heatCondition?.ownerId === user.id ? heatCondition.value : null}
       onUseAssessment={assessmentId => { setPendingHeatAssessment({ ownerId: user.id, assessmentId }); setDestination('today'); }}
       onNavigate={targetDestination => {
         if (targetDestination === 'services') { setHairView('Services'); setDestination('my_hair'); }

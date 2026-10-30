@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
+import type { CurrentConditionInput } from '../../../packages/domain/src/current-condition.ts';
 
 import { HeatCoach } from './HeatCoach';
 import type { OwnedHeatItem } from './HeatCoachIntent';
@@ -27,6 +28,7 @@ type EntryState = Ready | { readonly ownerKey: string; readonly phase: 'loading'
 export interface HeatCoachEntryProps {
   readonly ownerKey: string;
   readonly selectedTool?: OwnedHeatItem | null;
+  readonly currentCondition?: CurrentConditionInput | null;
   readonly onNavigate: (destination: Destination) => void;
   /** Passes only the owned assessment identity into Today; no verdict travels. */
   readonly onUseAssessment?: (assessmentId: string) => void;
@@ -95,6 +97,19 @@ export function HeatCoachEntry(props: HeatCoachEntryProps) {
             label: [row.manualBrand, row.manualName].filter(Boolean).join(' ') || 'Recorded product' })));
         const controller = createHeatCoachController({ ownerKey, publication,
           api: { createHeatCoachAssessment }, newOperationId: Crypto.randomUUID });
+        if (props.currentCondition) {
+          const condition = props.currentCondition;
+          controller.editIntent({
+            availableMinutes: condition.availableMinutes,
+            currentCondition: {
+              observedAt: condition.observedAt,
+              concerns: [...condition.concerns],
+              explicitNone: condition.concerns.length === 1 && condition.concerns[0] === 'none',
+              zones: [...(condition.zones ?? [])],
+              zoneConcerns: [...(condition.zoneConcerns ?? [])],
+            },
+          });
+        }
         if (selectedTool && tools.some(item => item.ownerItemId === selectedTool.ownerItemId)) {
           controller.editIntent({ toolOwnerItemId: selectedTool.ownerItemId });
         }
@@ -103,7 +118,7 @@ export function HeatCoachEntry(props: HeatCoachEntryProps) {
     };
     void load();
     return () => { active = false; };
-  }, [ownerKey, selectedTool, props.loadPublication, props.loadTools, props.loadProducts]);
+  }, [ownerKey, selectedTool, props.currentCondition, props.loadPublication, props.loadTools, props.loadProducts]);
   if (state.ownerKey !== ownerKey) return <Text style={styles.body}>Loading Heat Coach…</Text>;
   if (state.phase === 'loading') return <Text style={styles.body}>Loading Heat Coach…</Text>;
   if (state.phase === 'pending') return <View style={styles.card}>

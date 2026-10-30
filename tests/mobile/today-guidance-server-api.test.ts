@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { requestTodayGuidance } from '../../apps/mobile/src/guidance/today-guidance-server-api';
+import { hasMatchingTrustedReceipt, requestTodayGuidance } from '../../apps/mobile/src/guidance/today-guidance-server-api';
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('../../apps/mobile/src/client', () => ({ supabase: { functions: { invoke: mocks.invoke } } }));
@@ -73,6 +73,44 @@ describe('authenticated Today guidance request', () => {
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') throw new Error('Expected ready result');
     expect(result.decision.heatAssessmentBinding).toEqual(binding);
+    expect(hasMatchingTrustedReceipt(result)).toBe(true);
+    expect(hasMatchingTrustedReceipt({ ...result, receipt: undefined })).toBe(false);
+    expect(hasMatchingTrustedReceipt({ ...result, receipt: { ...result.receipt!, requestId: binding.assessmentId } })).toBe(false);
+    expect(hasMatchingTrustedReceipt({ ...result, receipt: { ...result.receipt!, inputFingerprint: 'd'.repeat(64) } })).toBe(false);
+    expect(hasMatchingTrustedReceipt({ ...result, decision: { ...result.decision, requestId: binding.assessmentId } })).toBe(false);
+  });
+
+  it('accepts reviewed setup and nonready decisions without trusting a ready receipt', async () => {
+    mocks.invoke.mockResolvedValueOnce({ data: { status: 'needs_setup', missing: [], setup: [] }, error: null });
+    const setup = await requestTodayGuidance(command);
+    expect(setup).toEqual({ status: 'needs_setup', missing: [], setup: [] });
+    expect(hasMatchingTrustedReceipt(setup)).toBe(false);
+    for (const status of ['needs_input', 'rule_conflict', 'unsupported'] as const) {
+      const base = readyResponse(undefined);
+      mocks.invoke.mockResolvedValueOnce({ data: {
+        ...base, status, decision: { ...base.decision, status }, receipt: undefined,
+      }, error: null });
+      const result = await requestTodayGuidance(command);
+      expect(result.status).toBe(status);
+      expect(hasMatchingTrustedReceipt(result)).toBe(false);
+    }
+  });
+
+  it('rejects mismatched provenance, nonready bindings and forged receipts', async () => {
+    const base = readyResponse(undefined);
+    const invalid = [
+      { ...base, requestId: binding.assessmentId },
+      { ...base, decision: { ...base.decision, requestId: binding.assessmentId } },
+      { ...base, decision: { ...base.decision, status: 'needs_input' } },
+      { ...base, receipt: { ...base.receipt, requestId: binding.assessmentId } },
+      { ...base, receipt: { ...base.receipt, inputFingerprint: 'd'.repeat(64) } },
+      { ...base, status: 'needs_input', decision: { ...base.decision, status: 'needs_input', heatAssessmentBinding: binding } },
+      { ...base, status: 'unexpected', decision: { ...base.decision, status: 'needs_input' } },
+    ];
+    for (const data of invalid) {
+      mocks.invoke.mockResolvedValueOnce({ data, error: null });
+      await expect(requestTodayGuidance(command)).rejects.toThrow();
+    }
   });
 
   it('rejects malformed or verdict-carrying assessment bindings', async () => {

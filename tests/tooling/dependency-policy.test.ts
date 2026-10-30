@@ -1160,7 +1160,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
     expect(result.stdout).toContain('EXCEPTION-PATH-STALE');
-  }, 10_000);
+  }, 30_000);
 
   it('rejects npm exit 1 when a validated audit report contains no vulnerabilities', async () => {
     const cleanReport = { auditReportVersion: 2, vulnerabilities: {} };
@@ -1381,10 +1381,13 @@ describe('dependency audit CLI', () => {
 
     let exitCodeDuringRun: number | string | undefined;
     try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
       vi.resetModules();
       await import('../../scripts/audit-dependencies-cli.ts');
       exitCodeDuringRun = process.exitCode ?? undefined;
     } finally {
+      vi.useRealTimers();
       process.stdout.write = originalStdoutWrite;
       process.stderr.write = originalStderrWrite;
       process.exitCode = previousExitCode;

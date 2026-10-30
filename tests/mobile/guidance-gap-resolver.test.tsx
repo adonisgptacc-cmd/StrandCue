@@ -76,8 +76,10 @@ vi.mock('expo-crypto', () => ({
   },
 }));
 
-vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({
-  generateTodayGuidance: mocks.generate,
+vi.mock('../../apps/mobile/src/client', () => ({ supabase: null }));
+vi.mock('../../apps/mobile/src/guidance/today-guidance-server-api', () => ({
+  requestTodayGuidance: mocks.generate,
+  hasMatchingTrustedReceipt: () => false,
 }));
 
 vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
@@ -681,7 +683,7 @@ describe('retrying a failed read', () => {
     await press(renderer, 'Try again');
     expect(mocks.generate).toHaveBeenCalledTimes(2);
     expect(mocks.generate.mock.calls[1][0].currentCondition).toEqual(first.currentCondition);
-    expect(mocks.generate.mock.calls[1][0].ownerId).toBe(OWNER);
+    expect(mocks.generate.mock.calls[1][0]).not.toHaveProperty('ownerId');
     await act(async () => { renderer.unmount(); });
   });
 

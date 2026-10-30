@@ -30,11 +30,13 @@ async function write(binding: Record<string, unknown>, owner = USER_A, request =
 
 describe('trusted Heat Coach run binding', () => {
   let digest: string;
+  let registryId: string;
   beforeAll(async () => {
     db = await database();
     await asUser(db, USER_A);
     await complete(db);
     const registry = await seedSyntheticHeatCapabilityRegistry(privileged);
+    registryId = registry.id;
     const rule = {
       schemaVersion: 1, publicationId: RULE, ruleVersion: '1.0.0', lifecycle: 'reviewed',
       validFrom: '2026-01-01T00:00:00.000Z', validUntil: null,
@@ -89,5 +91,31 @@ describe('trusted Heat Coach run binding', () => {
     await asUser(db, USER_A);
     await mutate(db);
     await expect(write(binding, USER_A, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd')).rejects.toThrow(/stale-heat-binding/);
+  });
+
+  it('refuses a new bound start after the reviewed capability registry is withdrawn', async () => {
+    const assessment = crypto.randomUUID();
+    const request = crypto.randomUUID();
+    const binding = { assessmentId: assessment, sourceFingerprint: FINGERPRINT,
+      publicationId: RULE, publicationDigest: digest };
+    await privileged(`insert into public.heat_coach_assessments
+      (id,owner,publication_id,publication_digest,input,result,status,source_revisions,source_fingerprint)
+      values($1,$2,$3,$4,'{"preparedInput":{"products":[],"tools":[]}}'::jsonb,'{}'::jsonb,'no_heat',
+        strandcue_private.heat_source_revisions($2::uuid),$5)`,
+    [assessment, USER_A, RULE, digest, FINGERPRINT]);
+    await write(binding, USER_A, request);
+    await privileged(`update strandcue_private.heat_capability_publications
+      set state='withdrawn' where id=$1`, [registryId]);
+    const ruleState = await privileged('select state from strandcue_private.heat_rule_publications where id=$1', [RULE]);
+    expect(ruleState.rows[0].state).toBe('published');
+    await asUser(db, USER_A);
+    const saved = (await db.query<{ result: { stale: boolean } }>(
+      'select public.get_heat_coach_assessment($1::uuid) result', [assessment],
+    )).rows[0].result;
+    expect(saved.stale).toBe(true);
+    await expect(db.query('select public.start_protocol_execution($1::uuid,$2::uuid,$3::uuid,now())',
+      [crypto.randomUUID(), crypto.randomUUID(), request])).rejects.toThrow(/stale-heat-binding/);
+    const executions = await privileged('select count(*)::integer n from public.protocol_executions where recommendation_run_id=$1', [request]);
+    expect(executions.rows[0].n).toBe(0);
   });
 });

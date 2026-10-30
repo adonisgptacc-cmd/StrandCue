@@ -188,6 +188,22 @@ describe('server Today guidance boundary', () => {
     expect(JSON.stringify(body)).not.toContain('privateFact');
   });
 
+  it('binds a completed Today check-in with the same condition and time', async () => {
+    const currentCondition = { observedAt: AS_OF, concerns: ['heat-concern'],
+      explicitNone: false, zones: [], zoneConcerns: [] };
+    const saved = { ...ASSESSMENT, input: { preparedInput: {
+      ...ASSESSMENT.input.preparedInput, currentCondition, availableMinutes: 20,
+    } } };
+    const generated = { ...readyResult(), prepared: { ...readyResult().prepared, currentCondition } };
+    const h = harness({ loadAssessment: vi.fn(async () => saved), generate: vi.fn(async () => generated) });
+    const response = await handleTodayGuidanceRequest(request({ requestId: REQUEST,
+      goalId: 'basic_wash', assessmentId: USER,
+      currentCondition: { observedAt: AS_OF, concerns: ['heat-concern'], goal: 'basic_wash', availableMinutes: 20 },
+    }), h.deps);
+    expect(response.status).toBe(200);
+    expect((await response.json()).decision.heatAssessmentBinding.assessmentId).toBe(USER);
+  });
+
   it('rejects an assessment with a different saved check-in', async () => {
     const h = harness({ loadAssessment: vi.fn(async () => ({ ...ASSESSMENT,
       input: { preparedInput: { ...ASSESSMENT.input.preparedInput, currentCondition: { concerns: ['dryness'] } } },

@@ -10,7 +10,7 @@ import {
   type GuidanceToolOwnerFacts,
   type ServiceHeat,
   type ServiceZone,
-} from '../../../../packages/domain/src/index';
+} from '../../../../packages/domain/src/index.ts';
 import { projectActivityHistory } from '../../../../packages/domain/src/activity.ts';
 import { type EffectiveDate } from '../../../../packages/domain/src/dates.ts';
 import { GuidanceActivityHistorySchema } from '../../../../packages/domain/src/guidance/schemas.ts';

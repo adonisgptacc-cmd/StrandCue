@@ -1,5 +1,5 @@
-import { ReviewedGuidanceBundleSchema } from '../../../../packages/domain/src/index';
-import type { ReviewedGuidanceBundle } from '../../../../packages/domain/src/index';
+import { ReviewedGuidanceBundleSchema } from '../../../../packages/domain/src/index.ts';
+import type { ReviewedGuidanceBundle } from '../../../../packages/domain/src/index.ts';
 
 /**
  * The production reviewed-content registry.

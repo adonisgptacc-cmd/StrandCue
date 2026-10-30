@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DateOnlySchema, currentDateOnly } from './dates';
+import { DateOnlySchema, currentDateOnly } from './dates.ts';
 
 const exclusiveSelectionValues = new Set(['none', 'unknown']);
 

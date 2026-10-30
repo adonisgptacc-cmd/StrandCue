@@ -50,8 +50,10 @@ vi.mock('expo-crypto', () => ({
   },
 }));
 
-vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({
-  generateTodayGuidance: mocks.generate,
+vi.mock('../../apps/mobile/src/client', () => ({ supabase: null }));
+vi.mock('../../apps/mobile/src/guidance/today-guidance-server-api', () => ({
+  requestTodayGuidance: mocks.generate,
+  hasMatchingTrustedReceipt: () => false,
 }));
 
 vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({

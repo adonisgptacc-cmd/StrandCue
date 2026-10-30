@@ -1,4 +1,4 @@
-import type { GuidanceEvidenceRegistry } from '../../../../packages/domain/src/index';
+import type { GuidanceEvidenceRegistry } from '../../../../packages/domain/src/index.ts';
 
 /**
  * The evidence registry this build executes against.

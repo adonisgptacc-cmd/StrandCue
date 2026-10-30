@@ -54,6 +54,7 @@ export function emptyHeatCoachIntent(): HeatCoachIntent {
     temperature: unknown<HeatCoachIntent['temperature']>(), setting: unknown<HeatCoachIntent['setting']>(),
     passes: unknown<HeatCoachIntent['passes']>(), durationMinutes: unknown<HeatCoachIntent['durationMinutes']>(),
     zones: Object.freeze([]) as unknown as HeatCoachIntent['zones'],
+    availableMinutes: null,
   });
 }
 

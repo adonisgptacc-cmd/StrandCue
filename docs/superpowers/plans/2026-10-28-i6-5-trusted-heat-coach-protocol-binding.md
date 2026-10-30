@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/plans/2026-10-24-increment-6-heat-coach.md` Task I6.5.
 
+**30 October local status:** The eligible no-heat route, trusted-run insert and start checks, side-effect checks, real PostgreSQL withdrawal races, and Docker-backed Edge boot check are implemented. Lower/direct-heat protocol actions still need reviewed product content and engine support; production publication remains empty/draft. The dependency-policy gate is HOLD. See the SDD ledger for exact verification counts and limits.
+
 ## Global constraints
 
 - No hosted Supabase writes, production publication, push or deployment during this task.
@@ -42,23 +44,23 @@
 
 **Files:** `packages/domain/src/guidance/{types,schemas}.ts`, `apps/mobile/src/guidance/protocol-preview-model.ts`, Heat Coach to Today intent flow, `tests/mobile/heat-coach-integration.test.tsx`.
 
-- [ ] Write failing tests for exact owned assessment binding, eligible preview, lower/no-heat choices, pending, missing facts, hard restriction, unavailable tool and unknown protectant.
-- [ ] Add an optional immutable binding object containing assessment ID, source fingerprint, publication ID and digest to the stored ready decision. Do not duplicate the heat verdict or selected technique as independent client-editable fields.
-- [ ] Have Today consume the assessment by ID from the server, render the relevant alternative, and fail closed on identity or freshness mismatch.
+- [x] Write failing tests for exact owned assessment binding, eligible preview, lower/no-heat choices, pending, missing facts, hard restriction, unavailable tool and unknown protectant.
+- [x] Add an optional immutable binding object containing assessment ID, source fingerprint, publication ID and digest to the stored ready decision. Do not duplicate the heat verdict or selected technique as independent client-editable fields.
+- [x] Have Today consume the assessment by ID from the server, render the relevant alternative, and fail closed on identity or freshness mismatch.
 - [ ] Run the preview and Today regression suites, then commit.
 
 ## Task 3: start and restore revalidation
 
 **Files:** new forward migration for `strandcue_private.start_execution`, `apps/mobile/src/guidance/protocol-execution-api.ts`, `apps/mobile/src/ProtocolExecution.tsx`, restore/execution tests.
 
-- [ ] Write failing PGlite and two-session PostgreSQL tests for corrected source facts, withdrawn rule, changed publication, owner switch and start/withdrawal race. Prove rejection precedes execution/event insertion.
+- [x] Write failing PGlite and two-session PostgreSQL tests for corrected source facts, withdrawn rule, changed publication, owner switch and start/withdrawal race. Prove rejection precedes execution/event insertion.
 - [ ] Make the start RPC read the stored trusted run and locked owned assessment. Validate its exact fingerprint and publication, current capability/rule status and the stored protocol's tool/product version bindings. Keep the start request free of a caller-supplied verdict.
-- [ ] Return stable actionable errors to Today. Restore remains historical and only offers a new start if the current binding is valid.
+- [x] Return stable actionable errors to Today. Restore remains historical and only offers a new start if the current binding is valid.
 - [ ] Verify idempotency, concurrency and execution regressions, then commit.
 
 ## Task 4: side effects, integration and review
 
-- [ ] Test that opening or generating Heat Coach creates no actual heat event, treatment advancement, programme wash, Shelf/Tools change or publication.
-- [ ] Run focused Today, preview, execution, restore and treatment suites; typecheck, lint, coverage and migration replay.
-- [ ] Run code, database/security and product-truth review; address findings and re-run affected tests.
+- [x] Test that opening or generating Heat Coach creates no actual heat event, treatment advancement, programme wash, Shelf/Tools change or publication.
+- [x] Run focused Today, preview, execution, restore and treatment suites; typecheck, lint, coverage and migration replay.
+- [x] Run code, database/security and product-truth review; address findings and re-run affected tests.
 - [ ] Record remaining production/device/dependency holds accurately. Commit `feat: bind Heat Coach decisions to trusted protocols` only when the entire I6.5 gate passes.

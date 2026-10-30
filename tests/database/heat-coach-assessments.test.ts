@@ -52,6 +52,44 @@ afterEach(async () => {
 afterAll(async () => { await db?.close(); });
 
 describe('Heat Coach assessment trust boundary', () => {
+  it('stores the exact Today check-in time and condition for a later bound run', async () => {
+    const result = await create({ intent: {
+      method: { state: 'unknown' }, temperature: { state: 'unknown' },
+      setting: { state: 'unknown' }, passes: { state: 'unknown' },
+      durationMinutes: { state: 'unknown' }, zones: [], availableMinutes: 20,
+      currentCondition: { observedAt: '2026-10-29T09:00:00.000Z',
+        concerns: ['heat-concern'], explicitNone: false, zones: [], zoneConcerns: [] },
+    } });
+    expect(result.input.preparedInput.availableMinutes).toBe(20);
+    expect(result.input.preparedInput.currentCondition).toMatchObject({ concerns: ['heat-concern'] });
+  });
+
+  it('keeps actual heat, treatment, wash, inventory and publication state unchanged while assessing and viewing', async () => {
+    await privileged(`insert into public.user_products(id,owner,version_id,matched,match_confirmed,matched_at)
+      values($1,$2,$3,true,true,now())`, [crypto.randomUUID(), USER_A, SYNTHETIC_PRODUCT_VERSION_ID]);
+    await privileged(`insert into public.user_tools(id,owner,version_id,matched,match_confirmed,matched_at)
+      values($1,$2,$3,true,true,now())`, [crypto.randomUUID(), USER_A, SYNTHETIC_TOOL_VERSION_ID]);
+    const snapshot = async () => (await privileged<{ state: unknown }>(`select jsonb_build_object(
+      'serviceHeat', (select count(*) from public.heat_events),
+      'activityHeat', (select count(*) from public.activity_heat_events),
+      'activities', (select count(*) from public.activities),
+      'activityRevisions', (select count(*) from public.activity_revisions),
+      'executions', (select count(*) from public.protocol_executions),
+      'treatments', (select count(*) from public.treatment_programmes),
+      'treatmentEvents', (select count(*) from public.treatment_programme_events),
+      'products', (select coalesce(jsonb_agg(to_jsonb(p) order by p.id), '[]'::jsonb) from public.user_products p),
+      'tools', (select coalesce(jsonb_agg(to_jsonb(t) order by t.id), '[]'::jsonb) from public.user_tools t),
+      'rules', (select coalesce(jsonb_agg(to_jsonb(r) order by r.id), '[]'::jsonb) from strandcue_private.heat_rule_publications r),
+      'capabilities', (select coalesce(jsonb_agg(to_jsonb(c) order by c.id), '[]'::jsonb) from strandcue_private.heat_capability_publications c)
+    ) state`)).rows[0]!.state;
+    const before = await snapshot();
+    await asUser(db, USER_A);
+    const assessment = await create();
+    await db.query('select public.get_heat_coach_assessment($1)', [assessment.assessmentId]);
+    await db.query('select public.list_heat_coach_assessments(10,null)');
+    expect(await snapshot()).toEqual(before);
+  });
+
   it('uses the published exact capability registry when capturing a server assessment', async () => {
     const productId = crypto.randomUUID();
     const toolId = crypto.randomUUID();

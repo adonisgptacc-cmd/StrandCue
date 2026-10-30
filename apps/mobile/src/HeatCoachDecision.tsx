@@ -39,7 +39,9 @@ export function HeatCoachDecision({ receipt, reviewedCopy, onUsePlan, onOpenDest
     ...receipt.result.alternatives.map(row => row.copyKey), 'heat.limitations'];
   const complete = valid && keys.every(key => copy.has(key));
   const state = receipt.result.state;
-  const canUse = complete && ['lower_heat', 'no_heat', 'appropriate'].includes(state);
+  const prepared = receipt.input.preparedInput;
+  const hasCheckIn = prepared.currentCondition !== null && prepared.availableMinutes !== null;
+  const canUse = complete && state === 'no_heat' && hasCheckIn;
   const title = receipt.stale ? 'Assessment needs refreshing' : TITLES[state];
   useEffect(() => {
     const target = findNodeHandle(heading.current);
@@ -76,6 +78,10 @@ export function HeatCoachDecision({ receipt, reviewedCopy, onUsePlan, onOpenDest
         <Text accessibilityRole="header" style={styles.label}>Limits</Text>
         <Text style={styles.body}>{copy.get('heat.limitations')}</Text>
       </>}
-    {canUse && <Button title="Use this heat plan" onPress={onUsePlan}/>}
+    {complete && (state === 'lower_heat' || state === 'appropriate')
+      && <Text style={styles.body}>A Today plan for this heat choice is not available yet.</Text>}
+    {complete && state === 'no_heat' && !hasCheckIn
+      && <Text style={styles.body}>Complete a Today check-in before using this plan.</Text>}
+    {canUse && <Button title="Use this plan" onPress={onUsePlan}/>}
   </View>;
 }

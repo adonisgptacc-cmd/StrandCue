@@ -21,8 +21,9 @@ const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const digest = `sha256:${'a'.repeat(64)}`;
 const receipt = {
   assessmentId: id, publicationId: id, publicationDigest: digest, stale: false,
-  status: 'appropriate', result: { state: 'appropriate', necessity: 'optional',
-    selected: { method: 'heated-air', temperature: null, setting: null, passes: null, durationMinutes: null, zones: [] },
+  input: { preparedInput: { availableMinutes: 20, currentCondition: { observedAt: '2026-10-29T08:00:00.000Z', concerns: ['heat-concern'], explicitNone: false, zones: [], zoneConcerns: [] } } },
+  status: 'no_heat', result: { state: 'no_heat', necessity: 'optional',
+    selected: { method: 'unheated', temperature: null, setting: null, passes: null, durationMinutes: null, zones: [] },
     reasons: [{ reasonCode: 'private_reason', copyKey: 'heat.reason' }], missing: [], alternatives: [] },
 } as unknown as HeatCoachReceipt;
 const reviewed: HeatCoachReviewedCopy = { assessmentId: id, publicationId: id, publicationDigest: digest,
@@ -30,6 +31,25 @@ const reviewed: HeatCoachReviewedCopy = { assessmentId: id, publicationId: id, p
     { copyKey: 'heat.reason', text: 'Synthetic explanation.' }] };
 
 describe('Heat Coach journey', () => {
+  it('opens without generating an assessment or using a plan', async () => {
+    const createAssessment = vi.fn(async () => receipt);
+    const getAssessment = vi.fn(async () => receipt);
+    const getReviewedCopy = vi.fn(async () => reviewed);
+    const onUsePlan = vi.fn();
+    const controller = createHeatCoachController({ ownerKey: 'owner-a',
+      publication: { publicationId: id, publicationDigest: digest },
+      api: { createHeatCoachAssessment: createAssessment }, newOperationId: () => id });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(HeatCoach, {
+      ownerKey: 'owner-a', controller, ownedTools: [], getAssessment, getReviewedCopy, onUsePlan,
+    })); });
+    expect(JSON.stringify(renderer.toJSON())).toContain('Heat Coach');
+    expect(createAssessment).not.toHaveBeenCalled();
+    expect(getAssessment).not.toHaveBeenCalled();
+    expect(getReviewedCopy).not.toHaveBeenCalled();
+    expect(onUsePlan).not.toHaveBeenCalled();
+  });
+
   it('deduplicates repeated start taps while the freshness check is in flight', async () => {
     let resolveFresh!: (value: HeatCoachReceipt) => void;
     const getAssessment = vi.fn(() => new Promise<HeatCoachReceipt>(resolve => { resolveFresh = resolve; }));
@@ -44,7 +64,7 @@ describe('Heat Coach journey', () => {
     })); });
     await act(async () => { await controller.save(); });
     const action = renderer.root.find(node => typeof node.type === 'string'
-      && node.props.accessibilityLabel === 'Use this heat plan');
+      && node.props.accessibilityLabel === 'Use this plan');
     await act(async () => { action.props.onPress(); action.props.onPress(); });
     expect(getAssessment).toHaveBeenCalledOnce();
     await act(async () => { resolveFresh(receipt); });
@@ -62,7 +82,7 @@ describe('Heat Coach journey', () => {
     })); });
     await act(async () => { await controller.save(); });
     const action = renderer.root.find(node => typeof node.type === 'string'
-      && node.props.accessibilityLabel === 'Use this heat plan');
+      && node.props.accessibilityLabel === 'Use this plan');
     await act(async () => { await action.props.onPress(); });
     expect(onUsePlan).not.toHaveBeenCalled();
   });

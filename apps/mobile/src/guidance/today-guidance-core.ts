@@ -10,7 +10,7 @@ import {
   type ProtocolDecision,
   type RecommendationContext,
   type ReviewedGuidanceBundle,
-} from '../../../../packages/domain/src/index';
+} from '../../../../packages/domain/src/index.ts';
 
 /**
  * Today orchestration.

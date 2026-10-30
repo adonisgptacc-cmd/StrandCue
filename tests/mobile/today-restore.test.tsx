@@ -51,6 +51,7 @@ vi.mock('expo-crypto', () => ({
   },
 }));
 
+vi.mock('../../apps/mobile/src/client', () => ({ supabase: null }));
 vi.mock('../../apps/mobile/src/guidance/today-guidance-service', () => ({
   generateTodayGuidance: mocks.generate,
 }));
