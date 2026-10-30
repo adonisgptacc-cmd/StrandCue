@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { handleTodayGuidanceRequest, type TodayEdgeDependencies } from '../../supabase/functions/today-guidance/handler.ts';
 import type { TodayGuidanceRequest } from '../../apps/mobile/src/guidance/today-guidance-core.ts';
+import { evaluateHeatCoach } from '../../packages/domain/src/heat-coach.ts';
+import { conformance } from '../fixtures/heat-coach-conformance.ts';
 
 const edgeMocks = vi.hoisted(() => ({
   createClient: vi.fn(),
@@ -203,6 +205,45 @@ describe('server Today guidance boundary', () => {
       expect(h.persistReady).not.toHaveBeenCalled();
     },
   );
+
+  it('persists only a complete heat step projected from the exact published assessment', async () => {
+    const publicationDigest = `sha256:${'a'.repeat(64)}`;
+    const input = conformance.baselineInput;
+    const publication = conformance.baselinePublication;
+    const assessment = { assessmentId: USER, publicationId: conformance.publicationId,
+      publicationDigest, sourceFingerprint: `sha256:${'c'.repeat(64)}`,
+      status: 'appropriate', stale: false, input,
+      result: evaluateHeatCoach(input, publication) };
+    const steps = [
+      { stepId: 'protectant', position: 1, action: 'apply',
+        productId: conformance.productOwnerItemId, productVersionId: conformance.productVersionId,
+        toolId: null, toolVersionId: null, waitSeconds: null, rinse: null, reasons: [] },
+      { stepId: 'heat', position: 2, action: 'heat',
+        productId: null, productVersionId: null, toolId: null, toolVersionId: null,
+        waitSeconds: null, rinse: null, reasons: [],
+        heatActionRef: { publicationId: conformance.publicationId, publicationDigest } },
+    ];
+    const h = harness({
+      loadAssessment: vi.fn(async () => assessment),
+      loadHeatPublication: vi.fn(async () => ({ publication, publicationDigest })),
+      generate: vi.fn(async () => ({ ...readyResult(),
+        prepared: input.preparedInput,
+        decision: { ...readyResult().decision, steps },
+      })),
+    });
+    const response = await handleTodayGuidanceRequest(request({
+      requestId: REQUEST, goalId: 'basic_wash', assessmentId: USER,
+    }), h.deps);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.decision.steps[1]).toMatchObject({
+      action: 'heat', toolId: conformance.toolOwnerItemId,
+      toolVersionId: conformance.toolVersionId,
+      heatPrescription: { method: 'heated-air', temperature: { value: 120, unit: 'C' },
+        setting: 'Low', passes: 1, durationMinutes: 15 },
+    });
+    expect(h.persistReady).toHaveBeenCalledOnce();
+  });
 
   it('binds an exact current no-heat assessment to the trusted decision', async () => {
     const h = harness({ loadAssessment: vi.fn(async () => ASSESSMENT) });

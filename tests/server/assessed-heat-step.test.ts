@@ -89,7 +89,7 @@ describe('server assessed heat-step projection', () => {
     expect(project(input, conformance.baselinePublication, [productStep, heatStep], 'lower_heat')).toBeNull();
   });
 
-  it('projects an adjusted lower-heat value only when that exact tool setting is recorded', () => {
+  it('keeps even an expressible lower-heat value pending until explicit choice binding exists', () => {
     const input = { ...conformance.baselineInput,
       preparedInput: { ...conformance.baselineInput.preparedInput,
         tools: [{ ...conformance.baselineInput.preparedInput.tools[0]!, ownerFacts: {
@@ -102,7 +102,9 @@ describe('server assessed heat-step projection', () => {
       },
     };
     const steps = project(input, conformance.baselinePublication, [productStep, heatStep], 'lower_heat');
-    expect(steps?.[1]?.heatPrescription?.temperature).toEqual({ value: 150, unit: 'C' });
+    expect(evaluateHeatCoach(input, conformance.baselinePublication).selected.temperature)
+      .toEqual({ value: 150, unit: 'C' });
+    expect(steps).toBeNull();
   });
 
   it('rejects conflicting duplicate owner item identities in the assessment snapshot', () => {

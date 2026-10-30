@@ -139,6 +139,9 @@ const dependencies: TodayEdgeDependencies = {
   loadAssessment: (token, assessmentId) => rpc(ownerClient(token), 'get_heat_coach_assessment', {
     p_id: assessmentId,
   }),
+  loadHeatPublication: (publicationId, digest) => rpc(admin, 'get_published_heat_rule_for_today', {
+    p_publication_id: publicationId, p_digest: digest,
+  }),
   generate: async (request, token) => {
     const client = ownerClient(token);
     return generateTodayGuidanceFromDependencies(request, {

@@ -57,10 +57,10 @@
 
 **Interfaces:** Consume Task 2's heat step. Check exact assessment selected JSON fields, rule publication/digest, owned tool and product IDs/versions, protectant order, capability registry and current source revision under lock before insertion and start. Wire the trusted handler to persist only after the SQL gate exists, and copy `heatPrescription` into the execution snapshot.
 
-- [ ] Add RED PGlite tests for valid synthetic heat and invalid method, temperature/unit, setting, passes, duration, zones, item version, owner and protectant order.
-- [ ] Run RED tests and confirm failure on a valid synthetic step that is still gated.
-- [ ] Implement the forward migration; preserve no-heat, replay and historic execution behavior.
-- [ ] Run database/migration/Edge tests and real two-session correction/withdrawal races; commit `feat: validate assessed heat starts`.
+- [x] Add RED PGlite tests for valid synthetic heat and invalid method, temperature/unit, setting, passes, duration, zones, item version, owner and protectant order.
+- [x] Run RED tests and confirm failure on a valid synthetic step that is still gated.
+- [x] Implement the forward migration; preserve no-heat, replay and historic execution behavior.
+- [x] Run database/migration/Edge tests and real two-session correction/withdrawal races; commit `feat: validate assessed heat starts`. Focused tests passed 43/43; full coverage passed 4,790 tests at 95.68% statement coverage; typecheck and lint passed; isolated PostgreSQL passed 15/15 two-session cases. The dependency audit still reports a policy HOLD. A separate clean-bootstrap permission issue in older migrations remains documented outside this forward change.
 
 ### Task 4: owner preview and integration
 

@@ -11,7 +11,7 @@ export interface AssessedHeatProjectionInput {
 }
 
 const AssessmentSchema = z.object({
-  status: z.enum(['appropriate', 'lower_heat']),
+  status: z.literal('appropriate'),
   publicationId: z.string().uuid(),
   publicationDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   input: HeatCoachInputSchema,

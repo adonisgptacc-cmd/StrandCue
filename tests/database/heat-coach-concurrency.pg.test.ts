@@ -93,6 +93,11 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
     const published = await seedSyntheticHeatRule((sql, values) => admin.query(sql, values), id, rule, capability);
     digests.set(id, published.contentDigest);
   };
+  const seedRegistry = async () => {
+    const value = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    await admin.query('reset session authorization');
+    return value;
+  };
   const seedBoundRun = async (publicationId: string, writer = admin, requestId = crypto.randomUUID()) => {
     // The revision helper and publication reads run under owner-confined RLS.
     // Preserve the fixture owner's claims when switching to the service writer.
@@ -100,7 +105,8 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
     await writer.query('reset role');
     const assessmentId = crypto.randomUUID();
     const sourceFingerprint = `sha256:${'e'.repeat(64)}`;
-    const sourceRevisions = (await writer.query<{ value: unknown }>(
+    await admin.query('reset role');
+    const sourceRevisions = (await admin.query<{ value: unknown }>(
       'select strandcue_private.heat_source_revisions($1::uuid) value', [owner],
     )).rows[0].value;
     await writer.query(`insert into public.heat_coach_assessments
@@ -152,7 +158,7 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
       await admin.query('reset role');
     }
     await admin.query('insert into public.hair_passports(user_id,revision) values($1,0) on conflict(user_id) do nothing', [sourceOwner]);
-    registry = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    registry = await seedRegistry();
     for (const id of initialPublications) await publish(id);
   }, 60_000);
 
@@ -316,7 +322,7 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
   }, 60_000);
 
   it('makes capability withdrawal wait for an in-flight bound start', async () => {
-    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    const capability = await seedRegistry();
     await publish(registryStartPublication, capability);
     const requestId = await seedBoundRun(registryStartPublication);
     await withClients(async (a, b, pids) => {
@@ -340,7 +346,7 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
   }, 60_000);
 
   it('makes a bound start wait for capability withdrawal, then rejects without writes', async () => {
-    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    const capability = await seedRegistry();
     await publish(registryWithdrawalPublication, capability);
     const requestId = await seedBoundRun(registryWithdrawalPublication);
     await withClients(async (a, b, pids) => {
@@ -358,7 +364,7 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
   }, 60_000);
 
   it('makes capability withdrawal wait for an in-flight trusted run insert', async () => {
-    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    const capability = await seedRegistry();
     await publish(registryRunInsertPublication, capability);
     await withClients(async (a, b, pids) => {
       await a.query('begin');
@@ -378,7 +384,7 @@ suite(refusal === null ? 'real-Postgres Heat Coach races' : `real-Postgres Heat 
   }, 60_000);
 
   it('rejects a trusted run insert after capability withdrawal without persisting it', async () => {
-    const capability = await seedSyntheticHeatCapabilityRegistry((sql, values) => admin.query(sql, values));
+    const capability = await seedRegistry();
     await publish(registryRunRejectPublication, capability);
     const requestId = crypto.randomUUID();
     await withClients(async (a, b, pids) => {

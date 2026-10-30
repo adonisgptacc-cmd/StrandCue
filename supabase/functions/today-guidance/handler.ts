@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { TodayGuidanceRequest } from '../../../apps/mobile/src/guidance/today-guidance-core.ts';
+import { projectAssessedHeatSteps } from './assessed-heat-step.ts';
 
 const CommandSchema = z.object({
   requestId: z.string().uuid(),
@@ -27,6 +28,15 @@ const PreparedMatchSchema = z.object({
   availableMinutes: z.number().int().nonnegative().nullable(),
   currentCondition: z.unknown(),
 }).passthrough();
+const GeneratedStepSchema = z.object({
+  stepId: z.string().min(1), position: z.number().int().positive(), action: z.string().min(1),
+  productId: z.string().nullable(), productVersionId: z.string().nullable(),
+  toolId: z.string().nullable(), toolVersionId: z.string().nullable(),
+  waitSeconds: z.number().int().nonnegative().nullable(), rinse: z.boolean().nullable(),
+  reasons: z.array(z.string()),
+  heatActionRef: z.object({ publicationId: z.string().uuid(),
+    publicationDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict().optional(),
+}).strict();
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -67,6 +77,8 @@ export interface TodayEdgeDependencies {
   readonly readRevision: (token: string) => Promise<number>;
   /** The owner-scoped RPC derives its owner from the verified user's JWT. */
   readonly loadAssessment?: (token: string, assessmentId: string) => Promise<unknown>;
+  /** Service-only read of the exact current published rule and its content digest. */
+  readonly loadHeatPublication?: (publicationId: string, digest: string) => Promise<unknown>;
   /** Uses owner-scoped source readers and the checked-in reviewed bundle. */
   readonly generate: (request: TodayGuidanceRequest, token: string) => Promise<unknown>;
   /** Privileged service-only RPC; owner comes solely from authenticate. */
@@ -160,12 +172,11 @@ export async function handleTodayGuidanceRequest(
     if (!parsed.success || parsed.data.requestId !== command.requestId
         || parsed.data.asOf !== asOf) return json({ error: 'source-unavailable' }, 503);
     let result = parsed.data;
-    // The reviewed heat-action reference is not executable until its assessed
-    // prescription and database insert/start checks are in place.
-    if (Array.isArray(result.decision.steps) && result.decision.steps.some(step =>
+    const hasHeatAction = Array.isArray(result.decision.steps) && result.decision.steps.some(step =>
       typeof step === 'object' && step !== null
       && ((step as Record<string, unknown>).action === 'heat'
-        || (step as Record<string, unknown>).heatActionRef != null))) {
+        || (step as Record<string, unknown>).heatActionRef != null));
+    if (hasHeatAction && assessment === null) {
       return json({ status: 'content_pending' });
     }
     if (assessment) {
@@ -177,15 +188,28 @@ export async function handleTodayGuidanceRequest(
           || canonical(prepared.data.currentCondition) !== canonical(saved.currentCondition)) {
         return json({ error: 'assessment-condition-changed' }, 409);
       }
-      // The current protocol engine has no reviewed heated-step action. A
-      // lower-heat or direct-heat assessment cannot become an unheated plan.
-      if (assessment.status !== 'no_heat'
-          || !Array.isArray(result.decision.steps)
-          || result.decision.steps.some(step => typeof step !== 'object' || step === null
-            || !['apply', 'wait', 'rinse', 'leave_in'].includes(String((step as Record<string, unknown>).action))
-            || (step as Record<string, unknown>).toolId != null
-            || (step as Record<string, unknown>).toolVersionId != null)) {
-        return json({ status: 'content_pending' });
+      if (assessment.status === 'no_heat') {
+        if (!Array.isArray(result.decision.steps)
+            || result.decision.steps.some(step => typeof step !== 'object' || step === null
+              || !['apply', 'wait', 'rinse', 'leave_in'].includes(String((step as Record<string, unknown>).action))
+              || (step as Record<string, unknown>).toolId != null
+              || (step as Record<string, unknown>).toolVersionId != null)) {
+          return json({ status: 'content_pending' });
+        }
+      } else {
+        // A lower-heat verdict still needs a bound explicit owner choice.
+        if (assessment.status === 'lower_heat') return json({ status: 'content_pending' });
+        if (!hasHeatAction || !dependencies.loadHeatPublication) return json({ status: 'content_pending' });
+        const parsedSteps = z.array(GeneratedStepSchema).safeParse(result.decision.steps);
+        if (!parsedSteps.success) return json({ status: 'content_pending' });
+        const loaded = z.object({ publication: z.unknown(),
+          publicationDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict().safeParse(
+          await dependencies.loadHeatPublication(assessment.publicationId, assessment.publicationDigest));
+        if (!loaded.success) return json({ status: 'content_pending' });
+        const steps = projectAssessedHeatSteps({ steps: parsedSteps.data, assessment,
+          publication: loaded.data.publication, publicationDigest: loaded.data.publicationDigest });
+        if (steps === null) return json({ status: 'content_pending' });
+        result = { ...result, decision: { ...result.decision, steps } };
       }
       result = { ...result, decision: { ...result.decision, heatAssessmentBinding: {
         assessmentId: assessment.assessmentId,
