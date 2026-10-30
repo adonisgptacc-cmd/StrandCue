@@ -345,6 +345,11 @@ export function buildProtocolPreview(input: ProtocolPreviewInput): ProtocolPrevi
   if (decision.status !== 'ready') {
     return contentPending(explanationForStatus(decision.status));
   }
+  // Bound Heat Coach plans currently support no-heat only; revisit for reviewed heated routes.
+  if (decision.heatAssessmentBinding && decision.steps.some(step =>
+    step.toolId !== null || step.toolVersionId !== null)) {
+    return contentPending('A Today plan for this heat choice is not available yet.');
+  }
 
   // The bundle must be published under the reviewed-content contract version.
   if (bundle.status !== 'published' || bundle.version !== '2') {
@@ -382,6 +387,13 @@ export function buildProtocolPreview(input: ProtocolPreviewInput): ProtocolPrevi
     else if (step.action === 'rinse') action = 'rinse';
     else if (step.action === 'leave_in') action = 'leave_in';
     else return unavailable('A step in this plan uses an action that cannot be shown.');
+    const hasProduct = step.productId !== null || step.productVersionId !== null;
+    const hasTool = step.toolId !== null || step.toolVersionId !== null;
+    if ((step.productId === null) !== (step.productVersionId === null)
+      || (step.toolId === null) !== (step.toolVersionId === null)
+      || (hasProduct && hasTool)) {
+      return unavailable('A step in this plan has an item version that cannot be verified.');
+    }
     if (step.productId !== null && step.productVersionId !== null) {
       const binding = resolveProductBinding(step.productId, step.productVersionId, context, bundle);
       if (binding === null) {

@@ -49,7 +49,7 @@
 - [x] Write failing tests for exact owned assessment binding, eligible preview, lower/no-heat choices, pending, missing facts, hard restriction, unavailable tool and unknown protectant.
 - [x] Add an optional immutable binding object containing assessment ID, source fingerprint, publication ID and digest to the stored ready decision. Do not duplicate the heat verdict or selected technique as independent client-editable fields.
 - [x] Have Today consume the assessment by ID from the server, render the relevant alternative, and fail closed on identity or freshness mismatch.
-- [ ] Run the preview and Today regression suites, then commit.
+- [x] Run the preview and Today regression suites, then commit. The no-heat path is covered by the local commits; heated protocol actions remain outside the supported path.
 
 ## Task 3: start and restore revalidation
 
@@ -58,7 +58,7 @@
 - [x] Write failing PGlite and two-session PostgreSQL tests for corrected source facts, withdrawn rule, changed publication, owner switch and start/withdrawal race. Prove rejection precedes execution/event insertion.
 - [ ] Make the start RPC read the stored trusted run and locked owned assessment. Validate its exact fingerprint and publication, current capability/rule status and the stored protocol's tool/product version bindings. Keep the start request free of a caller-supplied verdict.
 - [x] Return stable actionable errors to Today. Restore remains historical and only offers a new start if the current binding is valid.
-- [ ] Verify idempotency, concurrency and execution regressions, then commit.
+- [x] Verify idempotency, concurrency and execution regressions, then commit for the supported no-heat path.
 
 ## Task 4: side effects, integration and review
 

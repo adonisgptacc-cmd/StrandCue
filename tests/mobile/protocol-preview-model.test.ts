@@ -417,6 +417,40 @@ describe('buildProtocolPreview', () => {
     expect(model.status).toBe('unavailable');
   });
 
+  it('does not preview a step with only one side of an item-version binding', () => {
+    const wait = readyDecision().steps[1]!;
+    for (const step of [
+      { ...wait, productId: 'product-1', productVersionId: null },
+      { ...wait, productId: null, productVersionId: 'version-1' },
+      { ...wait, toolId: 'tool-1', toolVersionId: null },
+      { ...wait, toolId: null, toolVersionId: 'tool-version-1' },
+      { ...wait, productId: 'product-1', productVersionId: 'version-1',
+        toolId: 'tool-1', toolVersionId: 'tool-version-1' },
+    ]) {
+      const model = buildProtocolPreview(input({ decision: readyDecision({ steps: [step] }) }));
+      expect(model.status).toBe('unavailable');
+    }
+  });
+
+  it('keeps a bound no-heat preview closed when it contains a tool step', () => {
+    const binding = { assessmentId: 'assessment-1', sourceFingerprint: 'fingerprint-1',
+      publicationId: 'publication-1', publicationDigest: 'digest-1' };
+    const productOnly = buildProtocolPreview(input({
+      decision: readyDecision({ heatAssessmentBinding: binding }),
+    }));
+    expect(productOnly.status).toBe('ready');
+    const tool = { toolId: 'tool-1', versionId: 'tool-version-1', name: 'Synthetic dryer',
+      available: true, verifiedCapabilities: ['heat-styling'], unknownCapabilities: [] };
+    const step = { ...readyDecision().steps[1]!, toolId: tool.toolId, toolVersionId: tool.versionId };
+    const model = buildProtocolPreview(input({
+      decision: readyDecision({ heatAssessmentBinding: binding, steps: [step] }),
+      context: context({ products: [], tools: [tool] }),
+      bundle: publishedBundle({ capabilities: [capabilityEntry({ kind: 'tool',
+        versionId: tool.versionId, displayName: tool.name })] }),
+    }));
+    expect(model.status).toBe('content_pending');
+  });
+
   it('returns content_pending for every non-ready decision status', () => {
     for (const status of ['needs_input', 'rule_conflict', 'unsupported'] as const) {
       const model = buildProtocolPreview(input({ decision: readyDecision({ status }) }));
