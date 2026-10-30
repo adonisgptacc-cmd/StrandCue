@@ -14,6 +14,8 @@
 
 **Supported product binding follow-up:** No-heat product steps now require the exact assessed owned item and version at trusted-run insertion and at start. No-heat tool steps are rejected. Exact tool-version execution remains part of the later reviewed heated-action work and must not be presented as supported yet.
 
+**Heated-route safety prerequisite, 30 October:** Both assessment evaluators must require the explicit `heat-tool` capability, even when another tool capability has a reviewed exact binding. The generic Today protocol step currently lacks the assessed method, temperature, setting, passes, duration and zones. Before enabling `lower_heat` or `appropriate` starts, define an explicit reviewed heat-step contract; preserve those values in the execution snapshot; prove exact tool/product owner item and version matches plus thermal equality/limits at insert and start; then run real PostgreSQL correction and withdrawal races. Keep the current `content_pending` gate for heated assessments until these checks and reviewed protocol content exist.
+
 ## Global constraints
 
 - No hosted Supabase writes, production publication, push or deployment during this task.

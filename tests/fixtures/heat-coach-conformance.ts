@@ -19,7 +19,7 @@ export const conformance = {
   toolOwnerItemId: 'tool-owner-11111111-1111-4111-8111-111111111111',
   productOwnerItemId: 'product-owner-22222222-2222-4222-8222-222222222222',
   capabilityProduct: 'heat-protection',
-  capabilityTool: 'heated-air',
+  capabilityTool: 'heat-tool',
   asOf: '2026-10-25T09:00:00+02:00',
   baselinePublication: {
     schemaVersion: 1,
@@ -90,7 +90,7 @@ export const conformance = {
           identity: 'exact',
           versionId: '11111111-1111-4111-8111-111111111111',
           review: 'reviewed',
-          verifiedCapabilities: ['heated-air'],
+          verifiedCapabilities: ['heat-tool'],
           satisfiesExactCapability: true,
           ownerFacts: {
             wattageWatts: 2200,
@@ -337,6 +337,27 @@ export const conformance = {
       state: 'unavailable',
       reasonCode: 'tool_unavailable',
       input: { request: { toolOwnerItemId: 'missing-tool' } },
+    },
+    {
+      name: 'unavailable-tool-with-unrelated-reviewed-capability',
+      state: 'unavailable',
+      reasonCode: 'tool_unavailable',
+      input: {
+        preparedInput: {
+          tools: [{
+            ownerItemId: 'tool-owner-11111111-1111-4111-8111-111111111111',
+            name: 'Synthetic dryer', identity: 'exact',
+            versionId: '11111111-1111-4111-8111-111111111111',
+            review: 'reviewed', verifiedCapabilities: ['diffuser-dry'],
+            satisfiesExactCapability: true,
+            ownerFacts: {
+              wattageWatts: 2200, adjustableTemp: 'yes',
+              settings: { state: 'recorded', recordedTemperatures: [{ label: 'Low', value: 120, unit: 'C' }] },
+              heatMethods: { state: 'recorded', methods: ['heated-air'] },
+            },
+          }],
+        },
+      },
     },
     {
       name: 'unavailable-exact-product',

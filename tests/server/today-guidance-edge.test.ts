@@ -170,6 +170,27 @@ describe('server Today guidance boundary', () => {
     expect(h.persistReady).not.toHaveBeenCalled();
   });
 
+  it.each(['lower_heat', 'appropriate'] as const)(
+    'does not turn a %s assessment into a generic tool application', async status => {
+      const h = harness({
+        loadAssessment: vi.fn(async () => ({ ...ASSESSMENT, status })),
+        generate: vi.fn(async () => ({ ...readyResult(), decision: {
+          ...readyResult().decision,
+          steps: [{ stepId: 'tool', position: 1, action: 'apply',
+            productId: null, productVersionId: null,
+            toolId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+            toolVersionId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
+        } })),
+      });
+      const response = await handleTodayGuidanceRequest(request({
+        requestId: REQUEST, goalId: 'basic_wash', assessmentId: USER,
+      }), h.deps);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: 'content_pending' });
+      expect(h.persistReady).not.toHaveBeenCalled();
+    },
+  );
+
   it('binds an exact current no-heat assessment to the trusted decision', async () => {
     const h = harness({ loadAssessment: vi.fn(async () => ASSESSMENT) });
     const response = await handleTodayGuidanceRequest(request({

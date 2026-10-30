@@ -262,7 +262,8 @@ export function evaluateHeatCoach(rawInput: unknown, rawPublication: unknown): H
   if (missingFacts.length > 0) return decision({ ...common, state: 'needs_input', missing: missingFacts });
   const method = knownValue(input.request.method)!;
   const tool = input.preparedInput.tools.find(item => item.ownerItemId === input.request.toolOwnerItemId);
-  const exactTool = tool !== undefined && tool.identity === 'exact' && tool.versionId !== null && tool.review === 'reviewed' && tool.satisfiesExactCapability;
+  const exactTool = tool !== undefined && tool.identity === 'exact' && tool.versionId !== null && tool.review === 'reviewed' &&
+    tool.satisfiesExactCapability && tool.verifiedCapabilities.includes('heat-tool');
   if (!exactTool || !publication.allowedMethods.includes(method) || tool.ownerFacts.heatMethods.state !== 'recorded' || !tool.ownerFacts.heatMethods.methods.includes(method)) {
     return decision({ ...common, state: 'unavailable', reasons: [reason('tool_unavailable', 'heat.unavailable.tool')] });
   }

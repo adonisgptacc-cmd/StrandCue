@@ -114,6 +114,7 @@ describe('Heat Coach assessment trust boundary', () => {
     await db.exec(await readFile('supabase/migrations/20261027122000_heat_capability_registry.sql', 'utf8'));
     await db.exec(await readFile('supabase/migrations/20261027123000_validate_heat_publication.sql', 'utf8'));
     await db.exec(await readFile('supabase/migrations/20261027124000_bind_heat_registry_assessment.sql', 'utf8'));
+    await db.exec(await readFile('supabase/migrations/20261030113144_require_heat_tool_capability.sql', 'utf8'));
     const privileges = await privileged<{ member: boolean; core: boolean }>(`select
       exists(select 1 from pg_auth_members memberships
         join pg_roles granted on granted.oid=memberships.roleid

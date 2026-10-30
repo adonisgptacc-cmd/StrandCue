@@ -46,7 +46,7 @@ function prepared(): z.input<typeof PreparedGuidanceInputSchema> {
       identity: 'exact' as const,
       versionId: TOOL_VERSION_ID,
       review: 'reviewed' as const,
-      verifiedCapabilities: ['heated-air'],
+      verifiedCapabilities: ['heat-tool'],
       satisfiesExactCapability: true,
       ownerFacts: {
         wattageWatts: 2200,
