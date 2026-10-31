@@ -208,11 +208,11 @@ The planner/operator, not the worker model, owns worktree creation, branch namin
 - Consumes reviewed commits from Work Orders 1–5 and their recorded verification results.
 - Produces one integrated local branch and a closure record with commit SHAs, tested base, results, unresolved gates and merge recommendation.
 
-- [ ] **Step 1: Record base/branch/HEAD and inspect each task diff.** Confirm each task branch has a unique worktree, no unrelated changes and no secret or production content.
-- [ ] **Step 2: Merge reviewed commits in dependency order.** Contracts → pipeline and rules compiler → verification/replay → Heat Coach reconciliation. Only the integration worktree edits the package root `packages/engine/src/index.ts`. Resolve conflicts in the integration worktree only.
-- [ ] **Step 3: Run full local checks.** Run `npm run check:runtime`, `npm run typecheck`, `npm run lint`, `npm test -- tests/engine`, the full `npm test`, and `npm run audit:control-plane`. Record actual outputs; do not substitute skipped/blocked gates with claims of success.
-- [ ] **Step 4: Request fresh code/security review.** Fix every high-severity finding in the owning worktree and repeat affected checks.
-- [ ] **Step 5: Write the closure report and ask for final local merge approval.** No push, deploy, hosted migration or publication is part of this plan.
+- [x] **Step 1: Record base/branch/HEAD and inspect each task diff.** Confirm each task branch has a unique worktree, no unrelated changes and no secret or production content.
+- [x] **Step 2: Merge reviewed commits in dependency order.** Contracts → pipeline and rules compiler → verification/replay → Heat Coach reconciliation. Only the integration worktree edits the package root `packages/engine/src/index.ts`. Resolve conflicts in the integration worktree only.
+- [ ] **Step 3: Run full local checks.** Run `npm run check:runtime`, `npm run typecheck`, `npm run lint`, `npm test -- tests/engine`, the full `npm test`, and `npm run audit:control-plane`. Record actual outputs; do not substitute skipped/blocked gates with claims of success. Status: partial; see `docs/verification/phase-2-integration-closure-2026-10-31.md` for the full-suite, audit and PostgreSQL holds.
+- [x] **Step 4: Request fresh code/security review.** Fix every high-severity finding in the owning worktree and repeat affected checks. Final policy-remediation review reported no remaining correctness/security blocker.
+- [ ] **Step 5: Write the closure report and ask for final local merge approval.** Closure report: `docs/verification/phase-2-integration-closure-2026-10-31.md`. Local `main` already contains WOs 1–5; this step records the final disposition. No push, deploy, hosted migration or publication is part of this plan.
 
 ## Scope deferred to separately approved plans
 
