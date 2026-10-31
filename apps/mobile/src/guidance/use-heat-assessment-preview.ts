@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { ProtocolDecision } from '../../../../packages/domain/src/index';
 import {
@@ -11,6 +12,8 @@ import {
 interface ResolvedHeatPreview {
   readonly ownerId: string;
   readonly key: string;
+  readonly requestToken: object;
+  readonly lifecycleRevision: number;
   readonly assessment: HeatCoachReceipt;
   readonly reviewedCopy: HeatCoachReviewedCopy;
 }
@@ -31,10 +34,20 @@ export function useHeatAssessmentPreview(ownerId: string, decision: ProtocolDeci
   const sourceFingerprint = hasHeatStep ? binding?.sourceFingerprint ?? null : null;
   const publicationId = hasHeatStep ? binding?.publicationId ?? null : null;
   const publicationDigest = hasHeatStep ? binding?.publicationDigest ?? null : null;
+  const [lifecycle, setLifecycle] = useState({ active: true, revision: 0 });
   const [resolved, setResolved] = useState<ResolvedHeatPreview | null>(null);
+  const requestToken = useMemo(() => ({ ownerId, key, lifecycleRevision: lifecycle.revision }),
+    [ownerId, key, lifecycle.revision]);
 
   useEffect(() => {
-    if (key === null || assessmentId === null || sourceFingerprint === null
+    const subscription = AppState.addEventListener('change', state => {
+      setLifecycle(current => ({ active: state === 'active', revision: current.revision + 1 }));
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!lifecycle.active || key === null || assessmentId === null || sourceFingerprint === null
       || publicationId === null || publicationDigest === null) {
       return;
     }
@@ -51,16 +64,18 @@ export function useHeatAssessmentPreview(ownerId: string, decision: ProtocolDeci
         if (!active) return;
         if (reviewedCopy.assessmentId !== assessmentId || reviewedCopy.publicationId !== publicationId
           || reviewedCopy.publicationDigest !== publicationDigest) return;
-        setResolved({ ownerId, key, assessment, reviewedCopy });
+        setResolved({ ownerId, key, requestToken, lifecycleRevision: lifecycle.revision, assessment, reviewedCopy });
       } catch {
         // Missing, stale or withdrawn content stays pending; never render a
         // cached copy from another assessment or owner.
       }
     })();
     return () => { active = false; };
-  }, [ownerId, key, assessmentId, sourceFingerprint, publicationId, publicationDigest]);
+  }, [ownerId, key, assessmentId, sourceFingerprint, publicationId, publicationDigest,
+    lifecycle.active, lifecycle.revision, requestToken]);
 
-  if (resolved === null || resolved.ownerId !== ownerId || resolved.key !== key) {
+  if (!lifecycle.active || resolved === null || resolved.ownerId !== ownerId || resolved.key !== key
+    || resolved.requestToken !== requestToken || resolved.lifecycleRevision !== lifecycle.revision) {
     return { heatAssessment: null, heatReviewedCopy: null };
   }
   return { heatAssessment: resolved.assessment, heatReviewedCopy: resolved.reviewedCopy };

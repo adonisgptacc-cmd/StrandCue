@@ -5,6 +5,7 @@ import { Text } from 'react-native';
 
 import { useHeatAssessmentPreview } from '../../apps/mobile/src/guidance/use-heat-assessment-preview';
 import type { ProtocolDecision } from '../../packages/domain/src/index';
+import { emitAppStateChange } from './support/rn-mock';
 
 const mocks = vi.hoisted(() => ({ getAssessment: vi.fn(), getReviewedCopy: vi.fn() }));
 vi.mock('../../apps/mobile/src/heat-coach-api', () => ({
@@ -29,8 +30,8 @@ function decision(assessmentId: string): ProtocolDecision {
 const copy = (assessmentId: string) => ({ assessmentId, publicationId: 'publication', publicationDigest: digest,
   copy: [{ copyKey: 'heat.limitations', text: `reviewed limits for ${assessmentId}` }] });
 const receipt = (assessmentId: string) => ({ assessmentId, publicationId: 'publication', publicationDigest: digest,
-  sourceFingerprint: digest, stale: false, status: 'appropriate', result: { state: 'appropriate' } }) as never;
-function Probe({ ownerId, value }: { ownerId: string; value: ProtocolDecision }) {
+  sourceFingerprint: digest, stale: false, status: 'appropriate', result: { state: 'appropriate' } });
+function Probe({ ownerId, value }: { ownerId: string; value: ProtocolDecision | null }) {
   const resolved = useHeatAssessmentPreview(ownerId, value);
   return <Text>{resolved.heatReviewedCopy?.copy[0]?.text ?? 'review pending'}</Text>;
 }
@@ -58,8 +59,8 @@ describe('owner-scoped assessed heat preview loading', () => {
   });
 
   it('never paints or accepts a late previous-owner review after switching owners', async () => {
-    const oldRead = deferred<never>();
-    const newRead = deferred<never>();
+    const oldRead = deferred<ReturnType<typeof receipt>>();
+    const newRead = deferred<ReturnType<typeof receipt>>();
     mocks.getAssessment.mockReturnValueOnce(oldRead.promise).mockReturnValueOnce(newRead.promise);
     mocks.getReviewedCopy.mockImplementation(async value => copy(value.assessmentId));
     let renderer!: ReactTestRenderer;
@@ -72,6 +73,45 @@ describe('owner-scoped assessed heat preview loading', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
     expect(JSON.stringify(renderer.toJSON())).toContain('reviewed limits for assessment-b');
     expect(JSON.stringify(renderer.toJSON())).not.toContain('assessment-a');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('hides cached guidance on background and keeps it hidden when a resumed read is stale', async () => {
+    mocks.getAssessment.mockResolvedValueOnce(receipt('assessment-a'))
+      .mockResolvedValueOnce({ ...receipt('assessment-a'), stale: true });
+    mocks.getReviewedCopy.mockResolvedValue(copy('assessment-a'));
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Probe, { ownerId: 'owner-a', value: decision('assessment-a') })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(JSON.stringify(renderer.toJSON())).toContain('reviewed limits for assessment-a');
+
+    await act(async () => { emitAppStateChange('background'); });
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('reviewed limits for assessment-a');
+
+    await act(async () => { emitAppStateChange('active'); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.getAssessment).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(renderer.toJSON())).toContain('review pending');
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('reviewed limits for assessment-a');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not reuse cached guidance when the same binding is removed and restored', async () => {
+    const reloaded = deferred<ReturnType<typeof receipt>>();
+    mocks.getAssessment.mockResolvedValueOnce(receipt('assessment-a')).mockReturnValueOnce(reloaded.promise);
+    mocks.getReviewedCopy.mockResolvedValue(copy('assessment-a'));
+    const value = decision('assessment-a');
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(Probe, { ownerId: 'owner-a', value })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(JSON.stringify(renderer.toJSON())).toContain('reviewed limits for assessment-a');
+
+    await act(async () => { renderer.update(createElement(Probe, { ownerId: 'owner-a', value: null })); });
+    expect(JSON.stringify(renderer.toJSON())).toContain('review pending');
+    await act(async () => { renderer.update(createElement(Probe, { ownerId: 'owner-a', value })); });
+    expect(mocks.getAssessment).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(renderer.toJSON())).toContain('review pending');
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('reviewed limits for assessment-a');
     await act(async () => { renderer.unmount(); });
   });
 });

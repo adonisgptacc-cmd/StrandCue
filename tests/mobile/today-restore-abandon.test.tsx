@@ -39,6 +39,7 @@ vi.mock('react-native', () => {
   };
   return {
     Platform: { OS: 'web' },
+    AppState: { currentState: 'active', addEventListener: () => ({ remove() {} }) },
     Pressable: host('button'),
     ScrollView: host('main'),
     StyleSheet: { create: (value: unknown) => value },

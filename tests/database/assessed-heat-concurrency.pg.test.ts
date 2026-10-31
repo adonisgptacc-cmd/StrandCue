@@ -30,6 +30,7 @@ suite('real-Postgres assessed heat start and withdrawal', () => {
   const withdrawnPublication = crypto.randomUUID();
   const registryWithdrawalPublication = crypto.randomUUID();
   const correctedToolPublication = crypto.randomUUID();
+  const correctedProductPublication = crypto.randomUUID();
   const registryId = crypto.randomUUID();
   const digests = new Map<string, string>();
 
@@ -145,10 +146,12 @@ suite('real-Postgres assessed heat start and withdrawal', () => {
     const ruleB = await publish(withdrawnPublication, registry);
     const ruleC = await publish(registryWithdrawalPublication, registry);
     const ruleD = await publish(correctedToolPublication, registry);
+    const ruleE = await publish(correctedProductPublication, registry);
     await seedRun(firstPublication, ruleA);
     await seedRun(withdrawnPublication, ruleB);
     await seedRun(registryWithdrawalPublication, ruleC);
     await seedRun(correctedToolPublication, ruleD);
+    await seedRun(correctedProductPublication, ruleE);
   }, 60_000);
   afterAll(async () => {
     if (!admin) return;
@@ -158,7 +161,7 @@ suite('real-Postgres assessed heat start and withdrawal', () => {
       await admin.query('alter table strandcue_private.heat_rule_publications disable trigger user');
       try { await admin.query('delete from strandcue_private.heat_rule_publications where id=any($1::uuid[])',
         [[firstPublication, withdrawnPublication, registryWithdrawalPublication,
-          correctedToolPublication]]); }
+          correctedToolPublication, correctedProductPublication]]); }
       finally { await admin.query('alter table strandcue_private.heat_rule_publications enable trigger user'); }
       await admin.query('alter table strandcue_private.heat_capability_publications disable trigger user');
       try { await admin.query('delete from strandcue_private.heat_capability_publications where id=$1', [registryId]); }
@@ -282,6 +285,45 @@ suite('real-Postgres assessed heat start and withdrawal', () => {
       await correcting.query('begin');
       await correcting.query(`update public.user_tools set availability='archived'
         where id=$1 and owner=$2`, [tool, owner]);
+      const actorPid = (await actor.query<{ pid: number }>('select pg_backend_pid() pid')).rows[0].pid;
+      const blockerPid = (await correcting.query<{ pid: number }>('select pg_backend_pid() pid')).rows[0].pid;
+      const pending = start(actor, request).then(value => ({ ok: true as const, value }),
+        (error: Error) => ({ ok: false as const, error }));
+      let blocked = false;
+      for (let attempt = 0; attempt < 150; attempt += 1) {
+        const row = (await admin.query<{ blockers: number[] }>(
+          'select pg_blocking_pids($1) blockers', [actorPid])).rows[0];
+        if (row.blockers.includes(blockerPid)) { blocked = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true);
+      await correcting.query('commit');
+      const result = await pending;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toMatch(/source-changed/);
+      const count = (await admin.query<{ n: number }>(
+        'select count(*)::int n from public.protocol_executions where user_id=$1 and recommendation_run_id=$2',
+        [owner, request])).rows[0].n;
+      expect(count).toBe(0);
+    } finally {
+      await correcting.query('rollback').catch(() => undefined);
+      await actor.end();
+      await correcting.end();
+    }
+  }, 60_000);
+
+  it('serializes an owner product correction before assessed heat start', async () => {
+    const request = (await admin.query<{ request_id: string }>(
+      `select request_id from public.recommendation_runs where user_id=$1
+        and decision#>>'{heatAssessmentBinding,publicationId}'=$2`,
+      [owner, correctedProductPublication])).rows[0].request_id;
+    const actor = await client();
+    const correcting = await client();
+    try {
+      await asOwner(actor);
+      await correcting.query('begin');
+      await correcting.query(`update public.user_products set availability='archived'
+        where id=$1 and owner=$2`, [product, owner]);
       const actorPid = (await actor.query<{ pid: number }>('select pg_backend_pid() pid')).rows[0].pid;
       const blockerPid = (await correcting.query<{ pid: number }>('select pg_backend_pid() pid')).rows[0].pid;
       const pending = start(actor, request).then(value => ({ ok: true as const, value }),

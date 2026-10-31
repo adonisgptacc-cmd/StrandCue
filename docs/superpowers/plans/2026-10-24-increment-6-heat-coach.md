@@ -176,13 +176,13 @@
 - Consumes: all prior Increment 6 tasks.
 - Produces: one evidence-backed closure decision; no Increment 7 work.
 
-- [ ] **Step 1: Run the integrated synthetic journey.** Use reviewed test-only fixtures for: highlighted/frizz-prone hair, owned dryer/flat iron, unknown manual protectant, known/unknown settings, lower-direct-heat and no-heat alternatives, correction invalidation, owner switch and production `content_pending`.
-- [ ] **Step 2: Run real-database isolation.** Execute the opt-in two-session PostgreSQL suite against a disposable local/staging target only. Run hosted isolation only when the target is proven isolated; otherwise record BLOCKED.
+- [x] **Step 1: Run the integrated synthetic journey.** Final full coverage passed 231 files / 4,807 tests with 8 files / 47 tests skipped. Focused Heat Coach mobile tests passed 10/10; see `docs/verification/heat-coach-acceptance-2026-10-24.md`.
+- [x] **Step 2: Run real-database isolation.** Two opt-in PostgreSQL suites passed 16/16 against a fresh disposable local Supabase project with the branch's full migration chain. No hosted database was used.
 - [ ] **Step 3: Run device acceptance when available.** Emulator/physical device: intent entry, missing-fact recovery, lower/no-heat choice, restriction, retry/offline, process restore, owner switch and actual execution logging. TalkBack/VoiceOver remain NOT RUN unless actually performed.
-- [ ] **Step 4: Run four independent reviews.** Code/state, database/privacy, accessibility/owner-switch and product-truth/wording. Fix and re-review every Critical/High/Medium finding.
-- [ ] **Step 5: Run all gates.** Runtime, typecheck, lint, focused tests, all database suites, full coverage, web export, control-plane audit, dependency audit, guidance research validation, `git diff --check` and scoped secret scan. Dependency findings remain HOLD unless the command exits zero.
-- [ ] **Step 6: Update traceability honestly.** TL-05/TL-06 remain Partial until real reviewed heat rules exist and device evidence passes. Do not mark production Heat Coach implemented from synthetic fixtures.
-- [ ] **Step 7: Commit and stop.** Commit `docs: close Increment 6 Heat Coach delivery`. Do not begin photos, ranking, reminders, weather or Routine Audit.
+- [x] **Step 4: Run four independent reviews.** Code/state, database/privacy, accessibility/owner-switch and product-truth/wording follow-up reviews completed. Findings were fixed and re-reviewed. Device speech behavior remains unverified and is held in Step 3.
+- [x] **Step 5: Run all gates.** Runtime, typecheck, lint, focused tests, opt-in PostgreSQL suites, full coverage, web export, control-plane audit and guidance research validation passed. Dependency audit ran and remains HOLD (26 findings: 0 critical, 6 high, 22 moderate). Device acceptance was unavailable. See the acceptance record.
+- [x] **Step 6: Update traceability honestly.** TL-05/TL-06 remain Partial; production content remains empty/draft and Human A/B and device acceptance remain outstanding. Dependency-policy clearance is also recorded as a release hold.
+- [x] **Step 7: Commit and stop.** Commit the local acceptance record as PARTIAL/HOLD and stop here. Do not begin photos, ranking, reminders, weather, Routine Audit or Increment 7.
 
 ## Open human inputs that do not block I6.0–I6.1
 

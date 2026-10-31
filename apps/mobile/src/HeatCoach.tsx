@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Text, View } from 'react-native';
+import { AccessibilityInfo, Text, View } from 'react-native';
 
 import { HeatCoachDecision } from './HeatCoachDecision';
 import { HeatCoachIntent, type OwnedHeatItem } from './HeatCoachIntent';
@@ -28,6 +28,11 @@ export function HeatCoach(props: HeatCoachProps) {
     copy: HeatCoachReviewedCopy } | null>(null);
   const startsInFlight = useRef(new Set<string>());
   useEffect(() => { controller.setOwner(ownerKey); }, [controller, ownerKey]);
+  useEffect(() => {
+    if (currentState.phase === 'failed' && currentState.failure) {
+      AccessibilityInfo.announceForAccessibility(HEAT_COACH_ERROR_COPY[currentState.failure]);
+    }
+  }, [currentState.failure, currentState.phase]);
   const receipt = currentState.ownerKey === ownerKey ? currentState.receipt : null;
   const copy = copyResult?.controller === controller && copyResult.ownerKey === ownerKey
     && copyResult.assessmentId === receipt?.assessmentId
@@ -76,7 +81,9 @@ export function HeatCoach(props: HeatCoachProps) {
         onAssess={() => { void controller.save(); }} saving={currentState.phase === 'saving'}
         onOpenDestination={props.onOpenDestination}/>}
     {currentState.phase === 'failed' && currentState.failure && <View style={styles.notice}>
-      <Text style={styles.error}>{HEAT_COACH_ERROR_COPY[currentState.failure]}</Text>
+      <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
+        {HEAT_COACH_ERROR_COPY[currentState.failure]}
+      </Text>
       <Button title="Try again" onPress={() => { void controller.retry(); }}/>
     </View>}
     {receipt && <Button title="Change heat choices" secondary onPress={controller.newAssessment}/>}

@@ -9,9 +9,22 @@ const host = (tag: string) => {
   return HostComponent;
 };
 
+let appStateListener: ((state: string) => void) | null = null;
+
+export function emitAppStateChange(state: string): void {
+  appStateListener?.(state);
+}
+
 /** The react-native surface the Cue Check screens use, as plain host elements. */
 export const rnMock = {
   Platform: { OS: 'web' },
+  AppState: {
+    currentState: 'active',
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      appStateListener = listener;
+      return { remove: () => { if (appStateListener === listener) appStateListener = null; } };
+    },
+  },
   Pressable: host('button'),
   ScrollView: host('main'),
   StyleSheet: { create: (value: unknown) => value },

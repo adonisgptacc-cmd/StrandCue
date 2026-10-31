@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { HeatCoach } from '../../apps/mobile/src/HeatCoach';
+import { HeatCoachError } from '../../apps/mobile/src/heat-coach-errors';
 import { createHeatCoachController } from '../../apps/mobile/src/heat-coach-state';
 import type { HeatCoachReceipt, HeatCoachReviewedCopy } from '../../apps/mobile/src/heat-coach-api';
 
@@ -31,6 +32,26 @@ const reviewed: HeatCoachReviewedCopy = { assessmentId: id, publicationId: id, p
     { copyKey: 'heat.reason', text: 'Synthetic explanation.' }] };
 
 describe('Heat Coach journey', () => {
+  it('marks and explicitly announces an assessment failure to assistive technology', async () => {
+    const controller = createHeatCoachController({ ownerKey: 'owner-a',
+      publication: { publicationId: id, publicationDigest: digest },
+      api: { createHeatCoachAssessment: async () => { throw new HeatCoachError('offline'); } }, newOperationId: () => id });
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(createElement(HeatCoach, {
+      ownerKey: 'owner-a', controller, ownedTools: [], onUsePlan: vi.fn(),
+    })); });
+    await act(async () => { await controller.save(); });
+    const failure = renderer.root.findAll(node => typeof node.type === 'string'
+      && node.props.accessibilityRole === 'alert'
+      && node.children.includes('You appear to be offline. Your unsent choices are still here.'));
+    expect(failure).toHaveLength(1);
+    const { AccessibilityInfo } = await import('react-native');
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+      'You appear to be offline. Your unsent choices are still here.',
+    );
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('opens without generating an assessment or using a plan', async () => {
     const createAssessment = vi.fn(async () => receipt);
     const getAssessment = vi.fn(async () => receipt);
