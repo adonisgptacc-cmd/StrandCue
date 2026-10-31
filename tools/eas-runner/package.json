@@ -4,7 +4,7 @@
   "private": true,
   "description": "Isolated, lockfile-pinned EAS CLI for the manual signed Android build. Outside the root workspaces so the release tool keeps its own committed lockfile.",
   "dependencies": {
-    "eas-cli": "24.10.0"
+    "eas-cli": "24.14.0"
   },
   "overrides": {
     "minimatch@5.1.2": "5.1.9",

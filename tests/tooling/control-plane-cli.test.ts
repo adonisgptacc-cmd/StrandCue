@@ -31,7 +31,7 @@ describe('control-plane CLI evidence gate', () => {
   it('passes only after checking the installed SDK against the recorded claim', async () => {
     const result = await runGate('pass');
     expect(result.code).toBe(0);
-    expect(JSON.parse(result.out)).toMatchObject({ findings: [], status: 'METADATA-PASS', expoEvidence: { expoVersion: '57.0.22' } });
+    expect(JSON.parse(result.out)).toMatchObject({ findings: [], status: 'METADATA-PASS', expoEvidence: { expoVersion: '57.0.31' } });
   });
   it('holds a fresh claim lacking installation evidence', async () => {
     const result = await runGate('date-only');

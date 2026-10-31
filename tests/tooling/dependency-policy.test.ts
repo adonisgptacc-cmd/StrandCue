@@ -1292,8 +1292,9 @@ describe('dependency audit CLI', () => {
       auditLog,
     });
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
 
     const audited = auditedDirectories(auditLog);
     expect(audited).toHaveLength(4);
@@ -1409,8 +1410,9 @@ describe('dependency audit CLI', () => {
   it('runs the gate in-process and audits both trees', async () => {
     const result = await runGateInProcess({ stdout: JSON.stringify(cliAuditReport()) });
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
     expect(result.audited).toHaveLength(4);
     expect(result.audited.some(dir => dir.endsWith('/workers/account-deletion'))).toBe(true);
   }, 10_000);

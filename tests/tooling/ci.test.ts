@@ -324,10 +324,10 @@ describe('CI tooling supply chain', () => {
   it('pins the release EAS CLI in a committed isolated lockfile outside the workspace', async () => {
     const manifest = JSON.parse(await readFile('tools/eas-runner/package.json', 'utf8'));
     expect(manifest.private).toBe(true);
-    expect(manifest.dependencies['eas-cli']).toBe('24.10.0');
+    expect(manifest.dependencies['eas-cli']).toBe('24.14.0');
 
     const lock = JSON.parse(await readFile('tools/eas-runner/package-lock.json', 'utf8'));
-    expect(lock.packages['node_modules/eas-cli'].version).toBe('24.10.0');
+    expect(lock.packages['node_modules/eas-cli'].version).toBe('24.14.0');
 
     // The release CLI stays out of the audited workspace dependency tree.
     const mobile = JSON.parse(await readFile('apps/mobile/package.json', 'utf8'));

@@ -48,10 +48,10 @@ describe('mutation testing config is loadable and wired to CI', () => {
     ) as { private?: boolean; dependencies?: Record<string, string> };
     expect(manifest.private).toBe(true);
     expect(manifest.dependencies).toEqual({
-      '@stryker-mutator/core': '10.0.0',
-      '@stryker-mutator/vitest-runner': '10.0.0',
+      '@stryker-mutator/core': '10.1.1',
+      '@stryker-mutator/vitest-runner': '10.1.1',
       'typescript': '6.0.3',
-      'vitest': '5.0.0',
+      'vitest': '5.0.5',
     });
 
     const lock = JSON.parse(

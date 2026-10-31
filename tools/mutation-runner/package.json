@@ -5,10 +5,10 @@
   "type": "module",
   "description": "Isolated, lockfile-pinned Stryker runner for the optional mutation-testing workflow. Outside the root workspaces so it keeps its own committed lockfile.",
   "dependencies": {
-    "@stryker-mutator/core": "10.0.0",
-    "@stryker-mutator/vitest-runner": "10.0.0",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
     "typescript": "6.0.3",
-    "vitest": "5.0.0"
+    "vitest": "5.0.5"
   },
   "overrides": {
     "qs@6.15.1": "6.16.1"
