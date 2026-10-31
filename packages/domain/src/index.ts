@@ -7,6 +7,7 @@ export * from './dates.ts';
 export * from './discovery-backlog.ts';
 export * from './guidance/index.ts';
 export * from './heat-coach.ts';
+export * from './guidance/heat-coach-engine-adapter.ts';
 export * from './passport.ts';
 export * from './personal-outcome-summary.ts';
 export * from './product-detail.ts';
