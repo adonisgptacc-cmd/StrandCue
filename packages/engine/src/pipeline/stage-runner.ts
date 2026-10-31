@@ -63,7 +63,78 @@ export interface StageDefinition {
 export const rulesForStage = (state: PipelineState, stageId: EngineStageId): readonly CompiledRule[] =>
   state.input.ruleset.rules
     .filter((rule) => rule.stageId === stageId)
-    .sort((left, right) => compareStrings(left.ruleId, right.ruleId));
+    .sort((left, right) => {
+      if (left.table?.tableId === right.table?.tableId && left.table !== undefined && right.table !== undefined) {
+        return left.table.rowOrder - right.table.rowOrder || compareStrings(left.ruleId, right.ruleId);
+      }
+      return compareStrings(left.ruleId, right.ruleId);
+    });
+
+interface TableSelection {
+  readonly selectedRuleIds: ReadonlySet<string>;
+  readonly uniqueViolations: readonly (readonly CompiledRule[])[];
+}
+
+const preservesRestriction = (rule: CompiledRule): boolean => rule.effects.length > 0 && rule.effects.every((effect) => {
+  if (effect.kind === 'block' || effect.kind === 'ask_question' || effect.kind === 'exclude_candidate'
+    || effect.kind === 'require_prerequisite' || effect.kind === 'insert_wait') return true;
+  return effect.kind === 'set_heat_assessment' && (effect.state === 'no_heat' || effect.state === 'restricted');
+});
+
+function selectTableRows(state: PipelineState, stageId: EngineStageId): TableSelection {
+  const groups = new Map<string, CompiledRule[]>();
+  for (const rule of state.input.ruleset.rules) {
+    if (rule.table === undefined || ruleApplicability(rule, state.input, state.evaluatedAtMs) !== 'applicable') continue;
+    const group = groups.get(rule.table.tableId) ?? [];
+    group.push(rule);
+    groups.set(rule.table.tableId, group);
+  }
+
+  const selectedRuleIds = new Set<string>();
+  const uniqueViolations: (readonly CompiledRule[])[] = [];
+  for (const group of groups.values()) {
+    const ordered = group.sort((left, right) =>
+      (left.table?.rowOrder ?? 0) - (right.table?.rowOrder ?? 0) || compareStrings(left.ruleId, right.ruleId));
+    const policy = ordered[0]?.table?.hitPolicy;
+    if (policy === undefined) continue;
+    const matches = ordered.map((rule) => ({ rule, value: evaluateExpression(rule.when, state.facts).value }));
+
+    if (policy === 'collect') {
+      matches.filter((match) => match.value !== 'false').forEach(({ rule }) => selectedRuleIds.add(rule.ruleId));
+      continue;
+    }
+    if (policy === 'first') {
+      const firstMatchIndex = matches.findIndex((match) => match.value !== 'false');
+      if (firstMatchIndex < 0) continue;
+      const firstMatch = matches[firstMatchIndex];
+      if (firstMatch.value === 'true') {
+        selectedRuleIds.add(firstMatch.rule.ruleId);
+        continue;
+      }
+
+      // An unresolved first row leaves the table choice open. Keep it so the
+      // runner asks for its missing facts, and preserve only later hard rows
+      // whose effects cannot make the decision more permissive.
+      selectedRuleIds.add(firstMatch.rule.ruleId);
+      matches.slice(firstMatchIndex + 1)
+        .filter((match) => match.rule.severity === 'hard' && match.value !== 'false' && preservesRestriction(match.rule))
+        .forEach(({ rule }) => selectedRuleIds.add(rule.ruleId));
+      continue;
+    }
+
+    const definiteMatches = matches.filter((match) => match.value === 'true').map((match) => match.rule);
+    const unresolved = matches.filter((match) => match.value === 'unknown').map((match) => match.rule);
+    if (definiteMatches.length > 1) {
+      const firstStage = Math.min(...ordered.map((rule) => stageIndexOf(rule.stageId)));
+      if (stageIndexOf(stageId) === firstStage) uniqueViolations.push(definiteMatches);
+    } else if (unresolved.length > 0) {
+      unresolved.forEach((rule) => selectedRuleIds.add(rule.ruleId));
+    } else if (definiteMatches.length === 1) {
+      selectedRuleIds.add(definiteMatches[0].ruleId);
+    }
+  }
+  return { selectedRuleIds, uniqueViolations };
+}
 
 const withNotApplicableTrace = (state: PipelineState, stageId: EngineStageId): PipelineState => ({
   ...state,
@@ -90,14 +161,22 @@ export const defineStage = (definition: StageDefinition): StageFunction => (inco
 
   let state = definition.before ? definition.before(incoming) : incoming;
   const touched: Provenance[] = [];
+  const tableSelection = selectTableRows(state, stageId);
+  for (const conflict of tableSelection.uniqueViolations) {
+    const provenance = mergeProvenance(...conflict.map(ruleProvenance));
+    touched.push(provenance);
+    state = addBlocker(state, 'decision_table_unique_violation', provenance);
+  }
   const rules = rulesForStage(state, stageId)
-    .filter((rule) => ruleApplicability(rule, state.input, state.evaluatedAtMs) === 'applicable');
+    .filter((rule) => ruleApplicability(rule, state.input, state.evaluatedAtMs) === 'applicable')
+    .filter((rule) => rule.table === undefined || tableSelection.selectedRuleIds.has(rule.ruleId));
 
   for (const rule of rules) {
     const outcome = evaluateExpression(rule.when, state.facts);
     if (outcome.value === 'unknown') {
-      // Only hard rules gate a decision; an unresolved advisory rule is not allowed to.
-      if (rule.severity !== 'hard') continue;
+      // A first-hit table row with an unresolved condition gates row selection
+      // even when advisory; otherwise a later, more permissive row could win.
+      if (rule.severity !== 'hard' && rule.table?.hitPolicy !== 'first') continue;
       touched.push(ruleProvenance(rule));
       const blocking = outcome.issues.find((issue) => isBlockingResolution(issue.resolution));
       if (blocking) {
