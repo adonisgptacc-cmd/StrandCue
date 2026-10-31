@@ -21,10 +21,10 @@ const EVALUATOR_VERSION = '1.0.0';
 const STAGE_BY_EFFECT: readonly { kind: RuleEffect['kind']; stage: EngineStageId }[] = [
   { kind: 'block', stage: 'apply_safety_restrictions' },
   { kind: 'set_heat_assessment', stage: 'evaluate_heat' },
-  { kind: 'require_prerequisite', stage: 'derive_treatment_state' },
+  { kind: 'require_prerequisite', stage: 'build_dependency_graph' },
   { kind: 'insert_wait', stage: 'build_dependency_graph' },
   { kind: 'exclude_candidate', stage: 'filter_candidates' },
-  { kind: 'include_candidate', stage: 'filter_candidates' },
+  { kind: 'include_candidate', stage: 'load_verified_facts' },
   { kind: 'ask_question', stage: 'select_and_rank' },
 ];
 
