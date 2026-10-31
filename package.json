@@ -12,37 +12,52 @@
   },
   "scripts": {
     "check:runtime": "node scripts/check-runtime.ts",
+    "check:android-local": "node scripts/android-local-preflight.ts",
+    "verify:android-artifact": "node scripts/verify-android-artifact.ts",
+    "verify:supabase-owner-isolation": "node scripts/supabase-owner-isolation.ts",
+    "verify:supabase-owner-isolation:live": "node scripts/owner-isolation-live.ts",
     "lint": "eslint apps/mobile packages/domain scripts tests vitest.config.ts eslint.config.mjs --max-warnings=0",
     "preverify": "npm run check:runtime",
     "test": "vitest run",
+    "test:website": "vitest run tests/website",
+    "website:dev": "npx --yes wrangler@4.148.0 dev --config website/wrangler.jsonc",
+    "website:deploy": "npx --yes wrangler@4.148.0 deploy --config website/wrangler.jsonc",
+    "check:website": "node scripts/check-website.ts",
+    "check:website-transport": "node scripts/check-website-transport.ts",
     "test:coverage": "vitest run --coverage",
     "typecheck:domain": "tsc --noEmit",
     "typecheck": "npm run typecheck:domain && npm run typecheck --workspace @strandcue/mobile",
     "export:web": "npm run export:web --workspace @strandcue/mobile",
+    "validate:guidance-research": "node scripts/validate-guidance-research.ts",
+    "compile:catalogue": "node scripts/compile-catalogue-intake.ts",
     "audit:dependencies": "node scripts/audit-dependencies-cli.ts",
     "audit:control-plane": "node scripts/audit-cli.ts",
     "check:expo": "expo install --check",
-    "verify": "npm run typecheck && npm run lint && npm run test:coverage && npm run audit:control-plane && npm run audit:dependencies && npm run check:expo && npm run export:web",
+    "verify:offline": "npm run check:runtime && npm run typecheck && npm run lint && npm run test:coverage && npm run audit:control-plane && npm run export:web",
+    "verify": "npm run verify:offline && npm run check:expo && npm run audit:dependencies",
+    "check:release-links": "node scripts/check-release-links.ts",
+    "verify:release-preflight": "npm run verify && npm run check:release-links",
     "mobile": "npm run start --workspace @strandcue/mobile"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
     "@types/node": "24.13.3",
     "@types/react": "19.2.18",
     "@types/react-test-renderer": "19.3.0",
-    "@vitest/coverage-v8": "5.0.0",
+    "@vitest/coverage-v8": "5.0.5",
     "eslint": "9.39.5",
     "eslint-config-expo": "57.0.2",
     "eslint-import-resolver-typescript": "3.10.1",
-    "jest-validate": "29.7.0",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-test-renderer": "19.2.3",
     "supabase": "2.117.0",
     "typescript": "~6.0.3",
-    "vitest": "5.0.0"
+    "vitest": "5.0.5"
   },
   "dependencies": {
-    "zod": "4.5.4"
+    "zod": "4.6.7"
   }
 }

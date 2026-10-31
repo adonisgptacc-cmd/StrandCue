@@ -6,6 +6,11 @@ const observed = { schema: 'ai-project-extensions-lock.v2', observed: { superpow
   resolved_ref: '6.3.0', codex: { scope: 'host-plugin', pin_enforced: false },
 } } };
 const claims = [{ id: 'expo', checked_at: '2026-09-09', review_after: '2026-10-09' }];
+const evidence = {
+  kind: 'installed-expo-sdk', expoVersion: '57.0.22',
+  manifestSha256: 'a'.repeat(64), lockSha256: 'b'.repeat(64),
+  bundledSha256: 'c'.repeat(64), installedSha256: 'd'.repeat(64),
+};
 
 describe('control-plane audit', () => {
   it('accepts aligned observed metadata without claiming runtime conformance', () => {
@@ -39,5 +44,18 @@ describe('control-plane audit', () => {
   it('rejects enforced-bounded claims without negative test evidence', () => {
     const lock = { ...observed, observed: { superpowers: { ...observed.observed.superpowers, bounded_mode: 'enforced-bounded' } } };
     expect(auditControlPlane(desired, lock, claims, '2026-09-09').map(x => x.code)).toContain('BOUNDARY-UNPROVEN');
+  });
+  it('does not accept a date-only Expo compatibility refresh', () => {
+    const refreshed = [{ id: 'expo-compatible-sdk', checked_at: '2026-10-17', review_after: '2026-11-17' }];
+    expect(auditControlPlane(desired, observed, refreshed, '2026-10-17').map(x => x.code))
+      .toContain('CLAIM-EVIDENCE');
+  });
+  it('accepts only evidence matching the current checked installation', () => {
+    const refreshed = [{ id: 'expo-compatible-sdk', checked_at: '2026-10-17', review_after: '2026-11-17', evidence }];
+    expect(auditControlPlane(desired, observed, refreshed, '2026-10-17', evidence)).toEqual([]);
+    expect(auditControlPlane(desired, observed, refreshed, '2026-10-17', { ...evidence, installedSha256: 'e'.repeat(64) }).map(x => x.code))
+      .toContain('CLAIM-EVIDENCE');
+    expect(auditControlPlane(desired, observed, refreshed, '2026-10-17', { ...evidence, lockSha256: 'bad' }).map(x => x.code))
+      .toContain('CLAIM-EVIDENCE');
   });
 });

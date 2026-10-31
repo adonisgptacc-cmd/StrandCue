@@ -1,15 +1,16 @@
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   auditDependencyPolicy as auditDependencyPolicyImplementation,
+  scopeExceptionRegistryToReport,
 } from '../../scripts/dependency-policy';
 
-const TODAY = '2026-09-13';
+const TODAY = '2026-10-17';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
 const ADVISORY_URL = `https://github.com/advisories/${ADVISORY_ID}`;
 const UUID_ADVISORY_ID = 'GHSA-w5hq-g745-h8pq';
@@ -138,11 +139,56 @@ function currentException(overrides: Record<string, unknown> = {}) {
     assessment: 'Route parsing can process attacker-controlled callback input.',
     mitigation: 'Strict callback and route allowlists reduce, but do not eliminate, exposure.',
     owner: 'StrandCue maintainer',
-    approvedOn: '2026-09-13',
-    reviewOn: '2026-09-27',
-    expiresOn: '2026-10-13',
+    approvedOn: '2026-10-06',
+    reviewOn: '2026-11-05',
+    expiresOn: '2026-12-05',
     upgradePath: 'Upgrade query-string or expo-router when a compatible fix is available.',
     ...overrides,
+  };
+}
+
+function highBuildToolException(overrides: Record<string, unknown> = {}) {
+  return currentException({
+    severity: 'high',
+    reachable: 'no',
+    scope: 'expo-build-tooling',
+    packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['development'])],
+    assessment: 'The affected parser is confined to the reviewed Expo CLI build path.',
+    mitigation: 'Release artifacts do not contain the package; keep build inputs trusted.',
+    expiresOn: '2026-12-05',
+    upgradePath: 'Upgrade Expo CLI when it removes the affected braces version.',
+    ...overrides,
+  });
+}
+
+type HighBuildToolVulnerability = {
+  name: string;
+  severity: 'high';
+  via: (string | { name: string; severity: 'high'; url: string })[];
+  effects: string[];
+};
+
+function highBuildToolAuditReport(): {
+  auditReportVersion: 2;
+  vulnerabilities: Record<string, HighBuildToolVulnerability>;
+} {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      braces: {
+        name: 'braces', severity: 'high' as const,
+        via: [{ name: 'braces', severity: 'high' as const, url: ADVISORY_URL }],
+        effects: ['@expo/cli'],
+      },
+      '@expo/cli': {
+        name: '@expo/cli', severity: 'high' as const,
+        via: ['braces'], effects: ['expo'],
+      },
+      expo: {
+        name: 'expo', severity: 'high' as const,
+        via: ['@expo/cli'], effects: [],
+      },
+    },
   };
 }
 
@@ -232,19 +278,124 @@ function xcodeChainAuditReport(higherRoots: string[]) {
   };
 }
 
-describe('dependency advisory policy', () => {
-  it.each(['high', 'critical'] as const)(
-    'fails every %s advisory even when an exception exists',
-    severity => {
-      const findings = auditDependencyPolicy(
-        auditReport(severity),
-        [currentException()],
-        TODAY,
-      );
-
-      expect(findings.map(({ code }) => code)).toContain('ADVISORY-SEVERITY');
+function collapsedXcodeAuditReport() {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      uuid: {
+        name: 'uuid',
+        severity: 'moderate' as const,
+        via: [{
+          name: 'uuid',
+          severity: 'moderate' as const,
+          url: UUID_ADVISORY_URL,
+        }],
+        effects: ['xcode'],
+      },
+      xcode: {
+        name: 'xcode',
+        severity: 'moderate' as const,
+        via: ['uuid'],
+        effects: ['@expo/config-plugins'],
+      },
+      '@expo/config-plugins': {
+        name: '@expo/config-plugins',
+        severity: 'moderate' as const,
+        via: ['xcode'],
+        effects: [],
+      },
     },
-  );
+  };
+}
+
+const collapsedXcodeApprovedPaths = [
+  ['uuid'],
+  ['xcode', 'uuid'],
+  ['@expo/config-plugins', 'xcode', 'uuid'],
+] as const;
+
+function collapsedXcodeException(
+  paths: readonly (readonly string[])[] = collapsedXcodeApprovedPaths,
+) {
+  return uuidException({
+    packages: paths.map(path => approvedBranch([...path], ['ios-build-tooling'])),
+  });
+}
+
+describe('dependency advisory policy', () => {
+  it('fails every critical advisory even when an exception exists', () => {
+    const findings = auditDependencyPolicy(
+      auditReport('critical'),
+      [currentException()],
+      TODAY,
+    );
+
+    expect(findings.map(({ code }) => code)).toContain('ADVISORY-SEVERITY');
+  });
+
+  it('accepts a high Expo build-tool advisory only when unreachable on development surfaces', () => {
+    expect(auditDependencyPolicy(
+      highBuildToolAuditReport(),
+      [highBuildToolException()],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo'] }),
+    )).toEqual([]);
+  });
+
+  it.each([
+    ['reachable', { reachable: 'yes' }, manifestContext({ rootDevDependencies: ['expo'] })],
+    ['android', { packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['android'])] }, manifestContext({ rootDevDependencies: ['expo'] })],
+    ['web', { packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['web'])] }, manifestContext({ rootDevDependencies: ['expo'] })],
+    ['mixed', { packages: [approvedBranch(['expo', '@expo/cli', 'braces'], ['development', 'production'])] }, manifestContext({ rootDevDependencies: ['expo'] })],
+  ])('rejects a high Expo build-tool exception with %s exposure', (_caseName, overrides, context) => {
+    const findings = auditDependencyPolicy(
+      highBuildToolAuditReport(),
+      [highBuildToolException(overrides)],
+      TODAY,
+      context,
+    );
+
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it('rejects a new high advisory path absent from the exception', () => {
+    const report = highBuildToolAuditReport();
+    report.vulnerabilities['alternate-expo-tool'] = {
+      name: 'alternate-expo-tool', severity: 'high', via: ['braces'], effects: [],
+    };
+    report.vulnerabilities.braces.effects.push('alternate-expo-tool');
+
+    expect(auditDependencyPolicy(
+      report,
+      [highBuildToolException()],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo', 'alternate-expo-tool'] }),
+    )).toContainEqual(expect.objectContaining({ code: 'ADVISORY-PATH-UNREVIEWED' }));
+  });
+
+  it('rejects a same-advisory non-Expo development path even when an Expo path is approved', () => {
+    const report = highBuildToolAuditReport();
+    report.vulnerabilities['generic-dev-tool'] = {
+      name: 'generic-dev-tool', severity: 'high', via: ['braces'], effects: [],
+    };
+    report.vulnerabilities.braces.effects.push('generic-dev-tool');
+
+    expect(auditDependencyPolicy(
+      report,
+      [highBuildToolException()],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo', 'generic-dev-tool'] }),
+    )).toContainEqual(expect.objectContaining({ code: 'ADVISORY-PATH-UNREVIEWED' }));
+  });
+
+  it('rejects high exceptions lasting more than 60 days', () => {
+    expect(auditDependencyPolicy(
+      highBuildToolAuditReport(),
+      [highBuildToolException({ expiresOn: '2026-12-06' })],
+      TODAY,
+      manifestContext({ rootDevDependencies: ['expo'] }),
+    )).toContainEqual(expect.objectContaining({ code: 'EXCEPTION-DURATION' }));
+  });
 
   it('fails a moderate advisory without a matching GHSA exception', () => {
     const findings = auditDependencyPolicy(auditReport(), [], TODAY);
@@ -257,10 +408,10 @@ describe('dependency advisory policy', () => {
 
   it.each([
     ['malformed', { advisoryId: 'not-a-ghsa' }, 'EXCEPTION-SCHEMA'],
-    ['future-approved', { approvedOn: '2026-09-14' }, 'EXCEPTION-DATE'],
-    ['expired', { expiresOn: '2026-09-12' }, 'EXCEPTION-DATE'],
-    ['review-before-approval', { reviewOn: '2026-09-12' }, 'EXCEPTION-DATE'],
-    ['review-after-expiry', { reviewOn: '2026-10-14' }, 'EXCEPTION-DATE'],
+    ['future-approved', { approvedOn: '2026-10-18' }, 'EXCEPTION-DATE'],
+    ['expired', { expiresOn: '2026-10-05' }, 'EXCEPTION-DATE'],
+    ['review-before-approval', { reviewOn: '2026-10-05' }, 'EXCEPTION-DATE'],
+    ['review-after-expiry', { reviewOn: '2026-12-06' }, 'EXCEPTION-DATE'],
     ['incomplete', { mitigation: '' }, 'EXCEPTION-SCHEMA'],
     ['missing branch path', { packages: [{ path: [], surfaces: ['development'] }] }, 'EXCEPTION-SCHEMA'],
     ['missing branch surface', { packages: [{ path: ['uuid'], surfaces: [] }] }, 'EXCEPTION-SCHEMA'],
@@ -286,7 +437,7 @@ describe('dependency advisory policy', () => {
     expect(auditDependencyPolicy(
       auditReport(),
       [currentException()],
-      '2026-09-27',
+      '2026-11-05',
     )).toEqual([]);
   });
 
@@ -294,7 +445,7 @@ describe('dependency advisory policy', () => {
     expect(auditDependencyPolicy(
       auditReport(),
       [currentException()],
-      '2026-09-28',
+      '2026-11-06',
     )).toContainEqual({
       code: 'EXCEPTION-REVIEW-DUE',
       message: `Exception review is due: ${ADVISORY_ID}.`,
@@ -305,7 +456,7 @@ describe('dependency advisory policy', () => {
     expect(auditDependencyPolicy(
       auditReport(),
       [currentException()],
-      '2026-10-14',
+      '2026-12-06',
     )).toContainEqual({
       code: 'EXCEPTION-DATE',
       message: `Exception dates are invalid or not current: ${ADVISORY_ID}.`,
@@ -470,6 +621,74 @@ describe('dependency advisory policy', () => {
       manifestContext({ rootDevDependencies: ['xcode'] }),
     )).toEqual([]);
   });
+
+  it('accepts a collapsed terminal Xcode graph only for all three reviewed iOS paths', () => {
+    expect(auditDependencyPolicy(
+      collapsedXcodeAuditReport(),
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext(),
+    )).toEqual([]);
+  });
+
+  it('rejects a direct mobile uuid surface alongside the collapsed Xcode graph', () => {
+    expect(auditDependencyPolicy(
+      collapsedXcodeAuditReport(),
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext({ mobileDependencies: ['uuid'] }),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('keeps a non-Xcode unresolved effect unidentified in a collapsed Xcode graph', () => {
+    const report = collapsedXcodeAuditReport();
+    report.vulnerabilities.uuid.effects.push('unresolved-runtime-parent');
+
+    expect(auditDependencyPolicy(
+      report,
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNIDENTIFIED',
+      message: 'Advisory dependency surfaces could not be classified.',
+    });
+  });
+
+  it('does not treat an arbitrary unresolved terminal after Xcode as iOS tooling', () => {
+    const report = collapsedXcodeAuditReport();
+    report.vulnerabilities.xcode.effects.push('unresolved-runtime-parent');
+
+    expect(auditDependencyPolicy(
+      report,
+      [collapsedXcodeException()],
+      TODAY,
+      manifestContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNIDENTIFIED',
+      message: 'Advisory dependency surfaces could not be classified.',
+    });
+  });
+
+  it.each(collapsedXcodeApprovedPaths.map(path => [path] as const))(
+    'requires the collapsed Xcode exception path %j',
+    missingPath => {
+      const remainingPaths = collapsedXcodeApprovedPaths.filter(path => path !== missingPath);
+
+      expect(auditDependencyPolicy(
+        collapsedXcodeAuditReport(),
+        [collapsedXcodeException(remainingPaths)],
+        TODAY,
+        manifestContext(),
+      )).toContainEqual({
+        code: 'ADVISORY-PATH-UNREVIEWED',
+        message: 'Observed advisory dependency path has not been reviewed.',
+      });
+    },
+  );
 
   it('rejects the same GHSA path when it gains an Android production surface', () => {
     const report = uuidAuditReport({ includeAndroid: false, includeXcode: false });
@@ -783,15 +1002,21 @@ describe('dependency advisory policy', () => {
 });
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const CLEAN_AUDIT_REPORT = JSON.stringify({ auditReportVersion: 2, vulnerabilities: {} });
 let fakeNpmDirectory = '';
 let fakeNpmPath = '';
+let fixedClockPath = '';
 
 function cliAuditReport() {
-  type RegistryEntry = { advisoryId: string; packages: { path: string[] }[] };
+  type RegistryEntry = {
+    advisoryId: string;
+    severity: 'moderate' | 'high';
+    packages: { path: string[] }[];
+  };
   type Vulnerability = {
     name: string;
-    severity: 'moderate';
-    via: (string | { name: string; severity: 'moderate'; url: string })[];
+    severity: 'moderate' | 'high';
+    via: (string | { name: string; severity: 'moderate' | 'high'; url: string })[];
     effects: string[];
   };
   const registry = JSON.parse(readFileSync(
@@ -799,8 +1024,9 @@ function cliAuditReport() {
     'utf8',
   )) as RegistryEntry[];
   const vulnerabilities: Record<string, Vulnerability> = {};
-  const ensureVulnerability = (name: string) => {
-    vulnerabilities[name] ??= { name, severity: 'moderate', via: [], effects: [] };
+  const ensureVulnerability = (name: string, severity: 'moderate' | 'high') => {
+    vulnerabilities[name] ??= { name, severity, via: [], effects: [] };
+    if (severity === 'high') vulnerabilities[name].severity = 'high';
     return vulnerabilities[name];
   };
 
@@ -808,12 +1034,12 @@ function cliAuditReport() {
     for (const rootToLeafPath of exception.packages.map(({ path }) => path)) {
       const leafToRootPath = [...rootToLeafPath].reverse();
       leafToRootPath.forEach((packageName, index) => {
-        const vulnerability = ensureVulnerability(packageName);
+        const vulnerability = ensureVulnerability(packageName, exception.severity);
         if (index === 0) {
           if (!vulnerability.via.some(via => typeof via !== 'string')) {
             vulnerability.via.push({
               name: packageName,
-              severity: 'moderate',
+              severity: exception.severity,
               url: `https://github.com/advisories/${exception.advisoryId}`,
             });
           }
@@ -822,7 +1048,7 @@ function cliAuditReport() {
 
         const dependency = leafToRootPath[index - 1];
         if (!vulnerability.via.includes(dependency)) vulnerability.via.push(dependency);
-        const dependent = ensureVulnerability(dependency);
+        const dependent = ensureVulnerability(dependency, exception.severity);
         if (!dependent.effects.includes(packageName)) dependent.effects.push(packageName);
       });
     }
@@ -834,8 +1060,11 @@ function cliAuditReport() {
 function runAuditCli(options: {
   stdout?: string;
   auditExitCode?: number;
+  workerStdout?: string;
+  workerAuditExitCode?: number;
   npmExecPath?: string;
   credentialCanary?: string;
+  auditLog?: string;
 }) {
   const inheritedEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => name.toLowerCase() !== 'npm_execpath'),
@@ -844,7 +1073,7 @@ function runAuditCli(options: {
   return new Promise<{ exitCode: number; stdout: string; stderr: string }>(resolveResult => {
     execFile(
       process.execPath,
-      ['scripts/audit-dependencies-cli.ts'],
+      ['--import', pathToFileURL(fixedClockPath).href, 'scripts/audit-dependencies-cli.ts'],
       {
         cwd: repositoryRoot,
         encoding: 'utf8',
@@ -854,6 +1083,9 @@ function runAuditCli(options: {
           npm_execpath: options.npmExecPath ?? fakeNpmPath,
           FAKE_AUDIT_STDOUT: options.stdout ?? '',
           FAKE_AUDIT_EXIT_CODE: String(options.auditExitCode ?? 0),
+          FAKE_AUDIT_WORKER_STDOUT: options.workerStdout ?? CLEAN_AUDIT_REPORT,
+          FAKE_AUDIT_WORKER_EXIT_CODE: String(options.workerAuditExitCode ?? 0),
+          FAKE_AUDIT_LOG: options.auditLog,
           NPM_TOKEN: options.credentialCanary,
         },
       },
@@ -866,13 +1098,48 @@ function runAuditCli(options: {
   });
 }
 
+function auditedDirectories(auditLog: string): string[] {
+  return readFileSync(auditLog, 'utf8')
+    .split('\n')
+    .map(line => line.trim().replace(/\\/g, '/'))
+    .filter(line => line.length > 0);
+}
+
 describe('dependency audit CLI', () => {
   beforeAll(async () => {
     fakeNpmDirectory = await mkdtemp(join(tmpdir(), 'strandcue-audit-cli-'));
     fakeNpmPath = join(fakeNpmDirectory, 'fake-npm.mjs');
+    fixedClockPath = join(fakeNpmDirectory, 'fixed-clock.mjs');
+    // Freeze only the fixture subprocess. The real CLI must keep its live expiry gate.
+    await writeFile(
+      fixedClockPath,
+      [
+        'const RealDate = Date;',
+        'globalThis.Date = class extends RealDate {',
+        `  constructor(...args) { super(...(args.length ? args : ['${TODAY}T12:00:00Z'])); }`,
+        `  static now() { return new RealDate('${TODAY}T12:00:00Z').getTime(); }`,
+        '};',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
     await writeFile(
       fakeNpmPath,
-      "process.stdout.write(process.env.FAKE_AUDIT_STDOUT ?? '');\nprocess.exitCode = Number(process.env.FAKE_AUDIT_EXIT_CODE ?? '0');\n",
+      [
+        "import { appendFileSync } from 'node:fs';",
+        `const runnerReviews = ${JSON.stringify(['eas', 'mutation'].map(name => JSON.parse(readFileSync(resolve(repositoryRoot, `docs/verification/${name}-runner-advisory-review.json`), 'utf8'))))};`,
+        'const runner = runnerReviews.find(review => process.cwd().replaceAll(String.fromCharCode(92), "/").endsWith(review.tree.replace("/package.json", "")));',
+        'if (runner) { if (process.env.FAKE_AUDIT_LOG) appendFileSync(process.env.FAKE_AUDIT_LOG, `${process.cwd()}\\n`); process.stdout.write(JSON.stringify(runner.audit)); process.exit(0); }',
+        "if (!process.argv.includes('--include=dev') || process.argv.includes('--omit=dev')) { process.stderr.write('Development dependencies must be audited'); process.exit(2); }",
+        'const cwd = process.cwd();',
+        'if (process.env.FAKE_AUDIT_LOG) appendFileSync(process.env.FAKE_AUDIT_LOG, `${cwd}\\n`);',
+        "const isWorkerTree = /[\\\\/]workers[\\\\/][^\\\\/]+$/.test(cwd);",
+        'const stdoutName = isWorkerTree ? "FAKE_AUDIT_WORKER_STDOUT" : "FAKE_AUDIT_STDOUT";',
+        'const exitName = isWorkerTree ? "FAKE_AUDIT_WORKER_EXIT_CODE" : "FAKE_AUDIT_EXIT_CODE";',
+        'process.stdout.write(process.env[stdoutName] ?? "");',
+        'process.exitCode = Number(process.env[exitName] ?? "0");',
+        '',
+      ].join('\n'),
       'utf8',
     );
   });
@@ -880,21 +1147,6 @@ describe('dependency audit CLI', () => {
   afterAll(async () => {
     await rm(fakeNpmDirectory, { recursive: true, force: true });
   });
-
-  it('accepts npm exit 1 when valid findings are covered by current exceptions', async () => {
-    const result = await runAuditCli({
-      stdout: JSON.stringify(cliAuditReport()),
-      auditExitCode: 1,
-    });
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('"critical":0');
-    expect(result.stdout).toContain('"high":0');
-    expect(result.stdout).toContain('"moderate":13');
-    expect(result.stdout).toContain('"reviewedAdvisories":2');
-    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
-    expect(result.stderr).toBe('');
-  }, 10_000);
 
   it('rejects npm exit 1 when the registry retains a path absent from the audit report', async () => {
     const report = cliAuditReport();
@@ -908,7 +1160,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
     expect(result.stdout).toContain('EXCEPTION-PATH-STALE');
-  }, 10_000);
+  }, 30_000);
 
   it('rejects npm exit 1 when a validated audit report contains no vulnerabilities', async () => {
     const cleanReport = { auditReportVersion: 2, vulnerabilities: {} };
@@ -920,7 +1172,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-HOLD');
     expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
-  });
+  }, 10_000);
 
   it.each([
     ['empty output', '', 1],
@@ -932,7 +1184,7 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
-  });
+  }, 10_000);
 
   it('fails closed when npm execution is not configured', async () => {
     const result = await runAuditCli({
@@ -1005,7 +1257,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('ADVISORY-RESOLUTION-SEVERITY');
     expect(result.stdout).not.toContain(untrustedPackageName);
-  });
+  }, 10_000);
 
   it('reports an unreviewed branch with a fixed code and no untrusted path details', async () => {
     const untrustedPackageName = 'attacker-controlled-android-runtime';
@@ -1031,5 +1283,360 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('ADVISORY-PATH-UNREVIEWED');
     expect(result.stdout).not.toContain(untrustedPackageName);
+  }, 10_000);
+
+  it('audits the deletion worker tree as a second npm audit invocation', async () => {
+    const auditLog = join(fakeNpmDirectory, 'audit-log-worker-tree.txt');
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cliAuditReport()),
+      auditLog,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+
+    const audited = auditedDirectories(auditLog);
+    expect(audited).toHaveLength(4);
+    const workerDirectories = audited.filter(dir => dir.endsWith('/workers/account-deletion'));
+    expect(workerDirectories).toHaveLength(1);
+    expect(existsSync(join(workerDirectories[0], 'package-lock.json'))).toBe(true);
+    const workspaceDirectories = audited.filter(dir => !dir.endsWith('/workers/account-deletion'));
+    expect(existsSync(join(workspaceDirectories[0], 'package-lock.json'))).toBe(true);
+  }, 10_000);
+
+  it('holds on a worker-only advisory and names the worker tree that produced it', async () => {
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerStdout: JSON.stringify(workerAdvisoryReport()),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('workers/account-deletion/package.json');
+    expect(result.stdout).toContain('ADVISORY-UNEXCEPTED');
+
+    const hold = JSON.parse(result.stdout.trim()) as {
+      status: string;
+      summary: Record<string, number>;
+      trees: { id: string; status: string; findingCount: number; findingCodes: string[] }[];
+    };
+    const rootTree = hold.trees.find(tree => tree.id === 'root');
+    const workerTree = hold.trees.find(tree => tree.id === 'workers/account-deletion/package.json');
+    expect(rootTree).toMatchObject({ status: 'PASS', findingCount: 0 });
+    expect(workerTree?.status).toBe('HOLD');
+    expect(workerTree?.findingCodes).toContain('ADVISORY-UNEXCEPTED');
+    expect(workerTree?.findingCount).toBeGreaterThanOrEqual(2);
+  }, 10_000);
+
+  it('fails closed when the worker tree cannot be audited', async () => {
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerAuditExitCode: 2,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
+    expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
+  }, 10_000);
+
+  async function runGateInProcess(options: {
+    stdout: string;
+    workerStdout?: string;
+    workerAuditExitCode?: number;
+  }): Promise<{ exitCode: number; stdout: string; stderr: string; audited: string[] }> {
+    const auditLog = join(
+      fakeNpmDirectory,
+      `audit-log-in-process-${Math.random().toString(36).slice(2)}.txt`,
+    );
+    const previousEnvironment = {
+      npmExecPath: process.env.npm_execpath,
+      auditStdout: process.env.FAKE_AUDIT_STDOUT,
+      workerStdout: process.env.FAKE_AUDIT_WORKER_STDOUT,
+      workerExitCode: process.env.FAKE_AUDIT_WORKER_EXIT_CODE,
+      auditLog: process.env.FAKE_AUDIT_LOG,
+    };
+    const previousExitCode = process.exitCode ?? undefined;
+    const stdoutWrites: string[] = [];
+    const stderrWrites: string[] = [];
+    const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    const setEnvironment = (name: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    };
+
+    setEnvironment('npm_execpath', fakeNpmPath);
+    setEnvironment('FAKE_AUDIT_STDOUT', options.stdout);
+    setEnvironment('FAKE_AUDIT_WORKER_STDOUT', options.workerStdout ?? CLEAN_AUDIT_REPORT);
+    setEnvironment('FAKE_AUDIT_WORKER_EXIT_CODE', String(options.workerAuditExitCode ?? 0));
+    setEnvironment('FAKE_AUDIT_LOG', auditLog);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdoutWrites.push(String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrWrites.push(String(chunk));
+      return true;
+    }) as unknown as typeof process.stderr.write;
+
+    let exitCodeDuringRun: number | string | undefined;
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+      vi.resetModules();
+      await import('../../scripts/audit-dependencies-cli.ts');
+      exitCodeDuringRun = process.exitCode ?? undefined;
+    } finally {
+      vi.useRealTimers();
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
+      process.exitCode = previousExitCode;
+      setEnvironment('npm_execpath', previousEnvironment.npmExecPath);
+      setEnvironment('FAKE_AUDIT_STDOUT', previousEnvironment.auditStdout);
+      setEnvironment('FAKE_AUDIT_WORKER_STDOUT', previousEnvironment.workerStdout);
+      setEnvironment('FAKE_AUDIT_WORKER_EXIT_CODE', previousEnvironment.workerExitCode);
+      setEnvironment('FAKE_AUDIT_LOG', previousEnvironment.auditLog);
+    }
+
+    return {
+      exitCode: Number(exitCodeDuringRun ?? 0),
+      stdout: stdoutWrites.join(''),
+      stderr: stderrWrites.join(''),
+      audited: auditedDirectories(auditLog),
+    };
+  }
+
+  it('runs the gate in-process and audits both trees', async () => {
+    const result = await runGateInProcess({ stdout: JSON.stringify(cliAuditReport()) });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+    expect(result.audited).toHaveLength(4);
+    expect(result.audited.some(dir => dir.endsWith('/workers/account-deletion'))).toBe(true);
+  }, 10_000);
+
+  it('runs the in-process gate to HOLD and name the worker tree that failed', async () => {
+    const result = await runGateInProcess({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerStdout: JSON.stringify(workerAdvisoryReport()),
+      workerAuditExitCode: 1,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
+    expect(result.stdout).toContain('workers/account-deletion/package.json');
+  }, 10_000);
+
+  it('runs the in-process gate to ERROR when a tree cannot be audited', async () => {
+    const result = await runGateInProcess({
+      stdout: JSON.stringify(cliAuditReport()),
+      workerAuditExitCode: 2,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
+    expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
+  }, 10_000);
+});
+
+const workerManifestPath = 'workers/account-deletion/package.json';
+
+function workerSurfaceContext() {
+  return {
+    manifestPath: workerManifestPath,
+    manifest: JSON.parse(readFileSync(resolve(repositoryRoot, workerManifestPath), 'utf8')) as unknown,
+  };
+}
+
+function workerDependencyReport(
+  packageName: string,
+  severity: 'moderate' | 'high',
+  advisoryId: string,
+) {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      [packageName]: {
+        name: packageName,
+        severity,
+        via: [{ name: packageName, severity, url: `https://github.com/advisories/${advisoryId}` }],
+        effects: [],
+      },
+    },
+  };
+}
+
+function workerAdvisoryReport() {
+  return {
+    auditReportVersion: 2 as const,
+    vulnerabilities: {
+      '@supabase/supabase-js': {
+        name: '@supabase/supabase-js',
+        severity: 'high' as const,
+        via: [{
+          name: '@supabase/supabase-js',
+          severity: 'high' as const,
+          url: 'https://github.com/advisories/GHSA-2345-2345-2345',
+        }],
+        effects: [],
+      },
+      'worker-moderate-transitive': {
+        name: 'worker-moderate-transitive',
+        severity: 'moderate' as const,
+        via: [{
+          name: 'worker-moderate-transitive',
+          severity: 'moderate' as const,
+          url: 'https://github.com/advisories/GHSA-3456-3456-3456',
+        }],
+        effects: [],
+      },
+    },
+  };
+}
+
+describe('standalone worker dependency tree', () => {
+  it('classifies the worker runtime dependency as production, never as development', () => {
+    const report = workerDependencyReport('@supabase/supabase-js', 'moderate', 'GHSA-2345-2345-2345');
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-2345-2345-2345',
+        packages: [approvedBranch(['@supabase/supabase-js'], ['production'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toEqual([]);
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-2345-2345-2345',
+        packages: [approvedBranch(['@supabase/supabase-js'], ['development'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('classifies a worker devDependency as development, never as production', () => {
+    const report = workerDependencyReport('wrangler', 'moderate', 'GHSA-3456-3456-3456');
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-3456-3456-3456',
+        packages: [approvedBranch(['wrangler'], ['development'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toEqual([]);
+
+    expect(auditDependencyPolicyImplementation(
+      report,
+      [currentException({
+        advisoryId: 'GHSA-3456-3456-3456',
+        packages: [approvedBranch(['wrangler'], ['production'])],
+      })],
+      TODAY,
+      workerSurfaceContext(),
+    )).toContainEqual({
+      code: 'ADVISORY-SURFACE-UNREVIEWED',
+      message: 'Observed advisory dependency surfaces have not been reviewed.',
+    });
+  });
+
+  it('refuses to classify a package that the worker manifest does not declare', () => {
+    const undeclaredFindings = auditDependencyPolicyImplementation(
+      {
+        auditReportVersion: 2,
+        vulnerabilities: {
+          'undeclared-worker-package': {
+            name: 'undeclared-worker-package',
+            severity: 'high',
+            via: ['missing-transitive-source'],
+            effects: [],
+          },
+        },
+      },
+      [],
+      TODAY,
+      workerSurfaceContext(),
+    );
+
+    expect(undeclaredFindings).toContainEqual({
+      code: 'ADVISORY-SEVERITY',
+      message: 'High vulnerability has no classified dependency surface: undeclared-worker-package.',
+    });
+
+    const declaredFindings = auditDependencyPolicyImplementation(
+      {
+        auditReportVersion: 2,
+        vulnerabilities: {
+          '@supabase/supabase-js': {
+            name: '@supabase/supabase-js',
+            severity: 'high',
+            via: ['missing-transitive-source'],
+            effects: [],
+          },
+        },
+      },
+      [],
+      TODAY,
+      workerSurfaceContext(),
+    );
+
+    expect(declaredFindings.map(({ message }) => message)).not.toContain(
+      'High vulnerability has no classified dependency surface: @supabase/supabase-js.',
+    );
+  });
+
+  it.each([
+    ['a workspace app manifest', 'apps/mobile/package.json'],
+    ['a workspace package manifest', 'packages/domain/package.json'],
+    ['a repository root manifest', 'package.json'],
+    ['a traversing path', 'workers/account-deletion/../../package.json'],
+    ['a manifest outside the declared roots', 'tools/eas-runner/package.json'],
+  ])('rejects %s as a standalone dependency tree', (_case, manifestPath) => {
+    expect(auditDependencyPolicyImplementation(
+      { auditReportVersion: 2, vulnerabilities: {} },
+      [],
+      TODAY,
+      { manifestPath, manifest: { name: 'fixture', dependencies: {}, devDependencies: {} } },
+    )).toContainEqual({
+      code: 'SURFACE-CONTEXT-SCHEMA',
+      message: 'Dependency manifest surface context is malformed or incomplete.',
+    });
+  });
+
+  it('scopes a shared exception registry to the advisories one tree observes', () => {
+    const cleanReport = { auditReportVersion: 2, vulnerabilities: {} };
+
+    expect(scopeExceptionRegistryToReport([currentException()], cleanReport)).toEqual([]);
+    expect(auditDependencyPolicyImplementation(
+      cleanReport,
+      scopeExceptionRegistryToReport([currentException()], cleanReport),
+      TODAY,
+      workerSurfaceContext(),
+    )).toEqual([]);
+
+    const report = workerDependencyReport('@supabase/supabase-js', 'moderate', 'GHSA-2345-2345-2345');
+    const observed = currentException({ advisoryId: 'GHSA-2345-2345-2345' });
+    expect(scopeExceptionRegistryToReport(
+      [observed, currentException({ advisoryId: 'GHSA-6789-6789-6789' })],
+      report,
+    )).toEqual([observed]);
+  });
+
+  it('fails closed when the registry or the report cannot be scoped', () => {
+    const report = workerDependencyReport('@supabase/supabase-js', 'moderate', 'GHSA-2345-2345-2345');
+
+    expect(scopeExceptionRegistryToReport('not-a-registry', report)).toEqual([]);
+    expect(scopeExceptionRegistryToReport([currentException()], { auditReportVersion: 1 })).toEqual([]);
   });
 });

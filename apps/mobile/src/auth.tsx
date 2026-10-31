@@ -2,12 +2,67 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, Text, View } from 'react-native';
 import * as Linking from 'expo-linking';
 import type { User } from '@supabase/supabase-js';
-import { RECOVERY_KEY, secureStorage, supabase } from './client';
-import { authNeedsLoading, parseRecoveryCallback, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
+import { RECOVERY_ACTIVE_KEY, RECOVERY_KEY, secureStorage, supabase } from './client';
+import { authNeedsLoading, isApprovedAuthCallback, isSessionRevokedError, maxOfflineRefreshAttempts, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
+import { clearAllCheckInDrafts } from './guidance/current-condition-state';
 import { transitionServiceDraftOwner } from './service-form';
 import { Button, Field, Page, styles } from './ui';
 
 export const serviceDraftCleanupNotice = 'Device drafts from the previous account could not be cleared. Sign out before sharing this device.';
+// The server rejected this session (revoked, deleted, expired or invalid):
+// retaining the prior user would keep rendering another account's record.
+export const sessionRevokedNotice = 'Your session is no longer valid. This device has been signed out.';
+// Transient failures are retained only up to maxOfflineRefreshAttempts; past
+// that the device signs out rather than presenting a stale account forever.
+export const sessionUnverifiableNotice = 'Your session could not be verified after several attempts. This device has been signed out.';
+const authCallbackUrl = 'https://strandcue.adonisgptacc.workers.dev/auth/callback';
+
+type RecoveryAuth = {
+  exchangeCodeForSession: (code: string, options: {flowId: string}) => Promise<{data: {session?: unknown; redirectType?: string}; error: unknown}>;
+  signOut: (options: {scope: 'local'}) => Promise<unknown>;
+};
+
+type RecoveryOutcome = {status: 'ready'} | {status: 'failed'; reason: 'invalid' | 'expired'};
+
+export function createRecoveryCallbackGate() {
+  let completed: RecoveryOutcome | null = null;
+  let inFlight: Promise<RecoveryOutcome> | null = null;
+  return {
+    run(operation: () => Promise<RecoveryOutcome>): Promise<RecoveryOutcome> {
+      if (completed) return Promise.resolve(completed);
+      if (inFlight) return inFlight;
+      inFlight = operation().then(result => {
+        if (result.status === 'ready') completed = result;
+        return result;
+      }).finally(() => { inFlight = null; });
+      return inFlight;
+    },
+    reset() { completed = null; inFlight = null; },
+  };
+}
+
+const recoveryCallbackGate = createRecoveryCallbackGate();
+
+export async function completeRecoveryCallback(options: {
+  url: string;
+  pending: boolean;
+  auth: RecoveryAuth;
+  removeRecoveryMarker: () => Promise<void>;
+}): Promise<RecoveryOutcome> {
+  const callback = parseRecoveryCallback(options.url, options.pending);
+  if (!callback) {
+    await options.removeRecoveryMarker();
+    await options.auth.signOut({scope: 'local'});
+    return {status: 'failed', reason: 'invalid'};
+  }
+  const {data, error} = await options.auth.exchangeCodeForSession(callback.code, {flowId: callback.flowId});
+  await options.removeRecoveryMarker();
+  if (error || data.redirectType !== 'recovery' || !data.session) {
+    await options.auth.signOut({scope: 'local'});
+    return {status: 'failed', reason: 'expired'};
+  }
+  return {status: 'ready'};
+}
 
 export function useAccount() {
   const [user, setUser] = useState<User | null>(null);
@@ -15,19 +70,50 @@ export function useAccount() {
   const [recovery, setRecovery] = useState(false);
   const [notice, setNotice] = useState('');
   const verifiedUser = useRef<User | null>(null);
+  const recoveryRef = useRef(false);
+  const offlineFailures = useRef(0);
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
     let mounted = true;
     let epoch = 0;
+    let initialLinkChecked = false;
+    const clearAccountState = (message: string, request: number) => {
+      offlineFailures.current = 0;
+      verifiedUser.current = null;
+      setUser(null);
+      setRecovery(false);
+      setNotice(message);
+      setLoading(false);
+      // Purge the dead local session so it does not persist in storage and
+      // auto-refresh does not keep retrying a dead refresh token. The
+      // resulting SIGNED_OUT event re-enters the same clearing path
+      // idempotently: same null state, no notice change, no extra sign-out.
+      client.auth.stopAutoRefresh();
+      void client.auth.signOut({scope: 'local'}).catch(() => undefined);
+      // The temporary check-in and the resolver state belong to the account
+      // that is going away. They live in memory only, and they go with it.
+      clearAllCheckInDrafts();
+      void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
+        if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
+      });
+    };
     const refresh = (hideExisting = false) => {
       const request = ++epoch;
       setLoading(hideExisting || authNeedsLoading(!!verifiedUser.current));
       const isCurrent = () => mounted && request === epoch;
       void client.auth.getUser()
-        .then(result => resolveAuthRefresh(result, (owner, guard) => transitionServiceDraftOwner(secureStorage, owner, guard), isCurrent))
+        .then(result => {
+          if (!isCurrent()) return null;
+          if (result.error && isSessionRevokedError(result.error)) {
+            clearAccountState(sessionRevokedNotice, request);
+            return null;
+          }
+          return resolveAuthRefresh(result, (owner, guard) => transitionServiceDraftOwner(secureStorage, owner, guard), isCurrent);
+        })
         .then(outcome => {
         if (outcome && isCurrent()) {
+          offlineFailures.current = 0;
           verifiedUser.current = outcome.user;
           setUser(outcome.user);
           setNotice(current => outcome.cleanupFailed ? serviceDraftCleanupNotice : current === serviceDraftCleanupNotice ? '' : current);
@@ -35,6 +121,11 @@ export function useAccount() {
         }
       }).catch(() => {
         if (mounted && request === epoch) {
+          offlineFailures.current += 1;
+          if (offlineFailures.current > maxOfflineRefreshAttempts) {
+            clearAccountState(sessionUnverifiableNotice, request);
+            return;
+          }
           const retained = resolvedRefreshUser(verifiedUser.current, null, true);
           verifiedUser.current = retained;
           setUser(retained);
@@ -43,15 +134,18 @@ export function useAccount() {
         }
       });
     };
-    refresh();
     const {data: {subscription}} = client.auth.onAuthStateChange(event => {
       if (event === 'SIGNED_OUT') {
         const request = ++epoch;
+        offlineFailures.current = 0;
         verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false);
+        // The session ended, so the check-in and the resolver state that
+        // belonged to it are cleared with it.
+        clearAllCheckInDrafts();
         void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
           if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
         });
-      } else setTimeout(() => { if (mounted) refresh(event === 'SIGNED_IN'); }, 0);
+      } else setTimeout(() => { if (mounted && initialLinkChecked && !recoveryRef.current) refresh(event === 'SIGNED_IN'); }, 0);
     });
     const state = AppState.addEventListener('change', value => {
       if (value === 'active') client.auth.startAutoRefresh(); else client.auth.stopAutoRefresh();
@@ -60,23 +154,71 @@ export function useAccount() {
     const callback = async (url: string) => {
       if (processing) return;
       processing = true;
+      // Exchanging the recovery code emits SIGNED_IN before the promise resolves.
+      // Gate normal profile routing for the whole exchange, not only afterwards.
+      recoveryRef.current = true;
       try {
+        if (await secureStorage.getItem(RECOVERY_ACTIVE_KEY) === '1') {
+          if (mounted) {setRecovery(true); setLoading(false); setNotice('');}
+          return;
+        }
         const raw = await secureStorage.getItem(RECOVERY_KEY);
+        // An approved URL is not proof that this device requested recovery.
+        // Ignore unsolicited links and resume ordinary account verification.
+        if (raw === null) {
+          recoveryRef.current = false;
+          if (!initialLinkChecked) refresh();
+          return;
+        }
         const started = raw ? Number(raw) : 0;
-        const code = parseRecoveryCallback(url, started > 0 && Date.now() - started < 3_600_000 && Date.now() >= started);
-        if (!code) { if (mounted) setNotice('That recovery link cannot be used here. Request a fresh link on this device.'); return; }
-        const {data, error} = await client.auth.exchangeCodeForSession(code);
-        await secureStorage.removeItem(RECOVERY_KEY);
-        if (error || !('redirectType' in data) || data.redirectType !== 'recovery' || !data.session) { if (mounted) setNotice('That recovery link expired or could not be verified. Please request another.'); return; }
-        if (mounted) {setRecovery(true); setNotice('');}
-      } catch { if (mounted) setNotice('Recovery could not finish. Please request a fresh link.'); }
+        const outcome = await recoveryCallbackGate.run(() => completeRecoveryCallback({
+          url,
+          pending: started > 0 && Date.now() - started < 3_600_000 && Date.now() >= started,
+          auth: client.auth,
+          removeRecoveryMarker: () => secureStorage.removeItem(RECOVERY_KEY),
+        }));
+        if (outcome.status === 'failed') {
+          recoveryRef.current = false;
+          verifiedUser.current = null;
+          if (mounted) { setUser(null); setRecovery(false); setLoading(false); setNotice(recoveryFailureMessage(outcome.reason)); }
+          return;
+        }
+        await secureStorage.setItem(RECOVERY_ACTIVE_KEY, '1');
+        if (mounted) {setRecovery(true); setLoading(false); setNotice('');}
+      } catch {
+        recoveryRef.current = false;
+        await secureStorage.removeItem(RECOVERY_KEY).catch(() => undefined);
+        await client.auth.signOut({scope: 'local'}).catch(() => undefined);
+        if (mounted) { setUser(null); setRecovery(false); setLoading(false); setNotice(recoveryFailureMessage('failure')); }
+      }
       finally { processing = false; }
     };
-    void Linking.getInitialURL().then(url => {if (url?.startsWith('strandcue://auth/')) void callback(url);});
-    const links = Linking.addEventListener('url', ({url}) => { void callback(url); });
+    void secureStorage.getItem(RECOVERY_ACTIVE_KEY).then(async active => {
+      if (!mounted) return;
+      if (active === '1') {
+        recoveryRef.current = true;
+        initialLinkChecked = true;
+        setRecovery(true);
+        setLoading(false);
+        return;
+      }
+      const url = await Linking.getInitialURL();
+      if (!mounted) return;
+      if (url && isApprovedAuthCallback(url)) await callback(url);
+      else refresh();
+      initialLinkChecked = true;
+    }).catch(() => {
+      if (mounted) { initialLinkChecked = true; refresh(); }
+    });
+    const links = Linking.addEventListener('url', ({url}) => { if (isApprovedAuthCallback(url)) void callback(url); });
     return () => {mounted = false; ++epoch; subscription.unsubscribe(); state.remove(); links.remove();};
   }, []);
-  return {user, loading, recovery, notice, finishRecovery: () => setRecovery(false)};
+  return {user, loading, recovery, notice, finishRecovery: () => {
+    recoveryCallbackGate.reset();
+    recoveryRef.current = false;
+    void secureStorage.removeItem(RECOVERY_ACTIVE_KEY);
+    setRecovery(false);
+  }};
 }
 
 export function AuthScreen({notice = ''}: {notice?: string}) {
@@ -97,11 +239,15 @@ export function AuthScreen({notice = ''}: {notice?: string}) {
     try {
       if (mode === 'recovery') {
         await secureStorage.setItem(RECOVERY_KEY, String(Date.now()));
-        const {error} = await supabase.auth.resetPasswordForEmail(email.trim(), {redirectTo: 'strandcue://auth/callback'});
+        const {error} = await supabase.auth.resetPasswordForEmail(email.trim(), {redirectTo: authCallbackUrl});
         if (error) throw error;
         setMessage('If that account exists, a recovery email is on its way. Open the link on this device.');
       } else if (mode === 'signup') {
-        const {error} = await supabase.auth.signUp({email: email.trim(), password});
+        const {error} = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {emailRedirectTo: authCallbackUrl},
+        });
         if (error) throw error;
         setMessage('Check your email to confirm your account, then sign in here.');
         setMode('signin'); setPassword('');
@@ -124,6 +270,19 @@ export function AuthScreen({notice = ''}: {notice?: string}) {
     </View><Text style={styles.subtitle}>For adults in South Africa. Cosmetic hair-care records, without diagnosis or medical advice.</Text></Page>;
 }
 
+// Stable supabase-js identifier surfaced on AuthError.code when a password update
+// is rejected because the session is not recent enough. Source:
+// node_modules/@supabase/auth-js/src/lib/error-codes.ts ('reauthentication_needed').
+export const reauthenticationRequiredCode = 'reauthentication_needed';
+
+export function isReauthenticationRequired(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as {code?: unknown}).code;
+  if (typeof code === 'string' && code.toLowerCase() === reauthenticationRequiredCode) return true;
+  const message = (error as {message?: unknown}).message;
+  return typeof message === 'string' && /reauthenticat/i.test(message);
+}
+
 export function ResetPassword({onComplete}: {onComplete: () => void}) {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
@@ -132,7 +291,16 @@ export function ResetPassword({onComplete}: {onComplete: () => void}) {
     if (password.length < 12) {setMessage('Use at least 12 characters.'); return;}
     setBusy(true);
     try {const result = await supabase!.auth.updateUser({password}); if (result.error) throw result.error; setPassword(''); onComplete();}
-    catch {setMessage('Your password could not be changed. Request a new recovery link if this one expired.');}
+    // Task 10 (secure password change): with secure_password_change enabled, Supabase rejects
+    // stale-session password updates with AuthError code 'reauthentication_needed'
+    // (see @supabase/auth-js error-codes.ts). Keep the typed password and say so honestly.
+    catch (failure) {
+      if (isReauthenticationRequired(failure)) {
+        setMessage('Your session needs a fresh sign-in before this change. Sign in again or request a new recovery link, then try again — your new password is kept above.');
+        return;
+      }
+      setMessage('Your password could not be changed. Request a new recovery link if this one expired.');
+    }
     finally {setBusy(false);}
   };
   return <Page><Text style={styles.title}>A fresh start.</Text><View style={styles.card}><Field label="New password" secureTextEntry autoComplete="new-password" value={password} onChangeText={setPassword}/><Text accessibilityRole="alert" style={styles.body}>{message}</Text><Button title={busy ? 'Saving…' : 'Save new password'} disabled={busy} onPress={() => void submit()}/></View></Page>;

@@ -1,5 +1,18 @@
+export * from './activity.ts';
+export * from './catalogue-intake.ts';
+export * from './catalogue-search.ts';
+export * from './cue-check.ts';
+export * from './current-condition.ts';
 export * from './dates.ts';
+export * from './discovery-backlog.ts';
+export * from './guidance/index.ts';
+export * from './heat-coach.ts';
 export * from './passport.ts';
+export * from './personal-outcome-summary.ts';
+export * from './product-detail.ts';
+export * from './tool-catalogue.ts';
+export * from './protocol-execution.ts';
+export * from './recommendations/index.ts';
 export {
   BaselineRevisionSchema,
   ChangeRevisionSchema,
@@ -40,3 +53,5 @@ export {
   type ServiceType,
   type ServiceZone,
 } from './services.ts';
+export * from './shelf.ts';
+export * from './tools.ts';

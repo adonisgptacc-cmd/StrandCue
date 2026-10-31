@@ -1,0 +1,702 @@
+import { z } from 'zod';
+
+import { EffectiveDateSchema } from '../dates.ts';
+import { ActivityRevisionSchema } from '../activity.ts';
+import { CurrentConditionConcernSchema, CurrentConditionZoneSchema } from '../current-condition.ts';
+import { FactValueSchema, RecommendationContextSchema, RecommendationRuleSchema } from '../recommendations/schemas.ts';
+import { ServiceHeatSchema, ServiceZoneSchema } from '../services.ts';
+import { ToolHeatMethodsSchema, ToolSettingsSchema, YesNoUnknownSchema } from '../tools.ts';
+import type { RecommendationCondition, RecommendationEffect } from '../recommendations/types.ts';
+import { isGuidanceCapability } from './capability-vocabulary.ts';
+
+/**
+ * Reviewed content bundle versions this build understands. A bundle whose
+ * version is not listed here is unsupported: the publication gate refuses it
+ * rather than guessing at its shape.
+ *
+ * Version `1` stays supported so a historical decision run can still be
+ * replayed with the exact contract it was produced under. Version `2` is the
+ * reviewed-content contract: it must name its author, reference the evidence
+ * registry it was built from, and may only use the reviewed capability
+ * vocabulary. New tightening applies to version `2` only, so the meaning of an
+ * already-executed version `1` bundle never changes.
+ */
+export const SUPPORTED_BUNDLE_VERSIONS = ['1', '2'] as const;
+
+const REVIEWED_CONTRACT_BUNDLE_VERSION = '2';
+
+export const nonEmptyString = z.string().trim().min(1);
+
+const IsoTimestampSchema = z.iso.datetime({ offset: true });
+
+/**
+ * Deep-freeze helper. Guidance values cross module boundaries and are
+ * persisted for reproducibility, so a later caller must not be able to mutate
+ * an already-parsed snapshot, bundle or preparation in place.
+ */
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  for (const entry of Object.values(value as Record<string, unknown>)) deepFreeze(entry);
+  return value;
+}
+
+function frozen<S extends z.ZodType>(schema: S): S {
+  return schema.transform(value => deepFreeze(value)) as unknown as S;
+}
+
+function uniqueBy<T>(
+  values: readonly T[],
+  keyOf: (value: T) => string,
+  message: string,
+): (values: readonly T[]) => boolean {
+  return values => {
+    const seen = new Set<string>();
+    for (const value of values) {
+      const key = keyOf(value);
+      if (seen.has(key)) return false;
+      seen.add(key);
+    }
+    return true;
+  };
+}
+
+export const GuidanceGoalIdSchema = z.enum(['basic_wash']);
+
+/**
+ * The owner-facing availability states a recorded item can hold. `low` and
+ * `empty` are ordinary owner states (the shelf records them since Increment
+ * 2); only `available` counts as an available candidate. `out_of_stock` stays
+ * for the tool records that still use it.
+ */
+export const GuidanceAvailabilitySchema = z.enum(['available', 'low', 'empty', 'out_of_stock', 'archived']);
+
+export const GuidanceServicePresenceSchema = z.enum(['present', 'not-present', 'unknown']);
+
+export const GuidanceSourceCompletenessSchema = z.enum([
+  'complete',
+  'missing',
+  'truncated',
+  'failed',
+]);
+
+export const GuidanceSourceNameSchema = z.enum([
+  'passport',
+  'services',
+  'activities',
+  'products',
+  'tools',
+]);
+
+const GuidanceCompletenessSchema = z
+  .object({
+    passport: GuidanceSourceCompletenessSchema,
+    services: GuidanceSourceCompletenessSchema,
+    activities: GuidanceSourceCompletenessSchema,
+    products: GuidanceSourceCompletenessSchema,
+    tools: GuidanceSourceCompletenessSchema,
+  })
+  .strict();
+
+const factRecordSchema = z.record(z.string(), FactValueSchema);
+
+export const GuidanceSourceItemSchema = z
+  .object({
+    ownerItemId: nonEmptyString,
+    versionId: nonEmptyString.nullable(),
+    name: nonEmptyString,
+    availability: GuidanceAvailabilitySchema,
+    revision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
+ * What the owner recorded about a tool, exactly as recorded. Reuses the owner
+ * tool contracts so an impossible stored answer fails here instead of reaching
+ * guidance. `null` is "never answered"; an explicit unknown is its own answer.
+ */
+export const GuidanceToolOwnerFactsSchema = z
+  .object({
+    wattageWatts: z.number().int().min(1).max(10000).nullable(),
+    adjustableTemp: YesNoUnknownSchema.nullable(),
+    settings: ToolSettingsSchema.nullable(),
+    heatMethods: ToolHeatMethodsSchema.nullable(),
+  })
+  .strict();
+
+export const GuidanceToolItemSchema = GuidanceSourceItemSchema.extend({
+  ownerFacts: GuidanceToolOwnerFactsSchema.optional(),
+}).strict();
+
+export const GuidanceServiceFactSchema = z
+  .object({
+    serviceId: nonEmptyString,
+    currentPresence: GuidanceServicePresenceSchema,
+    // The recorded date keeps its precision. A service recorded as '2026-06'
+    // is not silently widened to '2026-06-01', and an unknown date stays
+    // unknown rather than being defaulted to today.
+    effectiveStart: EffectiveDateSchema.nullable(),
+    facts: factRecordSchema,
+    // Zones and heat are copied as recorded: a missing value stays missing.
+    zones: z.array(ServiceZoneSchema).max(36).optional(),
+    heat: ServiceHeatSchema.nullable().optional(),
+  })
+  .strict();
+
+export const GuidanceActivityFactSchema = z
+  .object({
+    activityId: nonEmptyString,
+    revision: z.number().int().nonnegative(),
+    voided: z.boolean(),
+    appliedRevisionIds: z.array(nonEmptyString).refine(
+      ids => new Set(ids).size === ids.length,
+      'Applied revision IDs must be unique',
+    ),
+    facts: z.object({
+      activityKind: z.enum(['wash', 'styling', 'other']).optional(),
+      precision: z.enum(['exact_day', 'exact_month', 'exact_year', 'unknown']).optional(),
+      status: z.enum(['active', 'voided']).optional(),
+    }).strict(),
+  })
+  .strict();
+
+export const GuidanceActivityCursorSchema = z.object({
+  baselineRecordedAt: IsoTimestampSchema,
+  activityId: z.string().uuid(),
+}).strict();
+
+export const GuidanceActivityHistorySchema = z.object({
+  activityId: z.string().uuid(),
+  revisions: z.array(ActivityRevisionSchema).min(1),
+}).strict().superRefine((history, context) => {
+  const revisions = history.revisions;
+  const ids = new Set<string>();
+  const correctionTargets = new Set<string>();
+  const baselineCount = revisions.filter(revision => revision.kind === 'baseline').length;
+  if (baselineCount !== 1) {
+    context.addIssue({ code: 'custom', path: ['revisions'], message: 'History requires exactly one baseline' });
+  }
+  revisions.forEach((revision, index) => {
+    if (revision.activityId !== history.activityId) {
+      context.addIssue({ code: 'custom', path: ['revisions', index, 'activityId'], message: 'Mixed activity IDs' });
+    }
+    if (ids.has(revision.id)) {
+      context.addIssue({ code: 'custom', path: ['revisions', index, 'id'], message: 'Duplicate revision ID' });
+    }
+    ids.add(revision.id);
+    if (revision.sequence !== index + 1 || revision.baseRevision !== index || (revision.kind === 'baseline') !== (index === 0)) {
+      context.addIssue({ code: 'custom', path: ['revisions', index], message: 'Broken revision sequence' });
+    }
+    if (revision.kind === 'correction') {
+      const target = revisions.slice(0, index).find(previous => previous.id === revision.correctsId);
+      if (!target || Date.parse(target.recordedAt) > Date.parse(revision.recordedAt) || correctionTargets.has(revision.correctsId)) {
+        context.addIssue({ code: 'custom', path: ['revisions', index, 'correctsId'], message: 'Invalid correction target' });
+      }
+      correctionTargets.add(revision.correctsId);
+    }
+  });
+});
+
+export const GuidanceActivityHistoryPageSchema = frozen(z.object({
+  items: z.array(GuidanceActivityHistorySchema).max(100),
+  nextCursor: GuidanceActivityCursorSchema.nullable(),
+}).strict().superRefine((page, context) => {
+  const ids = page.items.map(item => item.activityId);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: 'custom', path: ['items'], message: 'Duplicate activity identity' });
+  }
+}));
+
+export const GuidanceGoalSchema = z
+  .object({
+    id: GuidanceGoalIdSchema,
+    label: nonEmptyString,
+    requiredProfileFacts: z.array(nonEmptyString),
+  })
+  .strict();
+
+export const GuidanceSnapshotSchema = frozen(
+  z
+    .object({
+      ownerId: nonEmptyString,
+      asOf: IsoTimestampSchema,
+      loadedAt: IsoTimestampSchema,
+      passportFacts: factRecordSchema,
+      services: z.array(GuidanceServiceFactSchema),
+      activities: z.array(GuidanceActivityFactSchema),
+      products: z.array(GuidanceSourceItemSchema),
+      tools: z.array(GuidanceToolItemSchema),
+      completeness: GuidanceCompletenessSchema,
+    })
+    .strict()
+    .superRefine((snapshot, context) => {
+      const groups = [
+        { path: ['services'], label: 'services', key: (entry: { serviceId: string }) => entry.serviceId, items: snapshot.services },
+        { path: ['activities'], label: 'activities', key: (entry: { activityId: string }) => entry.activityId, items: snapshot.activities },
+        { path: ['products'], label: 'products', key: (entry: { ownerItemId: string }) => entry.ownerItemId, items: snapshot.products },
+        { path: ['tools'], label: 'tools', key: (entry: { ownerItemId: string }) => entry.ownerItemId, items: snapshot.tools },
+      ];
+      for (const group of groups) {
+        const isUnique = uniqueBy(
+          group.items,
+          group.key as (value: unknown) => string,
+          `duplicate ${group.label} identity`,
+        );
+        if (!isUnique(group.items)) {
+          context.addIssue({
+            code: 'custom',
+            path: group.path,
+            message: `GuidanceSnapshot contains a duplicate ${group.label} identity`,
+          });
+        }
+      }
+    }),
+);
+
+/** A capability name a rule reads, together with where it was found. */
+interface CapabilityReference {
+  readonly value: string;
+  readonly path: readonly (string | number)[];
+}
+
+/**
+ * Capability names inside a rule's condition tree. The engine models these as
+ * reusable strings; the reviewed-guidance boundary narrows them to the
+ * reviewed vocabulary without changing the engine's own types.
+ */
+function conditionCapabilityReferences(
+  condition: RecommendationCondition,
+  path: readonly (string | number)[],
+): CapabilityReference[] {
+  switch (condition.kind) {
+    case 'capability_available':
+      return [{ value: condition.capability, path: [...path, 'capability'] }];
+    case 'all':
+    case 'any':
+      return condition.conditions.flatMap((child, index) =>
+        conditionCapabilityReferences(child, [...path, 'conditions', index]),
+      );
+    case 'not':
+      return conditionCapabilityReferences(condition.condition, [...path, 'condition']);
+    default:
+      return [];
+  }
+}
+
+/** Capability names inside a rule's effects, including the two order effects. */
+function effectCapabilityReferences(
+  effect: RecommendationEffect,
+  path: readonly (string | number)[],
+): CapabilityReference[] {
+  switch (effect.kind) {
+    case 'require_capability':
+    case 'exclude_capability':
+    case 'prefer_capability':
+    case 'activation':
+      return [{ value: effect.capability, path: [...path, 'capability'] }];
+    case 'order_before':
+    case 'order_after':
+      return [
+        { value: effect.before, path: [...path, 'before'] },
+        { value: effect.after, path: [...path, 'after'] },
+      ];
+    default:
+      return [];
+  }
+}
+
+export const ReviewedCapabilityEntrySchema = z
+  .object({
+    kind: z.enum(['product', 'tool']),
+    versionId: nonEmptyString,
+    displayName: nonEmptyString,
+    verifiedCapabilities: z.array(nonEmptyString),
+    evidenceIds: z.array(nonEmptyString),
+    status: z.enum(['published', 'withdrawn']),
+    reviewedAt: IsoTimestampSchema,
+    reviewedBy: nonEmptyString,
+    /**
+     * Named human who wrote this entry. Optional on its own because a
+     * standalone entry does not know its bundle version; a version `2` bundle
+     * requires it on every entry, and that is what lets the gate refuse an
+     * entry its own author reviewed.
+     */
+    authoredBy: nonEmptyString.optional(),
+  })
+  .strict()
+  .superRefine((entry, context) => {
+    const seen = new Set<string>();
+    for (const capability of entry.verifiedCapabilities) {
+      if (seen.has(capability)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['verifiedCapabilities'],
+          message: `Reviewed capability '${capability}' is listed twice`,
+        });
+      }
+      seen.add(capability);
+    }
+    if (entry.authoredBy !== undefined && entry.authoredBy === entry.reviewedBy) {
+      context.addIssue({
+        code: 'custom',
+        path: ['authoredBy'],
+        message: 'A capability entry must be reviewed by someone other than its author',
+      });
+    }
+  });
+
+export const ReviewedBundleStatusSchema = z.enum(['draft', 'published', 'withdrawn']);
+
+export const GuidanceBundleVersionSchema = z.enum(SUPPORTED_BUNDLE_VERSIONS);
+
+const hasEvidence = z
+  .array(nonEmptyString)
+  .min(1, 'Published content requires at least one evidence reference');
+
+const ReviewedCapabilityRegistryEntrySchema = ReviewedCapabilityEntrySchema.superRefine(
+  (entry, context) => {
+    if (entry.status === 'published' && entry.evidenceIds.length === 0) {
+      context.addIssue({
+        code: 'custom',
+        path: ['evidenceIds'],
+        message: 'A published capability entry requires evidence',
+      });
+    }
+  },
+);
+
+const ReviewedBundleRuleSchema = RecommendationRuleSchema.superRefine((rule, context) => {
+  if (rule.status === 'published' && rule.evidenceIds.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['evidenceIds'],
+      message: 'A published recommendation rule requires evidence',
+    });
+  }
+});
+
+export const ReviewedGuidanceBundleSchema = frozen(
+  z
+    .object({
+      bundleId: nonEmptyString,
+      version: GuidanceBundleVersionSchema,
+      status: ReviewedBundleStatusSchema,
+      reviewedAt: IsoTimestampSchema,
+      reviewedBy: nonEmptyString,
+      /** Required on a version `2` bundle; absent from replayed version `1` bundles. */
+      authoredBy: nonEmptyString.optional(),
+      /** The evidence registry this bundle was built from. Required on version `2`. */
+      evidenceRegistryId: nonEmptyString.optional(),
+      evidenceRegistryVersion: nonEmptyString.optional(),
+      goals: z.array(GuidanceGoalSchema).min(1),
+      capabilities: z.array(ReviewedCapabilityRegistryEntrySchema),
+      rules: z.array(ReviewedBundleRuleSchema),
+    })
+    .strict()
+    .superRefine((bundle, context) => {
+      const capabilityKeys = bundle.capabilities.map(
+        entry => `${entry.kind}\u0000${entry.versionId}`,
+      );
+      if (new Set(capabilityKeys).size !== capabilityKeys.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['capabilities'],
+          message: 'A reviewed bundle maps one product or tool version exactly once',
+        });
+      }
+      const ruleKeys = bundle.rules.map(rule => rule.ruleId);
+      if (new Set(ruleKeys).size !== ruleKeys.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rules'],
+          message: 'A reviewed bundle carries one version of each rule',
+        });
+      }
+      const goalIds = bundle.goals.map(goal => goal.id);
+      if (new Set(goalIds).size !== goalIds.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['goals'],
+          message: 'A reviewed bundle lists each goal once',
+        });
+      }
+      if (bundle.version !== REVIEWED_CONTRACT_BUNDLE_VERSION) return;
+      for (const [field, value] of [
+        ['authoredBy', bundle.authoredBy],
+        ['evidenceRegistryId', bundle.evidenceRegistryId],
+        ['evidenceRegistryVersion', bundle.evidenceRegistryVersion],
+      ] as const) {
+        if (value === undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: [field],
+            message: `A version ${REVIEWED_CONTRACT_BUNDLE_VERSION} bundle records ${field}`,
+          });
+        }
+      }
+      bundle.capabilities.forEach((entry, index) => {
+        if (entry.authoredBy === undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: ['capabilities', index, 'authoredBy'],
+            message: `A version ${REVIEWED_CONTRACT_BUNDLE_VERSION} capability entry records the person who authored it`,
+          });
+        }
+        entry.verifiedCapabilities.forEach((capability, capabilityIndex) => {
+          if (!isGuidanceCapability(capability)) {
+            context.addIssue({
+              code: 'custom',
+              path: ['capabilities', index, 'verifiedCapabilities', capabilityIndex],
+              message: `'${capability}' is outside the reviewed capability vocabulary`,
+            });
+          }
+        });
+      });
+      bundle.rules.forEach((rule, index) => {
+        const references = [
+          ...conditionCapabilityReferences(rule.condition, ['condition']),
+          ...rule.effects.flatMap((effect, effectIndex) =>
+            effectCapabilityReferences(effect, ['effects', effectIndex]),
+          ),
+        ];
+        for (const reference of references) {
+          if (!isGuidanceCapability(reference.value)) {
+            context.addIssue({
+              code: 'custom',
+              path: ['rules', index, ...reference.path],
+              message: `'${reference.value}' is outside the reviewed capability vocabulary`,
+            });
+          }
+        }
+      });
+    }),
+);
+
+export const GuidanceGapKindSchema = z.enum([
+  'hair_profile',
+  'service_presence',
+  'product_version',
+  'product_capability',
+  'tool_version',
+  'tool_capability',
+  'source_incomplete',
+  'reviewed_content',
+  'current_condition',
+]);
+
+export const GuidanceGapStateSchema = z.enum([
+  'missing',
+  'unknown',
+  'failed_source',
+  'contradictory',
+  'unsupported',
+  'content_pending',
+]);
+
+export const GuidanceGapReasonSchema = z.enum([
+  'passport_fact_missing',
+  'passport_fact_unknown',
+  'service_presence_unknown',
+  'service_presence_conflicting',
+  'service_effect_unsupported',
+  'service_zone_missing',
+  'product_no_candidate',
+  'product_manual_unmatched',
+  'product_capability_unpublished',
+  'product_unavailable',
+  'product_fact_unconfirmed',
+  'tool_not_recorded',
+  'tool_unavailable',
+  'tool_manual_unmatched',
+  'tool_heat_method_unknown',
+  'tool_temperature_unknown',
+  'check_in_contradictory',
+  'check_in_missing',
+  'check_in_unknown',
+  'check_in_unsupported',
+  'check_in_zone_missing',
+  'source_failed',
+  'content_not_published',
+]);
+
+export const GuidanceGapDestinationSchema = z.enum(['my_hair', 'my_hair_services', 'my_shelf', 'my_tools', 'today_check_in']);
+
+export const GuidanceGapSchema = frozen(
+  z
+    .object({
+      kind: GuidanceGapKindSchema,
+      detail: nonEmptyString,
+      subject: nonEmptyString.nullable(),
+      state: GuidanceGapStateSchema,
+      destination: GuidanceGapDestinationSchema.nullable(),
+      // The machine-readable reason inside the kind. Optional so a gap
+      // written before Task 3.2 still parses.
+      reason: GuidanceGapReasonSchema.nullable().optional(),
+      // The owner-facing name for the subject. Never an id: the schema only
+      // checks that it is text, and the producer is responsible for keeping
+      // ids out of it.
+      subjectLabel: nonEmptyString.nullable().optional(),
+    })
+    .strict(),
+);
+
+export const GuidanceUnavailableReasonSchema = z.enum([
+  'bundle_not_published',
+  'snapshot_incomplete',
+  'no_supported_goal',
+]);
+
+const PreparedConcernAnswerSchema = z.enum(['reported', 'none', 'not_answered']);
+
+const PreparedZoneSchema = CurrentConditionZoneSchema;
+
+/**
+ * The prepared guidance input. Strict throughout: a field nobody listed here,
+ * such as a reviewer name, a claim or a rule, cannot ride along.
+ */
+export const PreparedGuidanceInputSchema = frozen(
+  z
+    .object({
+      schemaVersion: z.literal(1),
+      goal: z.object({ id: GuidanceGoalIdSchema, label: nonEmptyString }).strict(),
+      availableMinutes: z.number().int().min(0).max(1440).nullable(),
+      passport: z.object({ facts: factRecordSchema }).strict(),
+      currentCondition: z
+        .object({
+          observedAt: IsoTimestampSchema,
+          concerns: z.array(CurrentConditionConcernSchema).min(1),
+          explicitNone: z.boolean(),
+          zones: z.array(PreparedZoneSchema),
+          zoneConcerns: z.array(z.object({ zone: PreparedZoneSchema, concerns: z.array(CurrentConditionConcernSchema).min(1) }).strict()),
+        })
+        .strict()
+        .nullable(),
+      effectiveFacts: z.array(
+        z
+          .object({
+            dimension: z.enum(['damage', 'heat']),
+            baseline: z.object({ state: z.enum(['recorded', 'unknown', 'not_recorded']), value: FactValueSchema }).strict(),
+            current: PreparedConcernAnswerSchema,
+            effective: z.enum(['current', 'baseline', 'not_recorded']),
+            overridden: z.boolean(),
+          })
+          .strict(),
+      ),
+      chemicalServices: z.array(
+        z
+          .object({
+            serviceId: nonEmptyString,
+            presence: GuidanceServicePresenceSchema,
+            effectiveStart: EffectiveDateSchema.nullable(),
+            zones: z.array(ServiceZoneSchema),
+          })
+          .strict(),
+      ),
+      heatHistory: z.array(
+        z
+          .object({
+            serviceId: nonEmptyString,
+            method: ServiceHeatSchema.shape.method,
+            temperatureC: z.number().nullable(),
+            passes: z.number().int().nullable(),
+            durationMinutes: z.number().nullable(),
+            source: ServiceHeatSchema.shape.source,
+            zones: z.array(ServiceZoneSchema),
+          })
+          .strict(),
+      ),
+      activities: z.array(
+        z
+          .object({
+            activityId: nonEmptyString,
+            kind: z.enum(['wash', 'styling', 'other']).nullable(),
+            precision: z.enum(['exact_day', 'exact_month', 'exact_year', 'unknown']).nullable(),
+          })
+          .strict(),
+      ),
+      products: z.array(preparedOwnerItemShape().strict()),
+      tools: z.array(
+        preparedOwnerItemShape()
+          .extend({
+            ownerFacts: z
+              .object({
+                wattageWatts: z.number().int().nullable(),
+                adjustableTemp: z.enum(['yes', 'no', 'unknown', 'not_answered']),
+                settings: z
+                  .object({
+                    state: z.enum(['not_answered', 'unknown', 'recorded']),
+                    recordedTemperatures: z.array(z.object({ label: nonEmptyString, value: z.number(), unit: z.enum(['C', 'F']) }).strict()),
+                  })
+                  .strict(),
+                heatMethods: z.object({ state: z.enum(['not_answered', 'unknown', 'recorded']), methods: z.array(nonEmptyString) }).strict(),
+              })
+              .strict(),
+          })
+          .strict(),
+      ),
+      // Alphabetical, so the prepared input's bytes never depend on the order a
+      // snapshot happened to be assembled in.
+      completeness: z
+        .object({
+          activities: GuidanceSourceCompletenessSchema,
+          passport: GuidanceSourceCompletenessSchema,
+          products: GuidanceSourceCompletenessSchema,
+          services: GuidanceSourceCompletenessSchema,
+          tools: GuidanceSourceCompletenessSchema,
+        })
+        .strict(),
+    })
+    .strict(),
+);
+
+function preparedOwnerItemShape() {
+  return z.object({
+    ownerItemId: nonEmptyString,
+    name: nonEmptyString,
+    identity: z.enum(['exact', 'manual']),
+    versionId: nonEmptyString.nullable(),
+    review: z.enum(['reviewed', 'withdrawn', 'not_reviewed', 'not_applicable']),
+    verifiedCapabilities: z.array(nonEmptyString),
+    satisfiesExactCapability: z.boolean(),
+  });
+}
+
+const ReadyPreparationSchema = z
+  .object({
+    status: z.literal('ready'),
+    context: RecommendationContextSchema,
+    prepared: PreparedGuidanceInputSchema,
+    bundleId: nonEmptyString,
+    bundleVersion: nonEmptyString,
+    setup: z.array(GuidanceGapSchema).optional(),
+  })
+  .strict();
+
+const NeedsSetupPreparationSchema = z
+  .object({
+    status: z.literal('needs_setup'),
+    missing: z.array(GuidanceGapSchema).min(1),
+    setup: z.array(GuidanceGapSchema).optional(),
+  })
+  .strict();
+
+const UnavailablePreparationSchema = z
+  .object({
+    status: z.literal('unavailable'),
+    reason: GuidanceUnavailableReasonSchema,
+    incompleteSources: z
+      .array(z.object({ source: GuidanceSourceNameSchema, state: z.enum(['missing', 'truncated', 'failed']) }).strict())
+      .optional(),
+  })
+  .strict();
+
+export const GuidancePreparationSchema = frozen(
+  z.discriminatedUnion('status', [
+    ReadyPreparationSchema,
+    NeedsSetupPreparationSchema,
+    UnavailablePreparationSchema,
+  ]),
+);
+
+export { deepFreeze, frozen, hasEvidence };

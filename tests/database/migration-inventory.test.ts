@@ -1,0 +1,122 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { describe, expect, it } from 'vitest';
+
+const trustedMigrationNames = [
+  '20260909172924_passport_foundation.sql',
+  '20260912070752_chemical_services.sql',
+  '20260924150000_activities_history.sql',
+  '20260924160000_activity_rpc.sql',
+  '20260924170000_shelf_catalogue.sql',
+  '20260924180000_user_products.sql',
+  '20260924190000_shelf_rpc.sql',
+  '20260924200000_shelf_catalogue_mutator_read.sql',
+  '20260924210000_tools_catalogue.sql',
+  '20260924220000_user_tools.sql',
+  '20260924230000_tools_rpc.sql',
+  '20260924240000_list_pagination.sql',
+  '20260924250000_export_jobs.sql',
+  '20260924260000_export_rpc.sql',
+  '20260924270000_deletion.sql',
+  '20260924280000_deletion_rpc.sql',
+  '20260924290000_username_change.sql',
+  '20260924300000_function_grant_cleanup.sql',
+  '20260924310000_list_core_grants.sql',
+  '20260924320000_export_csv.sql',
+  '20260924330000_consent.sql',
+  '20260924340000_consent_rpc.sql',
+  '20260925182000_username_options.sql',
+  '20260930172000_username_schema_usage_repair.sql',
+  '20260930173000_username_profile_lookup_repair.sql',
+  '20261004104838_activity_zone_bounds.sql',
+  '20261004132013_deletion_completion_guard.sql',
+  '20261004132021_deletion_worker.sql',
+  '20261004132028_recent_auth_epoch.sql',
+  '20261011082525_bitemporal_activity_guidance.sql',
+  '20261011090000_recommendation_runs.sql',
+  '20261012184009_basic_wash_catalogue_seed.sql',
+  '20261013175703_protocol_executions.sql',
+  '20261014185102_recommendation_runs_trusted_path.sql',
+  '20261014192008_protocol_start_trusted_decision.sql',
+  '20261014194531_protocol_transition_server_constructed.sql',
+  '20261014203908_protocol_substitute_shelf_verified.sql',
+  '20261014211011_protocol_execution_bounds_integrity.sql',
+  '20261015171425_deletion_cancel_recent_auth.sql',
+  '20261015181916_export_complete.sql',
+  '20261015190651_export_csv_schema_versions.sql',
+  '20261015200000_privacy_retention_cleanup.sql',
+  '20261016155100_consent_retention_cleanup.sql',
+  '20261016211350_get_active_execution_with_decision.sql',
+  '20261019120000_passport_condition_length_fields.sql',
+  '20261020120000_user_product_shelf_facts.sql',
+  '20261021120000_catalogue_search.sql',
+  '20261022120000_product_detail_publication.sql',
+  '20261023120000_tool_owner_facts.sql',
+  '20261023130000_tool_catalogue_publication.sql',
+  '20261024090000_cue_checks.sql',
+  '20261024100000_cue_check_review_fixes.sql',
+  '20261024110000_cue_check_operation_retention.sql',
+  '20261024120000_cue_check_hardening.sql',
+  '20261024130000_cue_check_search_path_hardening.sql',
+  '20261024140000_cue_check_recent_auth_search_path.sql',
+  '20261025120000_treatment_programmes.sql',
+  '20261025130000_programme_execution_retention_scope.sql',
+  '20261026120000_heat_coach_assessments.sql',
+  '20261027120000_align_heat_coach_evaluator.sql',
+  '20261027121000_harden_heat_coach_capture.sql',
+  '20261027122000_heat_capability_registry.sql',
+  '20261027123000_validate_heat_publication.sql',
+  '20261027124000_bind_heat_registry_assessment.sql',
+  '20261028160446_heat_coach_reviewed_copy.sql',
+  '20261028162917_heat_coach_publication_locator.sql',
+  '20261029053934_trusted_server_recommendation_run.sql',
+  '20261029160714_heat_assessment_trusted_run_binding.sql',
+  '20261029161302_revalidate_heat_binding_on_start.sql',
+  '20261030065209_bind_today_check_in_to_heat_assessment.sql',
+  '20261030070310_lock_heat_capability_registry_on_start.sql',
+  '20261030104309_validate_bound_heat_product_steps.sql',
+  '20261030113144_require_heat_tool_capability.sql',
+  '20261030120304_hold_unimplemented_heat_steps.sql',
+  '20261030190000_validate_assessed_heat_steps.sql',
+] as const;
+
+const candidateMigrationNames = [
+  '20260918154343_brands_products_product_versions.sql',
+  '20260918154920_user_products_revisions.sql',
+  '20260918155718_tool_brands_tools_user_tools.sql',
+  '20260918160720_activities_heat_links.sql',
+  '20260918162005_username-change-30day.sql',
+  '20260918162839_email-password-changes.sql',
+  '20260919064318_analytics-consent.sql',
+  '20260919064840_cosmetic-boundary-support.sql',
+  '20260919065826_account-session-info.sql',
+  '20260919070841_recent-auth-foundation.sql',
+  '20260919072155_export-jobs.sql',
+  '20260919072557_export-json-generation.sql',
+  '20260919073216_export-csv-generation.sql',
+  '20260919073529_export-download-auth.sql',
+  '20260919073818_export-retention-cleanup.sql',
+  '20260919075003_account-deletion-tombstone.sql',
+  '20260919075458_account-deletion-rpc.sql',
+  '20260919081022_session-revocation-old-token-denial.sql',
+  '20260919082240_tombstone-survival-restore.sql',
+] as const;
+
+const sqlFiles = async (directory: string) =>
+  (await readdir(directory)).filter((name) => name.endsWith('.sql')).sort();
+
+describe('migration promotion boundary', () => {
+  it('executes only the reviewed, replayable migrations', async () => {
+    await expect(sqlFiles('supabase/migrations')).resolves.toEqual([...trustedMigrationNames]);
+  });
+
+  it('keeps every unverified milestone migration in the candidate archive', async () => {
+    await expect(sqlFiles('supabase/drafts/2026-09-unverified-milestones')).resolves.toEqual([...candidateMigrationNames]);
+  });
+
+  it('labels the candidate archive as non-executable and evidence-free', async () => {
+    const readme = await readFile('supabase/drafts/2026-09-unverified-milestones/README.md', 'utf8');
+    expect(readme).toContain('must not be applied');
+    expect(readme).toContain('promotion requires a capability-specific migration test');
+    expect(readme).toContain('does not constitute completion evidence');
+  });
+});

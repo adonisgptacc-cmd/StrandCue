@@ -10,12 +10,17 @@ const lockSchema = z.object({
   schema: z.literal('ai-project-extensions-lock.v2'),
   observed: z.record(z.string(), object), bootstrap_status: z.string().optional(),
 });
-const claimSchema = z.array(z.object({ id: z.string(), checked_at: z.string(), review_after: z.string() }));
+const hash = z.string().regex(/^[0-9a-f]{64}$/);
+export const expoEvidenceSchema = z.object({
+  kind: z.literal('installed-expo-sdk'), expoVersion: z.string().min(1),
+  manifestSha256: hash, lockSha256: hash, bundledSha256: hash, installedSha256: hash,
+});
+const claimSchema = z.array(z.object({ id: z.string(), checked_at: z.string(), review_after: z.string(), evidence: z.unknown().optional() }));
 const finding = (code: string, message: string): Finding => ({ code, message });
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
   && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 
-function auditClaims(input: unknown, today: string): Finding[] {
+function auditClaims(input: unknown, today: string, currentExpoEvidence?: unknown): Finding[] {
   const parsed = claimSchema.safeParse(input);
   if (!parsed.success || !validDate(today)) return [finding('CLAIM-DATE', 'Invalid claim/date structure')];
   return parsed.data.flatMap(claim => {
@@ -23,11 +28,16 @@ function auditClaims(input: unknown, today: string): Finding[] {
       || claim.checked_at > today || claim.review_after < claim.checked_at) {
       return [finding('CLAIM-DATE', `Invalid dates: ${claim.id}`)];
     }
-    return claim.review_after < today ? [finding('CLAIM-STALE', `Review required: ${claim.id}`)] : [];
+    const recorded = expoEvidenceSchema.safeParse(claim.evidence);
+    const current = expoEvidenceSchema.safeParse(currentExpoEvidence);
+    const evidence = claim.id === 'expo-compatible-sdk'
+      && (!recorded.success || !current.success || JSON.stringify(recorded.data) !== JSON.stringify(current.data))
+      ? [finding('CLAIM-EVIDENCE', 'Expo claim requires matching current installed SDK evidence')] : [];
+    return [...evidence, ...(claim.review_after < today ? [finding('CLAIM-STALE', `Review required: ${claim.id}`)] : [])];
   });
 }
 
-export function auditControlPlane(desired: unknown, observed: unknown, claims: unknown, today: string): Finding[] {
+export function auditControlPlane(desired: unknown, observed: unknown, claims: unknown, today: string, currentExpoEvidence?: unknown): Finding[] {
   const policy = policySchema.safeParse(desired);
   const lock = lockSchema.safeParse(observed);
   if (!policy.success) return [finding('MANIFEST-SCHEMA', 'Invalid desired extension policy')];
@@ -54,5 +64,5 @@ export function auditControlPlane(desired: unknown, observed: unknown, claims: u
       ? [finding('BOUNDARY-UNPROVEN', `No negative-test evidence: ${extension.name}`)] : [];
     return [...drift, ...targets, ...boundary];
   });
-  return [...duplicates, ...partial, ...unapproved, ...extensions, ...auditClaims(claims, today)];
+  return [...duplicates, ...partial, ...unapproved, ...extensions, ...auditClaims(claims, today, currentExpoEvidence)];
 }
