@@ -55,7 +55,7 @@ describe('rule static analysis', () => {
           ...baseBundle.tables[0],
           rows: [
             baseBundle.tables[0].rows[0],
-            { ...baseBundle.tables[0].rows[0], rowId: 'row-2' },
+            { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
           ],
         },
       ],
@@ -63,7 +63,44 @@ describe('rule static analysis', () => {
     expect(diagnostics.some((d) => d.code === 'unreachable-row')).toBe(true);
     const unreachable = diagnostics.find((d) => d.code === 'unreachable-row');
     expect(unreachable?.rowId).toBe('row-2');
-    expect(unreachable?.severity).toBe('warning');
+    expect(unreachable?.severity).toBe('error');
+  });
+
+  it('detects a fully shadowed narrower row under first hit policy', () => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [
+          baseBundle.tables[0].rows[0],
+          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
+        ],
+      }],
+    });
+    expect(diagnostics.find((diagnostic) => diagnostic.code === 'unreachable-row')?.severity).toBe('error');
+  });
+
+  it('does not treat a contradictory prior row as shadowing later rows', () => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [
+          {
+            ...baseBundle.tables[0].rows[0],
+            when: {
+              kind: 'all',
+              expressions: [
+                { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+                { kind: 'fact_equals', factId: 'synthetic-fact', value: false },
+              ],
+            },
+          },
+          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
+        ],
+      }],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'unreachable-row')).toBe(false);
   });
 
   it('flags overlapping cells under a unique hit policy', () => {

@@ -9,6 +9,7 @@ import type {
   RulesetRef,
 } from '../contracts.ts';
 import { authoringDiagnostics, parseAuthoringBundle } from './authoring-schema.ts';
+import { analyzeRules } from './analyze-rules.ts';
 
 const SCHEMA_VERSION = '1.0.0';
 const EVALUATOR_VERSION = '1.0.0';
@@ -79,7 +80,7 @@ function compileTable(
   capabilityClaims: Map<string, { claimId: string; evidenceIds: readonly string[] }>,
 ): CompiledRule[] {
   const rules: CompiledRule[] = [];
-  for (const row of table.rows) {
+  for (const [rowOrder, row] of table.rows.entries()) {
     const missingCapabilities: string[] = [];
     const missingClaims: string[] = [];
     const missingEvidence: string[] = [];
@@ -119,6 +120,7 @@ function compileTable(
       stageId: stageForEffects(row.effects),
       when: row.when,
       effects: row.effects,
+      table: { tableId: table.tableId, hitPolicy: table.hitPolicy, rowOrder },
       severity: row.severity,
       capabilityIds: row.capabilityIds,
       claimIds: row.claimIds,
@@ -199,6 +201,11 @@ export function compileRules(source: unknown): CompiledRuleset {
     throw new Error(
       `Authoring bundle is not compilable: ${problems.map((p) => p.message).join('; ')}`,
     );
+  }
+
+  const analysisErrors = analyzeRules(bundle).filter((diagnostic) => diagnostic.severity === 'error');
+  if (analysisErrors.length > 0) {
+    throw new Error(`Rule analysis failed: ${analysisErrors.map((diagnostic) => diagnostic.code).join(', ')}`);
   }
 
   const capabilityClaims = new Map(

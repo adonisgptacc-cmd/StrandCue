@@ -29,6 +29,92 @@ describe('pipeline structure', () => {
   });
 });
 
+describe('decision table hit policies', () => {
+  it('executes only the first matching row and preserves its trace identity', () => {
+    const decision = evaluateDecision(buildInput({ rules: [
+      rule('table::first', 'evaluate_heat', [{ kind: 'set_heat_assessment', state: 'lower_heat' }], {
+        when: { kind: 'fact_exists', factId: 'f-ready' },
+        severity: 'caution',
+        table: { tableId: 'table', hitPolicy: 'first', rowOrder: 0 },
+      }),
+      rule('table::second', 'evaluate_heat', [{ kind: 'set_heat_assessment', state: 'restricted' }], {
+        when: { kind: 'fact_equals', factId: 'f-ready', value: true },
+        severity: 'caution',
+        table: { tableId: 'table', hitPolicy: 'first', rowOrder: 1 },
+      }),
+    ] }));
+
+    expect(traceOf(decision, 'evaluate_heat')?.ruleIds).toEqual(['table::first']);
+  });
+
+  it('does not let an unresolved advisory row mask a known hard restriction', () => {
+    const decision = evaluateDecision(buildInput({
+      facts: [fact('f-one', 'a'), fact('f-two', null, { status: 'unknown' })],
+      rules: [
+        rule('table::advisory', 'apply_safety_restrictions', [{ kind: 'block', reasonCode: 'advisory' }], {
+          when: { kind: 'all', expressions: [
+            { kind: 'fact_equals', factId: 'f-one', value: 'a' },
+            { kind: 'fact_equals', factId: 'f-two', value: 'b' },
+          ] },
+          severity: 'caution',
+          table: { tableId: 'safety', hitPolicy: 'first', rowOrder: 0 },
+        }),
+        rule('table::hard', 'apply_safety_restrictions', [{ kind: 'block', reasonCode: 'known_hard_restriction' }], {
+          when: { kind: 'fact_equals', factId: 'f-one', value: 'a' },
+          severity: 'hard',
+          table: { tableId: 'safety', hitPolicy: 'first', rowOrder: 1 },
+        }),
+      ],
+    }));
+
+    expect(decision.status).toBe('blocked');
+    expect(decision.omissions.some((omission) => omission.reasonCode === 'known_hard_restriction')).toBe(true);
+  });
+
+  it('asks for an unresolved first row instead of applying a later permissive hard row', () => {
+    const decision = evaluateDecision(buildInput({
+      facts: [fact('f-one', 'a'), fact('f-two', null, { status: 'unknown' })],
+      rules: [
+        rule('table::lower-heat', 'evaluate_heat', [{ kind: 'set_heat_assessment', state: 'lower_heat' }], {
+          when: { kind: 'all', expressions: [
+            { kind: 'fact_equals', factId: 'f-one', value: 'a' },
+            { kind: 'fact_equals', factId: 'f-two', value: 'b' },
+          ] },
+          severity: 'caution',
+          table: { tableId: 'heat', hitPolicy: 'first', rowOrder: 0 },
+        }),
+        rule('table::appropriate', 'evaluate_heat', [{ kind: 'set_heat_assessment', state: 'appropriate' }], {
+          when: { kind: 'fact_equals', factId: 'f-one', value: 'a' },
+          severity: 'hard',
+          table: { tableId: 'heat', hitPolicy: 'first', rowOrder: 1 },
+        }),
+      ],
+    }));
+
+    expect(decision.status).toBe('needs_input');
+    expect(decision.heatAssessment).toBe('needs_input');
+    expect(decision.status).not.toBe('decided');
+  });
+
+  it('blocks instead of executing multiple matching rows under a unique policy', () => {
+    const decision = evaluateDecision(buildInput({ rules: [
+      rule('table::one', 'evaluate_heat', [{ kind: 'set_heat_assessment', state: 'lower_heat' }], {
+        when: { kind: 'fact_exists', factId: 'f-ready' },
+        severity: 'caution',
+        table: { tableId: 'table', hitPolicy: 'unique', rowOrder: 0 },
+      }),
+      rule('table::two', 'evaluate_heat', [{ kind: 'set_heat_assessment', state: 'restricted' }], {
+        when: { kind: 'fact_equals', factId: 'f-ready', value: true },
+        severity: 'caution',
+        table: { tableId: 'table', hitPolicy: 'unique', rowOrder: 1 },
+      }),
+    ] }));
+
+    expect(decision.status).toBe('blocked');
+    expect(decision.omissions.some((omission) => omission.reasonCode === 'decision_table_unique_violation')).toBe(true);
+  });
+});
+
 describe('stage 1 validate_snapshot', () => {
   it('rejects input that fails the public schema instead of guessing', () => {
     expect(() => evaluateDecision({ ...buildInput(), evaluatedAt: 'not-a-date' })).toThrow(EngineInputError);
