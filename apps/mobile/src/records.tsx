@@ -265,6 +265,9 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const visible = historical ?? record;
   const selectDestination = (next: DestinationId) => {setDestination(next);setHeatTool(null);setEditing(false);setTarget(undefined);};
   const openHeatCoach = (tool: OwnedHeatItem | null = null, condition: CurrentConditionInput | null = null) => {
+    // A new assessment must never inherit the previous receipt after the
+    // owner changes heat choices or returns without saving a replacement.
+    setPendingHeatAssessment(null);
     setHeatTool(tool); setHeatCondition(condition ? { ownerId: user.id, value: condition } : null);
     setDestination('heat_coach'); setEditing(false); setTarget(undefined);
   };

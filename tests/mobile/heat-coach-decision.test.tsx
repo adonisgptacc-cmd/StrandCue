@@ -19,9 +19,10 @@ const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const digest = `sha256:${'a'.repeat(64)}`;
 const base = {
   assessmentId: id, publicationId: id, publicationDigest: digest, stale: false,
-  input: { preparedInput: { availableMinutes: 20, currentCondition: { observedAt: '2026-10-29T08:00:00.000Z', concerns: ['heat-concern'], explicitNone: false, zones: [], zoneConcerns: [] } } },
+  input: { request: { toolOwnerItemId: id }, preparedInput: { availableMinutes: 20, currentCondition: { observedAt: '2026-10-29T08:00:00.000Z', concerns: ['heat-concern'], explicitNone: false, zones: [], zoneConcerns: [] } } },
   status: 'appropriate', result: { state: 'appropriate', necessity: 'optional',
-    selected: { method: 'heated-air', temperature: null, setting: null, passes: null, durationMinutes: null, zones: [] },
+    selected: { method: 'heated-air', temperature: { value: 160, unit: 'C' }, setting: 'Medium', passes: 2,
+      durationMinutes: 15, zones: [{ region: 'lengths', segment: 'ends' }] },
     reasons: [{ reasonCode: 'internal_limit', copyKey: 'heat.reviewed_limit' }],
     missing: [], alternatives: [] },
 } as unknown as HeatCoachReceipt;
@@ -53,7 +54,7 @@ describe('Heat Coach decision', () => {
   );
 
   it.each(['appropriate', 'lower_heat', 'no_heat'] as const)(
-    'renders reviewed explanation and offers a runnable plan only for %s when supported', async state => {
+    'renders reviewed explanation and exposes the explicit plan choice for %s when supported', async state => {
       const receipt = { ...base, status: state, result: { ...base.result, state } } as HeatCoachReceipt;
       const view = await render(receipt);
       expect(view.text).toContain('Synthetic reviewed guidance.');
@@ -61,14 +62,11 @@ describe('Heat Coach decision', () => {
       expect(view.text).toContain('Heated air');
       expect(view.text).toContain('Heat need: ');
       expect(view.text).toContain('Optional');
-      expect(view.button('Use this plan')).toHaveLength(state === 'no_heat' ? 1 : 0);
-      if (state === 'no_heat') {
-        await act(async () => view.button('Use this plan')[0]!.props.onPress());
+      const label = state === 'lower_heat' ? 'Use adjusted lower option'
+        : state === 'appropriate' ? 'Use this heat option' : 'Use this plan';
+      expect(view.button(label)).toHaveLength(1);
+      await act(async () => view.button(label)[0]!.props.onPress());
         expect(view.onUsePlan).toHaveBeenCalledOnce();
-      } else {
-        expect(view.text).toContain('A Today plan for this heat choice is not available yet.');
-        expect(view.onUsePlan).not.toHaveBeenCalled();
-      }
     },
   );
 
@@ -89,7 +87,8 @@ describe('Heat Coach decision', () => {
       { availableMinutes: null, currentCondition: base.input.preparedInput.currentCondition },
       { availableMinutes: 20, currentCondition: null },
     ]) {
-      const receipt = { ...base, status: 'no_heat', result: { ...base.result, state: 'no_heat' }, input: { preparedInput } } as HeatCoachReceipt;
+      const receipt = { ...base, status: 'no_heat', result: { ...base.result, state: 'no_heat' },
+        input: { ...base.input, preparedInput } } as HeatCoachReceipt;
       const view = await render(receipt);
       expect(view.button('Use this plan')).toHaveLength(0);
     }

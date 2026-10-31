@@ -7,6 +7,7 @@ import {
   EXECUTION_NOTHING_CONFIRMED,
   EXECUTION_PLANNED_HEADING,
   EXECUTION_STATUS_LABELS,
+  HEAT_PROTOCOL_BOUNDARY,
   markDoneLabel,
   modifyLabel,
   skipLabel,
@@ -72,6 +73,16 @@ export function ExecutionProgress({
       <View key={step.stepId} style={styles.notice}>
         <Text style={styles.label}>{stepLabel(step.position)}</Text>
         <Text style={styles.body}>{step.planned.action}</Text>
+        {step.planned.heatPrescription !== undefined && <>
+          <Text style={styles.body}>Method: {step.planned.heatPrescription.method.replaceAll('-', ' ')}</Text>
+          <Text style={styles.body}>Temperature: {step.planned.heatPrescription.temperature.value}°{step.planned.heatPrescription.temperature.unit}</Text>
+          <Text style={styles.body}>Named setting: {step.planned.heatPrescription.setting ?? 'Not recorded'}</Text>
+          <Text style={styles.body}>Passes: {step.planned.heatPrescription.passes}</Text>
+          <Text style={styles.body}>Duration: {step.planned.heatPrescription.durationMinutes} minutes</Text>
+          <Text style={styles.body}>Areas: {step.planned.heatPrescription.zones.map(zone =>
+            `${zone.region.replaceAll('_', ' ')} · ${zone.segment.replaceAll('_', ' ')}`).join(', ')}</Text>
+          <Text style={styles.subtitle}>{HEAT_PROTOCOL_BOUNDARY}</Text>
+        </>}
         {step.planned.reasons.map(entry => <Text key={entry} style={styles.subtitle}>{entry}</Text>)}
         {!terminal && step.state === 'pending' && !actionsHidden && (
           <View style={{ gap: 8 }}>

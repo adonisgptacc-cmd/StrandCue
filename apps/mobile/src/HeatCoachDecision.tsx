@@ -41,7 +41,15 @@ export function HeatCoachDecision({ receipt, reviewedCopy, onUsePlan, onOpenDest
   const state = receipt.result.state;
   const prepared = receipt.input.preparedInput;
   const hasCheckIn = prepared.currentCondition !== null && prepared.availableMinutes !== null;
-  const canUse = complete && state === 'no_heat' && hasCheckIn;
+  const selected = receipt.result.selected;
+  const completeHeatSelection = selected.method !== null && selected.method !== 'unheated'
+    && selected.temperature !== null && selected.passes !== null && selected.durationMinutes !== null
+    && selected.zones.length > 0 && typeof receipt.input.request.toolOwnerItemId === 'string'
+    && receipt.input.request.toolOwnerItemId.length > 0;
+  const canUse = complete && hasCheckIn && (state === 'no_heat'
+    || ((state === 'appropriate' || state === 'lower_heat') && completeHeatSelection));
+  const useLabel = state === 'lower_heat' ? 'Use adjusted lower option'
+    : state === 'appropriate' ? 'Use this heat option' : 'Use this plan';
   const title = receipt.stale ? 'Assessment needs refreshing' : TITLES[state];
   useEffect(() => {
     const target = findNodeHandle(heading.current);
@@ -78,10 +86,10 @@ export function HeatCoachDecision({ receipt, reviewedCopy, onUsePlan, onOpenDest
         <Text accessibilityRole="header" style={styles.label}>Limits</Text>
         <Text style={styles.body}>{copy.get('heat.limitations')}</Text>
       </>}
-    {complete && (state === 'lower_heat' || state === 'appropriate')
-      && <Text style={styles.body}>A Today plan for this heat choice is not available yet.</Text>}
-    {complete && state === 'no_heat' && !hasCheckIn
+    {complete && (state === 'lower_heat' || state === 'appropriate') && !completeHeatSelection
+      && <Text style={styles.body}>Exact heat limits and an owned tool are required before this option can be used in a plan.</Text>}
+    {complete && (state === 'no_heat' || state === 'lower_heat' || state === 'appropriate') && !hasCheckIn
       && <Text style={styles.body}>Complete a Today check-in before using this plan.</Text>}
-    {canUse && <Button title="Use this plan" onPress={onUsePlan}/>}
+    {canUse && <Button title={useLabel} onPress={onUsePlan}/>}
   </View>;
 }

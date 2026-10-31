@@ -35,6 +35,7 @@ import { buildProtocolPreview, type ProtocolPreviewModel } from './guidance/prot
 import { CURRENT_REVIEWED_BUNDLE } from './guidance/reviewed-bundle';
 import { CHECKED_IN_EVIDENCE_REGISTRY } from './guidance/evidence-registry';
 import { ProtocolPreview } from './ProtocolPreview';
+import { useHeatAssessmentPreview } from './guidance/use-heat-assessment-preview';
 import {
   clearCheckInDraft,
   initialPreflight,
@@ -363,6 +364,10 @@ export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, o
 
   const busy = preflight.phase === 'generating' || saving;
   const result = preflight.result;
+  const heatDecisionForPreview = restore.phase === 'restored'
+    ? restore.decision
+    : result?.status === 'ready' ? result.decision : null;
+  const heatReview = useHeatAssessmentPreview(ownerId, heatDecisionForPreview);
   /**
    * The fail-closed preview for the current decision, rebuilt only from the
    * stored decision and its exact stored context. The checked-in bundle and
@@ -376,8 +381,10 @@ export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, o
       context: result.input,
       bundle: CURRENT_REVIEWED_BUNDLE,
       evidenceRegistry: CHECKED_IN_EVIDENCE_REGISTRY,
+      heatAssessment: heatReview.heatAssessment,
+      heatReviewedCopy: heatReview.heatReviewedCopy,
     });
-  }, [result]);
+  }, [result, heatReview.heatAssessment, heatReview.heatReviewedCopy]);
 
   /**
    * The same fail-closed preview for a restored stored decision, built from
@@ -390,8 +397,10 @@ export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, o
       context: restore.run.input,
       bundle: CURRENT_REVIEWED_BUNDLE,
       evidenceRegistry: CHECKED_IN_EVIDENCE_REGISTRY,
+      heatAssessment: heatReview.heatAssessment,
+      heatReviewedCopy: heatReview.heatReviewedCopy,
     });
-  }, [restore.decision, restore.run]);
+  }, [restore.decision, restore.run, heatReview.heatAssessment, heatReview.heatReviewedCopy]);
   /**
    * A retry keeps the resolver on screen: the owner sees the same gap, the
    * retry button is disabled while the read runs, and a failed retry leaves
@@ -475,18 +484,20 @@ export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, o
     saveResolverFocus(ownerId, key);
   }, [ownerId]);
 
+  const openHeatChoices = useCallback(() => {
+    let condition: CurrentConditionInput | null = null;
+    if (preflight.phase === 'ready_to_generate' || preflight.phase === 'result') {
+      try { condition = normalizeCurrentCondition(currentConditionOf(preflight.checkIn), new Date()); }
+      catch { condition = null; }
+    }
+    onOpenHeatCoach?.(condition);
+  }, [onOpenHeatCoach, preflight.checkIn, preflight.phase]);
+
   return <View style={{ gap: 16 }}>
     <Text style={styles.kicker}>TODAY · {GOAL_LABEL.toUpperCase()}</Text>
     {onOpenHeatCoach && restore.phase === 'absent'
       && todayHasHeatContext(preflight.checkIn) &&
-      <Button title="Review heat choices in Heat Coach" secondary onPress={() => {
-        let condition: CurrentConditionInput | null = null;
-        if (preflight.phase === 'ready_to_generate' || preflight.phase === 'result') {
-          try { condition = normalizeCurrentCondition(currentConditionOf(preflight.checkIn), new Date()); }
-          catch { condition = null; }
-        }
-        onOpenHeatCoach(condition);
-      }}/>}
+      <Button title="Review heat choices in Heat Coach" secondary onPress={openHeatChoices}/>}
 
     {restore.phase === 'restoring' && (
       <View style={styles.card}>
@@ -630,6 +641,7 @@ export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, o
           <ProtocolPreview
             model={previewModel}
             onStart={hasMatchingTrustedReceipt(result) ? () => setStartRequested(true) : undefined}
+            onReassessHeat={onOpenHeatCoach ? openHeatChoices : undefined}
           />
         )}
         {result.status === 'ready' && startRequested && hasMatchingTrustedReceipt(result) && (

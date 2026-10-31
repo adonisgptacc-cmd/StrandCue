@@ -186,10 +186,10 @@ function readyModel(overrides: Record<string, unknown> = {}): ProtocolPreviewMod
   } as unknown as ProtocolPreviewInput);
 }
 
-async function render(model: ProtocolPreviewModel): Promise<ReactTestRenderer> {
+async function render(model: ProtocolPreviewModel, onReassessHeat?: () => void): Promise<ReactTestRenderer> {
   let renderer!: ReactTestRenderer;
   await act(async () => {
-    renderer = create(createElement(ProtocolPreview, { model, onStart: vi.fn() }));
+    renderer = create(createElement(ProtocolPreview, { model, onStart: vi.fn(), onReassessHeat }));
   });
   return renderer;
 }
@@ -326,6 +326,27 @@ describe('ProtocolPreview', () => {
     const rendered = text(renderer);
     expect(rendered).toContain('this plan cannot be verified');
     expect(hasButton(renderer, 'Start this plan')).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('shows the assessed heat prescription and reviewed limits, and routes other choices to a fresh assessment', async () => {
+    const model = { ...readyModel(), heatPrescription: {
+      method: 'Heated air', temperature: '150°C', setting: 'Medium', passes: 2, durationMinutes: 15,
+      zones: ['Lengths · ends'], reviewedLimitations: 'Synthetic reviewed thermal limits.', adjustedLower: true,
+    } } as ProtocolPreviewModel;
+    const onReassessHeat = vi.fn();
+    const renderer = await render(model, onReassessHeat);
+    const rendered = text(renderer);
+    expect(rendered).toContain('adjusted lower option');
+    expect(rendered).toContain('heated air');
+    expect(rendered).toContain('150°c');
+    expect(rendered).toContain('synthetic reviewed thermal limits.');
+    expect(rendered).toContain('does not record an actual heat event');
+    expect(hasButton(renderer, 'Change heat choices')).toBe(true);
+    await act(async () => {
+      renderer.root.findAll(node => node.type === 'button' && node.props.accessibilityLabel === 'Change heat choices')[0]!.props.onPress();
+    });
+    expect(onReassessHeat).toHaveBeenCalledOnce();
     await act(async () => { renderer.unmount(); });
   });
 

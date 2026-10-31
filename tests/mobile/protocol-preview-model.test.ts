@@ -192,6 +192,36 @@ function input(overrides: Partial<ProtocolPreviewInput> = {}): ProtocolPreviewIn
   };
 }
 
+function assessedHeatInput(state: 'appropriate' | 'lower_heat' | 'restricted' = 'appropriate', overrides: Record<string, unknown> = {}) {
+  const binding = { assessmentId: 'assessment-heat-1', sourceFingerprint: `sha256:${'e'.repeat(64)}`,
+    publicationId: 'publication-heat-1', publicationDigest: `sha256:${'f'.repeat(64)}` };
+  const selected = { method: 'heated-air', temperature: { value: state === 'lower_heat' ? 150 : 160, unit: 'C' },
+    setting: 'Medium', passes: 2, durationMinutes: 15, zones: [{ region: 'crown', segment: 'ends' }] };
+  const receipt = { assessmentId: binding.assessmentId, sourceFingerprint: binding.sourceFingerprint,
+    publicationId: binding.publicationId, publicationDigest: binding.publicationDigest, stale: false,
+    status: state, input: { request: { toolOwnerItemId: 'owner-tool-heat-1' }, preparedInput: { tools: [
+      { ownerItemId: 'owner-tool-heat-1', versionId: 'tool-version-heat-1', identity: 'exact',
+        review: 'reviewed', satisfiesExactCapability: true },
+    ] } }, result: { state, selected, reasons: [{ copyKey: 'heat.method_supported' }] } };
+  const step = { stepId: 'heat-step', position: 1, action: 'heat', productId: null, productVersionId: null,
+    toolId: 'tool-heat-1', toolVersionId: 'tool-version-heat-1', waitSeconds: null, rinse: null,
+    reasons: ['heat-method-supported'], heatActionRef: { publicationId: binding.publicationId,
+      publicationDigest: binding.publicationDigest }, heatPrescription: selected };
+  return input({
+    decision: readyDecision({ heatAssessmentBinding: binding, steps: [step] }),
+    context: context({ products: [], tools: [{ toolId: 'tool-heat-1', versionId: 'tool-version-heat-1',
+      name: 'Synthetic dryer', owned: true, available: true, verifiedCapabilities: ['heat-tool'], unknownCapabilities: [] }] }),
+    bundle: publishedBundle({ capabilities: [capabilityEntry({ kind: 'tool', versionId: 'tool-version-heat-1',
+      displayName: 'Synthetic dryer', verifiedCapabilities: ['heat-tool'] })] }),
+    heatAssessment: receipt,
+    heatReviewedCopy: { ...binding, copy: [
+      { copyKey: 'heat.limitations', text: 'Synthetic reviewed thermal limits.' },
+      { copyKey: 'heat.method_supported', text: 'Synthetic reviewed method copy.' },
+    ] },
+    ...overrides,
+  } as never) as unknown as ProtocolPreviewInput;
+}
+
 function isReady(model: unknown): model is { status: 'ready' } {
   return typeof model === 'object' && model !== null && (model as { status?: unknown }).status === 'ready';
 }
@@ -449,6 +479,48 @@ describe('buildProtocolPreview', () => {
         versionId: tool.versionId, displayName: tool.name })] }),
     }));
     expect(model.status).toBe('content_pending');
+  });
+
+  it.each(['appropriate', 'lower_heat'] as const)('previews an exact %s Heat Coach prescription with reviewed limits', state => {
+    const model = buildProtocolPreview(assessedHeatInput(state));
+    expect(model.status).toBe('ready');
+    if (model.status !== 'ready') return;
+    expect(model.steps[0]).toMatchObject({ action: 'heat', item: { name: 'Synthetic dryer' } });
+    expect(model.heatPrescription).toMatchObject({ method: 'Heated air',
+      temperature: state === 'lower_heat' ? '150°C' : '160°C', setting: 'Medium', passes: 2,
+      durationMinutes: 15, reviewedLimitations: 'Synthetic reviewed thermal limits.', adjustedLower: state === 'lower_heat' });
+  });
+
+  it('keeps the heat preview pending when the assessed owner tool or version differs', () => {
+    const base = assessedHeatInput('appropriate');
+    const receipt = base.heatAssessment as unknown as Record<string, any>;
+    const otherOwner = { ...receipt, input: { ...receipt.input, request: { toolOwnerItemId: 'other-owner-tool' } } };
+    const otherVersion = { ...receipt, input: { ...receipt.input, preparedInput: { tools: [
+      { ...receipt.input.preparedInput.tools[0], versionId: 'other-tool-version' },
+    ] } } };
+    expect(buildProtocolPreview({ ...base, heatAssessment: otherOwner } as never).status).toBe('content_pending');
+    expect(buildProtocolPreview({ ...base, heatAssessment: otherVersion } as never).status).toBe('content_pending');
+  });
+
+  it('keeps a heat preview pending when the exact assessment or required reviewed copy is missing', () => {
+    const base = assessedHeatInput('appropriate');
+    expect(buildProtocolPreview({ ...base, heatAssessment: null } as never).status).toBe('content_pending');
+    expect(buildProtocolPreview({ ...base, heatReviewedCopy: null } as never).status).toBe('content_pending');
+    expect(buildProtocolPreview({ ...base, heatReviewedCopy: { ...base.heatReviewedCopy,
+      publicationDigest: `sha256:${'0'.repeat(64)}` } } as never).status).toBe('content_pending');
+  });
+
+  it('keeps unknown or restricted assessed heat decisions pending', () => {
+    const base = assessedHeatInput('appropriate');
+    const step = base.decision.steps[0]!;
+    const heatAssessment = base.heatAssessment as NonNullable<typeof base.heatAssessment>;
+    expect(buildProtocolPreview({ ...base, heatAssessment: { ...heatAssessment,
+      result: { ...heatAssessment.result, selected: { ...heatAssessment.result.selected, temperature: null } },
+    } } as never).status).toBe('content_pending');
+    expect(buildProtocolPreview(assessedHeatInput('restricted'))).toMatchObject({ status: 'content_pending' });
+    expect(buildProtocolPreview({ ...base, decision: readyDecision({ ...base.decision, steps: [step],
+      heatAssessmentBinding: { ...base.decision.heatAssessmentBinding, assessmentId: 'other-assessment' } }) } as never).status)
+      .toBe('content_pending');
   });
 
   it('returns content_pending for every non-ready decision status', () => {

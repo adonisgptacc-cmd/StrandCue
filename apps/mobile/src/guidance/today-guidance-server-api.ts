@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 import { RecommendationContextSchema, GuidanceGapSchema, type CurrentConditionInput, type ProtocolDecision, type RecommendationContext, type GuidanceGap, type GuidanceIncompleteSource } from '../../../../packages/domain/src/index';
+import { ZoneSchema } from '../../../../packages/domain/src/activity';
+import { ToolHeatMethodSchema, ToolSettingTemperatureSchema } from '../../../../packages/domain/src/tools';
 import { supabase } from '../client';
 
 const uuid = z.string().uuid();
@@ -12,19 +14,42 @@ const heatAssessmentBinding = z.object({
   publicationId: uuid,
   publicationDigest: reviewDigest,
 }).strict();
+const heatActionRef = z.object({ publicationId: uuid, publicationDigest: reviewDigest }).strict();
+const heatPrescription = z.object({
+  method: ToolHeatMethodSchema.refine(method => method !== 'unheated'),
+  temperature: ToolSettingTemperatureSchema,
+  setting: z.string().max(60).nullable(),
+  passes: z.number().int().nonnegative().max(100),
+  durationMinutes: z.number().int().nonnegative().max(1440),
+  zones: z.array(ZoneSchema.strict()).min(1).max(36),
+}).strict();
+const protocolStep = z.object({
+  stepId: z.string(), position: z.number().int(), action: z.string(),
+  productId: z.string().nullable(), productVersionId: z.string().nullable(),
+  toolId: z.string().nullable(), toolVersionId: z.string().nullable(),
+  waitSeconds: z.number().nullable(), rinse: z.boolean().nullable(),
+  reasons: z.array(z.string()),
+  heatActionRef: heatActionRef.optional(),
+  heatPrescription: heatPrescription.optional(),
+}).strict().superRefine((step, context) => {
+  const hasHeatFields = step.heatActionRef !== undefined || step.heatPrescription !== undefined;
+  if (step.action === 'heat') {
+    if (step.heatActionRef === undefined || step.heatPrescription === undefined
+      || step.toolId === null || step.toolVersionId === null
+      || step.productId !== null || step.productVersionId !== null) {
+      context.addIssue({ code: 'custom', message: 'Heat action needs an exact assessed prescription and owned tool' });
+    }
+  } else if (hasHeatFields) {
+    context.addIssue({ code: 'custom', message: 'Heat fields require a heat action' });
+  }
+});
 const receipt = z.object({ id: uuid, requestId: uuid, inputFingerprint: fingerprint, status: z.literal('ready') }).passthrough();
 const decision = z.object({
   status: z.enum(['ready', 'needs_input', 'rule_conflict', 'unsupported']),
   requestId: uuid,
   confidence: z.enum(['high', 'moderate', 'limited']),
   noPurchaseNeeded: z.boolean().nullable(),
-  steps: z.array(z.object({
-    stepId: z.string(), position: z.number().int(), action: z.string(),
-    productId: z.string().nullable(), productVersionId: z.string().nullable(),
-    toolId: z.string().nullable(), toolVersionId: z.string().nullable(),
-    waitSeconds: z.number().nullable(), rinse: z.boolean().nullable(),
-    reasons: z.array(z.string()),
-  })),
+  steps: z.array(protocolStep),
   omissions: z.array(z.string()), alternatives: z.array(z.string()), missingInputs: z.array(z.string()),
   audit: z.object({
     requestId: uuid, engineVersion: z.string(),
@@ -43,6 +68,15 @@ const decision = z.object({
     missingInputs: z.array(z.string()),
   }),
   heatAssessmentBinding: heatAssessmentBinding.optional(),
+}).strict().superRefine((value, context) => {
+  const heatSteps = value.steps.filter(step => step.action === 'heat');
+  if (heatSteps.length > 1) context.addIssue({ code: 'custom', path: ['steps'], message: 'A decision carries at most one assessed heat step' });
+  for (const step of heatSteps) {
+    if (value.heatAssessmentBinding === undefined || step.heatActionRef?.publicationId !== value.heatAssessmentBinding.publicationId
+      || step.heatActionRef.publicationDigest !== value.heatAssessmentBinding.publicationDigest) {
+      context.addIssue({ code: 'custom', path: ['steps'], message: 'Heat step does not match its assessed publication' });
+    }
+  }
 });
 const provenance = z.object({
   requestId: uuid,

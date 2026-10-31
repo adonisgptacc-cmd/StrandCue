@@ -40,6 +40,22 @@ function readyResponse(heatAssessmentBinding: unknown) {
   };
 }
 
+function heatedReadyResponse() {
+  const response = readyResponse(binding);
+  return {
+    ...response,
+    decision: {
+      ...response.decision,
+      steps: [{ stepId: 'heat-step', position: 1, action: 'heat', productId: null, productVersionId: null,
+        toolId: '00000000-0000-4000-8000-000000000005',
+        toolVersionId: '00000000-0000-4000-8000-000000000006', waitSeconds: null, rinse: null, reasons: [],
+        heatActionRef: { publicationId: binding.publicationId, publicationDigest: binding.publicationDigest },
+        heatPrescription: { method: 'heated-air', temperature: { value: 160, unit: 'C' }, setting: 'Medium',
+          passes: 2, durationMinutes: 15, zones: [{ region: 'crown', segment: 'ends' }] } }],
+    },
+  };
+}
+
 beforeEach(() => mocks.invoke.mockReset());
 
 describe('authenticated Today guidance request', () => {
@@ -78,6 +94,34 @@ describe('authenticated Today guidance request', () => {
     expect(hasMatchingTrustedReceipt({ ...result, receipt: { ...result.receipt!, requestId: binding.assessmentId } })).toBe(false);
     expect(hasMatchingTrustedReceipt({ ...result, receipt: { ...result.receipt!, inputFingerprint: 'd'.repeat(64) } })).toBe(false);
     expect(hasMatchingTrustedReceipt({ ...result, decision: { ...result.decision, requestId: binding.assessmentId } })).toBe(false);
+  });
+
+  it('preserves the trusted assessed heat reference and prescription from the server', async () => {
+    mocks.invoke.mockResolvedValue({ data: heatedReadyResponse(), error: null });
+    const result = await requestTodayGuidance({ ...command, assessmentId: binding.assessmentId });
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('Expected ready result');
+    expect(result.decision.steps[0]).toMatchObject({ action: 'heat',
+      heatActionRef: { publicationId: binding.publicationId, publicationDigest: binding.publicationDigest },
+      heatPrescription: { method: 'heated-air', temperature: { value: 160, unit: 'C' }, setting: 'Medium',
+        passes: 2, durationMinutes: 15, zones: [{ region: 'crown', segment: 'ends' }] } });
+  });
+
+  it('rejects an incomplete server heat prescription instead of stripping its fields', async () => {
+    const response = heatedReadyResponse();
+    const malformed = { ...response, decision: { ...response.decision,
+      steps: [{ ...response.decision.steps[0]!, heatPrescription: { ...response.decision.steps[0]!.heatPrescription, temperature: null } }] } };
+    mocks.invoke.mockResolvedValue({ data: malformed, error: null });
+    await expect(requestTodayGuidance({ ...command, assessmentId: binding.assessmentId })).rejects.toThrow();
+  });
+
+  it('rejects additional fields inside nested heat zones', async () => {
+    const response = heatedReadyResponse();
+    const malformed = { ...response, decision: { ...response.decision,
+      steps: [{ ...response.decision.steps[0]!, heatPrescription: { ...response.decision.steps[0]!.heatPrescription,
+        zones: [{ region: 'crown', segment: 'ends', internal: true }] } }] } };
+    mocks.invoke.mockResolvedValue({ data: malformed, error: null });
+    await expect(requestTodayGuidance({ ...command, assessmentId: binding.assessmentId })).rejects.toThrow();
   });
 
   it('accepts reviewed setup and nonready decisions without trusting a ready receipt', async () => {

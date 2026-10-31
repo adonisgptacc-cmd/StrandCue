@@ -9,6 +9,7 @@ import {
   EVIDENCE_HEADING,
   EVIDENCE_SUPPORTED,
   EXECUTION_START_LABEL,
+  HEAT_PROTOCOL_BOUNDARY,
   LIMITATIONS_HEADING,
   NO_PURCHASE_NEEDED,
   OWNED_ITEMS_HEADING,
@@ -20,7 +21,7 @@ import {
   confidenceLabel,
 } from './guidance/guidance-copy';
 import { focusOn } from './focus';
-import { styles } from './ui';
+import { Button, styles } from './ui';
 
 /**
  * The owner-facing protocol preview (Task 3.3).
@@ -43,9 +44,11 @@ export interface ProtocolPreviewProps {
   readonly model: ProtocolPreviewModel;
   /** Offered only when the model is `ready`; starts execution of the stored decision. */
   readonly onStart?: () => void;
+  /** Opens Heat Coach's new assessment form; listed alternatives never authorize a plan. */
+  readonly onReassessHeat?: () => void;
 }
 
-export function ProtocolPreview({ model, onStart }: ProtocolPreviewProps) {
+export function ProtocolPreview({ model, onStart, onReassessHeat }: ProtocolPreviewProps) {
   const startRef = useRef<ComponentRef<typeof Pressable> | null>(null);
 
   // After a ready preview is generated, move focus to the Start button once so
@@ -86,6 +89,27 @@ export function ProtocolPreview({ model, onStart }: ProtocolPreviewProps) {
             </Text>
           )}
         </View>
+
+        {model.heatPrescription !== undefined && (
+          <View style={styles.card}>
+            <Text accessibilityRole="header" style={styles.heading}>Assessed heat option</Text>
+            {model.heatPrescription.adjustedLower && (
+              <Text style={styles.body}>Choice: adjusted lower option from your assessment.</Text>
+            )}
+            <Text style={styles.body}>Method: {model.heatPrescription.method}</Text>
+            <Text style={styles.body}>Temperature: {model.heatPrescription.temperature}</Text>
+            <Text style={styles.body}>Named setting: {model.heatPrescription.setting ?? 'Not recorded'}</Text>
+            <Text style={styles.body}>Passes: {model.heatPrescription.passes}</Text>
+            <Text style={styles.body}>Duration: {model.heatPrescription.durationMinutes} minutes</Text>
+            <Text style={styles.body}>Areas: {model.heatPrescription.zones.join(', ')}</Text>
+            <Text accessibilityRole="header" style={styles.label}>Reviewed limits</Text>
+            <Text style={styles.body}>{model.heatPrescription.reviewedLimitations}</Text>
+            <Text style={styles.subtitle}>{HEAT_PROTOCOL_BOUNDARY}</Text>
+            {onReassessHeat !== undefined && (
+              <Button title="Change heat choices" secondary onPress={onReassessHeat}/>
+            )}
+          </View>
+        )}
 
         <View style={styles.card}>
           <Text style={styles.heading} accessibilityLabel={OWNED_ITEMS_HEADING}>

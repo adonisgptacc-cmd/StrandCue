@@ -404,6 +404,8 @@ export const EXECUTION_STATUS_LABELS = {
 } as const;
 export const EXECUTION_BOUNDARY =
   'Cosmetic hair-care guidance from your own records, not a diagnosis. Confirming a step records what you did; it promises no result.';
+export const HEAT_PROTOCOL_BOUNDARY =
+  'This is a protocol plan only. Confirming steps records protocol history; it does not record an actual heat event.';
 
 export const markDoneLabel = (position: number): string => `Mark done: Step ${position}`;
 export const confirmDoneLabel = (position: number): string => `Confirm done: Step ${position}`;

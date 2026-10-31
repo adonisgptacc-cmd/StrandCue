@@ -68,6 +68,6 @@
 
 **Interfaces:** Consume Task 3's server-owned heat step and receipt. Show method/thermal limits using reviewed copy; offer explicit adjusted lower option and a fresh assessment for other alternatives; never imply an actual heat event.
 
-- [ ] Add RED tests for direct and adjusted lower preview, pending/unknown/restricted cases, owner switch, restore and explicit actual-event distinction.
-- [ ] Run RED tests; implement the UI and handoff; run mobile/Edge/execution regressions.
-- [ ] Run typecheck, lint, full coverage, migration inventory, security review and dependency audit. Record device/content/dependency holds; commit `feat: preview assessed heat protocols` only for verified local behavior.
+- [x] Add RED tests for direct and adjusted lower preview, pending/unknown/restricted cases, owner switch, restore and explicit actual-event distinction.
+- [x] Run RED tests; implement the UI and handoff; run mobile/Edge/execution regressions. Focused mobile suites passed 106/106; local Edge runtime served and enforced authentication.
+- [x] Run typecheck, lint, full coverage, migration inventory, security review and dependency audit. Coverage passed 4,804 tests with 46 skipped at 95.63% statement coverage; local migration inventory confirmed no Task 4 migration. Record device/content/dependency holds; commit `feat: preview assessed heat protocols` only for verified local behavior. Dependency policy HOLD remains open (62 findings, 7 high, 27 moderate, no critical); production content remains empty/draft and device acceptance remains outstanding.

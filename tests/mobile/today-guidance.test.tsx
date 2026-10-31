@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   executionGetActive: vi.fn(),
   restoreAggregate: vi.fn(),
   preview: vi.fn(),
+  heatAssessment: vi.fn(),
+  heatReviewedCopy: vi.fn(),
   nowIso: '2026-10-11T09:00:00.000Z',
   uuidCounter: { value: 0 },
 }));
@@ -68,6 +70,10 @@ vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
 }));
 vi.mock('../../apps/mobile/src/guidance/protocol-preview-model', () => ({
   buildProtocolPreview: mocks.preview,
+}));
+vi.mock('../../apps/mobile/src/heat-coach-api', () => ({
+  getHeatCoachAssessment: mocks.heatAssessment,
+  getHeatCoachReviewedCopy: mocks.heatReviewedCopy,
 }));
 
 // The execution surface mounts beside a ready plan but records nothing until
@@ -248,11 +254,16 @@ function hasButton(renderer: ReactTestRenderer, label: string): boolean {
   );
 }
 
-async function render(ownerId: string = OWNER, onNavigate: () => void = vi.fn(), assessmentId?: string): Promise<ReactTestRenderer> {
+async function render(
+  ownerId: string = OWNER,
+  onNavigate: () => void = vi.fn(),
+  assessmentId?: string,
+  onOpenHeatCoach?: (condition: unknown) => void,
+): Promise<ReactTestRenderer> {
   let renderer!: ReactTestRenderer;
   await act(async () => {
     renderer = create(
-      createElement(TodayGuidance, { ownerId, onNavigate: onNavigate as never, assessmentId }),
+      createElement(TodayGuidance, { ownerId, onNavigate: onNavigate as never, assessmentId, onOpenHeatCoach }),
     );
     await Promise.resolve();
   });
@@ -328,6 +339,8 @@ beforeEach(() => {
   mocks.restoreAggregate.mockResolvedValue(null);
   mocks.executionGetActive.mockResolvedValue(null);
   mocks.preview.mockReturnValue(readyPreviewModel());
+  mocks.heatAssessment.mockReset();
+  mocks.heatReviewedCopy.mockReset();
 });
 
 describe('today guidance states', () => {
@@ -339,6 +352,46 @@ describe('today guidance states', () => {
     const sent = mocks.generate.mock.calls[0][0];
     expect(sent).not.toHaveProperty('heatVerdict');
     expect(sent).not.toHaveProperty('selectedHeatMethod');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('loads the exact assessment copy before preview and routes changed choices to a fresh Heat Coach assessment', async () => {
+    const assessmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const publicationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const digest = `sha256:${'a'.repeat(64)}`;
+    const heatReceipt = { assessmentId, publicationId, publicationDigest: digest,
+      sourceFingerprint: digest, stale: false, status: 'appropriate', result: { state: 'appropriate' } };
+    const reviewedCopy = { assessmentId, publicationId, publicationDigest: digest,
+      copy: [{ copyKey: 'heat.limitations', text: 'Reviewed synthetic heat limits.' }] };
+    const heatDecision = readyDecision({
+      heatAssessmentBinding: { assessmentId, sourceFingerprint: digest, publicationId, publicationDigest: digest },
+      steps: [{ stepId: 'heat-step', position: 1, action: 'heat', productId: null, productVersionId: null,
+        toolId: 'tool-1', toolVersionId: 'tool-version-1', waitSeconds: null, rinse: null, reasons: [],
+        heatActionRef: { publicationId, publicationDigest: digest },
+        heatPrescription: { method: 'heated-air', temperature: { value: 160, unit: 'C' }, setting: 'Medium',
+          passes: 2, durationMinutes: 15, zones: [{ region: 'crown', segment: 'ends' }] } }],
+    });
+    mocks.generate.mockResolvedValue(readyResult({ decision: heatDecision, receipt: { status: 'ready', requestId: 'request-1', inputFingerprint: 'a'.repeat(64) } }));
+    mocks.heatAssessment.mockResolvedValue(heatReceipt);
+    mocks.heatReviewedCopy.mockResolvedValue(reviewedCopy);
+    mocks.preview.mockImplementation((value: { heatAssessment?: unknown }) => readyPreviewModel({
+      heatPrescription: value.heatAssessment === null || value.heatAssessment === undefined ? undefined : {
+        method: 'Heated air', temperature: '160°C', setting: 'Medium', passes: 2,
+        durationMinutes: 15, zones: ['Crown · ends'], reviewedLimitations: 'Reviewed synthetic heat limits.', adjustedLower: false,
+      },
+    }));
+    const onOpenHeatCoach = vi.fn();
+    const renderer = await render(OWNER, vi.fn(), assessmentId, onOpenHeatCoach);
+    await generate(renderer, ['Worried about heat styling']);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.heatAssessment).toHaveBeenCalledExactlyOnceWith(assessmentId);
+    expect(mocks.heatReviewedCopy).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ assessmentId }));
+    expect(mocks.preview).toHaveBeenLastCalledWith(expect.objectContaining({ heatAssessment: heatReceipt, heatReviewedCopy: reviewedCopy }));
+    expect(hasButton(renderer, 'Change heat choices')).toBe(true);
+    await press(renderer, 'Change heat choices');
+    expect(onOpenHeatCoach).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      concerns: ['heat-concern'], availableMinutes: 20,
+    }));
     await act(async () => { renderer.unmount(); });
   });
   it('shows a loading state and disables Generate while generating', async () => {

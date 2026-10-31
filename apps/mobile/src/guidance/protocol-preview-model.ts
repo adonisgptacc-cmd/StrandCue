@@ -6,6 +6,7 @@ import type {
   ReviewedCapabilityEntry,
   ReviewedGuidanceBundle,
 } from '../../../../packages/domain/src/index.ts';
+import type { HeatCoachReceipt, HeatCoachReviewedCopy } from '../heat-coach-api.ts';
 
 /**
  * Trusted protocol preview model (Task 3.3).
@@ -37,7 +38,7 @@ export interface ProtocolPreviewItem {
 /** One ordered step of the proposed routine. */
 export interface ProtocolPreviewStep {
   readonly position: number;
-  readonly action: 'apply' | 'wait' | 'rinse' | 'leave_in';
+  readonly action: 'apply' | 'wait' | 'rinse' | 'leave_in' | 'heat';
   /** The product or tool the step uses, when it uses one. */
   readonly item?: ProtocolPreviewItem;
   readonly waitSeconds: number | null;
@@ -87,6 +88,18 @@ export interface ProtocolPreviewAlternative {
   readonly coversPlan: boolean;
 }
 
+/** Exact server-assessed heat selection plus its bound reviewed limitations copy. */
+export interface ProtocolPreviewHeatPrescription {
+  readonly method: string;
+  readonly temperature: string;
+  readonly setting: string | null;
+  readonly passes: number;
+  readonly durationMinutes: number;
+  readonly zones: readonly string[];
+  readonly reviewedLimitations: string;
+  readonly adjustedLower: boolean;
+}
+
 /** The immutable preview model. Only a `ready` model offers a Start action. */
 export interface ProtocolPreviewModel {
   readonly status: PreviewStatus;
@@ -98,6 +111,7 @@ export interface ProtocolPreviewModel {
   readonly evidence: readonly ProtocolPreviewEvidence[];
   readonly limitations: readonly ProtocolPreviewLimitation[];
   readonly alternatives: readonly ProtocolPreviewAlternative[];
+  readonly heatPrescription?: ProtocolPreviewHeatPrescription;
   readonly noPurchaseNeeded: boolean | null;
   readonly explanation?: string;
 }
@@ -108,6 +122,8 @@ export interface ProtocolPreviewInput {
   readonly context: RecommendationContext;
   readonly bundle: ReviewedGuidanceBundle;
   readonly evidenceRegistry: GuidanceEvidenceRegistry;
+  readonly heatAssessment?: HeatCoachReceipt | null;
+  readonly heatReviewedCopy?: HeatCoachReviewedCopy | null;
 }
 
 /** Plain goal labels; the goal id itself is never shown. */
@@ -186,6 +202,9 @@ function reasonForStep(step: Pick<ProtocolPreviewStep, 'action' | 'waitSeconds' 
       return 'Rinse it out.';
     case 'leave_in':
       return 'Leave it in.';
+    case 'heat':
+      return item !== undefined ? `Use ${safeDisplayName(item.name)} within the recorded heat limits.`
+        : 'Follow the recorded heat limits.';
     default:
       return 'Follow this step.';
   }
@@ -282,9 +301,12 @@ function limitationsFor(level: 'high' | 'moderate' | 'limited', ownedItems: read
 
 function routeFor(context: RecommendationContext, steps: readonly ProtocolPreviewStep[]): ProtocolPreviewRoute {
   const actions = steps.map(step => step.action);
+  const hasHeat = actions.includes('heat');
   const hasApply = actions.includes('apply');
   const hasWait = actions.includes('wait');
-  const summary = hasApply
+  const summary = hasHeat
+    ? `${goalLabel(context.goal)}: follow the assessed heat method and recorded limits.`
+    : hasApply
     ? hasWait
       ? `${goalLabel(context.goal)}: treat, then wait as directed.`
       : `${goalLabel(context.goal)}: treat with the products and tools you own.`
@@ -292,6 +314,73 @@ function routeFor(context: RecommendationContext, steps: readonly ProtocolPrevie
       ? `${goalLabel(context.goal)}: wait as directed, then treat.`
       : `${goalLabel(context.goal)}: follow the steps above.`;
   return Object.freeze({ summary, goal: goalLabel(context.goal) });
+}
+
+const HEAT_METHOD_LABELS: Readonly<Record<string, string>> = {
+  'direct-contact': 'Direct contact',
+  'heated-air': 'Heated air',
+  hooded: 'Hooded',
+  steam: 'Steam',
+};
+
+function exactHeatDisplay(
+  decision: ProtocolDecision,
+  input: ProtocolPreviewInput,
+): ProtocolPreviewHeatPrescription | null {
+  const heatSteps = decision.steps.filter(step => step.action === 'heat');
+  if (heatSteps.length === 0) return null;
+  if (heatSteps.length !== 1 || decision.heatAssessmentBinding === undefined) return null;
+  const step = heatSteps[0]!;
+  const binding = decision.heatAssessmentBinding;
+  const assessment = input.heatAssessment;
+  const reviewedCopy = input.heatReviewedCopy;
+  if (assessment === null || assessment === undefined || reviewedCopy === null || reviewedCopy === undefined
+    || assessment.stale || (assessment.status !== 'appropriate' && assessment.status !== 'lower_heat')
+    || assessment.assessmentId !== binding.assessmentId
+    || assessment.sourceFingerprint !== binding.sourceFingerprint
+    || assessment.publicationId !== binding.publicationId
+    || assessment.publicationDigest !== binding.publicationDigest
+    || reviewedCopy.assessmentId !== binding.assessmentId
+    || reviewedCopy.publicationId !== binding.publicationId
+    || reviewedCopy.publicationDigest !== binding.publicationDigest
+    || step.heatActionRef?.publicationId !== binding.publicationId
+    || step.heatActionRef.publicationDigest !== binding.publicationDigest) return null;
+  const prescribed = step.heatPrescription;
+  const selected = assessment.result.selected;
+  const requestedToolOwnerItemId = assessment.input.request.toolOwnerItemId;
+  const assessedTool = requestedToolOwnerItemId === null || requestedToolOwnerItemId === undefined
+    ? undefined
+    : assessment.input.preparedInput.tools.find(tool => tool.ownerItemId === requestedToolOwnerItemId);
+  if (prescribed === undefined || prescribed.temperature === null
+    || selected.method === null || selected.method === 'unheated'
+    || selected.temperature === null || selected.passes === null || selected.durationMinutes === null
+    || selected.zones.length === 0
+    || prescribed.method !== selected.method
+    || prescribed.temperature.value !== selected.temperature.value
+    || prescribed.temperature.unit !== selected.temperature.unit
+    || prescribed.setting !== selected.setting
+    || prescribed.passes !== selected.passes
+    || prescribed.durationMinutes !== selected.durationMinutes
+    || JSON.stringify(prescribed.zones) !== JSON.stringify(selected.zones)
+    || step.toolId === null || step.toolVersionId === null
+    || assessedTool === undefined || assessedTool.versionId !== step.toolVersionId
+    || assessedTool.review !== 'reviewed' || assessedTool.identity !== 'exact'
+    || !assessedTool.satisfiesExactCapability
+    || step.productId !== null || step.productVersionId !== null) return null;
+  const copy = new Map(reviewedCopy.copy.map(row => [row.copyKey, row.text]));
+  if (!copy.has('heat.limitations') || !assessment.result.reasons.every(row => copy.has(row.copyKey))) return null;
+  const method = HEAT_METHOD_LABELS[selected.method];
+  if (method === undefined) return null;
+  return Object.freeze({
+    method,
+    temperature: `${selected.temperature.value}°${selected.temperature.unit}`,
+    setting: selected.setting,
+    passes: selected.passes,
+    durationMinutes: selected.durationMinutes,
+    zones: Object.freeze(selected.zones.map(zone => `${zone.region.replaceAll('_', ' ')} · ${zone.segment.replaceAll('_', ' ')}`)),
+    reviewedLimitations: copy.get('heat.limitations')!,
+    adjustedLower: assessment.status === 'lower_heat',
+  });
 }
 
 function hasPublishedCapability(
@@ -345,9 +434,15 @@ export function buildProtocolPreview(input: ProtocolPreviewInput): ProtocolPrevi
   if (decision.status !== 'ready') {
     return contentPending(explanationForStatus(decision.status));
   }
-  // Bound Heat Coach plans currently support no-heat only; revisit for reviewed heated routes.
+  const heatPrescription = exactHeatDisplay(decision, input);
+  const heatSteps = decision.steps.filter(step => step.action === 'heat');
+  if (heatSteps.length > 0 && heatPrescription === null) {
+    return contentPending('The assessed heat limits or their reviewed guidance are not available, so this plan cannot be started.');
+  }
+  // A generic tool action is not a Heat Coach prescription, even when the run
+  // carries an eligible assessment identity.
   if (decision.heatAssessmentBinding && decision.steps.some(step =>
-    step.toolId !== null || step.toolVersionId !== null)) {
+    step.action !== 'heat' && (step.toolId !== null || step.toolVersionId !== null))) {
     return contentPending('A Today plan for this heat choice is not available yet.');
   }
 
@@ -381,11 +476,12 @@ export function buildProtocolPreview(input: ProtocolPreviewInput): ProtocolPrevi
   const selectedKeys = new Set<string>();
   for (const step of [...decision.steps].sort((left, right) => left.position - right.position)) {
     let item: ProtocolPreviewItem | undefined;
-    let action: 'apply' | 'wait' | 'rinse' | 'leave_in';
+    let action: 'apply' | 'wait' | 'rinse' | 'leave_in' | 'heat';
     if (step.action === 'apply') action = 'apply';
     else if (step.action === 'wait') action = 'wait';
     else if (step.action === 'rinse') action = 'rinse';
     else if (step.action === 'leave_in') action = 'leave_in';
+    else if (step.action === 'heat') action = 'heat';
     else return unavailable('A step in this plan uses an action that cannot be shown.');
     const hasProduct = step.productId !== null || step.productVersionId !== null;
     const hasTool = step.toolId !== null || step.toolVersionId !== null;
@@ -444,6 +540,7 @@ export function buildProtocolPreview(input: ProtocolPreviewInput): ProtocolPrevi
     evidence,
     limitations,
     alternatives,
+    ...(heatPrescription === null ? {} : { heatPrescription }),
     noPurchaseNeeded: decision.noPurchaseNeeded ?? null,
   });
   return deepFreeze(model);
