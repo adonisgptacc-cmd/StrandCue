@@ -1,0 +1,194 @@
+{
+  "fixtureId": "blocked-by-hard-rule",
+  "synthetic": true,
+  "note": "Synthetic fixture. Represents no real person, product, tool, brand or safety claim.",
+  "review": {
+    "status": "pending_independent_review",
+    "expectedByRole": "independent_reviewer",
+    "note": "The expected decision was authored from the rule semantics below, not captured from an engine run."
+  },
+  "ruleset": {
+    "ref": {
+      "rulesetId": "synthetic-ruleset-blocked",
+      "contentHash": "sha256:72729f34",
+      "schemaVersion": "1.0.0",
+      "evaluatorVersion": "1.0.0"
+    },
+    "capabilities": [],
+    "rules": [
+      {
+        "ruleId": "r-block-synthetic",
+        "version": "1",
+        "stageId": "apply_safety_restrictions",
+        "when": {
+          "kind": "fact_equals",
+          "factId": "f-ready",
+          "value": true
+        },
+        "effects": [
+          {
+            "kind": "block",
+            "reasonCode": "synthetic_restriction"
+          }
+        ],
+        "severity": "hard",
+        "capabilityIds": [],
+        "claimIds": [
+          "claim-r-block-synthetic"
+        ],
+        "evidenceIds": [
+          "ev-r-block-synthetic"
+        ]
+      }
+    ]
+  },
+  "input": {
+    "evaluatedAt": "2026-10-31T12:00:00.000Z",
+    "snapshot": {
+      "ownerScopeId": "owner-synthetic",
+      "factRegistry": [
+        {
+          "factId": "f-ready",
+          "revision": 1,
+          "status": "verified",
+          "value": true,
+          "claimId": "claim-f-ready",
+          "evidenceIds": [
+            "ev-f-ready"
+          ],
+          "recordedAt": "2026-10-01T00:00:00.000Z"
+        }
+      ],
+      "passport": {
+        "entryId": "passport",
+        "revision": 1,
+        "factIds": []
+      },
+      "chemicalServiceHistory": [],
+      "shelf": [],
+      "tools": [],
+      "eventHistory": [],
+      "revisions": {
+        "passport": 1,
+        "chemicalServiceHistory": 1,
+        "shelf": 1,
+        "tools": 1,
+        "events": 1
+      }
+    }
+  },
+  "expectedDecision": {
+    "status": "blocked",
+    "steps": [],
+    "omissions": [
+      {
+        "candidateId": "decision",
+        "reasonCode": "synthetic_restriction",
+        "ruleIds": [
+          "r-block-synthetic"
+        ],
+        "claimIds": [
+          "claim-r-block-synthetic"
+        ],
+        "evidenceIds": [
+          "ev-r-block-synthetic"
+        ]
+      }
+    ],
+    "alternatives": [],
+    "questions": [],
+    "confidence": {
+      "evidence": "low",
+      "applicability": "low"
+    },
+    "audit": {
+      "ruleset": {
+        "rulesetId": "synthetic-ruleset-blocked",
+        "contentHash": "sha256:72729f34",
+        "schemaVersion": "1.0.0",
+        "evaluatorVersion": "1.0.0"
+      },
+      "evaluatedAt": "2026-10-31T12:00:00.000Z",
+      "schemaVersion": "1.0.0",
+      "evaluatorVersion": "1.0.0",
+      "trace": [
+        {
+          "stageId": "validate_snapshot",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "apply_safety_restrictions",
+          "outcome": "blocked",
+          "ruleIds": [
+            "r-block-synthetic"
+          ],
+          "claimIds": [
+            "claim-r-block-synthetic"
+          ],
+          "evidenceIds": [
+            "ev-r-block-synthetic"
+          ]
+        },
+        {
+          "stageId": "load_verified_facts",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "derive_treatment_state",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "filter_candidates",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "evaluate_heat",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "select_and_rank",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "build_dependency_graph",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "order_and_validate",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "assemble_decision",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        }
+      ]
+    }
+  }
+}

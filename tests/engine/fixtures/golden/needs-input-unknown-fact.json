@@ -1,0 +1,199 @@
+{
+  "fixtureId": "needs-input-unknown-fact",
+  "synthetic": true,
+  "note": "Synthetic fixture. Represents no real person, product, tool, brand or safety claim.",
+  "review": {
+    "status": "pending_independent_review",
+    "expectedByRole": "independent_reviewer",
+    "note": "The expected decision was authored from the rule semantics below, not captured from an engine run."
+  },
+  "ruleset": {
+    "ref": {
+      "rulesetId": "synthetic-ruleset-needs-input",
+      "contentHash": "sha256:359e5847",
+      "schemaVersion": "1.0.0",
+      "evaluatorVersion": "1.0.0"
+    },
+    "capabilities": [],
+    "rules": [
+      {
+        "ruleId": "r-require-heat-fact",
+        "version": "1",
+        "stageId": "load_verified_facts",
+        "when": {
+          "kind": "fact_equals",
+          "factId": "f-heat-risk",
+          "value": true
+        },
+        "effects": [
+          {
+            "kind": "include_candidate",
+            "candidateId": "cand-heat"
+          }
+        ],
+        "severity": "hard",
+        "capabilityIds": [],
+        "claimIds": [
+          "claim-r-require-heat-fact"
+        ],
+        "evidenceIds": [
+          "ev-r-require-heat-fact"
+        ]
+      }
+    ]
+  },
+  "input": {
+    "evaluatedAt": "2026-10-31T12:00:00.000Z",
+    "snapshot": {
+      "ownerScopeId": "owner-synthetic",
+      "factRegistry": [
+        {
+          "factId": "f-ready",
+          "revision": 1,
+          "status": "verified",
+          "value": true,
+          "claimId": "claim-f-ready",
+          "evidenceIds": [
+            "ev-f-ready"
+          ],
+          "recordedAt": "2026-10-01T00:00:00.000Z"
+        },
+        {
+          "factId": "f-heat-risk",
+          "revision": 1,
+          "status": "unknown",
+          "claimId": "claim-f-heat-risk",
+          "evidenceIds": [
+            "ev-f-heat-risk"
+          ],
+          "recordedAt": "2026-10-01T00:00:00.000Z"
+        }
+      ],
+      "passport": {
+        "entryId": "passport",
+        "revision": 1,
+        "factIds": []
+      },
+      "chemicalServiceHistory": [],
+      "shelf": [],
+      "tools": [],
+      "eventHistory": [],
+      "revisions": {
+        "passport": 1,
+        "chemicalServiceHistory": 1,
+        "shelf": 1,
+        "tools": 1,
+        "events": 1
+      }
+    }
+  },
+  "expectedDecision": {
+    "status": "needs_input",
+    "steps": [],
+    "omissions": [],
+    "alternatives": [],
+    "questions": [
+      {
+        "questionId": "fact:f-heat-risk",
+        "rank": 1,
+        "reasonCode": "fact_unknown",
+        "neededFactIds": [
+          "f-heat-risk"
+        ]
+      }
+    ],
+    "confidence": {
+      "evidence": "low",
+      "applicability": "low"
+    },
+    "audit": {
+      "ruleset": {
+        "rulesetId": "synthetic-ruleset-needs-input",
+        "contentHash": "sha256:359e5847",
+        "schemaVersion": "1.0.0",
+        "evaluatorVersion": "1.0.0"
+      },
+      "evaluatedAt": "2026-10-31T12:00:00.000Z",
+      "schemaVersion": "1.0.0",
+      "evaluatorVersion": "1.0.0",
+      "trace": [
+        {
+          "stageId": "validate_snapshot",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "apply_safety_restrictions",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "load_verified_facts",
+          "outcome": "needs_input",
+          "ruleIds": [
+            "r-require-heat-fact"
+          ],
+          "claimIds": [
+            "claim-r-require-heat-fact"
+          ],
+          "evidenceIds": [
+            "ev-r-require-heat-fact"
+          ]
+        },
+        {
+          "stageId": "derive_treatment_state",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "filter_candidates",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "evaluate_heat",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "select_and_rank",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "build_dependency_graph",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "order_and_validate",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "assemble_decision",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        }
+      ]
+    }
+  }
+}
