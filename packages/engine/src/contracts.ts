@@ -218,6 +218,11 @@ export const CompiledRuleSchema = z.object({
   stageId: EngineStageIdSchema,
   when: RuleExpressionSchema,
   effects: z.array(RuleEffectSchema).min(1).readonly(),
+  table: z.object({
+    tableId: z.string().min(1),
+    hitPolicy: z.enum(['first', 'collect', 'unique']),
+    rowOrder: z.number().int().nonnegative(),
+  }).strict().readonly().optional(),
   severity: z.enum(['hard', 'caution', 'info']),
   capabilityIds: z.array(z.string().min(1)).readonly(),
   claimIds: z.array(z.string().min(1)).min(1).readonly(),
@@ -239,11 +244,23 @@ export const CompiledRulesetSchema = z.object({
     seenCapabilityIds.add(capability.capabilityId);
   });
   const seenRuleIds = new Set<string>();
+  const tableMetadata = new Map<string, { hitPolicy: 'first' | 'collect' | 'unique'; rowOrders: Set<number> }>();
   ruleset.rules.forEach((rule, index) => {
     if (seenRuleIds.has(rule.ruleId)) {
       context.addIssue({ code: 'custom', path: ['rules', index, 'ruleId'], message: 'Compiled rule identifiers must be unique within a ruleset.' });
     }
     seenRuleIds.add(rule.ruleId);
+    if (rule.table) {
+      const table = tableMetadata.get(rule.table.tableId) ?? { hitPolicy: rule.table.hitPolicy, rowOrders: new Set<number>() };
+      if (table.hitPolicy !== rule.table.hitPolicy) {
+        context.addIssue({ code: 'custom', path: ['rules', index, 'table', 'hitPolicy'], message: 'Rows in one decision table must share one hit policy.' });
+      }
+      if (table.rowOrders.has(rule.table.rowOrder)) {
+        context.addIssue({ code: 'custom', path: ['rules', index, 'table', 'rowOrder'], message: 'Decision-table row order values must be unique.' });
+      }
+      table.rowOrders.add(rule.table.rowOrder);
+      tableMetadata.set(rule.table.tableId, table);
+    }
     rule.capabilityIds.forEach((capabilityId) => {
       const capability = capabilitiesById.get(capabilityId);
       if (!capability) {

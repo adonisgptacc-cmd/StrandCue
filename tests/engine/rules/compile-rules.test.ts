@@ -35,7 +35,7 @@ const validBundle = {
         },
         {
           rowId: 'row-2',
-          when: { kind: 'fact_equals', factId: 'synthetic-fact', value: 'synthetic-value' },
+          when: { kind: 'fact_equals', factId: 'synthetic-other-fact', value: 'synthetic-value' },
           effects: [{ kind: 'set_heat_assessment', state: 'lower_heat' }],
           severity: 'caution',
           capabilityIds: [],
@@ -72,6 +72,40 @@ describe('rule compiler', () => {
     expect(Object.isFrozen(compiled.rules)).toBe(true);
     expect(Object.isFrozen(compiled.capabilities)).toBe(true);
     expect(compiled.rules).toHaveLength(3);
+  });
+
+  it('preserves table policy and source row order in compiled rules', () => {
+    const compiled = compileRules(validBundle);
+    expect(compiled.rules.find((rule) => rule.ruleId === 'synthetic-table::row-1')?.table).toEqual({
+      tableId: 'synthetic-table',
+      hitPolicy: 'first',
+      rowOrder: 0,
+    });
+    expect(compiled.rules.find((rule) => rule.ruleId === 'synthetic-table::row-2')?.table?.rowOrder).toBe(1);
+  });
+
+  it('refuses to compile a hard rule that static analysis finds without fixtures', () => {
+    expect(() => compileRules({ ...validBundle, requiredFixtures: [] })).toThrow(/missing-fixture/);
+  });
+
+  it('refuses to compile an unreachable first-hit row', () => {
+    const firstRow = validBundle.tables[0].rows[0];
+    expect(() => compileRules({
+      ...validBundle,
+      tables: [{ ...validBundle.tables[0], rows: [firstRow, { ...firstRow, rowId: 'unreachable-row' }] }],
+    })).toThrow(/unreachable-row/);
+  });
+
+  it('refuses to compile overlapping cells under a unique hit policy', () => {
+    const firstRow = validBundle.tables[0].rows[0];
+    expect(() => compileRules({
+      ...validBundle,
+      tables: [{
+        ...validBundle.tables[0],
+        hitPolicy: 'unique',
+        rows: [firstRow, { ...firstRow, rowId: 'overlap-row', when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } }],
+      }],
+    })).toThrow(/overlapping-cells-unique/);
   });
 
   it('routes block effects to apply_safety_restrictions', () => {

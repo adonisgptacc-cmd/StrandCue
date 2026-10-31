@@ -79,7 +79,11 @@ describe('golden decisions', () => {
         },
       ],
       constraints: [],
-      requiredFixtures: [],
+      requiredFixtures: [{
+        ruleId: 'synthetic-table::row-include',
+        positiveFixtureIds: ['fixture-ready'],
+        negativeFixtureIds: ['fixture-not-ready'],
+      }],
     });
 
     expect(rulesetContentHash({ capabilities: compiled.capabilities, rules: compiled.rules })).toBe(compiled.ref.contentHash);
