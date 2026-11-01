@@ -80,7 +80,7 @@
 - [x] **Step 3: Run focused tests to confirm failure.** Run `npm test -- tests/server/weather-context-edge.test.ts tests/server/weather-context-provider.test.ts`. Expected: FAIL because handler/provider modules are absent. RED confirmed.
 - [x] **Step 4: Implement the provider and handler.** Reuse the established Edge Function authentication and owner-client pattern. Bound request/provider response bodies, reject redirects, and never log city, coordinates, bearer token, provider key, or raw response.
 - [x] **Step 5: Run focused tests and local function checks.** `npm test -- tests/server/weather-context-edge.test.ts tests/server/weather-context-provider.test.ts` passed (14/14); `npm run typecheck:domain` and targeted ESLint passed. Docker-backed local `supabase functions serve weather-context` bundled under Edge Runtime 1.74.3 and returned `authentication-required` for an unauthenticated request; no provider call was made.
-- [ ] **Step 6: Commit.** `feat: add consent-gated weather provider endpoint`
+- [x] **Step 6: Commit.** `feat: add consent-gated weather provider endpoint` (`2ca3337`)
 
 ### Task 3: Add owner-scoped location storage and weather client controller
 
