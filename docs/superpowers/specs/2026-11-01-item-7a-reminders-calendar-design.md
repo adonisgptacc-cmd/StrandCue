@@ -168,9 +168,9 @@ activity dates remain unknown, and reminder scheduling is owner-local with
 generic notification content. Focused tests, typecheck, scoped lint, Android
 debug build, and independent review evidence are recorded in the plan.
 
-The latest local `main` history has been merged into the isolated feature branch
-and the combined full suite, typecheck, and lint passed. The branch is ready for
-local fast-forward integration into `main`. Dependency-policy disposition,
+The latest local `main` history was merged into the isolated feature branch,
+then local `main` was fast-forwarded to the verified result. The combined full
+suite, typecheck, and lint passed. Dependency-policy disposition,
 Metro-backed Android UI/device checks, and category-to-source traceability
 remain open. The I6.6 release HOLD remains in force. No hosted Supabase
 changes, push, deployment, or publication occurred.

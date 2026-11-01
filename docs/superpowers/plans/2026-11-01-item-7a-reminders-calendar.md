@@ -75,9 +75,10 @@ sync. Photo reminders remain deferred. Weather/travel is a separate 7B slice.
   requirement traceability. The latest local `main` history was merged into
   this feature branch as `1e79b1a`; Git reported no conflicts. On the combined
   tree, the full suite passed 250 files / 5,038 tests, with 8 files / 47 tests
-  skipped; full typecheck and lint also passed. The feature branch is ready for
-  a local fast-forward of `main`. The I6.6 release HOLD and dependency-policy
-  HOLD remain; this is code integration approval, not release approval.
+  skipped; full typecheck and lint also passed. Local `main` was fast-forwarded
+  to the verified feature branch. The I6.6 release HOLD and
+  dependency-policy HOLD remain; this is code integration, not release
+  approval.
 - Commit `c05984f` contains Item 7A; no push, deploy, publication, or hosted
   database change has occurred.
 - Do not build a second source of activity truth. Calendar entries must adapt
