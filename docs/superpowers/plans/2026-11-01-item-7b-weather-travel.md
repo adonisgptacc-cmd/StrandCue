@@ -103,7 +103,7 @@
 - [x] **Step 2: Run focused tests to confirm failure.** Run `npm test -- tests/mobile/weather-storage.test.ts tests/mobile/weather-api.test.ts tests/mobile/weather-controller.test.ts`. Expected: FAIL because modules are absent. RED confirmed.
 - [x] **Step 3: Implement storage, typed API adapter, and controller.** Inject time and API/storage dependencies. Owner-key secure storage writes serialize and check revisions; weather results remain in memory and are bound to the active location and consent epoch.
 - [x] **Step 4: Run focused tests.** `npm test -- tests/mobile/weather-storage.test.ts tests/mobile/weather-api.test.ts tests/mobile/weather-controller.test.ts tests/domain/weather-context.test.ts` passed (22/22); domain and mobile typechecks and targeted ESLint passed. Review fixes cover settings-write races and subscribed travel-expiry notification.
-- [ ] **Step 5: Commit.** `feat: manage owner weather context safely`
+- [x] **Step 5: Commit.** `feat: manage owner weather context safely` (`2831768`)
 
 ### Task 4: Add weather and travel controls and informational Today card
 
