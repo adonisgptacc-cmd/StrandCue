@@ -1,8 +1,9 @@
 # Implementation plan: item 7A reminders and calendar/history
 
 > **For implementation agents:** Execute this plan in a dedicated item 7A
-> worktree, one task at a time. Preserve the I6.6 release HOLD and do not push,
-> deploy, publish, merge, or apply anything to hosted Supabase.
+> worktree, one task at a time. Preserve the I6.6 release HOLD. Do not push,
+> deploy, publish, or apply anything to hosted Supabase. The owner approved
+> local integration after review and verification.
 
 **Goal:** Add owner-controlled Android local reminders and a calendar/history
 view that distinguishes plans from persisted outcomes, without weather or remote
@@ -71,14 +72,14 @@ sync. Photo reminders remain deferred. Weather/travel is a separate 7B slice.
 - **Integration gates still open:** dependency-policy disposition;
   Metro-backed Android UI/device checks; real-Postgres evidence if release
   requires it; confirmation of source support for each reminder category and
-  requirement traceability; and reconciliation with current `main`/I6.6
-  history. Before integration, bring the latest `main` history into the
-  feature branch, inspect conflicts and re-run checks against the resulting
-  tree. The isolated branch began with two commits absent from `main`, while
-  `main` has fourteen commits absent from this worktree.
-- This records implementation in the isolated worktree, not integration or
-  release approval. The I6.6 HOLD remains. No commit, push, merge, deploy,
-  publish, or hosted database change has occurred.
+  requirement traceability. The latest local `main` history was merged into
+  this feature branch as `1e79b1a`; Git reported no conflicts. On the combined
+  tree, the full suite passed 250 files / 5,038 tests, with 8 files / 47 tests
+  skipped; full typecheck and lint also passed. The feature branch is ready for
+  a local fast-forward of `main`. The I6.6 release HOLD and dependency-policy
+  HOLD remain; this is code integration approval, not release approval.
+- Commit `c05984f` contains Item 7A; no push, deploy, publication, or hosted
+  database change has occurred.
 - Do not build a second source of activity truth. Calendar entries must adapt
   existing records and preserve unknown/ambiguous state.
 
@@ -190,7 +191,7 @@ sync. Photo reminders remain deferred. Weather/travel is a separate 7B slice.
 - [ ] Device-local settings are isolated per owner and cleared at sign-out.
 - [ ] No activity completion, treatment eligibility, or product expiry is
       inferred without a persisted source fact.
-- [ ] No weather, travel, photo reminders, server push, hosted database change,
-      content publication, push, deployment, or merge occurs in 7A.
-- [ ] Tests and code review pass before the local work order is presented for
-      integration.
+- [x] No weather, travel, photo reminders, server push, hosted database change,
+      content publication, push, or deployment is part of 7A.
+- [x] Tests and code review pass. The owner approved local merge into `main`
+      after merged-tree verification; the I6.6 release HOLD remains.
