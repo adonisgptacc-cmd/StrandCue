@@ -69,10 +69,15 @@ sync. Photo reminders remain deferred. Weather/travel is a separate 7B slice.
   `DEPENDENCY-POLICY-HOLD` with 26 findings (6 high, 22 moderate). The existing
   audit plan requires human review of stale EAS/mutation-runner lock digests;
   do not change its dates or owners just to clear the hold.
-- **Integration gates still open:** dependency-policy disposition;
+- **Requirement disposition:** RM-01 is Partial because treatment
+  eligibility/expiry and progress-photo reminders are deferred and no dates
+  are inferred. RM-02 through RM-05 are Implemented in the traceability matrix
+  with code/test evidence. Supported reminder categories are based only on
+  owner-entered date/time plans; existing persisted activity/history records
+  are calendar entries, not implicit reminder triggers.
+- **Release gates still open:** dependency-policy disposition;
   Metro-backed Android UI/device checks; real-Postgres evidence if release
-  requires it; confirmation of source support for each reminder category and
-  requirement traceability. The latest local `main` history was merged into
+  requires it. The latest local `main` history was merged into
   this feature branch as `1e79b1a`; Git reported no conflicts. On the combined
   tree, the full suite passed 250 files / 5,038 tests, with 8 files / 47 tests
   skipped; full typecheck and lint also passed. Local `main` was fast-forwarded
@@ -176,9 +181,9 @@ sync. Photo reminders remain deferred. Weather/travel is a separate 7B slice.
 
 - Perform security/privacy review of notification payloads, secure preference
   storage, owner switch, and permission timing.
-- Update requirement traceability for RM-01 through RM-05 only where the
-  implementation and evidence meet the requirement. Leave unsupported reminder
-  categories partial or not started with explicit reasons.
+- [x] Update requirement traceability for RM-01 through RM-05 only where the
+  implementation and evidence meet the requirement. RM-01 remains Partial for
+  unsupported categories; RM-02 through RM-05 are Implemented.
 - Record worktree, branch, commits, test evidence, device checks, and any
   remaining release gates in the item 7A report.
 - Do not claim private beta or production readiness from local verification.

@@ -128,7 +128,11 @@ matrix promotes draft content, fills reviewer identities or publishes facts.
 | PH-01..PH-09 | Not started | No photo module/storage |
 | WX-01..WX-06 | Not started | No weather module |
 | RA-01..RA-06 | Not started | No routine-audit module |
-| RM-01..RM-05 | Not started | No reminder module |
+| RM-01 | Partial | Owner-controlled local planned-routine, delayed Cue Check, and product-review reminders with explicit dates/times. Treatment eligibility/expiry and progress-photo reminders are not implemented; no inferred dates. See Item 7A plan and RM-01 traceability row. |
+| RM-02 | Implemented | Optional categories, individual dismissal, quiet-hours scheduling, and local timezone/DST projection; Android exact-alarm access is not requested. Delivery may be delayed by Android. |
+| RM-03 | Implemented | Neutral calendar/reminder copy preserves unknown outcomes and has no missed-routine penalty or streak. |
+| RM-04 | Implemented | Account calendar adapts persisted history sources and separately labels owner-entered plans; correction and unknown semantics are preserved. |
+| RM-05 | Implemented | Fixed generic local notification copy contains no product or treatment details. |
 | AI-01..AI-07 | Not started | No AI adapter |
 
 ## Safety, evidence, community, stylist, privacy, accessibility

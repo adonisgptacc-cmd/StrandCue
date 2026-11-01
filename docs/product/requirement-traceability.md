@@ -135,11 +135,11 @@ so draft content may not execute and Today yields `content_pending`.
 | RA-04 | R3 | — | — | Not started |
 | RA-05 | R3 | — | — | Not started |
 | RA-06 | R3 | — | — | Not started |
-| RM-01 | R3 | — | — | Not started |
-| RM-02 | R3 | — | — | Not started |
-| RM-03 | R3 | — | — | Not started |
-| RM-04 | R3 | — | — | Not started |
-| RM-05 | R3 | — | — | Not started |
+| RM-01 | R3 | Owner can separately enable planned-routine, delayed Cue Check, and product-review reminders using explicit owner-entered local dates/times. Treatment eligibility/expiry and progress-photo reminders are not implemented; no dates are inferred. | apps/mobile/src/ReminderCalendar.tsx, apps/mobile/src/reminder-store.ts, packages/domain/src/calendar.ts; tests/mobile/reminder-calendar.test.tsx, tests/mobile/reminder-store.test.ts, tests/domain/calendar.test.ts | Partial |
+| RM-02 | R3 | Supported reminders are optional and individually dismissible; scheduling applies quiet hours and local timezone conversion, including DST boundaries. Android may delay delivery; exact alarms are not requested. | apps/mobile/src/reminder-notifications.ts, packages/domain/src/calendar.ts; tests/mobile/reminder-notifications.test.ts, tests/mobile/reminder-store.test.ts, tests/domain/calendar.test.ts | Implemented |
+| RM-03 | R3 | Calendar preserves unknown outcomes and the reminder UI adds no streak, missed-routine, failure, or penalty language. | apps/mobile/src/ReminderCalendar.tsx, packages/domain/src/calendar.ts; tests/mobile/reminder-calendar.test.tsx, tests/domain/calendar.test.ts | Implemented |
+| RM-04 | R3 | Calendar/history distinguishes planned entries from persisted protocol, activity, Cue Check, programme, service, and Passport history; corrections and unknown statuses remain explicit. | apps/mobile/src/calendar-history.ts, packages/domain/src/calendar.ts; tests/mobile/calendar-history.test.ts, tests/domain/calendar.test.ts | Implemented |
+| RM-05 | R3 | Notification title/body are fixed generic copy and do not include event, product, or treatment details. | apps/mobile/src/reminder-notifications.ts; tests/mobile/reminder-notifications.test.ts | Implemented |
 | AI-01 | R5 | — | — | Not started |
 | AI-02 | R5 | — | — | Not started |
 | AI-03 | R5 | — | — | Not started |

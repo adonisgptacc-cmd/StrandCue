@@ -170,7 +170,8 @@ debug build, and independent review evidence are recorded in the plan.
 
 The latest local `main` history was merged into the isolated feature branch,
 then local `main` was fast-forwarded to the verified result. The combined full
-suite, typecheck, and lint passed. Dependency-policy disposition,
-Metro-backed Android UI/device checks, and category-to-source traceability
-remain open. The I6.6 release HOLD remains in force. No hosted Supabase
-changes, push, deployment, or publication occurred.
+suite, typecheck, and lint passed. RM-01 remains Partial for treatment
+eligibility/expiry and progress-photo categories; RM-02 through RM-05 are
+Implemented in the product traceability matrix. Android UI/device checks and
+dependency-policy disposition remain open. The I6.6 release HOLD remains in
+force. No hosted Supabase changes, push, deployment, or publication occurred.
