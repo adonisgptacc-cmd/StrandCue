@@ -7,10 +7,11 @@ export const ConsentPurposeSchema = z.enum([
   'marketing_email',
   'community_outcomes',
   'product_analytics',
+  'weather_context',
 ]);
 export type ConsentPurpose = z.output<typeof ConsentPurposeSchema>;
 
-export const optionalPurposes = ['marketing_email', 'community_outcomes', 'product_analytics'] as const satisfies readonly ConsentPurpose[];
+export const optionalPurposes = ['marketing_email', 'community_outcomes', 'product_analytics', 'weather_context'] as const satisfies readonly ConsentPurpose[];
 
 const ConsentReceiptSchema = z.object({
   purpose: ConsentPurposeSchema,
@@ -23,6 +24,7 @@ const ConsentListSchema = z.object({
   marketing_email: z.boolean().optional(),
   community_outcomes: z.boolean().optional(),
   product_analytics: z.boolean().optional(),
+  weather_context: z.boolean().optional(),
 }).strict();
 
 export type ConsentReceipt = z.output<typeof ConsentReceiptSchema>;
@@ -60,6 +62,7 @@ export function consentPurposeLabel(purpose: ConsentPurpose): string {
     case 'marketing_email': return 'Product updates by email (optional)';
     case 'community_outcomes': return 'Anonymous community outcomes (optional)';
     case 'product_analytics': return 'Anonymous usage analytics (optional)';
+    case 'weather_context': return 'Weather and coarse city sharing (optional)';
   }
 }
 

@@ -57,3 +57,4 @@ export {
 } from './services.ts';
 export * from './shelf.ts';
 export * from './tools.ts';
+export * from './weather/weather-context.ts';

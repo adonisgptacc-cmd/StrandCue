@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { listConsents, setConsent } from '../../apps/mobile/src/consent-api';
 
@@ -13,6 +13,7 @@ vi.mock('../../apps/mobile/src/client.ts', () => ({
 }));
 
 const operationId = 'f0000000-0000-4000-8000-000000000030';
+beforeEach(() => { rpc.mockReset(); });
 
 describe('consent mobile boundary', () => {
   it('records consent without owner fields', async () => {
@@ -26,6 +27,19 @@ describe('consent mobile boundary', () => {
     expect(parameters).not.toHaveProperty('user_id');
   });
 
+  it('records optional weather-context consent using the existing owner boundary', async () => {
+    rpc.mockResolvedValueOnce({
+      data: { purpose: 'weather_context', granted: true, recordedAt: '2026-11-01T10:00:00.000Z' },
+      error: null,
+    });
+    await expect(setConsent(operationId, 'weather_context', true)).resolves.toMatchObject({
+      purpose: 'weather_context', granted: true,
+    });
+    expect(rpc).toHaveBeenLastCalledWith('consent_set', {
+      p_operation_id: operationId, p_purpose: 'weather_context', p_granted: true,
+    });
+  });
+
   it('rejects unknown purposes before sending', async () => {
     await expect(setConsent(operationId, 'sell_my_data' as never, true)).rejects.toThrow();
     expect(rpc).not.toHaveBeenCalledWith('consent_set', expect.anything());
@@ -37,8 +51,8 @@ describe('consent mobile boundary', () => {
   });
 
   it('lists current consent per purpose', async () => {
-    rpc.mockResolvedValueOnce({ data: { marketing_email: true, product_analytics: false }, error: null });
-    await expect(listConsents()).resolves.toEqual({ marketing_email: true, product_analytics: false });
+    rpc.mockResolvedValueOnce({ data: { marketing_email: true, product_analytics: false, weather_context: true }, error: null });
+    await expect(listConsents()).resolves.toEqual({ marketing_email: true, product_analytics: false, weather_context: true });
     expect(rpc).toHaveBeenLastCalledWith('consent_list', {});
   });
 

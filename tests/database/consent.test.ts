@@ -53,6 +53,36 @@ describe('consent records immutable history and RLS', () => {
     expect(rows.rows).toHaveLength(3);
   });
 
+  it('records and withdraws weather context consent with latest-wins reads', async () => {
+    await complete(db);
+    await setConsent(db, crypto.randomUUID(), 'weather_context', true);
+    expect(await listConsents(db)).toMatchObject({ weather_context: true });
+    await setConsent(db, crypto.randomUUID(), 'weather_context', false);
+    expect(await listConsents(db)).toMatchObject({ weather_context: false });
+  });
+
+  it('limits concurrent weather requests per owner without storing place data', async () => {
+    await complete(db);
+    const results = await Promise.all(Array.from({ length: 25 }, async () => {
+      try {
+        await db.query('select public.reserve_weather_context_request()');
+        return 'reserved';
+      } catch (error) {
+        if (/weather-rate-limited/i.test(String(error))) return 'limited';
+        throw error;
+      }
+    }));
+    expect(results.filter((result) => result === 'reserved')).toHaveLength(20);
+    expect(results.filter((result) => result === 'limited')).toHaveLength(5);
+    await db.exec('set session authorization postgres');
+    const columns = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns where table_schema = 'strandcue_private' and table_name = 'weather_context_rate_limits'`,
+    );
+    expect(columns.rows.map(({ column_name }) => column_name).sort()).toEqual(['used', 'user_id', 'window_start']);
+    await asUser(db, USER_A);
+    await expect(db.query('select * from strandcue_private.weather_context_rate_limits')).rejects.toThrow(/permission denied/i);
+  });
+
   it('protects the required processing purpose while the account is active', async () => {
     await complete(db);
     await expect(setConsent(db, crypto.randomUUID(), 'hair_passport_processing', false)).rejects.toThrow(/required-purpose/i);
