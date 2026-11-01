@@ -86,6 +86,7 @@ export type WeatherContext = z.output<typeof WeatherContextSchema>;
 
 export const WeatherUnavailableReasonSchema = z.enum([
   'no_location',
+  'not_requested',
   'consent_required',
   'not_configured',
   'network_error',

@@ -91,6 +91,7 @@
 - Create: `tests/mobile/weather-storage.test.ts`
 - Create: `tests/mobile/weather-api.test.ts`
 - Create: `tests/mobile/weather-controller.test.ts`
+- Modify: `packages/domain/src/weather/weather-context.ts` and `tests/domain/weather-context.test.ts` to represent the not-yet-requested state after a location/date change.
 
 **Interfaces:**
 - `WeatherLocationSettings` stores selected home/travel provider IDs, labels, destination timezones, and travel dates; it stores no coordinates or forecast payload.
@@ -98,10 +99,10 @@
 - `searchWeatherCities(command)` and `fetchWeatherContext(command)` strictly parse Edge Function requests and responses; the client sends only selected city search text or the selected provider ID.
 - `createWeatherController({api, storage, ownerKey, now})` coordinates consent, selection, fetch, stale state, revocation, travel-window selection, and owner epochs. Stale or late responses cannot replace newer owner/location state.
 
-- [ ] **Step 1: Write failing storage, API, and controller tests.** Cover per-owner key isolation, serialized concurrent writes, quota-safe request serialization, strict API response validation, city selection, manual refresh, travel date boundaries in IANA timezones, 60-minute staleness, revocation during fetch, owner switch during fetch, and clear-on-sign-out.
-- [ ] **Step 2: Run focused tests to confirm failure.** Run `npm test -- tests/mobile/weather-storage.test.ts tests/mobile/weather-api.test.ts tests/mobile/weather-controller.test.ts`. Expected: FAIL because modules are absent.
-- [ ] **Step 3: Implement storage, typed API adapter, and controller.** Inject time and API/storage dependencies. Avoid global mutable state and ensure every write is serialized/revision checked.
-- [ ] **Step 4: Run focused tests.** Run the command in Step 2. Expected: PASS with no storage operation able to restore a revoked or departed owner's weather data.
+- [x] **Step 1: Write failing storage, API, and controller tests.** Cover per-owner key isolation, serialized concurrent writes, strict API response validation, city selection, manual refresh, travel date boundaries in IANA timezones, 60-minute staleness, revocation during fetch, owner switch during fetch, clear-on-sign-out, settings writes racing search/refresh, and subscriber notification at travel expiry.
+- [x] **Step 2: Run focused tests to confirm failure.** Run `npm test -- tests/mobile/weather-storage.test.ts tests/mobile/weather-api.test.ts tests/mobile/weather-controller.test.ts`. Expected: FAIL because modules are absent. RED confirmed.
+- [x] **Step 3: Implement storage, typed API adapter, and controller.** Inject time and API/storage dependencies. Owner-key secure storage writes serialize and check revisions; weather results remain in memory and are bound to the active location and consent epoch.
+- [x] **Step 4: Run focused tests.** `npm test -- tests/mobile/weather-storage.test.ts tests/mobile/weather-api.test.ts tests/mobile/weather-controller.test.ts tests/domain/weather-context.test.ts` passed (22/22); domain and mobile typechecks and targeted ESLint passed. Review fixes cover settings-write races and subscribed travel-expiry notification.
 - [ ] **Step 5: Commit.** `feat: manage owner weather context safely`
 
 ### Task 4: Add weather and travel controls and informational Today card

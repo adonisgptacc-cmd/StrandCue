@@ -3,6 +3,7 @@ import {
   classifyWeatherFreshness,
   WeatherContextSchema,
   WeatherSearchCandidateSchema,
+  WeatherContextStateSchema,
   WeatherTravelWindowSchema,
 } from '../../packages/domain/src/weather/weather-context';
 
@@ -54,6 +55,8 @@ describe('weather context contract', () => {
 
   it('classifies a missing weather response as unavailable', () => {
     expect(classifyWeatherFreshness(null, new Date('2026-11-01T10:00:00.000Z'))).toBe('unavailable');
+    expect(WeatherContextStateSchema.parse({ status: 'unavailable', reason: 'not_requested' }))
+      .toEqual({ status: 'unavailable', reason: 'not_requested' });
   });
 
   it('accepts a coarse selected city without exposing coordinates', () => {
