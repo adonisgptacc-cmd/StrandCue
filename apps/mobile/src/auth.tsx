@@ -6,6 +6,7 @@ import { RECOVERY_ACTIVE_KEY, RECOVERY_KEY, secureStorage, supabase } from './cl
 import { authNeedsLoading, isApprovedAuthCallback, isSessionRevokedError, maxOfflineRefreshAttempts, parseRecoveryCallback, recoveryFailureMessage, resolveAuthRefresh, resolvedRefreshUser } from './contracts';
 import { clearAllCheckInDrafts } from './guidance/current-condition-state';
 import { transitionServiceDraftOwner } from './service-form';
+import { clearReminderOwnerState } from './reminder-owner-lifecycle';
 import { Button, Field, Page, styles } from './ui';
 
 export const serviceDraftCleanupNotice = 'Device drafts from the previous account could not be cleared. Sign out before sharing this device.';
@@ -15,6 +16,7 @@ export const sessionRevokedNotice = 'Your session is no longer valid. This devic
 // Transient failures are retained only up to maxOfflineRefreshAttempts; past
 // that the device signs out rather than presenting a stale account forever.
 export const sessionUnverifiableNotice = 'Your session could not be verified after several attempts. This device has been signed out.';
+const reminderCleanupNotice = 'Saved reminders could not be cleared from this device. Please try signing out again before sharing it.';
 const authCallbackUrl = 'https://strandcue.adonisgptacc.workers.dev/auth/callback';
 
 type RecoveryAuth = {
@@ -79,6 +81,7 @@ export function useAccount() {
     let epoch = 0;
     let initialLinkChecked = false;
     const clearAccountState = (message: string, request: number) => {
+      const departingOwner = verifiedUser.current?.id;
       offlineFailures.current = 0;
       verifiedUser.current = null;
       setUser(null);
@@ -91,6 +94,11 @@ export function useAccount() {
       // idempotently: same null state, no notice change, no extra sign-out.
       client.auth.stopAutoRefresh();
       void client.auth.signOut({scope: 'local'}).catch(() => undefined);
+      if (departingOwner) {
+        void clearReminderOwnerState(departingOwner).catch(() => {
+          if (mounted && request === epoch) setNotice(reminderCleanupNotice);
+        });
+      }
       // The temporary check-in and the resolver state belong to the account
       // that is going away. They live in memory only, and they go with it.
       clearAllCheckInDrafts();
@@ -111,8 +119,18 @@ export function useAccount() {
           }
           return resolveAuthRefresh(result, (owner, guard) => transitionServiceDraftOwner(secureStorage, owner, guard), isCurrent);
         })
-        .then(outcome => {
+        .then(async outcome => {
         if (outcome && isCurrent()) {
+          const departingOwner = verifiedUser.current?.id;
+          if (departingOwner && departingOwner !== outcome.user?.id) {
+            try { await clearReminderOwnerState(departingOwner); }
+            catch {
+              if (!isCurrent()) return;
+              clearAccountState(reminderCleanupNotice, request);
+              return;
+            }
+          }
+          if (!isCurrent()) return;
           offlineFailures.current = 0;
           verifiedUser.current = outcome.user;
           setUser(outcome.user);
@@ -137,11 +155,17 @@ export function useAccount() {
     const {data: {subscription}} = client.auth.onAuthStateChange(event => {
       if (event === 'SIGNED_OUT') {
         const request = ++epoch;
+        const departingOwner = verifiedUser.current?.id;
         offlineFailures.current = 0;
         verifiedUser.current = null; setUser(null); setRecovery(false); setLoading(false);
         // The session ended, so the check-in and the resolver state that
         // belonged to it are cleared with it.
         clearAllCheckInDrafts();
+        if (departingOwner) {
+          void clearReminderOwnerState(departingOwner).catch(() => {
+            if (mounted && request === epoch) setNotice(reminderCleanupNotice);
+          });
+        }
         void transitionServiceDraftOwner(secureStorage, null, () => mounted && request === epoch).catch(() => {
           if (mounted && request === epoch) setNotice(serviceDraftCleanupNotice);
         });
@@ -179,7 +203,9 @@ export function useAccount() {
         }));
         if (outcome.status === 'failed') {
           recoveryRef.current = false;
+          const departingOwner = verifiedUser.current?.id;
           verifiedUser.current = null;
+          if (departingOwner) void clearReminderOwnerState(departingOwner).catch(() => { if (mounted) setNotice(reminderCleanupNotice); });
           if (mounted) { setUser(null); setRecovery(false); setLoading(false); setNotice(recoveryFailureMessage(outcome.reason)); }
           return;
         }
@@ -187,8 +213,11 @@ export function useAccount() {
         if (mounted) {setRecovery(true); setLoading(false); setNotice('');}
       } catch {
         recoveryRef.current = false;
+        const departingOwner = verifiedUser.current?.id;
+        verifiedUser.current = null;
         await secureStorage.removeItem(RECOVERY_KEY).catch(() => undefined);
         await client.auth.signOut({scope: 'local'}).catch(() => undefined);
+        if (departingOwner) void clearReminderOwnerState(departingOwner).catch(() => { if (mounted) setNotice(reminderCleanupNotice); });
         if (mounted) { setUser(null); setRecovery(false); setLoading(false); setNotice(recoveryFailureMessage('failure')); }
       }
       finally { processing = false; }

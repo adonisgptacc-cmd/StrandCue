@@ -15,6 +15,7 @@ const accountMocks = vi.hoisted(() => ({
   storageGet: vi.fn(),
   storageSet: vi.fn(),
   storageRemove: vi.fn(),
+  clearReminderOwner: vi.fn(),
   transitionOwner: vi.fn(),
   appStateListener: null as ((value: string) => void) | null,
   linkListener: null as ((event: { url: string }) => void) | null,
@@ -70,6 +71,9 @@ vi.mock('../../apps/mobile/src/ui.tsx', () => ({
 vi.mock('../../apps/mobile/src/service-form.ts', () => ({
   transitionServiceDraftOwner: accountMocks.transitionOwner,
 }));
+vi.mock('../../apps/mobile/src/reminder-owner-lifecycle.ts', () => ({
+  clearReminderOwnerState: accountMocks.clearReminderOwner,
+}));
 
 const ownerA = { id: '11111111-1111-1111-1111-111111111111' };
 const ownerB = { id: '22222222-2222-2222-2222-222222222222' };
@@ -116,6 +120,7 @@ beforeEach(() => {
   accountMocks.storageGet.mockResolvedValue(null);
   accountMocks.storageSet.mockResolvedValue(undefined);
   accountMocks.storageRemove.mockResolvedValue(undefined);
+  accountMocks.clearReminderOwner.mockResolvedValue(undefined);
   accountMocks.transitionOwner.mockResolvedValue(undefined);
   accountMocks.signOut.mockResolvedValue({ error: null });
   accountMocks.exchange.mockResolvedValue({ data: { session: null }, error: new Error('no exchange stubbed') });
@@ -608,6 +613,29 @@ describe('refresh epoch, app state and recovery-callback neighbours', () => {
     await act(async () => {
       renderer.unmount();
     });
+  });
+
+  it('does not restore a refreshed owner when sign-out wins during reminder cleanup', async () => {
+    accountMocks.getUser.mockResolvedValueOnce({ data: { user: ownerA }, error: null });
+    const { observed, renderer } = await mountAccount();
+    expect(observed().user).toEqual(ownerA);
+
+    const cleanup = deferred<void>();
+    accountMocks.getUser.mockResolvedValueOnce({ data: { user: ownerB }, error: null });
+    accountMocks.clearReminderOwner.mockReturnValueOnce(cleanup.promise);
+    await emitAuthEvent('SIGNED_IN');
+    await vi.waitFor(() => expect(accountMocks.clearReminderOwner).toHaveBeenCalledTimes(1));
+
+    await emitAuthEvent('SIGNED_OUT');
+    expect(observed().user).toBeNull();
+
+    await act(async () => {
+      cleanup.resolve();
+      await cleanup.promise;
+      await tick();
+    });
+    expect(observed().user).toBeNull();
+    await act(async () => { renderer.unmount(); });
   });
 
   it('keeps the reset screen active when a link arrives mid-recovery', async () => {

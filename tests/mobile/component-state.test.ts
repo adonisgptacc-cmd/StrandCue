@@ -16,6 +16,10 @@ const componentMocks = vi.hoisted(() => ({
   loadServices: vi.fn(),
   randomUUID: vi.fn(() => '30000000-0000-4000-8000-000000000001'),
   resetPasswordForEmail: vi.fn(),
+  activateReminderOwner: vi.fn(),
+  deactivateReminderOwner: vi.fn(),
+  reconcileDeviceReminders: vi.fn(),
+  clearReminderOwner: vi.fn(),
   rpc: vi.fn(),
   savePassport: vi.fn(),
   signUp: vi.fn(),
@@ -78,6 +82,14 @@ vi.mock('../../apps/mobile/src/passport-api.ts', () => ({
 vi.mock('../../apps/mobile/src/services-api.ts', () => ({
   loadService: componentMocks.loadService,
   loadServices: componentMocks.loadServices,
+}));
+vi.mock('../../apps/mobile/src/reminder-notifications.ts', () => ({
+  activateReminderOwner: componentMocks.activateReminderOwner,
+  deactivateReminderOwner: componentMocks.deactivateReminderOwner,
+  reconcileDeviceReminders: componentMocks.reconcileDeviceReminders,
+}));
+vi.mock('../../apps/mobile/src/reminder-owner-lifecycle.ts', () => ({
+  clearReminderOwnerState: componentMocks.clearReminderOwner,
 }));
 
 type Deferred<T> = Readonly<{
@@ -145,6 +157,10 @@ afterAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  componentMocks.activateReminderOwner.mockResolvedValue(undefined);
+  componentMocks.deactivateReminderOwner.mockResolvedValue(undefined);
+  componentMocks.reconcileDeviceReminders.mockResolvedValue(undefined);
+  componentMocks.clearReminderOwner.mockResolvedValue(undefined);
   componentMocks.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
   componentMocks.signUp.mockResolvedValue({ data: { session: null, user: null }, error: null });
   componentMocks.storage.getItem.mockResolvedValue(null);
@@ -266,7 +282,12 @@ describe('mobile component state contracts', () => {
     });
 
     expect(renderedText(renderer)).toContain(serviceDraftCleanupNotice);
-    await act(async () => { renderer.unmount(); });
+    expect(componentMocks.activateReminderOwner).toHaveBeenCalledTimes(1);
+    expect(componentMocks.clearReminderOwner).not.toHaveBeenCalled();
+    expect(componentMocks.deactivateReminderOwner).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); await Promise.resolve(); });
+    expect(componentMocks.clearReminderOwner).not.toHaveBeenCalled();
+    expect(componentMocks.deactivateReminderOwner).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a stale service result after the owner-keyed child remounts', async () => {

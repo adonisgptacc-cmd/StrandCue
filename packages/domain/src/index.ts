@@ -1,4 +1,5 @@
 export * from './activity.ts';
+export * from './calendar.ts';
 export * from './catalogue-intake.ts';
 export * from './catalogue-search.ts';
 export * from './cue-check.ts';

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, ScrollView, Text, View } from 'react-native';
+import { AppState, Platform, ScrollView, Text, View } from 'react-native';
 import type { User } from '@supabase/supabase-js';
 import type { CurrentConditionInput, PassportRevision } from '../../../packages/domain/src/index';
 import { supabase, secureStorage } from './client';
@@ -20,6 +20,11 @@ import type { TerminalExecutionContext } from './cue-check-state';
 import { Shelf } from './shelf';
 import { Tools } from './tools';
 import { HeatCoachEntry } from './HeatCoachEntry';
+import { ReminderCalendar } from './ReminderCalendar';
+import { createReminderStore } from './reminder-store';
+import { activateReminderOwner, deactivateReminderOwner, reconcileDeviceReminders } from './reminder-notifications';
+import { clearReminderOwnerState } from './reminder-owner-lifecycle';
+import { planReminderSchedules } from '../../../packages/domain/src/index';
 import type { OwnedHeatItem } from './HeatCoachIntent';
 import { ExportScreen } from './screens/ExportScreen';
 import { DeletionScreen } from './screens/DeletionScreen';
@@ -32,6 +37,7 @@ import { Button, Field, Page, styles, display, fieldLabel } from './ui';
 
 const programmeApi: ProgrammeApi = { enrolProgramme, changeProgramme, listProgrammes, getProgramme };
 const programmeNow = (): Date => new Date();
+const reminderStore = createReminderStore(secureStorage);
 
 function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   owner: string; profile: { username: string }; busy: boolean; onLogout: () => void; onProfileChanged: () => void;
@@ -142,8 +148,9 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [heatTool, setHeatTool] = useState<OwnedHeatItem | null>(null);
   const [heatCondition, setHeatCondition] = useState<{ ownerId: string; value: CurrentConditionInput } | null>(null);
   const [pendingHeatAssessment, setPendingHeatAssessment] = useState<{ ownerId: string; assessmentId: string } | null>(null);
+  const [reminderError, setReminderError] = useState('');
   const [hairView, setHairView] = useState<'Passport'|'Services'>('Passport');
-  const [journeyView, setJourneyView] = useState<'History'|'Activities'|'Check-ins'|'Programmes'>('History');
+  const [journeyView, setJourneyView] = useState<'History'|'Activities'|'Check-ins'|'Programmes'|'Calendar'>('History');
   const [cueIntent, setCueIntent] = useState<TerminalExecutionContext|null>(null);
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<PassportRevision|undefined>();
@@ -160,7 +167,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [initialNotice] = useState(notice);
   if (errorState.notice !== notice) setErrorState({ notice, error: notice });
   const error = errorState.notice === notice ? errorState.error : notice;
-  const setError = (nextError: string) => setErrorState({ notice, error: nextError });
+  const setError = useCallback((nextError: string) => setErrorState({ notice, error: nextError }), [notice]);
   const ownerLoad = useOwnerLoad({
     ownerKey: user.id,
     load: async () => {
@@ -177,6 +184,32 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     clearError: () => setError(''),
     setLoading,
   });
+  useEffect(() => {
+    let active = true;
+    const refreshOwnerReminders = async () => {
+      const snapshot = await reminderStore.loadVersioned(user.id);
+      if (!active || !reminderStore.isCurrent(user.id, snapshot.revision)) return;
+      const schedules = planReminderSchedules(user.id, snapshot.state.plans, snapshot.state.preferences, new Date());
+      await reconcileDeviceReminders(
+        user.id,
+        schedules.map(schedule => ({ id: schedule.reminderId, scheduledFor: schedule.scheduledFor })),
+        () => active && reminderStore.isCurrent(user.id, snapshot.revision),
+      );
+      if (active) setReminderError('');
+    };
+    const showReminderError = () => {
+      if (active) setReminderError('Saved reminders could not be refreshed. Open Journey > Calendar to review them.');
+    };
+    const lifecycle = AppState.addEventListener('change', state => {
+      if (state === 'active') void refreshOwnerReminders().catch(showReminderError);
+    });
+    void activateReminderOwner(user.id).then(refreshOwnerReminders).catch(showReminderError);
+    return () => {
+      active = false;
+      lifecycle.remove();
+      void deactivateReminderOwner(user.id).catch(() => undefined);
+    };
+  }, [user.id, setReminderError]);
   const isMounted = ownerLoad.isMounted;
   const refresh = () => ownerLoad.run('refresh');
   const checkUsername = useCallback(async (candidate: string, suffix: string) => {
@@ -243,6 +276,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
       clearAllCheckInDrafts();
       await secureStorage.removeItem(`strandcue-draft-${user.id}`);
       await clearServiceDrafts(secureStorage, user.id);
+      await clearReminderOwnerState(user.id);
       const {error: issue} = await supabase!.auth.signOut({scope:'local'});
       if (issue) throw issue;
     } catch {if (ownerLoad.isMounted()) setError('Sign out could not finish. Please try again before sharing this device.');}
@@ -291,16 +325,18 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
     setEditing(false);
     setTarget(undefined);
   };
-  const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : journeyView === 'Check-ins' ? 'How your hair felt' : journeyView === 'Programmes' ? 'Your treatment programmes' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
+  const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : journeyView === 'Check-ins' ? 'How your hair felt' : journeyView === 'Programmes' ? 'Your treatment programmes' : journeyView === 'Calendar' ? 'Reminders and calendar' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
     {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} assessmentId={pendingHeatAssessment?.ownerId === user.id ? pendingHeatAssessment.assessmentId : null} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={condition => openHeatCoach(null, condition)}/>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
-    {destination === 'journey' && <View style={styles.row}>{(['History','Activities','Check-ins','Programmes'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
+    {destination === 'journey' && <View style={styles.row}>{(['History','Activities','Check-ins','Programmes','Calendar'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}
     {!!error && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Button title="Retry loading" secondary onPress={() => void refresh()}/></View>}
+    {!!reminderError && <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{reminderError}</Text></View>}
     {destination === 'my_hair' && hairView === 'Services' && <Services owner={user.id} />}
     {destination === 'journey' && journeyView === 'Activities' && <Activities owner={user.id} />}
+    {destination === 'journey' && journeyView === 'Calendar' && <ReminderCalendar key={user.id} owner={user.id} />}
     {destination === 'journey' && journeyView === 'Check-ins' && <CueCheckJourney owner={user.id} intent={cueIntent} onIntentHandled={() => setCueIntent(null)} />}
     {destination === 'journey' && journeyView === 'Programmes' && <ProgrammeJourney owner={user.id} api={programmeApi} programmeOffer={null} now={programmeNow} onNavigate={targetDestination => {
       if (targetDestination === 'my_shelf') setDestination('my_shelf');
