@@ -63,22 +63,23 @@
 - Create: `supabase/functions/weather-context/index.ts`
 - Create: `supabase/functions/weather-context/provider.ts`
 - Create: `supabase/functions/weather-context/contracts.ts`
+- Create: `supabase/functions/weather-context/runtime.ts`
+- Create: `supabase/functions/weather-context/deno.json`
 - Create: `tests/server/weather-context-edge.test.ts`
 - Create: `tests/server/weather-context-provider.test.ts`
-- Modify: `supabase/config.toml` only if required to register local function settings.
 
 **Interfaces:**
 - `WeatherEdgeDependencies` injects `authenticate(token)`, `listConsents(token)`, `reserveRequest(token)`, `provider`, and `now()` for deterministic tests.
 - `handleWeatherContextRequest(request, dependencies)` accepts strict POST JSON commands: `{kind:'search', query, countryCode?}` or `{kind:'forecast', providerLocationId}`. Reject non-JSON, bodies over 2 KB, unknown keys, malformed auth and invalid inputs.
 - `OpenMeteoWeatherProvider.searchCities(query, countryCode?)` returns no more than five normalized candidates; `getForecast(providerLocationId)` returns validated current conditions and the next 24 hours.
 - The Edge Function verifies the bearer token, uses an owner-authorized `consent_list()` call, verifies latest `weather_context === true`, reserves quota, then contacts the provider. It never uses service-role access for consent.
-- Use the non-commercial Open-Meteo endpoint only in local development/test. Production must fail closed unless the customer endpoint, server-side API key and release license-review identifier are present.
+- Use the non-commercial Open-Meteo endpoint only in local development/test with a local Supabase URL. Production must fail closed unless the customer endpoint, server-side API key and release license-review identifier are present; release must separately verify that identifier against the reviewed license record.
 
-- [ ] **Step 1: Write failing Edge Function tests.** Cover unauthenticated calls, consent off, quota exceeded, malformed/oversized bodies, extra fields, city query bounds, explicit provider location ID selection, provider errors, and safe error envelopes. Verify no provider call happens before consent and quota checks.
-- [ ] **Step 2: Write failing provider tests.** Use mocked `fetch`; assert fixed Open-Meteo hosts, minimal query parameters, maximum five search matches, no user identifiers/free text, unit conversion, response parsing, valid timestamp ordering, 24-hour bound, attribution metadata, and malformed provider data returning unavailable.
-- [ ] **Step 3: Run focused tests to confirm failure.** Run `npm test -- tests/server/weather-context-edge.test.ts tests/server/weather-context-provider.test.ts`. Expected: FAIL because handler/provider modules are absent.
-- [ ] **Step 4: Implement the provider and handler.** Reuse the established Edge Function authentication and owner-client pattern. Redact request URLs and response bodies from logs. Never log city, coordinates, bearer token, provider key, or raw response.
-- [ ] **Step 5: Run focused tests and local function checks.** Run the command in Step 3 and the repository's local Supabase function typecheck/serve command. Expected: all tests pass using mocked `fetch`; local Edge Function starts with Docker and no live provider call is made.
+- [x] **Step 1: Write failing Edge Function tests.** Cover unauthenticated calls, consent off, quota exceeded, malformed/oversized bodies, extra fields, city query bounds and PII-like input rejection, explicit provider location ID selection, provider errors, and safe error envelopes. Verify no provider call happens before consent and quota checks.
+- [x] **Step 2: Write failing provider tests.** Use mocked `fetch`; assert fixed Open-Meteo hosts, bounded query parameters, maximum five search matches, no identifiers/secrets, explicit units, response parsing, valid timestamp ordering, 24-hour bound, attribution metadata, commercial endpoint/key requirements, and malformed provider data returning unavailable.
+- [x] **Step 3: Run focused tests to confirm failure.** Run `npm test -- tests/server/weather-context-edge.test.ts tests/server/weather-context-provider.test.ts`. Expected: FAIL because handler/provider modules are absent. RED confirmed.
+- [x] **Step 4: Implement the provider and handler.** Reuse the established Edge Function authentication and owner-client pattern. Bound request/provider response bodies, reject redirects, and never log city, coordinates, bearer token, provider key, or raw response.
+- [x] **Step 5: Run focused tests and local function checks.** `npm test -- tests/server/weather-context-edge.test.ts tests/server/weather-context-provider.test.ts` passed (14/14); `npm run typecheck:domain` and targeted ESLint passed. Docker-backed local `supabase functions serve weather-context` bundled under Edge Runtime 1.74.3 and returned `authentication-required` for an unauthenticated request; no provider call was made.
 - [ ] **Step 6: Commit.** `feat: add consent-gated weather provider endpoint`
 
 ### Task 3: Add owner-scoped location storage and weather client controller
