@@ -1,0 +1,307 @@
+{
+  "fixtureId": "decided-with-prerequisite-and-wait",
+  "synthetic": true,
+  "note": "Synthetic fixture. Represents no real person, product, tool, brand or safety claim.",
+  "review": {
+    "status": "pending_independent_review",
+    "expectedByRole": "independent_reviewer",
+    "note": "The expected decision was authored from the rule semantics below, not captured from an engine run."
+  },
+  "ruleset": {
+    "ref": {
+      "rulesetId": "synthetic-ruleset-prerequisite-wait",
+      "contentHash": "sha256:407a4be8",
+      "schemaVersion": "1.0.0",
+      "evaluatorVersion": "1.0.0"
+    },
+    "capabilities": [],
+    "rules": [
+      {
+        "ruleId": "r-include-rinse",
+        "version": "1",
+        "stageId": "load_verified_facts",
+        "when": {
+          "kind": "fact_equals",
+          "factId": "f-ready",
+          "value": true
+        },
+        "effects": [
+          {
+            "kind": "include_candidate",
+            "candidateId": "cand-rinse"
+          }
+        ],
+        "severity": "hard",
+        "capabilityIds": [],
+        "claimIds": [
+          "claim-r-include-rinse"
+        ],
+        "evidenceIds": [
+          "ev-r-include-rinse"
+        ]
+      },
+      {
+        "ruleId": "r-include-wait",
+        "version": "1",
+        "stageId": "load_verified_facts",
+        "when": {
+          "kind": "fact_equals",
+          "factId": "f-ready",
+          "value": true
+        },
+        "effects": [
+          {
+            "kind": "include_candidate",
+            "candidateId": "cand-wait"
+          }
+        ],
+        "severity": "hard",
+        "capabilityIds": [],
+        "claimIds": [
+          "claim-r-include-wait"
+        ],
+        "evidenceIds": [
+          "ev-r-include-wait"
+        ]
+      },
+      {
+        "ruleId": "r-require-wait",
+        "version": "1",
+        "stageId": "build_dependency_graph",
+        "when": {
+          "kind": "fact_equals",
+          "factId": "f-ready",
+          "value": true
+        },
+        "effects": [
+          {
+            "kind": "require_prerequisite",
+            "prerequisiteId": "cand-wait"
+          }
+        ],
+        "severity": "hard",
+        "capabilityIds": [],
+        "claimIds": [
+          "claim-r-require-wait"
+        ],
+        "evidenceIds": [
+          "ev-r-require-wait"
+        ]
+      },
+      {
+        "ruleId": "r-insert-wait",
+        "version": "1",
+        "stageId": "build_dependency_graph",
+        "when": {
+          "kind": "fact_equals",
+          "factId": "f-ready",
+          "value": true
+        },
+        "effects": [
+          {
+            "kind": "insert_wait",
+            "afterActionId": "cand-wait",
+            "minutes": 5
+          }
+        ],
+        "severity": "hard",
+        "capabilityIds": [],
+        "claimIds": [
+          "claim-r-insert-wait"
+        ],
+        "evidenceIds": [
+          "ev-r-insert-wait"
+        ]
+      }
+    ]
+  },
+  "input": {
+    "evaluatedAt": "2026-10-31T12:00:00.000Z",
+    "snapshot": {
+      "ownerScopeId": "owner-synthetic",
+      "factRegistry": [
+        {
+          "factId": "f-ready",
+          "revision": 1,
+          "status": "verified",
+          "value": true,
+          "claimId": "claim-f-ready",
+          "evidenceIds": [
+            "ev-f-ready"
+          ],
+          "recordedAt": "2026-10-01T00:00:00.000Z"
+        }
+      ],
+      "passport": {
+        "entryId": "passport",
+        "revision": 1,
+        "factIds": []
+      },
+      "chemicalServiceHistory": [],
+      "shelf": [],
+      "tools": [],
+      "eventHistory": [],
+      "revisions": {
+        "passport": 1,
+        "chemicalServiceHistory": 1,
+        "shelf": 1,
+        "tools": 1,
+        "events": 1
+      }
+    }
+  },
+  "expectedDecision": {
+    "status": "decided",
+    "steps": [
+      {
+        "stepId": "step:cand-wait",
+        "actionId": "cand-wait",
+        "labelKey": "step.cand-wait",
+        "reasonCode": "selected_candidate",
+        "ruleIds": [
+          "r-include-wait",
+          "r-insert-wait"
+        ],
+        "claimIds": [
+          "claim-r-include-wait",
+          "claim-r-insert-wait"
+        ],
+        "evidenceIds": [
+          "ev-r-include-wait",
+          "ev-r-insert-wait"
+        ],
+        "prerequisiteIds": [],
+        "waitMinutes": 5
+      },
+      {
+        "stepId": "step:cand-rinse",
+        "actionId": "cand-rinse",
+        "labelKey": "step.cand-rinse",
+        "reasonCode": "selected_candidate",
+        "ruleIds": [
+          "r-include-rinse",
+          "r-require-wait"
+        ],
+        "claimIds": [
+          "claim-r-include-rinse",
+          "claim-r-require-wait"
+        ],
+        "evidenceIds": [
+          "ev-r-include-rinse",
+          "ev-r-require-wait"
+        ],
+        "prerequisiteIds": [
+          "cand-wait"
+        ]
+      }
+    ],
+    "omissions": [],
+    "alternatives": [],
+    "questions": [],
+    "confidence": {
+      "evidence": "strong",
+      "applicability": "limited"
+    },
+    "audit": {
+      "ruleset": {
+        "rulesetId": "synthetic-ruleset-prerequisite-wait",
+        "contentHash": "sha256:407a4be8",
+        "schemaVersion": "1.0.0",
+        "evaluatorVersion": "1.0.0"
+      },
+      "evaluatedAt": "2026-10-31T12:00:00.000Z",
+      "schemaVersion": "1.0.0",
+      "evaluatorVersion": "1.0.0",
+      "trace": [
+        {
+          "stageId": "validate_snapshot",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "apply_safety_restrictions",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "load_verified_facts",
+          "outcome": "completed",
+          "ruleIds": [
+            "r-include-rinse",
+            "r-include-wait"
+          ],
+          "claimIds": [
+            "claim-r-include-rinse",
+            "claim-r-include-wait"
+          ],
+          "evidenceIds": [
+            "ev-r-include-rinse",
+            "ev-r-include-wait"
+          ]
+        },
+        {
+          "stageId": "derive_treatment_state",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "filter_candidates",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "evaluate_heat",
+          "outcome": "not_applicable",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "select_and_rank",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "build_dependency_graph",
+          "outcome": "completed",
+          "ruleIds": [
+            "r-insert-wait",
+            "r-require-wait"
+          ],
+          "claimIds": [
+            "claim-r-insert-wait",
+            "claim-r-require-wait"
+          ],
+          "evidenceIds": [
+            "ev-r-insert-wait",
+            "ev-r-require-wait"
+          ]
+        },
+        {
+          "stageId": "order_and_validate",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        },
+        {
+          "stageId": "assemble_decision",
+          "outcome": "completed",
+          "ruleIds": [],
+          "claimIds": [],
+          "evidenceIds": []
+        }
+      ]
+    }
+  }
+}
