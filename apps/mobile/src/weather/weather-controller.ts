@@ -208,8 +208,12 @@ export function createWeatherController(dependencies: WeatherControllerDependenc
         ++epoch;
         contextLocationKey = null;
         setState({ ...state, consent: false, candidates: [], weather: { status: 'unavailable', reason: 'consent_required' } });
-        await storage.clearWeatherCache();
+        // Revoke the provider permission before device cleanup. A storage
+        // failure must never leave server consent active while the UI says off.
+        await consent.set(false);
         if (closed) return;
+        await storage.clearWeatherCache();
+        return;
       }
       await consent.set(granted);
       if (closed) return;

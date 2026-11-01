@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform, ScrollView, Text, View } from 'react-native';
 import type { User } from '@supabase/supabase-js';
 import type { CurrentConditionInput, PassportRevision } from '../../../packages/domain/src/index';
@@ -34,15 +34,37 @@ import { clearServiceDrafts } from './service-form';
 import { clearAllCheckInDrafts } from './guidance/current-condition-state';
 import * as Crypto from 'expo-crypto';
 import { Button, Field, Page, styles, display, fieldLabel } from './ui';
+import { WeatherSettings } from './weather/WeatherSettings';
+import { WeatherContextCard } from './weather/WeatherContextCard';
+import { createWeatherApi, type WeatherFunctionsInvoker } from './weather/weather-api';
+import { createWeatherController } from './weather/weather-controller';
+import { createWeatherStorage } from './weather/weather-storage';
 
 const programmeApi: ProgrammeApi = { enrolProgramme, changeProgramme, listProgrammes, getProgramme };
 const programmeNow = (): Date => new Date();
 const reminderStore = createReminderStore(secureStorage);
 
-function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
-  owner: string; profile: { username: string }; busy: boolean; onLogout: () => void; onProfileChanged: () => void;
+function createOwnerWeatherController(ownerKey: string) {
+  const functions: WeatherFunctionsInvoker = {
+    invoke: async (name, options) => {
+      const result = await supabase!.functions.invoke(name, { body: options.body as Record<string, unknown> });
+      return { data: result.data, error: result.error };
+    },
+  };
+  return createWeatherController({
+    api: createWeatherApi(functions), storage: createWeatherStorage(secureStorage, ownerKey), ownerKey,
+    consent: {
+      read: async () => (await listConsents()).weather_context ?? false,
+      set: async granted => { await setConsent(Crypto.randomUUID(), 'weather_context', granted); },
+    },
+    now: () => new Date(),
+  });
+}
+
+function SettingsView({ owner, profile, busy, weatherController, onLogout, onProfileChanged }: {
+  owner: string; profile: { username: string }; busy: boolean; weatherController: ReturnType<typeof createWeatherController>; onLogout: () => void; onProfileChanged: () => void;
 }) {
-  const [section, setSection] = useState<'main' | 'username' | 'export' | 'delete' | 'privacy'>('main');
+  const [section, setSection] = useState<'main' | 'username' | 'export' | 'delete' | 'privacy' | 'weather'>('main');
   const [username, setUsername] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -59,10 +81,14 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   const toggleConsent = async (purpose: ConsentPurpose, granted: boolean) => {
     setSaving(true); setMessage('');
     try {
-      await setConsent(Crypto.randomUUID(), purpose, granted);
+      if (purpose === 'weather_context') await weatherController.setConsent(granted);
+      else await setConsent(Crypto.randomUUID(), purpose, granted);
       setConsents(await listConsents());
     } catch (caught) {
-      setMessage(consentErrorMessage((caught as { message?: string })?.message ?? ''));
+      if (purpose === 'weather_context' && !weatherController.getState().consent) {
+        setConsents(current => current ? { ...current, weather_context: false } : current);
+        setMessage('Weather sharing is off, but saved weather data could not be cleared from this device.');
+      } else setMessage(consentErrorMessage((caught as { message?: string })?.message ?? ''));
     } finally { setSaving(false); }
   };
   if (section === 'export') return <View style={{ gap: 20 }}>
@@ -72,6 +98,10 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
   if (section === 'delete') return <View style={{ gap: 20 }}>
     <Button title="Back to settings" secondary onPress={() => setSection('main')} />
     <DeletionScreen owner={owner} />
+  </View>;
+  if (section === 'weather') return <View style={{ gap: 20 }}>
+    <Button title="Back to settings" secondary onPress={() => setSection('main')} />
+    <WeatherSettings key={owner} controller={weatherController} />
   </View>;
   if (section === 'privacy') return <View style={{ gap: 20 }}>
     <Button title="Back to settings" secondary onPress={() => setSection('main')} />
@@ -128,6 +158,7 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
       {!!message && <Text style={styles.body}>{message}</Text>}
       <Button title="Change username" secondary disabled={busy} onPress={() => { setSection('username'); setMessage(''); }} />
       <Button title="Privacy choices" secondary disabled={busy} onPress={() => void openPrivacy()} />
+      <Button title="Weather and travel" secondary disabled={busy} onPress={() => { setSection('weather'); setMessage(''); }} />
       <Button title="Export my data" secondary disabled={busy} onPress={() => setSection('export')} />
       <Button title="Delete my account" secondary disabled={busy} onPress={() => setSection('delete')} />
     </View>}
@@ -140,6 +171,8 @@ function SettingsView({ owner, profile, busy, onLogout, onProfileChanged }: {
 }
 
 export function Records({user, notice = ''}: {user: User; notice?: string}) {
+  const weatherController = useMemo(() => createOwnerWeatherController(user.id), [user.id]);
+  const previousWeatherOwner = useRef<{ owner: string; controller: ReturnType<typeof createWeatherController> } | null>(null);
   const [profile, setProfile] = useState<{username: string}|null>(null);
   const [record, setRecord] = useState<PassportRecord|null>(null);
   const [loading, setLoading] = useState(true);
@@ -165,6 +198,13 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const [asOf, setAsOf] = useState('');
   const [historical, setHistorical] = useState<PassportRecord|null>(null);
   const [initialNotice] = useState(notice);
+  useEffect(() => {
+    if (previousWeatherOwner.current && previousWeatherOwner.current.owner !== user.id) {
+      void previousWeatherOwner.current.controller.clearOwner();
+    }
+    previousWeatherOwner.current = { owner: user.id, controller: weatherController };
+    void weatherController.load();
+  }, [user.id, weatherController]);
   if (errorState.notice !== notice) setErrorState({ notice, error: notice });
   const error = errorState.notice === notice ? errorState.error : notice;
   const setError = useCallback((nextError: string) => setErrorState({ notice, error: nextError }), [notice]);
@@ -277,6 +317,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
       await secureStorage.removeItem(`strandcue-draft-${user.id}`);
       await clearServiceDrafts(secureStorage, user.id);
       await clearReminderOwnerState(user.id);
+      await weatherController.clearOwner();
       const {error: issue} = await supabase!.auth.signOut({scope:'local'});
       if (issue) throw issue;
     } catch {if (ownerLoad.isMounted()) setError('Sign out could not finish. Please try again before sharing this device.');}
@@ -328,7 +369,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
   const destinationTitle = destination === 'my_hair' ? hairView === 'Passport' ? 'Your Hair Passport' : 'Your chemical services' : destination === 'my_shelf' ? 'My Shelf' : destination === 'my_tools' ? 'My Tools' : destination === 'journey' ? journeyView === 'History' ? 'Every change has a story.' : journeyView === 'Check-ins' ? 'How your hair felt' : journeyView === 'Programmes' ? 'Your treatment programmes' : journeyView === 'Calendar' ? 'Reminders and calendar' : 'Your activities' : destination === 'settings' ? 'Your account, your say.' : '';
   return <Page><ReleaseStageBanner /><ScrollView horizontal accessibilityLabel="Product destinations"><View style={styles.row}>{DESTINATIONS.map(entry => <Button key={entry.id} title={entry.label} accessibilityLabel={entry.accessibilityLabel} secondary={destination !== entry.id} onPress={() => selectDestination(entry.id)}/>)}</View></ScrollView>
     <Text style={styles.kicker}>PRIVATE · SOUTH AFRICA</Text>
-    {destination === 'today' && <TodayGuidance key={user.id} ownerId={user.id} assessmentId={pendingHeatAssessment?.ownerId === user.id ? pendingHeatAssessment.assessmentId : null} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={condition => openHeatCoach(null, condition)}/>}
+    {destination === 'today' && <><WeatherContextCard key={`weather-${user.id}`} controller={weatherController} /><TodayGuidance key={user.id} ownerId={user.id} assessmentId={pendingHeatAssessment?.ownerId === user.id ? pendingHeatAssessment.assessmentId : null} onNavigate={selectRoute} onCueCheck={openCueCheck} onOpenHeatCoach={condition => openHeatCoach(null, condition)}/></>}
     {destination === 'my_hair' && <View style={styles.row}>{(['Passport','Services'] as const).map(name => <Button key={name} title={name} secondary={hairView !== name} onPress={() => {setHairView(name);setEditing(false);setTarget(undefined);}}/>)}</View>}
     {destination === 'journey' && <View style={styles.row}>{(['History','Activities','Check-ins','Programmes','Calendar'] as const).map(name => <Button key={name} title={name} secondary={journeyView !== name} onPress={() => setJourneyView(name)}/>)}</View>}
     {destinationTitle !== '' && <Text accessibilityRole="header" style={styles.title}>{destinationTitle}</Text>}
@@ -365,7 +406,7 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
       {!visible && <Text style={styles.body}>Your history begins with your first Passport entry.</Text>}
       {visible?.revisions.filter(entry=>audit || !visible.projection.supersededRevisionIds.includes(entry.id)).slice().reverse().map(entry => <View style={styles.card} key={entry.id}><Text style={styles.kicker}>{entry.kind === 'correction' ? 'CORRECTION' : entry.kind === 'baseline' ? 'FIRST RECORD' : 'CHANGE'} · {entry.effectiveDate.value ?? 'DATE UNKNOWN'}</Text><Text style={styles.subtitle}>{entry.source.replaceAll('-',' ')} · {entry.effectiveDate.precision} precision</Text>{Object.entries(entry.patch).map(([key,value])=><Text key={key} style={styles.body}>{fieldLabel(key)}: {display(value)}</Text>)}{'correctionReason' in entry && <Text style={styles.body}>Reason: {entry.correctionReason}</Text>}{!record?.projection.supersededRevisionIds.includes(entry.id) && <Button title="Correct this entry" secondary onPress={() => {setTarget(entry);setEditing(true);}}/>}</View>)}
     </>}
-    {destination === 'settings' && <SettingsView owner={user.id} profile={profile} busy={busy} onLogout={() => void logout()} onProfileChanged={() => void refresh()} />}
+    {destination === 'settings' && <SettingsView owner={user.id} profile={profile} busy={busy} weatherController={weatherController} onLogout={() => void logout()} onProfileChanged={() => void refresh()} />}
     <Text style={styles.subtitle}>Your record, not a diagnosis. StrandCue records cosmetic hair-care information.</Text>
   </Page>;
 }

@@ -193,6 +193,29 @@ describe('weather context controller', () => {
     expect(h.controller.getState().consent).toBe(false);
   });
 
+  it('persists consent revocation before cache cleanup can fail', async () => {
+    let consent = true;
+    const callOrder: string[] = [];
+    const storage = createWeatherStorage({
+      getItem: async () => null,
+      setItem: async () => undefined,
+      removeItem: async () => { callOrder.push('cache-cleanup'); throw new Error('secure-storage-unavailable'); },
+    }, USER);
+    const controller = createWeatherController({
+      api: { searchWeatherCities: vi.fn(async () => []), fetchWeatherContext: vi.fn(async () => CONTEXT) },
+      storage, ownerKey: USER, now: () => new Date('2026-11-01T10:00:00.000Z'),
+      consent: {
+        read: async () => consent,
+        set: async granted => { callOrder.push('consent-write'); consent = granted; },
+      },
+    });
+    await controller.load();
+    await expect(controller.setConsent(false)).rejects.toThrow('secure-storage-unavailable');
+    expect(callOrder).toEqual(['consent-write', 'cache-cleanup']);
+    expect(consent).toBe(false);
+    expect(controller.getState().consent).toBe(false);
+  });
+
   it('discards a late response and clears owner data when the controller is cleared on owner switch', async () => {
     const pending = deferred<WeatherContext>();
     const h = harness({ consent: true, api: { fetchWeatherContext: vi.fn(() => pending.promise) } });
