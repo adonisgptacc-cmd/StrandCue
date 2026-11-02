@@ -31,7 +31,7 @@
 
 ## Worktree protocol
 
-Base every work order on `5e9d52ff7904a8503e2f6f3cd90bcf5b38c90326`. Each worker uses a distinct `codex/phase2a-*` branch and worktree. Do not merge worker branches into one another. The coordinator reviews each completed work order and integrates only after its focused checks pass. Do not merge into local `main` until the owner approves that integration.
+The plan commit `67c1da74da77cd61dfcaf960c40a17b0cd824042` is based on reviewed SHA follow-up `5e9d52ff7904a8503e2f6f3cd90bcf5b38c90326`. Each work order branches from the plan commit in a distinct `codex/phase2a-*` worktree. Do not merge worker branches into one another. The coordinator reviews each completed work order and integrates only after its focused checks pass. Do not merge into local `main` until the owner approves that integration.
 
 ## Work order 1: Bind runtime decisions to the ruleset hash
 
