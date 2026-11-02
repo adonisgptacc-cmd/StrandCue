@@ -84,15 +84,17 @@ This work order starts after Work Orders 1–3 are reviewed. Read the canonical 
 
 **Files expected to change:** engine contracts and stages, replay contracts/implementation, targeted engine tests, and this plan's status.
 
-- [ ] Define exact version matching for product/tool capability applicability. The executable contract must identify a catalogue version, not only a subject ID.
-- [ ] Define and test how treatment history yields a due state and how rules consume that state.
-- [ ] Implement the ranking order required by the canonical product specification: verified constraints first, then heat/product minimization, then goal/personal outcome ranking, followed by stable tie-breaks. Do not invent product-specific weights where the canonical source is silent; record an explicit deferred decision instead.
-- [ ] Model the two qualitative confidence dimensions from EVD-03; evidence IDs alone must not imply evidence strength.
-- [ ] Include reason severity and explicit rule version in audit traces.
-- [ ] Define replay behavior for decisions pinned to older evaluator versions. Replay must either use the pinned compatible evaluator or return an explicit unsupported-version result; it must not silently run the current evaluator.
-- [ ] Replace the withdrawal test that simply removes an exclusion with a successor-rule case that proves versioning and approval metadata are required before a newly allowed action can execute. Keep publication itself blocked.
+- [ ] Bind capability applicability to an exact catalogue subject identity, version, market, and reviewed use scope. Keep the user's shelf/tool row ID separate from the catalogue subject reference; an owned row must not imply a different catalogue version is authorized.
+- [ ] Derive treatment `due`, `not_due`, or `unknown` from canonical care-event lifecycle/date semantics and an explicit reviewed transition policy. Reuse existing wash counting and treatment-programme logic rather than introducing another event counter. A prospective planned wash may affect only the prospective calculation; unknown policy/date inputs must not yield `due`.
+- [ ] Implement the canonical ranking order: verified constraints, goal suitability, heat/product minimization, personal outcome ranking, then a stable tie-break. Keep eligibility constraints separate from preference ranking and do not derive suitability from rule severity. If product-specific weights are unspecified, record them as deferred and preserve deterministic baseline ordering.
+- [ ] Model EVD-03's two qualitative dimensions: instruction completeness/confidence from all required critical and safety inputs, and suitability confidence (`limited|moderate|high`) from reviewed support for selected factors. Evidence IDs alone and personal observations alone must not increase confidence.
+- [ ] Include structured reason severity (`blocker|caution|info`) and explicit rule `{ id, version }` references in applicable stage, result, omission, and alternative audit records. Keep hard/soft rule authority separate from reason severity.
+- [ ] Define replay behavior for decisions pinned to older evaluator/schema versions. Replay must use the pinned compatible evaluator/decoder or return an explicit unsupported-version result; it must not silently reinterpret historical cases using the current evaluator.
+- [ ] Replace the withdrawal test that simply removes an exclusion with a successor-authorization case binding the prior ruleset hash, withdrawn rule/version, affected action, explicit permitting successor rule/version, and independently reviewed successor metadata. An unchanged pre-existing inclusion is not successor authorization. Keep publication itself blocked.
 - [ ] Add positive and negative contract tests for every changed schema and stage.
 - [ ] Run the full engine suite, coverage, typecheck, lint and full repository tests with a bounded worker count appropriate for the Windows environment.
+
+The contract map in the review record identifies the source requirements and example behaviors. At minimum, cover wrong product version/market, unknown ownership identity, wash/application distinction, two lathers in one session, prospective-only changes, void/backdate recomputation, ambiguous dates, ranking precedence, sparse personal evidence, severity/suitability separation, confidence precedence, versioned reasons, historical evaluator unavailable, wrong successor parent hash, self-review, and removal-only authorization.
 
 ## Integration and closure
 
