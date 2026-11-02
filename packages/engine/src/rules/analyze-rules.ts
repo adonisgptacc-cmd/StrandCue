@@ -72,6 +72,7 @@ function evaluateAbstractExpression(expression: RuleExpression, facts: FactAssig
 function findSatisfyingAssignment(
   expressions: readonly RuleExpression[],
   predicate: (facts: FactAssignment) => boolean,
+  additionalAssignmentCount = 1,
 ): Satisfiability {
   const values = new Map<string, Map<string, string | number | boolean>>();
   expressions.forEach((expression) => collectFactValues(expression, values));
@@ -81,7 +82,7 @@ function findSatisfyingAssignment(
     return [{ verified: false, value: undefined }, ...exactValues, { verified: true, value: OTHER_VALUE }];
   });
   const assignmentCount = domains.reduce((count, domain) => count * domain.length, 1);
-  if (assignmentCount > MAX_SAT_ASSIGNMENTS) return 'unknown';
+  if (assignmentCount * additionalAssignmentCount > MAX_SAT_ASSIGNMENTS) return 'unknown';
 
   const assignment = new Map<string, AbstractFact>();
   const visit = (index: number): boolean => {
@@ -116,12 +117,18 @@ interface ValidityWindow {
 
 type WindowResult = { readonly kind: 'known'; readonly window: ValidityWindow | undefined } | { readonly kind: 'unknown' };
 
-function capabilityWindow(capability: RuleAuthoringBundle['capabilities'][number]): ValidityWindow | undefined {
+type CapabilityWindowResult = { readonly kind: 'valid'; readonly window: ValidityWindow }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'unknown' };
+
+function capabilityWindow(capability: RuleAuthoringBundle['capabilities'][number]): CapabilityWindowResult {
+  if (typeof capability.reviewedAt !== 'string'
+    || (capability.expiresAt !== undefined && typeof capability.expiresAt !== 'string')) return { kind: 'unknown' };
   const start = Date.parse(capability.reviewedAt);
   const end = capability.expiresAt === undefined ? Number.POSITIVE_INFINITY : Date.parse(capability.expiresAt);
-  if (!Number.isFinite(start) || (capability.expiresAt !== undefined && !Number.isFinite(end))) return undefined;
-  if (start >= end) return undefined;
-  return { start, end };
+  if (!Number.isFinite(start) || (capability.expiresAt !== undefined && !Number.isFinite(end))) return { kind: 'unknown' };
+  if (start >= end) return { kind: 'empty' };
+  return { kind: 'valid', window: { start, end } };
 }
 
 function intersectWindows(windows: readonly ValidityWindow[]): WindowResult {
@@ -141,9 +148,9 @@ function ruleCapabilityWindow(
   for (const capabilityId of capabilityIds) {
     const matches = capabilities.filter((capability) => capability.capabilityId === capabilityId);
     if (matches.length !== 1) return { kind: 'unknown' };
-    const window = capabilityWindow(matches[0]);
-    if (window === undefined) return { kind: 'unknown' };
-    windows.push(window);
+    const result = capabilityWindow(matches[0]);
+    if (result.kind !== 'valid') return { kind: 'unknown' };
+    windows.push(result.window);
   }
   return intersectWindows(windows);
 }
@@ -161,29 +168,87 @@ function capabilityWindowsCanOverlap(
   return left.window.start < right.window.end && right.window.start < left.window.end;
 }
 
-function candidateCapabilitiesGuaranteePrior(
-  priorIds: readonly string[],
-  candidateIds: readonly string[],
+interface CapabilityState {
+  readonly time: number;
+  readonly ownedSubjects: ReadonlySet<string>;
+}
+
+function subjectKey(capability: RuleAuthoringBundle['capabilities'][number]): string {
+  return `${capability.subjectType}\u0000${capability.subjectId}`;
+}
+
+function capabilityStatesForTable(
+  table: RuleAuthoringBundle['tables'][number],
+  capabilities: RuleAuthoringBundle['capabilities'],
+  candidateIndex: number,
+): { readonly kind: 'known'; readonly states: readonly CapabilityState[] } | { readonly kind: 'unknown' } {
+  const bindingById = new Map<string, RuleAuthoringBundle['capabilities'][number]>();
+  const allIds = [...new Set(table.rows.flatMap((row) => row.capabilityIds))];
+  for (const id of allIds) {
+    const matches = capabilities.filter((capability) => capability.capabilityId === id);
+    if (matches.length !== 1) return { kind: 'unknown' };
+    bindingById.set(id, matches[0]);
+  }
+
+  const windowById = new Map<string, ValidityWindow>();
+  for (const [id, capability] of bindingById) {
+    const result = capabilityWindow(capability);
+    if (result.kind !== 'valid') return { kind: 'unknown' };
+    windowById.set(id, result.window);
+  }
+
+  const candidateIds = table.rows[candidateIndex].capabilityIds;
+  const candidateWindow: WindowResult = candidateIds.length === 0
+    ? { kind: 'known', window: { start: Number.NEGATIVE_INFINITY, end: Number.POSITIVE_INFINITY } }
+    : intersectWindows(candidateIds.map((id) => windowById.get(id)!));
+  if (candidateWindow.kind === 'unknown') return { kind: 'unknown' };
+  if (candidateWindow.window === undefined) return { kind: 'known', states: [] };
+
+  const boundaries = [...new Set([
+    ...[...windowById.values()].flatMap((window) => [window.start, window.end]),
+    candidateWindow.window.start,
+    candidateWindow.window.end,
+  ].filter(Number.isFinite))].sort((left, right) => left - right);
+  const timePoints = boundaries.length === 0
+    ? [0]
+    : [boundaries[0] - 1, ...boundaries, boundaries[boundaries.length - 1] + 1];
+  const candidateTimes = timePoints.filter((time) =>
+    candidateWindow.window!.start <= time && time < candidateWindow.window!.end);
+
+  const capabilitiesBySubject = new Set<string>();
+  for (const capability of bindingById.values()) capabilitiesBySubject.add(subjectKey(capability));
+  const candidateSubjects = new Set(candidateIds.map((id) => subjectKey(bindingById.get(id)!)));
+  const optionalSubjects = [...capabilitiesBySubject].filter((subject) => !candidateSubjects.has(subject));
+  const ownershipCount = 2 ** optionalSubjects.length;
+  if (candidateTimes.length * ownershipCount > MAX_SAT_ASSIGNMENTS) return { kind: 'unknown' };
+
+  const states: CapabilityState[] = [];
+  for (const time of candidateTimes) {
+    for (let mask = 0; mask < ownershipCount; mask += 1) {
+      const ownedSubjects = new Set(candidateSubjects);
+      optionalSubjects.forEach((subject, index) => {
+        if ((mask & (1 << index)) !== 0) ownedSubjects.add(subject);
+      });
+      states.push({ time, ownedSubjects });
+    }
+  }
+  return { kind: 'known', states };
+}
+
+function capabilityIsActive(
+  capabilityIds: readonly string[],
+  time: number,
+  ownedSubjects: ReadonlySet<string>,
   capabilities: RuleAuthoringBundle['capabilities'],
 ): boolean {
-  const candidateIdSet = new Set(candidateIds);
-  const candidateBindings = candidateIds.flatMap((capabilityId) => {
-    const matches = capabilities.filter((capability) => capability.capabilityId === capabilityId);
-    return matches.length === 1 ? [{ capability: matches[0], window: capabilityWindow(matches[0]) }] : [];
-  });
-
-  return priorIds.every((priorId) => {
-    if (candidateIdSet.has(priorId)) return true;
-    const priorMatches = capabilities.filter((capability) => capability.capabilityId === priorId);
-    if (priorMatches.length !== 1) return false;
-    const prior = priorMatches[0];
-    const priorWindow = capabilityWindow(prior);
-    if (priorWindow === undefined) return false;
-    return candidateBindings.some(({ capability, window }) => window !== undefined
-      && capability.subjectType === prior.subjectType
-      && capability.subjectId === prior.subjectId
-      && window.start >= priorWindow.start
-      && window.end <= priorWindow.end);
+  return capabilityIds.every((id) => {
+    const capability = capabilities.find((candidate) => candidate.capabilityId === id);
+    if (capability === undefined) return false;
+    const result = capabilityWindow(capability);
+    return result.kind === 'valid'
+      && result.window.start <= time
+      && time < result.window.end
+      && ownedSubjects.has(subjectKey(capability));
   });
 }
 
@@ -194,27 +259,28 @@ function canSelectFirstHitRow(
   rowIndex: number,
 ): Satisfiability {
   const expressions = table.rows.map((row) => row.when);
+  const capabilityStates = capabilityStatesForTable(table, capabilities, rowIndex);
+  if (capabilityStates.kind === 'unknown') return 'unknown';
+  if (capabilityStates.states.length === 0) return 'unsatisfiable';
+  const assignmentCount = capabilityStates.states.length;
   return findSatisfyingAssignment(expressions, (facts) => {
-    const candidateCapabilityIds = new Set(table.rows[rowIndex].capabilityIds);
-    const matches = table.rows.map((row, index) => {
-      const rule = tableRules.find((candidate) => candidate.table?.rowOrder === index);
-      const priorCapabilitiesGuaranteed = candidateCapabilitiesGuaranteePrior(
-        rule?.capabilityIds ?? [],
-        [...candidateCapabilityIds],
-        capabilities,
-      );
-      if (index < rowIndex && !priorCapabilitiesGuaranteed) return 'false';
-      return evaluateAbstractExpression(row.when, facts);
+    return capabilityStates.states.some(({ time, ownedSubjects }) => {
+      if (!capabilityIsActive(table.rows[rowIndex].capabilityIds, time, ownedSubjects, capabilities)) return false;
+      const matches = table.rows.map((row, index) => {
+        const rule = tableRules.find((candidate) => candidate.table?.rowOrder === index);
+        if (!capabilityIsActive(rule?.capabilityIds ?? [], time, ownedSubjects, capabilities)) return 'false';
+        return evaluateAbstractExpression(row.when, facts);
+      });
+      const firstIndex = matches.findIndex((value) => value !== 'false');
+      if (firstIndex < 0) return false;
+      if (matches[firstIndex] === 'true') return firstIndex === rowIndex;
+      if (firstIndex === rowIndex) return true;
+      return rowIndex > firstIndex
+        && table.rows[rowIndex].severity === 'hard'
+        && matches[rowIndex] !== 'false'
+        && preservesRestriction(table.rows[rowIndex].effects);
     });
-    const firstIndex = matches.findIndex((value) => value !== 'false');
-    if (firstIndex < 0) return false;
-    if (matches[firstIndex] === 'true') return firstIndex === rowIndex;
-    if (firstIndex === rowIndex) return true;
-    return rowIndex > firstIndex
-      && table.rows[rowIndex].severity === 'hard'
-      && matches[rowIndex] !== 'false'
-      && preservesRestriction(table.rows[rowIndex].effects);
-  });
+  }, assignmentCount);
 }
 
 function stageForEffect(effect: RuleEffect): string {
@@ -328,6 +394,17 @@ export function analyzeRules(bundle: RuleAuthoringBundle): readonly RuleDiagnost
       severity: 'error',
       messageKey: `authoring.${problem.code}`,
     });
+  }
+
+  for (const capability of bundle.capabilities) {
+    if (capabilityWindow(capability).kind === 'empty') {
+      diagnostics.push({
+        code: 'invalid-capability-window',
+        severity: 'error',
+        messageKey: 'capability.invalid-window',
+        ruleId: capability.capabilityId,
+      });
+    }
   }
 
   // Flatten tables and constraints into rule views for conflict analysis.

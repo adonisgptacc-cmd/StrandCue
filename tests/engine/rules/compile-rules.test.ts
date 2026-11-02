@@ -197,6 +197,77 @@ describe('rule compiler', () => {
     })).toThrow(/unreachable-row/);
   });
 
+  it('uses the combined candidate window to prove a prior capability is active', () => {
+    const priorCapability = {
+      ...capability,
+      reviewedAt: '2027-05-01T00:00:00.000Z',
+      expiresAt: '2027-08-01T00:00:00.000Z',
+    } as const;
+    const broadCandidateCapability = {
+      ...capability,
+      capabilityId: 'candidate-x',
+      reviewedAt: '2027-01-01T00:00:00.000Z',
+      expiresAt: '2027-12-01T00:00:00.000Z',
+    } as const;
+    const narrowOtherSubjectCapability = {
+      ...capability,
+      capabilityId: 'candidate-y',
+      subjectId: 'synthetic-tool',
+      subjectType: 'tool',
+      reviewedAt: '2027-06-01T00:00:00.000Z',
+      expiresAt: '2027-07-01T00:00:00.000Z',
+    } as const;
+    const firstRow = {
+      ...validBundle.tables[0].rows[0],
+      capabilityIds: ['synthetic-capability'],
+      when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+    } as const;
+    const candidateRow = {
+      ...firstRow,
+      rowId: 'combined-window-row',
+      severity: 'caution',
+      capabilityIds: ['candidate-x', 'candidate-y'],
+    } as const;
+    expect(() => compileRules({
+      ...validBundle,
+      capabilities: [priorCapability, broadCandidateCapability, narrowOtherSubjectCapability],
+      tables: [{ ...validBundle.tables[0], rows: [firstRow, candidateRow] }],
+    })).toThrow(/unreachable-row/);
+  });
+
+  it('uses shared time and ownership across prior rows when their windows cover the candidate window', () => {
+    const capabilities = [
+      capability,
+      { ...capability, capabilityId: 'prior-early', reviewedAt: '2027-01-01T00:00:00.000Z', expiresAt: '2027-06-01T00:00:00.000Z' },
+      { ...capability, capabilityId: 'prior-late', reviewedAt: '2027-06-01T00:00:00.000Z', expiresAt: '2027-12-01T00:00:00.000Z' },
+      { ...capability, capabilityId: 'candidate-full', reviewedAt: '2027-01-01T00:00:00.000Z', expiresAt: '2027-12-01T00:00:00.000Z' },
+      { ...capability, capabilityId: 'candidate-owner', subjectId: 'synthetic-tool', subjectType: 'tool' },
+      { ...capability, capabilityId: 'prior-owner-early', subjectId: 'synthetic-tool', subjectType: 'tool' },
+      { ...capability, capabilityId: 'prior-owner-late', subjectId: 'synthetic-tool', subjectType: 'tool' },
+    ] as const;
+    const commonRow = {
+      ...validBundle.tables[0].rows[0],
+      when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+      claimIds: ['claim-1'],
+      evidenceIds: ['evidence-1'],
+    } as const;
+    const rows = [
+      { ...commonRow, rowId: 'early-prior', capabilityIds: ['prior-early', 'prior-owner-early'] },
+      { ...commonRow, rowId: 'late-prior', capabilityIds: ['prior-late', 'prior-owner-late'] },
+      { ...commonRow, rowId: 'full-candidate', severity: 'caution', capabilityIds: ['candidate-full', 'candidate-owner'] },
+    ] as const;
+    expect(() => compileRules({
+      ...validBundle,
+      capabilities,
+      tables: [{ ...validBundle.tables[0], rows }],
+      requiredFixtures: [
+        ...validBundle.requiredFixtures,
+        { ruleId: 'synthetic-table::early-prior', positiveFixtureIds: ['fx-pos'], negativeFixtureIds: ['fx-neg'] },
+        { ruleId: 'synthetic-table::late-prior', positiveFixtureIds: ['fx-pos'], negativeFixtureIds: ['fx-neg'] },
+      ],
+    })).toThrow(/unreachable-row/);
+  });
+
   it('compiles block and ask-question effects in the block stage', () => {
     const firstRow = validBundle.tables[0].rows[0];
     const compiled = compileRules({

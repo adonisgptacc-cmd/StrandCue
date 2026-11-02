@@ -48,6 +48,45 @@ describe('rule static analysis', () => {
     expect(diagnostics).toEqual([]);
   });
 
+  it('blocks capabilities whose valid review window is empty', () => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      capabilities: [{
+        ...capability,
+        reviewedAt: '2026-11-03T00:00:00.000Z',
+        expiresAt: '2026-11-02T00:00:00.000Z',
+      }],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'invalid-capability-window'
+      && diagnostic.severity === 'error')).toBe(true);
+  });
+
+  it('does not prove rows unreachable from malformed windows or missing bindings', () => {
+    const row = {
+      ...baseBundle.tables[0].rows[0],
+      when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+    } as const;
+    const malformedWindow = analyzeRules({
+      ...baseBundle,
+      capabilities: [{ ...capability, reviewedAt: 'not-a-date' }],
+      tables: [{ ...baseBundle.tables[0], rows: [row, { ...row, rowId: 'later-row', severity: 'caution' }] }],
+    });
+    const missingBinding = analyzeRules({
+      ...baseBundle,
+      capabilities: [],
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [
+          { ...row, capabilityIds: ['missing-capability'] },
+          { ...row, rowId: 'later-row', severity: 'caution', capabilityIds: ['missing-capability'] },
+        ],
+      }],
+    });
+    expect(malformedWindow.some((diagnostic) => diagnostic.code === 'unreachable-row')).toBe(false);
+    expect(malformedWindow.some((diagnostic) => diagnostic.code === 'invalid-capability-window')).toBe(false);
+    expect(missingBinding.some((diagnostic) => diagnostic.code === 'unreachable-row')).toBe(false);
+  });
+
   it('flags unreachable rows under a first hit policy', () => {
     const diagnostics = analyzeRules({
       ...baseBundle,
