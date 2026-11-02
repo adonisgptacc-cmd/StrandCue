@@ -193,6 +193,92 @@ describe('rule static analysis', () => {
     expect(conflict?.severity).toBe('error');
   });
 
+  it('does not report a hard conflict when capability validity windows do not overlap', () => {
+    const includeCapability = {
+      ...capability,
+      capabilityId: 'capability-include',
+      claimId: 'claim-include',
+      evidenceIds: ['evidence-include'],
+      reviewedAt: '2026-11-01T00:00:00.000Z',
+      expiresAt: '2026-11-02T00:00:00.000Z',
+    } as const;
+    const excludeCapability = {
+      ...capability,
+      capabilityId: 'capability-exclude',
+      claimId: 'claim-exclude',
+      evidenceIds: ['evidence-exclude'],
+      reviewedAt: '2026-11-02T00:00:00.000Z',
+      expiresAt: '2026-11-03T00:00:00.000Z',
+    } as const;
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      capabilities: [...baseBundle.capabilities, includeCapability, excludeCapability],
+      constraints: [
+        {
+          ruleId: 'include-windowed', version: '1',
+          when: { kind: 'fact_exists', factId: 'f-ready' },
+          effects: [{ kind: 'include_candidate', candidateId: 'synthetic-product' }],
+          severity: 'hard', capabilityIds: ['capability-include'], claimIds: ['claim-include'], evidenceIds: ['evidence-include'],
+        },
+        {
+          ruleId: 'exclude-windowed', version: '1',
+          when: { kind: 'fact_exists', factId: 'f-ready' },
+          effects: [{ kind: 'exclude_candidate', candidateId: 'synthetic-product', reasonCode: 'synthetic' }],
+          severity: 'hard', capabilityIds: ['capability-exclude'], claimIds: ['claim-exclude'], evidenceIds: ['evidence-exclude'],
+        },
+      ],
+      requiredFixtures: [
+        ...baseBundle.requiredFixtures,
+        { ruleId: 'include-windowed', positiveFixtureIds: ['fx-pos'], negativeFixtureIds: ['fx-neg'] },
+        { ruleId: 'exclude-windowed', positiveFixtureIds: ['fx-pos'], negativeFixtureIds: ['fx-neg'] },
+      ],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(false);
+  });
+
+  it('keeps hard conflicts when capability validity windows overlap', () => {
+    const includeCapability = {
+      ...capability,
+      capabilityId: 'capability-include',
+      claimId: 'claim-include',
+      evidenceIds: ['evidence-include'],
+      reviewedAt: '2026-11-01T00:00:00.000Z',
+      expiresAt: '2026-11-10T00:00:00.000Z',
+    } as const;
+    const excludeCapability = {
+      ...capability,
+      capabilityId: 'capability-exclude',
+      claimId: 'claim-exclude',
+      evidenceIds: ['evidence-exclude'],
+      reviewedAt: '2026-11-09T00:00:00.000Z',
+      expiresAt: '2026-11-12T00:00:00.000Z',
+    } as const;
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      capabilities: [...baseBundle.capabilities, includeCapability, excludeCapability],
+      constraints: [
+        {
+          ruleId: 'include-windowed', version: '1',
+          when: { kind: 'fact_exists', factId: 'f-ready' },
+          effects: [{ kind: 'include_candidate', candidateId: 'synthetic-product' }],
+          severity: 'hard', capabilityIds: ['capability-include'], claimIds: ['claim-include'], evidenceIds: ['evidence-include'],
+        },
+        {
+          ruleId: 'exclude-windowed', version: '1',
+          when: { kind: 'fact_exists', factId: 'f-ready' },
+          effects: [{ kind: 'exclude_candidate', candidateId: 'synthetic-product', reasonCode: 'synthetic' }],
+          severity: 'hard', capabilityIds: ['capability-exclude'], claimIds: ['claim-exclude'], evidenceIds: ['evidence-exclude'],
+        },
+      ],
+      requiredFixtures: [
+        ...baseBundle.requiredFixtures,
+        { ruleId: 'include-windowed', positiveFixtureIds: ['fx-pos'], negativeFixtureIds: ['fx-neg'] },
+        { ruleId: 'exclude-windowed', positiveFixtureIds: ['fx-pos'], negativeFixtureIds: ['fx-neg'] },
+      ],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(true);
+  });
+
   it('does not report hard conflicts between disjoint conditions', () => {
     const diagnostics = analyzeRules({
       ...baseBundle,

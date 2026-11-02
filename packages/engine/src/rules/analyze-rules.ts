@@ -109,9 +109,88 @@ const preservesRestriction = (effects: readonly RuleEffect[]): boolean => effect
   return effect.kind === 'set_heat_assessment' && (effect.state === 'no_heat' || effect.state === 'restricted');
 });
 
+interface ValidityWindow {
+  readonly start: number;
+  readonly end: number;
+}
+
+type WindowResult = { readonly kind: 'known'; readonly window: ValidityWindow | undefined } | { readonly kind: 'unknown' };
+
+function capabilityWindow(capability: RuleAuthoringBundle['capabilities'][number]): ValidityWindow | undefined {
+  const start = Date.parse(capability.reviewedAt);
+  const end = capability.expiresAt === undefined ? Number.POSITIVE_INFINITY : Date.parse(capability.expiresAt);
+  if (!Number.isFinite(start) || (capability.expiresAt !== undefined && !Number.isFinite(end))) return undefined;
+  if (start >= end) return undefined;
+  return { start, end };
+}
+
+function intersectWindows(windows: readonly ValidityWindow[]): WindowResult {
+  const start = Math.max(...windows.map((window) => window.start));
+  const end = Math.min(...windows.map((window) => window.end));
+  return { kind: 'known', window: start < end ? { start, end } : undefined };
+}
+
+function ruleCapabilityWindow(
+  capabilityIds: readonly string[],
+  capabilities: RuleAuthoringBundle['capabilities'],
+): WindowResult {
+  if (capabilityIds.length === 0) {
+    return { kind: 'known', window: { start: Number.NEGATIVE_INFINITY, end: Number.POSITIVE_INFINITY } };
+  }
+  const windows: ValidityWindow[] = [];
+  for (const capabilityId of capabilityIds) {
+    const matches = capabilities.filter((capability) => capability.capabilityId === capabilityId);
+    if (matches.length !== 1) return { kind: 'unknown' };
+    const window = capabilityWindow(matches[0]);
+    if (window === undefined) return { kind: 'unknown' };
+    windows.push(window);
+  }
+  return intersectWindows(windows);
+}
+
+/** Return false only when the half-open review windows cannot be active together. */
+function capabilityWindowsCanOverlap(
+  leftIds: readonly string[],
+  rightIds: readonly string[],
+  capabilities: RuleAuthoringBundle['capabilities'],
+): boolean {
+  const left = ruleCapabilityWindow(leftIds, capabilities);
+  const right = ruleCapabilityWindow(rightIds, capabilities);
+  if (left.kind === 'unknown' || right.kind === 'unknown') return true;
+  if (left.window === undefined || right.window === undefined) return false;
+  return left.window.start < right.window.end && right.window.start < left.window.end;
+}
+
+function candidateCapabilitiesGuaranteePrior(
+  priorIds: readonly string[],
+  candidateIds: readonly string[],
+  capabilities: RuleAuthoringBundle['capabilities'],
+): boolean {
+  const candidateIdSet = new Set(candidateIds);
+  const candidateBindings = candidateIds.flatMap((capabilityId) => {
+    const matches = capabilities.filter((capability) => capability.capabilityId === capabilityId);
+    return matches.length === 1 ? [{ capability: matches[0], window: capabilityWindow(matches[0]) }] : [];
+  });
+
+  return priorIds.every((priorId) => {
+    if (candidateIdSet.has(priorId)) return true;
+    const priorMatches = capabilities.filter((capability) => capability.capabilityId === priorId);
+    if (priorMatches.length !== 1) return false;
+    const prior = priorMatches[0];
+    const priorWindow = capabilityWindow(prior);
+    if (priorWindow === undefined) return false;
+    return candidateBindings.some(({ capability, window }) => window !== undefined
+      && capability.subjectType === prior.subjectType
+      && capability.subjectId === prior.subjectId
+      && window.start >= priorWindow.start
+      && window.end <= priorWindow.end);
+  });
+}
+
 function canSelectFirstHitRow(
   table: RuleAuthoringBundle['tables'][number],
   tableRules: readonly RuleView[],
+  capabilities: RuleAuthoringBundle['capabilities'],
   rowIndex: number,
 ): Satisfiability {
   const expressions = table.rows.map((row) => row.when);
@@ -119,8 +198,11 @@ function canSelectFirstHitRow(
     const candidateCapabilityIds = new Set(table.rows[rowIndex].capabilityIds);
     const matches = table.rows.map((row, index) => {
       const rule = tableRules.find((candidate) => candidate.table?.rowOrder === index);
-      const priorCapabilitiesGuaranteed = (rule?.capabilityIds ?? [])
-        .every((capabilityId) => candidateCapabilityIds.has(capabilityId));
+      const priorCapabilitiesGuaranteed = candidateCapabilitiesGuaranteePrior(
+        rule?.capabilityIds ?? [],
+        [...candidateCapabilityIds],
+        capabilities,
+      );
       if (index < rowIndex && !priorCapabilitiesGuaranteed) return 'false';
       return evaluateAbstractExpression(row.when, facts);
     });
@@ -179,7 +261,10 @@ function toView(
  * Detect hard-rule capability conflicts: a capability that is both required
  * and excluded by hard rules cannot be satisfied, so publication must fail.
  */
-function capabilityConflicts(ruleViews: readonly RuleView[]): RuleDiagnostic[] {
+function capabilityConflicts(
+  ruleViews: readonly RuleView[],
+  capabilities: RuleAuthoringBundle['capabilities'],
+): RuleDiagnostic[] {
   const excludedBy = new Map<string, RuleView[]>();
   const requiredBy = new Map<string, RuleView[]>();
   for (const rule of ruleViews) {
@@ -206,6 +291,7 @@ function capabilityConflicts(ruleViews: readonly RuleView[]): RuleDiagnostic[] {
           && required.table?.hitPolicy === 'first'
           && excluded.table?.hitPolicy === 'first';
         if (sameFirstTable) return false;
+        if (!capabilityWindowsCanOverlap(required.capabilityIds, excluded.capabilityIds, capabilities)) return false;
         return !provablyDisjoint(required.when, excluded.when);
       });
       if (conflicting === undefined) continue;
@@ -259,7 +345,7 @@ export function analyzeRules(bundle: RuleAuthoringBundle): readonly RuleDiagnost
     ruleViews.push(toView(constraint.ruleId, constraint.version, constraint.severity, constraint.effects, constraint.when, constraint.capabilityIds));
   }
 
-  diagnostics.push(...capabilityConflicts(ruleViews));
+  diagnostics.push(...capabilityConflicts(ruleViews, bundle.capabilities));
 
   // A compiled rule has one stage owner; effects from multiple owners cannot
   // be routed atomically by the current evaluator.
@@ -282,7 +368,7 @@ export function analyzeRules(bundle: RuleAuthoringBundle): readonly RuleDiagnost
       const row = table.rows[index];
       const previousRows = table.rows.slice(0, index);
       const tableRules = ruleViews.filter((rule) => rule.table?.tableId === table.tableId);
-      if (table.hitPolicy === 'first' && canSelectFirstHitRow(table, tableRules, index) === 'unsatisfiable') {
+      if (table.hitPolicy === 'first' && canSelectFirstHitRow(table, tableRules, bundle.capabilities, index) === 'unsatisfiable') {
         diagnostics.push({
           code: 'unreachable-row',
           severity: 'error',

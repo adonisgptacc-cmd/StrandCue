@@ -164,6 +164,39 @@ describe('rule compiler', () => {
     })).toThrow(/unreachable-row/);
   });
 
+  it('proves reachability from a distinct capability with the same subject and contained validity window', () => {
+    const priorCapability = {
+      ...capability,
+      reviewedAt: '2026-11-01T00:00:00.000Z',
+      expiresAt: '2026-11-10T00:00:00.000Z',
+    } as const;
+    const candidateCapability = {
+      ...capability,
+      capabilityId: 'contained-capability',
+      claimId: 'contained-claim',
+      evidenceIds: ['contained-evidence'],
+      reviewedAt: '2026-11-03T00:00:00.000Z',
+      expiresAt: '2026-11-05T00:00:00.000Z',
+    } as const;
+    const firstRow = {
+      ...validBundle.tables[0].rows[0],
+      when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+    } as const;
+    const candidateRow = {
+      ...firstRow,
+      rowId: 'contained-window-row',
+      severity: 'caution',
+      capabilityIds: ['contained-capability'],
+      claimIds: ['contained-claim'],
+      evidenceIds: ['contained-evidence'],
+    } as const;
+    expect(() => compileRules({
+      ...validBundle,
+      capabilities: [priorCapability, candidateCapability],
+      tables: [{ ...validBundle.tables[0], rows: [firstRow, candidateRow] }],
+    })).toThrow(/unreachable-row/);
+  });
+
   it('compiles block and ask-question effects in the block stage', () => {
     const firstRow = validBundle.tables[0].rows[0];
     const compiled = compileRules({
