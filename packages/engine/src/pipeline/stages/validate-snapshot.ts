@@ -1,4 +1,5 @@
 import type { EngineInput, SnapshotFact } from '../../contracts.js';
+import { canonicalRulesetContentHash } from '../../canonical-json.js';
 import { addBlocker, defineStage } from '../stage-runner.js';
 import type { PipelineState, ResolvedFact } from '../state.js';
 import { EMPTY_PROVENANCE, ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION, compareStrings } from '../state.js';
@@ -63,6 +64,13 @@ export const validateSnapshot = defineStage({
 
     if (ruleset.ref.evaluatorVersion !== ENGINE_EVALUATOR_VERSION || ruleset.ref.schemaVersion !== ENGINE_SCHEMA_VERSION) {
       block('ruleset_version_unsupported');
+    }
+    try {
+      if (canonicalRulesetContentHash(ruleset) !== ruleset.ref.contentHash) {
+        block('ruleset_content_hash_mismatch');
+      }
+    } catch {
+      block('ruleset_content_hash_mismatch');
     }
     if (hasDuplicates([...snapshot.shelf, ...snapshot.tools, ...snapshot.chemicalServiceHistory].map((entry) => entry.entryId))
       || hasDuplicates(snapshot.eventHistory.map((event) => event.eventId))) {

@@ -1,5 +1,3 @@
-import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import type {
   CompiledRule,
   CompiledRuleset,
@@ -10,7 +8,7 @@ import type {
   RuleEffect,
   RulesetRef,
 } from '../contracts.ts';
-import { canonicalJson } from '../canonical-json.ts';
+import { canonicalRulesetContentHash } from '../canonical-json.ts';
 import { ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION } from '../pipeline/state.ts';
 import { authoringDiagnostics, parseAuthoringBundle } from './authoring-schema.ts';
 import { analyzeRules } from './analyze-rules.ts';
@@ -55,14 +53,10 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
-function stableHash(value: unknown): string {
-  return `sha256:${bytesToHex(sha256(utf8ToBytes(canonicalJson(value))))}`;
-}
-
 function buildRef(bundle: RuleAuthoringBundle, rules: CompiledRuleset['rules']): RulesetRef {
   return {
     rulesetId: bundle.bundleId,
-    contentHash: stableHash({ capabilities: bundle.capabilities, rules }),
+    contentHash: canonicalRulesetContentHash({ capabilities: bundle.capabilities, rules }),
     schemaVersion: ENGINE_SCHEMA_VERSION,
     evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   };

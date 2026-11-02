@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateDecision } from '../../../packages/engine/src/pipeline/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
 import type { EngineInput } from '../../../packages/engine/src/index.js';
 import { buildInput, capability, fact, include, rule } from './fixtures.js';
 
@@ -36,6 +37,13 @@ const reordered = (input: EngineInput): EngineInput => ({
     ...input.ruleset,
     capabilities: [...input.ruleset.capabilities].reverse(),
     rules: [...input.ruleset.rules].reverse().map((rule) => ({ ...rule, effects: [...rule.effects] })),
+    ref: {
+      ...input.ruleset.ref,
+      contentHash: canonicalRulesetContentHash({
+        capabilities: [...input.ruleset.capabilities].reverse(),
+        rules: [...input.ruleset.rules].reverse().map((rule) => ({ ...rule, effects: [...rule.effects] })),
+      }),
+    },
   },
 });
 
@@ -47,7 +55,9 @@ describe('determinism', () => {
   it('does not change when input arrays are reordered', () => {
     const decision = evaluateDecision(rich());
     expect(decision.status).toBe('decided');
-    expect(evaluateDecision(reordered(rich()))).toEqual(decision);
+    const reorderedDecision = evaluateDecision(reordered(rich()));
+    expect(reorderedDecision.audit.ruleset.contentHash).not.toBe(decision.audit.ruleset.contentHash);
+    expect({ ...reorderedDecision, audit: { ...reorderedDecision.audit, ruleset: { ...reorderedDecision.audit.ruleset, contentHash: decision.audit.ruleset.contentHash } } }).toEqual(decision);
   });
 
   it('does not mutate its input', () => {

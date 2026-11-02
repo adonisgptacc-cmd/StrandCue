@@ -1,4 +1,5 @@
 import { ENGINE_EVALUATOR_VERSION } from '../../../packages/engine/src/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
 import type {
   CompiledRule,
   EngineInput,
@@ -150,7 +151,10 @@ export const buildInput = (options: InputOptions = {}): EngineInput => ({
   ruleset: {
     ref: {
       rulesetId: options.rulesetId ?? 'synthetic-ruleset',
-      contentHash: options.contentHash ?? 'sha256:synthetic',
+      contentHash: options.contentHash ?? canonicalRulesetContentHash({
+        capabilities: options.capabilities ?? [],
+        rules: options.rules ?? [],
+      }),
       schemaVersion: '1.0.0',
       evaluatorVersion: ENGINE_EVALUATOR_VERSION,
     },

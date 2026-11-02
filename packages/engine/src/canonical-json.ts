@@ -1,3 +1,6 @@
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
+
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value !== null && typeof value === 'object') {
@@ -16,4 +19,14 @@ export function canonicalJson(value: unknown): string {
   const serialized = JSON.stringify(sortKeys(value));
   if (serialized === undefined) throw new TypeError('Cannot canonicalize an undefined value');
   return serialized;
+}
+
+/** Hash the exact executable ruleset payload used by both compiler and evaluator. */
+export function canonicalRulesetContentHash(ruleset: {
+  readonly capabilities: unknown;
+  readonly rules: unknown;
+}): string {
+  return `sha256:${bytesToHex(
+    sha256(utf8ToBytes(canonicalJson({ capabilities: ruleset.capabilities, rules: ruleset.rules }))),
+  )}`;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateDecision } from '../../../packages/engine/src/pipeline/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
 import type { CompiledRule, EngineDecision, EngineInput, SnapshotFact } from '../../../packages/engine/src/index.js';
 import {
   buildInput,
@@ -67,6 +68,11 @@ const scenario = (): EngineInput => buildInput({
 const permuted = (input: EngineInput, seed: number): EngineInput => {
   const random = seededRandom(seed);
   const snapshot = input.snapshot;
+  const capabilities = seededShuffle(input.ruleset.capabilities, random);
+  const rules = seededShuffle(input.ruleset.rules, random).map((entry) => ({
+    ...entry,
+    effects: seededShuffle(entry.effects, random),
+  }));
   return {
     ...input,
     snapshot: {
@@ -78,11 +84,12 @@ const permuted = (input: EngineInput, seed: number): EngineInput => {
     },
     ruleset: {
       ...input.ruleset,
-      capabilities: seededShuffle(input.ruleset.capabilities, random),
-      rules: seededShuffle(input.ruleset.rules, random).map((entry) => ({
-        ...entry,
-        effects: seededShuffle(entry.effects, random),
-      })),
+      capabilities,
+      rules,
+      ref: {
+        ...input.ruleset.ref,
+        contentHash: canonicalRulesetContentHash({ capabilities, rules }),
+      },
     },
   };
 };
@@ -116,7 +123,10 @@ describe('determinism properties', () => {
 
   it.each(SEEDS)('does not change when input arrays are reordered (seed %i)', (seed) => {
     const canonical = evaluateDecision(scenario());
-    expect(canonicalJson(evaluateDecision(permuted(scenario(), seed)))).toBe(canonicalJson(canonical));
+    const reordered = evaluateDecision(permuted(scenario(), seed));
+    expect(reordered.audit.ruleset.contentHash).not.toBe(canonical.audit.ruleset.contentHash);
+    expect(canonicalJson({ ...reordered, audit: { ...reordered.audit, ruleset: { ...reordered.audit.ruleset, contentHash: canonical.audit.ruleset.contentHash } } }))
+      .toBe(canonicalJson(canonical));
   });
 
   it.each(SEEDS)('is unaffected by records outside the eligible candidate set (seed %i)', (seed) => {
@@ -136,7 +146,11 @@ describe('determinism properties', () => {
       },
     };
 
-    expect(canonicalJson(evaluateDecision(permuted(noisy, seed)))).toBe(canonicalJson(canonical));
+    const noisyDecision = evaluateDecision(permuted(noisy, seed));
+    expect(canonicalJson({
+      ...noisyDecision,
+      audit: { ...noisyDecision.audit, ruleset: { ...noisyDecision.audit.ruleset, contentHash: canonical.audit.ruleset.contentHash } },
+    })).toBe(canonicalJson(canonical));
   });
 
   it('breaks ties on candidate identity and keeps that order stable', () => {

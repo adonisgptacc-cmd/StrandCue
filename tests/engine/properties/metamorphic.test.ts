@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINE_EVALUATOR_VERSION } from '../../../packages/engine/src/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
 import { evaluateDecision } from '../../../packages/engine/src/pipeline/index.js';
 import type { CompiledRule, EngineDecision, EngineInput } from '../../../packages/engine/src/index.js';
 import { ReplayCaseSchema, replayDecisions } from '../../../packages/engine/src/replay/index.js';
@@ -33,10 +34,10 @@ const permissivenessOf = (decision: EngineDecision): number => PERMISSIVENESS[de
 const actionIds = (decision: EngineDecision): readonly string[] =>
   decision.steps.map((step) => step.actionId);
 
-const ruleset = (rules: CompiledRule[], contentHash = 'sha256:synthetic-metamorphic'): EngineInput['ruleset'] => ({
+const ruleset = (rules: CompiledRule[]): EngineInput['ruleset'] => ({
   ref: {
     rulesetId: 'synthetic-ruleset-metamorphic',
-    contentHash,
+    contentHash: canonicalRulesetContentHash({ capabilities: [], rules }),
     schemaVersion: '1.0.0',
     evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   },
@@ -90,7 +91,9 @@ describe('metamorphic properties', () => {
       rules: seededShuffle(baseRules(), random),
     });
 
-    expect(evaluateDecision(reordered)).toEqual(before);
+    const reorderedDecision = evaluateDecision(reordered);
+    expect(reorderedDecision.audit.ruleset.contentHash).not.toBe(before.audit.ruleset.contentHash);
+    expect({ ...reorderedDecision, audit: { ...reorderedDecision.audit, ruleset: { ...reorderedDecision.audit.ruleset, contentHash: before.audit.ruleset.contentHash } } }).toEqual(before);
   });
 });
 
@@ -170,7 +173,7 @@ describe('withdrawal properties', () => {
 
     // The restrictive rule is withdrawn: the published ruleset no longer
     // carries it, so it no longer runs for new decisions.
-    const withdrawn = ruleset(baseRules(), 'sha256:synthetic-withdrawn');
+    const withdrawn = ruleset(baseRules());
     const newDecision = evaluateDecision({ ...published, ruleset: withdrawn });
 
     expect(newDecision.status).toBe('decided');
@@ -182,7 +185,7 @@ describe('withdrawal properties', () => {
     const report = replayDecisions([replayCase], withdrawn);
     expect(report.cases[0].pinnedReplayReproduced).toBe(true);
     expect(report.cases[0].pinnedRulesetHash).toBe(published.ruleset.ref.contentHash);
-    expect(report.cases[0].candidateRulesetHash).toBe('sha256:synthetic-withdrawn');
+    expect(report.cases[0].candidateRulesetHash).toBe(withdrawn.ref.contentHash);
   });
 
   it('allows a newly permitted action only when an explicit reviewed successor rule permits it', () => {

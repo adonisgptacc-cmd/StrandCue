@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateDecision } from '../../../packages/engine/src/pipeline/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
 import type { CompiledRule, EngineDecision, EngineInput } from '../../../packages/engine/src/index.js';
 import {
   block,
@@ -214,7 +215,17 @@ const mutants = (): Mutant[] => [
 ];
 
 const evaluateWith = (scenario: Scenario, rules: readonly CompiledRule[]): EngineDecision =>
-  evaluateDecision({ ...scenario.input, ruleset: { ...scenario.input.ruleset, rules: [...rules] } });
+  evaluateDecision({
+    ...scenario.input,
+    ruleset: {
+      ...scenario.input.ruleset,
+      rules: [...rules],
+      ref: {
+        ...scenario.input.ruleset.ref,
+        contentHash: canonicalRulesetContentHash({ capabilities: scenario.input.ruleset.capabilities, rules }),
+      },
+    },
+  });
 
 describe('hard-rule mutation evidence', () => {
   it('kills every mutant with an explicit, deterministic mutation', () => {

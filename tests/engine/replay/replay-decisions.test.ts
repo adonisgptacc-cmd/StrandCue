@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ENGINE_EVALUATOR_VERSION } from '../../../packages/engine/src/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
 import { evaluateDecision } from '../../../packages/engine/src/pipeline/index.js';
 import type { CompiledRule, EngineInput } from '../../../packages/engine/src/index.js';
 import { ReplayCaseSchema, replayDecisions } from '../../../packages/engine/src/replay/index.js';
@@ -13,14 +14,14 @@ const baseRules = (): CompiledRule[] => [
 ];
 
 const historicalCase = (caseId: string, rules: CompiledRule[]): ReplayCase => {
-  const input: EngineInput = buildInput({ rules, rulesetId: 'synthetic-ruleset-pinned', contentHash: 'sha256:synthetic-pinned' });
+  const input: EngineInput = buildInput({ rules, rulesetId: 'synthetic-ruleset-pinned' });
   return ReplayCaseSchema.parse({ caseId, input, decision: evaluateDecision(input) });
 };
 
 const candidateRuleset = (rules: CompiledRule[]): EngineInput['ruleset'] => ({
   ref: {
     rulesetId: 'synthetic-ruleset-candidate',
-    contentHash: 'sha256:synthetic-candidate',
+    contentHash: canonicalRulesetContentHash({ capabilities: [], rules }),
     schemaVersion: '1.0.0',
     evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   },
@@ -35,7 +36,7 @@ describe('replayDecisions', () => {
 
     expect(report.cases).toHaveLength(1);
     expect(report.cases[0].pinnedReplayReproduced).toBe(true);
-    expect(report.cases[0].pinnedRulesetHash).toBe('sha256:synthetic-pinned');
+    expect(report.cases[0].pinnedRulesetHash).toBe(replayCase.input.ruleset.ref.contentHash);
   });
 
   it('reports no change when the candidate ruleset decides the same thing', () => {
@@ -54,9 +55,9 @@ describe('replayDecisions', () => {
     const report = replayDecisions([replayCase], candidateRuleset(baseRules()));
 
     expect(report.candidateRulesetId).toBe('synthetic-ruleset-candidate');
-    expect(report.candidateRulesetHash).toBe('sha256:synthetic-candidate');
-    expect(report.cases[0].candidateRulesetHash).toBe('sha256:synthetic-candidate');
-    expect(report.cases[0].pinnedRulesetHash).toBe('sha256:synthetic-pinned');
+    expect(report.candidateRulesetHash).toBe(canonicalRulesetContentHash({ capabilities: [], rules: baseRules() }));
+    expect(report.cases[0].candidateRulesetHash).toBe(report.candidateRulesetHash);
+    expect(report.cases[0].pinnedRulesetHash).toBe(replayCase.input.ruleset.ref.contentHash);
   });
 
   it('reports the exact decision change when a candidate ruleset tightens a restriction', () => {
@@ -104,7 +105,7 @@ describe('replayDecisions', () => {
 
     expect(report.cases).toEqual([]);
     expect(report.changedCaseIds).toEqual([]);
-    expect(report.candidateRulesetHash).toBe('sha256:synthetic-candidate');
+    expect(report.candidateRulesetHash).toBe(canonicalRulesetContentHash({ capabilities: [], rules: baseRules() }));
   });
 
   it('replays every case in the order it was given', () => {
