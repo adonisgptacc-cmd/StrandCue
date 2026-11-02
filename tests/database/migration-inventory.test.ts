@@ -77,6 +77,7 @@ const trustedMigrationNames = [
   '20261030113144_require_heat_tool_capability.sql',
   '20261030120304_hold_unimplemented_heat_steps.sql',
   '20261030190000_validate_assessed_heat_steps.sql',
+  '20261101130000_weather_context_consent.sql',
 ] as const;
 
 const candidateMigrationNames = [

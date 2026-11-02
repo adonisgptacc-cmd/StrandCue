@@ -224,14 +224,34 @@ selection. No purchase is authorized by this work order.
 - Cue Check schema and persistence remain unchanged. WX-06 is explicitly tracked
   as a follow-on design gate rather than silently omitted.
 
+## Implementation evidence (2026-11-02)
+
+- Tasks 1–5 are implemented on the isolated `codex/item-7b-weather-travel`
+  branch. Weather contracts, authenticated consent/quota-gated Edge requests,
+  owner-keyed location settings, revocation/owner-switch handling and the
+  informational Today card are covered by focused and full-suite tests.
+- The Docker-backed local Supabase stack applied pending migrations through
+  `20261101130000_weather_context_consent.sql`. The local Edge smoke returned
+  `authentication-required` for an unauthenticated request before contacting a
+  provider. Provider tests use mocked fetch; no live provider request occurred.
+- Verification on 2026-11-02: `npm run typecheck`, `npm run lint`,
+  `git diff --check`, and `npm test` passed. The full suite reported 259 passed
+  files, 8 skipped; 5,085 passed tests and 47 skipped (5,132 total).
+- Independent code and security reviews reported no actionable findings.
+  Review was static; no device or screen-reader run was performed.
+- Local-only scope: the feature worktree and local Supabase database were
+  changed. No hosted database, deployment, provider account, key, or release was
+  changed or configured.
+
 ## Open release gates
 
 - A commercial release requires a commercial subscription, attribution, and
   operator-provided secret; none is purchased or configured by this work order.
-- Confirm local Edge Function tests use mocked providers and never contact a
-  live weather service.
-- Complete local database, security, device and accessibility review. Hosted
-  Supabase stays untouched and this feature remains unavailable in any hosted
+- Obtain and record the provider's commercial subscription/license review,
+  attribution approval, and operator-provided secret before any commercial
+  deployment.
+- Complete device and accessibility review, including screen-reader behavior.
+- Keep hosted Supabase untouched; this feature is not available in a hosted
   release until separately authorized and configured.
 
 ## Follow-on

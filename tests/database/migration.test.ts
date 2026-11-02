@@ -94,10 +94,12 @@ describe('Supabase migration compatibility', () => {
         join pg_roles owner on owner.oid=function.proowner
         where namespace.nspname='strandcue_private'
           and function.proname in ('complete_account','mutate_passport','get_passport',
-            'record_service','correct_service','observe_service','get_service','list_services')
+            'record_service','correct_service','observe_service','get_service','list_services',
+            'reserve_weather_context_request_core')
         order by function.proname
       `);
       expect(owners.rows).toEqual([
+        { owner: 'strandcue_mutator' },
         { owner: 'strandcue_mutator' },
         { owner: 'strandcue_mutator' },
         { owner: 'strandcue_mutator' },

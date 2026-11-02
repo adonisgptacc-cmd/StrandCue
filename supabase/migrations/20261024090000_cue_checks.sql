@@ -369,11 +369,15 @@ create or replace function public.void_cue_check(p_operation_id uuid,p_record_id
 create or replace function public.list_cue_checks(p_limit integer,p_cursor jsonb) returns jsonb language sql security invoker set search_path='' as $$ select strandcue_private.cue_check_list_core(p_limit,p_cursor) $$;
 create or replace function public.get_cue_check(p_record_id uuid) returns jsonb language sql security invoker set search_path='' as $$ select strandcue_private.cue_check_detail_core(p_record_id) $$;
 
+-- PostgreSQL requires the new function owner to have CREATE on the target
+-- schema at ownership transfer. Grant it only for this migration, then revoke.
+grant create on schema public to migration_admin;
 alter function public.record_cue_check(uuid,uuid,jsonb) owner to migration_admin;
 alter function public.correct_cue_check(uuid,uuid,integer,jsonb,text) owner to migration_admin;
 alter function public.void_cue_check(uuid,uuid,integer,text) owner to migration_admin;
 alter function public.list_cue_checks(integer,jsonb) owner to migration_admin;
 alter function public.get_cue_check(uuid) owner to migration_admin;
+revoke create on schema public from migration_admin;
 
 -- Extend the existing export implementation without copying its large,
 -- already-reviewed owner-data query. The renamed function remains the base;

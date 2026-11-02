@@ -1529,10 +1529,14 @@ create or replace function public.get_programme(p_enrolment_id uuid)
 returns jsonb language sql security invoker set search_path = pg_catalog, pg_temp as $$
   select strandcue_private.programme_get_core(p_enrolment_id)
 $$;
+-- PostgreSQL requires the new function owner to have CREATE on the target
+-- schema at ownership transfer. Grant it only for this migration, then revoke.
+grant create on schema public to migration_admin;
 alter function public.enrol_programme(uuid, uuid, uuid, text, text, jsonb, text) owner to migration_admin;
 alter function public.change_programme(uuid, uuid, integer, jsonb) owner to migration_admin;
 alter function public.list_programmes(integer, jsonb) owner to migration_admin;
 alter function public.get_programme(uuid) owner to migration_admin;
+revoke create on schema public from migration_admin;
 
 -- Evidence of an active programme: the confirmed, classified steps its counts are derived from. The 90-day and
 -- 30-day execution purge would otherwise silently erase them and leave the programme unable to evaluate. They

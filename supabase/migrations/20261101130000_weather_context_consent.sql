@@ -10,6 +10,10 @@ alter table public.consent_records
     'product_analytics', 'weather_context'
   ));
 
+grant strandcue_mutator to current_user with set true;
+grant create on schema strandcue_private to strandcue_mutator;
+grant usage on schema public to strandcue_mutator;
+set role strandcue_mutator;
 create or replace function strandcue_private.set_consent(p_operation_id uuid, p_purpose text, p_granted boolean)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -40,6 +44,9 @@ begin
   return result;
 end;
 $$;
+reset role;
+revoke create on schema strandcue_private from strandcue_mutator;
+revoke set option for strandcue_mutator from current_user;
 
 create table strandcue_private.weather_context_rate_limits (
   user_id uuid primary key references public.profiles(user_id) on delete cascade,
@@ -50,11 +57,14 @@ alter table strandcue_private.weather_context_rate_limits enable row level secur
 alter table strandcue_private.weather_context_rate_limits force row level security;
 do $$ begin
   execute format(
-    'create policy weather_context_rate_internal on strandcue_private.weather_context_rate_limits for all to %I using (true) with check (true)',
-    current_user);
+    'create policy weather_context_rate_internal on strandcue_private.weather_context_rate_limits for all to strandcue_mutator using (true) with check (true)');
 end $$;
 revoke all on table strandcue_private.weather_context_rate_limits from public, anon, authenticated, service_role;
+grant select, insert, update on table strandcue_private.weather_context_rate_limits to strandcue_mutator;
 
+grant strandcue_mutator to current_user with set true;
+grant create on schema strandcue_private to strandcue_mutator;
+set role strandcue_mutator;
 create function strandcue_private.reserve_weather_context_request_core()
 returns integer language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare
@@ -85,6 +95,9 @@ revoke all on function strandcue_private.reserve_weather_context_request_core()
   from public, anon, authenticated, service_role;
 grant execute on function strandcue_private.reserve_weather_context_request_core()
   to authenticated;
+reset role;
+revoke create on schema strandcue_private from strandcue_mutator;
+revoke set option for strandcue_mutator from current_user;
 
 create function public.reserve_weather_context_request()
 returns integer language sql security invoker set search_path = pg_catalog, pg_temp as $$

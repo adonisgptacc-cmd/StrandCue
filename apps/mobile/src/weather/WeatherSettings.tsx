@@ -17,7 +17,11 @@ export function WeatherSettings({ controller }: { readonly controller: WeatherCo
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  useEffect(() => controller.subscribe(setState), [controller]);
+  useEffect(() => {
+    const unsubscribe = controller.subscribe(setState);
+    void controller.load();
+    return unsubscribe;
+  }, [controller]);
 
   const search = async () => {
     if (!state.consent || searching) return;

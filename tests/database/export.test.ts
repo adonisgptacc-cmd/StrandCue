@@ -290,6 +290,7 @@ const EXCLUDED_OWNER_TABLES = new Map<string, string>([
   ['strandcue_private.tool_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.username_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
   ['strandcue_private.username_option_limits', 'service-internal rate-limit state, never owner content'],
+  ['strandcue_private.weather_context_rate_limits', 'service-internal per-owner weather request rate state; carries no city or owner-entered content'],
 ]);
 
 // Exact column registry per exported table (information_schema order,
@@ -580,11 +581,11 @@ describe('export completeness (consent and guidance history)', () => {
     const names = await listOwnerTables(db);
     expect(unclassifiedOwnerTables(names)).toEqual([]);
     // The registry itself stays honest: every entry still exists and every
-    // exclusion carries its reason. 26 exported + 20 excluded = 46 owner
+    // exclusion carries its reason. 26 exported + 21 excluded = 47 owner
     // tables, including the private derived source revision row.
-    expect(names).toHaveLength(46);
+    expect(names).toHaveLength(47);
     expect(EXPORTED_OWNER_TABLES.size).toBe(26);
-    expect(EXCLUDED_OWNER_TABLES.size).toBe(20);
+    expect(EXCLUDED_OWNER_TABLES.size).toBe(21);
     for (const name of [...EXPORTED_OWNER_TABLES, ...EXCLUDED_OWNER_TABLES.keys()]) {
       expect(names, `registry entry ${name} still exists`).toContain(name);
     }

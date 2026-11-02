@@ -83,6 +83,14 @@ describe('consent records immutable history and RLS', () => {
     await expect(db.query('select * from strandcue_private.weather_context_rate_limits')).rejects.toThrow(/permission denied/i);
   });
 
+  it('deletes weather quota state when the owner profile is purged', async () => {
+    await complete(db);
+    await db.query('select public.reserve_weather_context_request()');
+    await db.exec('set session authorization postgres');
+    await db.query('delete from public.profiles where user_id = $1', [USER_A]);
+    expect((await db.query('select * from strandcue_private.weather_context_rate_limits')).rows).toEqual([]);
+  });
+
   it('protects the required processing purpose while the account is active', async () => {
     await complete(db);
     await expect(setConsent(db, crypto.randomUUID(), 'hair_passport_processing', false)).rejects.toThrow(/required-purpose/i);

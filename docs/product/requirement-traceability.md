@@ -123,12 +123,12 @@ so draft content may not execute and Today yields `content_pending`.
 | PH-07 | R3 | — | — | Not started |
 | PH-08 | R3 | — | — | Not started |
 | PH-09 | R3 | — | — | Not started |
-| WX-01 | R3 | — | — | Not started |
-| WX-02 | R3 | — | — | Not started |
-| WX-03 | R3 | — | — | Not started |
-| WX-04 | R3 | — | — | Not started |
-| WX-05 | R3 | — | — | Not started |
-| WX-06 | R3 | — | — | Not started |
+| WX-01 | R3 | `apps/mobile/src/weather/WeatherSettings.tsx`, `weather-api.ts`, `supabase/functions/weather-context/` (manual coarse-city selection, separate consent, authenticated provider boundary) | `tests/mobile/weather-settings.test.tsx`, `tests/server/weather-context-edge.test.ts`, `tests/database/consent.test.ts` | Partial — local/test path verified; commercial provider licensing and device evidence remain open |
+| WX-02 | R3 | `packages/domain/src/weather/weather-context.ts`, `apps/mobile/src/weather/WeatherContextCard.tsx` (source, observation/fetch times, freshness and unavailable states) | `tests/domain/weather-context.test.ts`, `tests/mobile/weather-context-card.test.tsx` | Partial — component/domain evidence; device/accessibility evidence remains open |
+| WX-03 | R3 | — (weather does not affect ranking; future rules require separate evidence review and Human A/B approval) | — | Not started / deferred |
+| WX-04 | R3 | `apps/mobile/src/weather/WeatherContextCard.tsx`, Today guidance boundary (informational-only context; no input to routine/safety decisions) | `tests/mobile/weather-flow.test.tsx`, `tests/mobile/today-guidance.test.tsx` | Implemented — tested isolation from Today decisions |
+| WX-05 | R3 | `apps/mobile/src/weather/WeatherSettings.tsx`, `apps/mobile/src/weather/weather-controller.ts` (temporary destination and dates separate from Passport) | `tests/mobile/weather-settings.test.tsx`, `tests/mobile/weather-controller.test.ts`, `tests/domain/weather-context.test.ts` | Partial — local/component evidence; device/accessibility evidence remains open |
+| WX-06 | R3 | — (Cue Check weather capture is a separate follow-on design and consent gate) | — | Not started / deferred |
 | RA-01 | R3 | — | — | Not started |
 | RA-02 | R3 | — | — | Not started |
 | RA-03 | R3 | — | — | Not started |

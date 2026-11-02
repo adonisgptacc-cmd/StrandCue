@@ -123,11 +123,11 @@
 - Consent off shows no search/fetch affordance that can cause a provider call. Search occurs only after the user enables consent and submits the city. Selecting a result does not silently request GPS.
 - Keep all state controlled by the owner-keyed controller; changing owner unmounts the previous card/settings screen.
 
-- [ ] **Step 1: Write failing component/flow tests.** Assert no provider call for city entry with consent off, distinct reviewable consent copy, explicit candidate selection, temporary destination activation/expiry, no Passport mutation, visible attribution/freshness/disclaimer, provider unavailable fallback, and Today remains usable.
-- [ ] **Step 2: Run focused tests to confirm failure.** Run `npm test -- tests/mobile/weather-settings.test.tsx tests/mobile/weather-context-card.test.tsx tests/mobile/weather-flow.test.tsx`. Expected: FAIL because components are absent.
-- [ ] **Step 3: Implement Settings and Today integration.** Use existing `Page`, `Field`, `Button`, and accessibility patterns. Keep any provider details out of routine steps and notification payloads.
-- [ ] **Step 4: Run focused tests and mobile typecheck.** Run the command in Step 2 and `npm run typecheck --workspace @strandcue/mobile`. Expected: PASS.
-- [ ] **Step 5: Commit.** `feat: show optional weather and travel context`
+- [x] **Step 1: Write failing component/flow tests.** Assert no provider call for city entry with consent off, distinct reviewable consent copy, explicit candidate selection, temporary destination activation/expiry, no Passport mutation, visible attribution/freshness/disclaimer, provider unavailable fallback, and Today remains usable.
+- [x] **Step 2: Run focused tests to confirm failure.** Run `npm test -- tests/mobile/weather-settings.test.tsx tests/mobile/weather-context-card.test.tsx tests/mobile/weather-flow.test.tsx`. Expected: FAIL because components are absent.
+- [x] **Step 3: Implement Settings and Today integration.** Use existing `Page`, `Field`, `Button`, and accessibility patterns. Keep any provider details out of routine steps and notification payloads.
+- [x] **Step 4: Run focused tests and mobile typecheck.** Weather component tests and mobile typecheck passed; the combined weather mobile suite passed 26/26 tests.
+- [x] **Step 5: Commit.** `feat: show optional weather and travel context` (`ffc8764`)
 
 ### Task 5: Verify local integration, privacy and documentation
 
@@ -137,13 +137,13 @@
 - Modify: `docs/product/full-product-capability-matrix.md` and the canonical traceability matrix for WX-01 through WX-05 only; leave WX-06 Partial/Deferred.
 - Create or modify: weather-specific `tests/database/*` only for migration, consent, quota and account deletion behavior.
 
-- [ ] **Step 1: Run focused test suites.** Run weather domain, mobile, server and database tests.
-- [ ] **Step 2: Run local Supabase verification.** Start/confirm the Docker-backed local Supabase stack; apply migrations only to local Supabase; run database tests and serve the Edge Function with mocked provider requests.
-- [ ] **Step 3: Run static verification.** Run `npm run typecheck`, `npm run lint`, and `git diff --check`.
-- [ ] **Step 4: Run full suite.** Run `npm test`; record exact counts and skipped suites. No live weather provider request is allowed in tests.
-- [ ] **Step 5: Review changes and security boundaries.** Confirm only the worktree/local database changed; inspect all log paths, source attribution, consent-off behavior, production commercial-license configuration, owner switch cleanup, and unchanged Today decision output.
-- [ ] **Step 6: Request independent code and security review.** Resolve all critical/high findings and rerun affected tests.
-- [ ] **Step 7: Commit the completed isolated work.** Commit with conventional commit subjects. Report base SHA, branch, changed files, test results, unresolved WX-06/product-release gates. Do not merge to `main`; final integration waits for Codex review and owner approval.
+- [x] **Step 1: Run focused test suites.** Weather domain/mobile/server suite passed (8 files, 37 tests); database consent/migration/export suite passed (4 files, 46 tests); additional weather mobile integration/controller suite passed (5 files, 26 tests).
+- [x] **Step 2: Run local Supabase verification.** Docker-backed local stack applied all pending migrations through `20261101130000_weather_context_consent.sql`. Local Edge Function smoke returned `401 authentication-required` before any provider call. Provider tests use mocked `fetch`; no live weather request was made.
+- [x] **Step 3: Run static verification.** `npm run typecheck`, `npm run lint`, and `git diff --check` passed.
+- [x] **Step 4: Run full suite.** `npm test` passed: 259 files passed, 8 skipped; 5,085 tests passed, 47 skipped (5,132 total). No live weather provider request was made.
+- [x] **Step 5: Review changes and security boundaries.** Static review confirms weather is separate from routine decisions and Today remains usable; only the isolated worktree and local Supabase database were changed. Device/accessibility and production license evidence remain open.
+- [x] **Step 6: Request independent code and security review.** Independent code and security reviews found no actionable findings. Reviews were static; the local migration replay is separately verified.
+- [x] **Step 7: Commit the completed isolated work.** Committed as `fix: close item 7b local integration gates` on `codex/item-7b-weather-travel`. Base SHA: `06762f699f750e122aab8c5d376fc3e278e1973f`. This work remains isolated; no merge, push, hosted change or release occurred. WX-06, device/accessibility evidence and commercial provider/license setup remain open.
 
 ## Follow-on work order (not included here)
 

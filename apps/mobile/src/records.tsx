@@ -203,7 +203,6 @@ export function Records({user, notice = ''}: {user: User; notice?: string}) {
       void previousWeatherOwner.current.controller.clearOwner();
     }
     previousWeatherOwner.current = { owner: user.id, controller: weatherController };
-    void weatherController.load();
   }, [user.id, weatherController]);
   if (errorState.notice !== notice) setErrorState({ notice, error: notice });
   const error = errorState.notice === notice ? errorState.error : notice;

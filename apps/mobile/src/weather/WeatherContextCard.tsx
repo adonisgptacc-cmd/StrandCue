@@ -41,7 +41,11 @@ function statusMessage(weather: WeatherContextState): string | null {
 
 export function WeatherContextCard({ controller }: { readonly controller: WeatherController }) {
   const [state, setState] = useState(controller.getState());
-  useEffect(() => controller.subscribe(setState), [controller]);
+  useEffect(() => {
+    const unsubscribe = controller.subscribe(setState);
+    void controller.load();
+    return unsubscribe;
+  }, [controller]);
   const travel = state.settings.travel;
   const todayAtDestination = travel ? localDate(new Date(), travel.timezone) : '';
   const activeLocation = travel && todayAtDestination >= travel.startDate && todayAtDestination <= travel.endDate
