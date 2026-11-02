@@ -159,6 +159,64 @@ describe('rule static analysis', () => {
     expect(conflict?.severity).toBe('error');
   });
 
+  it('does not report hard conflicts between disjoint conditions', () => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      constraints: [
+        {
+          ruleId: 'include-ready', version: '1',
+          when: { kind: 'fact_equals', factId: 'f-ready', value: true },
+          effects: [{ kind: 'include_candidate', candidateId: 'synthetic-product' }],
+          severity: 'hard', capabilityIds: [], claimIds: ['claim-1'], evidenceIds: ['evidence-1'],
+        },
+        {
+          ruleId: 'exclude-not-ready', version: '1',
+          when: { kind: 'fact_equals', factId: 'f-ready', value: false },
+          effects: [{ kind: 'exclude_candidate', candidateId: 'synthetic-product', reasonCode: 'synthetic' }],
+          severity: 'hard', capabilityIds: [], claimIds: ['claim-1'], evidenceIds: ['evidence-1'],
+        },
+      ],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(false);
+  });
+
+  it.each([
+    ['not', { kind: 'not', expression: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } }],
+    ['any', { kind: 'any', expressions: [
+      { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+      { kind: 'fact_equals', factId: 'synthetic-other-fact', value: true },
+    ] }],
+  ] as const)('flags identical %s expressions as unreachable in first-hit tables', (_kind, expression) => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [
+          { ...baseBundle.tables[0].rows[0], when: expression },
+          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: expression },
+        ],
+      }],
+    });
+    expect(diagnostics.find((diagnostic) => diagnostic.code === 'unreachable-row')?.rowId).toBe('row-2');
+  });
+
+  it('rejects effects that belong to different pipeline stages', () => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [{
+          ...baseBundle.tables[0].rows[0],
+          effects: [
+            { kind: 'include_candidate', candidateId: 'synthetic-product' },
+            { kind: 'require_prerequisite', prerequisiteId: 'synthetic-prerequisite' },
+          ],
+        }],
+      }],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'cross-stage-effects')).toBe(true);
+  });
+
   it('flags a hard rule without required fixtures', () => {
     const diagnostics = analyzeRules({
       ...baseBundle,

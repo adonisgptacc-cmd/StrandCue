@@ -109,6 +109,23 @@ describe('rule compiler', () => {
     })).toThrow(/unreachable-row/);
   });
 
+  it('refuses cross-stage effects with a stable analysis diagnostic', () => {
+    const firstRow = validBundle.tables[0].rows[0];
+    expect(() => compileRules({
+      ...validBundle,
+      tables: [{
+        ...validBundle.tables[0],
+        rows: [{
+          ...firstRow,
+          effects: [
+            { kind: 'include_candidate', candidateId: 'synthetic-product' },
+            { kind: 'require_prerequisite', prerequisiteId: 'synthetic-prerequisite' },
+          ],
+        }],
+      }],
+    })).toThrow(/cross-stage-effects/);
+  });
+
   it('refuses to compile overlapping cells under a unique hit policy', () => {
     const firstRow = validBundle.tables[0].rows[0];
     expect(() => compileRules({
