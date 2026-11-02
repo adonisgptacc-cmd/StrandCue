@@ -143,7 +143,7 @@
 - [x] **Step 4: Run full suite.** Final `npm test` passed: 259 files passed, 8 skipped; 5,090 tests passed, 47 skipped (5,137 total). No live weather provider request was made.
 - [x] **Step 5: Review changes and security boundaries.** Independent review found and helped close a city-search privacy gap. The shared command schema, Edge handler and provider reject phone/address-like queries; valid place names and ZA postcodes remain supported. Weather remains separate from routine decisions and Today remains usable. Device/accessibility and production license evidence remain open.
 - [x] **Step 6: Request independent code and security review.** Independent code and security reviews found no remaining actionable findings after the input-validation fixes. Reviews were static; the local migration replay is separately verified.
-- [x] **Step 7: Commit the completed isolated work.** Committed as `fix: close item 7b local integration gates` on `codex/item-7b-weather-travel`. Base SHA: `06762f699f750e122aab8c5d376fc3e278e1973f`. This work remains isolated; no merge, push, hosted change or release occurred. WX-06, device/accessibility evidence and commercial provider/license setup remain open.
+- [x] **Step 7: Commit the completed isolated work.** The Task 5 closure is `b57f481`; the reviewed input-privacy fix is `1f02a07` (`fix: reject detailed weather search queries`) on `codex/item-7b-weather-travel`. Base SHA: `06762f699f750e122aab8c5d376fc3e278e1973f`. Local integration is being checked separately; no push, hosted change or release occurred. WX-06, device/accessibility evidence and commercial provider/license setup remain open.
 
 ## Follow-on work order (not included here)
 
