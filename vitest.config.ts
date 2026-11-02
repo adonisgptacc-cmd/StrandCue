@@ -49,6 +49,7 @@ const criticalModules = [
   'scripts/owner-isolation-scenarios.ts', 'scripts/owner-isolation-live.ts',
 ];
 const floor = { lines: 80, statements: 80, functions: 80, branches: 80 };
+const engineSource = 'packages/engine/src/**/*.ts';
 
 export default defineConfig({
   test: {
@@ -57,8 +58,12 @@ export default defineConfig({
     testTimeout: 30_000,
     coverage: {
       provider: 'v8',
-      include: ['packages/domain/src/**/*.ts', 'scripts/validate-guidance-research.ts', 'scripts/catalogue-compiler.ts', 'scripts/compile-catalogue-intake.ts', ...criticalModules],
-      thresholds: { ...floor, ...Object.fromEntries(criticalModules.map(path => [path, { ...floor, perFile: true }])) },
+      include: ['packages/domain/src/**/*.ts', engineSource, 'scripts/validate-guidance-research.ts', 'scripts/catalogue-compiler.ts', 'scripts/compile-catalogue-intake.ts', ...criticalModules],
+      thresholds: {
+        ...floor,
+        ...Object.fromEntries(criticalModules.map(path => [path, { ...floor, perFile: true }])),
+        [engineSource]: { ...floor, perFile: true },
+      },
     },
   },
 });
