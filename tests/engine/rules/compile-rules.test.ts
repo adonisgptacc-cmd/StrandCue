@@ -124,6 +124,78 @@ describe('rule compiler', () => {
     expect(compiled.rules.some((rule) => rule.ruleId === 'synthetic-table::fallback-row')).toBe(true);
   });
 
+  it('proves a same-condition row unreachable when the candidate shares the prior capability', () => {
+    const firstRow = {
+      ...validBundle.tables[0].rows[0],
+      when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+    } as const;
+    expect(() => compileRules({
+      ...validBundle,
+      tables: [{
+        ...validBundle.tables[0],
+        rows: [firstRow, { ...firstRow, rowId: 'same-capability-fallback', severity: 'caution' }],
+      }],
+    })).toThrow(/unreachable-row/);
+  });
+
+  it('proves a same-condition row unreachable when candidate capabilities are a superset', () => {
+    const secondCapability = {
+      ...capability,
+      capabilityId: 'synthetic-capability-2',
+      claimId: 'claim-2',
+      evidenceIds: ['evidence-2'],
+    } as const;
+    const firstRow = {
+      ...validBundle.tables[0].rows[0],
+      when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true },
+    } as const;
+    const candidateRow = {
+      ...firstRow,
+      rowId: 'superset-capability-fallback',
+      severity: 'caution',
+      capabilityIds: ['synthetic-capability', 'synthetic-capability-2'],
+      claimIds: ['claim-1', 'claim-2'],
+      evidenceIds: ['evidence-1', 'evidence-2'],
+    } as const;
+    expect(() => compileRules({
+      ...validBundle,
+      capabilities: [...validBundle.capabilities, secondCapability],
+      tables: [{ ...validBundle.tables[0], rows: [firstRow, candidateRow] }],
+    })).toThrow(/unreachable-row/);
+  });
+
+  it('compiles block and ask-question effects in the block stage', () => {
+    const firstRow = validBundle.tables[0].rows[0];
+    const compiled = compileRules({
+      ...validBundle,
+      tables: [{
+        ...validBundle.tables[0],
+        rows: [{
+          ...firstRow,
+          effects: [
+            { kind: 'block', reasonCode: 'synthetic' },
+            { kind: 'ask_question', questionId: 'synthetic-question', reasonCode: 'synthetic' },
+          ],
+        }],
+      }],
+    });
+    expect(compiled.rules.find((rule) => rule.ruleId === 'synthetic-table::row-1')?.stageId).toBe('apply_safety_restrictions');
+  });
+
+  it('compiles include-candidate and ask-question effects in the inclusion stage', () => {
+    const compiled = compileRules({
+      ...validBundle,
+      constraints: [{
+        ...validBundle.constraints[0],
+        effects: [
+          { kind: 'include_candidate', candidateId: 'synthetic-product' },
+          { kind: 'ask_question', questionId: 'synthetic-question', reasonCode: 'synthetic' },
+        ],
+      }],
+    });
+    expect(compiled.rules.find((rule) => rule.ruleId === 'synthetic-constraint')?.stageId).toBe('load_verified_facts');
+  });
+
   it('refuses cross-stage effects with a stable analysis diagnostic', () => {
     const firstRow = validBundle.tables[0].rows[0];
     expect(() => compileRules({

@@ -116,9 +116,12 @@ function canSelectFirstHitRow(
 ): Satisfiability {
   const expressions = table.rows.map((row) => row.when);
   return findSatisfyingAssignment(expressions, (facts) => {
+    const candidateCapabilityIds = new Set(table.rows[rowIndex].capabilityIds);
     const matches = table.rows.map((row, index) => {
       const rule = tableRules.find((candidate) => candidate.table?.rowOrder === index);
-      if (index < rowIndex && (rule?.capabilityIds.length ?? 0) > 0) return 'false';
+      const priorCapabilitiesGuaranteed = (rule?.capabilityIds ?? [])
+        .every((capabilityId) => candidateCapabilityIds.has(capabilityId));
+      if (index < rowIndex && !priorCapabilitiesGuaranteed) return 'false';
       return evaluateAbstractExpression(row.when, facts);
     });
     const firstIndex = matches.findIndex((value) => value !== 'false');
@@ -142,6 +145,12 @@ function stageForEffect(effect: RuleEffect): string {
     case 'include_candidate': return 'load_verified_facts';
     case 'ask_question': return 'select_and_rank';
   }
+}
+
+function stagesForEffects(effects: readonly RuleEffect[]): ReadonlySet<string> {
+  const primaryEffects = effects.filter((effect) => effect.kind !== 'ask_question');
+  const stageOwners = primaryEffects.length > 0 ? primaryEffects : effects;
+  return new Set(stageOwners.map(stageForEffect));
 }
 
 interface RuleView {
@@ -255,7 +264,7 @@ export function analyzeRules(bundle: RuleAuthoringBundle): readonly RuleDiagnost
   // A compiled rule has one stage owner; effects from multiple owners cannot
   // be routed atomically by the current evaluator.
   for (const rule of ruleViews) {
-    const stages = new Set(rule.effects.map(stageForEffect));
+    const stages = stagesForEffects(rule.effects);
     if (stages.size > 1) {
       diagnostics.push({
         code: 'cross-stage-effects',
