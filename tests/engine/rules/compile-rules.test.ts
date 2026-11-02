@@ -102,11 +102,26 @@ describe('rule compiler', () => {
   });
 
   it('refuses to compile an unreachable first-hit row', () => {
-    const firstRow = validBundle.tables[0].rows[0];
+    const firstRow = { ...validBundle.tables[0].rows[0], capabilityIds: [] };
     expect(() => compileRules({
       ...validBundle,
-      tables: [{ ...validBundle.tables[0], rows: [firstRow, { ...firstRow, rowId: 'unreachable-row' }] }],
+      tables: [{ ...validBundle.tables[0], rows: [firstRow, { ...firstRow, rowId: 'unreachable-row', severity: 'caution' }] }],
     })).toThrow(/unreachable-row/);
+  });
+
+  it('keeps a same-condition fallback reachable when the prior capability may be absent', () => {
+    const firstRow = validBundle.tables[0].rows[0];
+    const compiled = compileRules({
+      ...validBundle,
+      tables: [{
+        ...validBundle.tables[0],
+        rows: [
+          firstRow,
+          { ...firstRow, rowId: 'fallback-row', severity: 'caution', capabilityIds: [] },
+        ],
+      }],
+    });
+    expect(compiled.rules.some((rule) => rule.ruleId === 'synthetic-table::fallback-row')).toBe(true);
   });
 
   it('refuses cross-stage effects with a stable analysis diagnostic', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRules } from '../../../packages/engine/src/rules/index.js';
+import { evaluateExpression } from '../../../packages/engine/src/pipeline/evaluate-expression.js';
 
 const capability = {
   capabilityId: 'synthetic-capability',
@@ -54,8 +55,8 @@ describe('rule static analysis', () => {
         {
           ...baseBundle.tables[0],
           rows: [
-            baseBundle.tables[0].rows[0],
-            { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
+            { ...baseBundle.tables[0].rows[0], capabilityIds: [] },
+            { ...baseBundle.tables[0].rows[0], rowId: 'row-2', severity: 'caution', capabilityIds: [], when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
           ],
         },
       ],
@@ -72,8 +73,8 @@ describe('rule static analysis', () => {
       tables: [{
         ...baseBundle.tables[0],
         rows: [
-          baseBundle.tables[0].rows[0],
-          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
+          { ...baseBundle.tables[0].rows[0], capabilityIds: [] },
+          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', severity: 'caution', capabilityIds: [], when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
         ],
       }],
     });
@@ -98,6 +99,39 @@ describe('rule static analysis', () => {
           },
           { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } },
         ],
+      }],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'unreachable-row')).toBe(false);
+  });
+
+  it('does not prove implication when the prior condition may be unknown', () => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [
+          { ...baseBundle.tables[0].rows[0], when: { kind: 'fact_exists', factId: 'f-prior' } },
+          {
+            ...baseBundle.tables[0].rows[0],
+            rowId: 'row-2',
+            when: { kind: 'fact_equals', factId: 'f-candidate', value: true },
+          },
+        ],
+      }],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'unreachable-row')).toBe(false);
+  });
+
+  it('keeps later hard blocks reachable through the unresolved first-row fallback', () => {
+    const row = {
+      ...baseBundle.tables[0].rows[0],
+      when: { kind: 'fact_exists', factId: 'f-ready' } as const,
+    };
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [row, { ...row, rowId: 'row-2' }],
       }],
     });
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'unreachable-row')).toBe(false);
@@ -180,13 +214,15 @@ describe('rule static analysis', () => {
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(false);
   });
 
-  it('keeps conflicts possible when not fact-exists can match an absent fact', () => {
+  it('does not treat not fact-exists as matching an absent fact', () => {
+    const condition = { kind: 'not', expression: { kind: 'fact_exists', factId: 'f-optional' } } as const;
+    expect(evaluateExpression(condition, new Map()).value).toBe('unknown');
     const diagnostics = analyzeRules({
       ...baseBundle,
       constraints: [
         {
           ruleId: 'include-when-absent', version: '1',
-          when: { kind: 'not', expression: { kind: 'fact_exists', factId: 'f-optional' } },
+          when: condition,
           effects: [{ kind: 'include_candidate', candidateId: 'synthetic-product' }],
           severity: 'hard', capabilityIds: [], claimIds: ['claim-1'], evidenceIds: ['evidence-1'],
         },
@@ -198,7 +234,7 @@ describe('rule static analysis', () => {
         },
       ],
     });
-    expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(true);
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(false);
   });
 
   it.each([
@@ -213,8 +249,8 @@ describe('rule static analysis', () => {
       tables: [{
         ...baseBundle.tables[0],
         rows: [
-          { ...baseBundle.tables[0].rows[0], when: expression },
-          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: expression },
+          { ...baseBundle.tables[0].rows[0], capabilityIds: [], when: expression },
+          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', severity: 'caution', capabilityIds: [], when: expression },
         ],
       }],
     });
@@ -228,8 +264,8 @@ describe('rule static analysis', () => {
       tables: [{
         ...baseBundle.tables[0],
         rows: [
-          { ...baseBundle.tables[0].rows[0], when: { kind: 'any', expressions: [p, { kind: 'fact_exists', factId: 'synthetic-other-fact' }] } },
-          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: p },
+          { ...baseBundle.tables[0].rows[0], capabilityIds: [], when: { kind: 'any', expressions: [p, { kind: 'fact_exists', factId: 'synthetic-other-fact' }] } },
+          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', severity: 'caution', capabilityIds: [], when: p },
         ],
       }],
     });

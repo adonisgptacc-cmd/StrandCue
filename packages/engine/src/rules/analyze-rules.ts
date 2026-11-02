@@ -4,94 +4,132 @@ import type {
   RuleEffect,
   RuleExpression,
 } from '../contracts.ts';
+import { collectFactIds } from '../pipeline/evaluate-expression.ts';
 import { authoringDiagnostics } from './authoring-schema.ts';
 
 const valueKey = (value: string | number | boolean): string => JSON.stringify([typeof value, value]);
 
 type AtomicExpression = Extract<RuleExpression, { readonly kind: 'fact_equals' | 'fact_in' | 'fact_exists' }>;
-interface Literal {
-  readonly expression: AtomicExpression;
-  readonly positive: boolean;
-}
-type Dnf = readonly (readonly Literal[])[];
 type Satisfiability = 'satisfiable' | 'unsatisfiable' | 'unknown';
-const MAX_DNF_TERMS = 256;
+const MAX_SAT_ASSIGNMENTS = 4096;
+const OTHER_VALUE: unique symbol = Symbol('other fact value');
+type AbstractValue = string | number | boolean | typeof OTHER_VALUE | undefined;
+interface AbstractFact {
+  readonly verified: boolean;
+  readonly value: AbstractValue;
+}
+type FactAssignment = ReadonlyMap<string, AbstractFact>;
+type TruthValue = 'true' | 'false' | 'unknown';
 
-/** Convert supported boolean expressions to bounded DNF, retaining unknown on overflow. */
-function toDnf(expression: RuleExpression, negated = false): Dnf | undefined {
-  if (expression.kind === 'not') return toDnf(expression.expression, !negated);
-  if (expression.kind !== 'all' && expression.kind !== 'any') {
-    return [[{ expression: expression as AtomicExpression, positive: !negated }]];
+function collectFactValues(expression: RuleExpression, values: Map<string, Map<string, string | number | boolean>>): void {
+  if (expression.kind === 'not') {
+    collectFactValues(expression.expression, values);
+    return;
+  }
+  if (expression.kind === 'all' || expression.kind === 'any') {
+    expression.expressions.forEach((child) => collectFactValues(child, values));
+    return;
+  }
+  const atomic = expression as AtomicExpression;
+  if (atomic.kind === 'fact_exists') return;
+
+  const factValues = values.get(atomic.factId) ?? new Map<string, string | number | boolean>();
+  const testedValues = atomic.kind === 'fact_equals' ? [atomic.value] : atomic.values;
+  testedValues.forEach((value) => factValues.set(valueKey(value), value));
+  values.set(atomic.factId, factValues);
+}
+
+function evaluateAbstractExpression(expression: RuleExpression, facts: FactAssignment): TruthValue {
+  if (expression.kind === 'not') {
+    const inner = evaluateAbstractExpression(expression.expression, facts);
+    return inner === 'unknown' ? 'unknown' : inner === 'true' ? 'false' : 'true';
+  }
+  if (expression.kind === 'fact_exists') {
+    return facts.get(expression.factId)?.verified === true ? 'true' : 'unknown';
+  }
+  if (expression.kind === 'fact_equals' || expression.kind === 'fact_in') {
+    const fact = facts.get(expression.factId);
+    if (fact?.verified !== true) return 'unknown';
+    const testedValues = expression.kind === 'fact_equals' ? [expression.value] : expression.values;
+    return testedValues.some((value) => value === fact.value) ? 'true' : 'false';
   }
 
-  const isConjunction = (expression.kind === 'all') !== negated;
-  const children = expression.expressions.map((child) => toDnf(child, negated));
-  if (children.some((child) => child === undefined)) return undefined;
-  const alternatives = children as Dnf[];
-  if (!isConjunction) {
-    const terms = alternatives.flat();
-    return terms.length <= MAX_DNF_TERMS ? terms : undefined;
+  const results = expression.expressions.map((child) => evaluateAbstractExpression(child, facts));
+  if (expression.kind === 'all') {
+    if (results.includes('false')) return 'false';
+    return results.includes('unknown') ? 'unknown' : 'true';
   }
+  if (results.includes('true')) return 'true';
+  return results.includes('unknown') ? 'unknown' : 'false';
+}
 
-  let terms: Dnf = [[]];
-  for (const childTerms of alternatives) {
-    const product: Literal[][] = [];
-    for (const term of terms) {
-      for (const childTerm of childTerms) {
-        product.push([...term, ...childTerm]);
-        if (product.length > MAX_DNF_TERMS) return undefined;
-      }
+/**
+ * Enumerate representative fact states for a finite abstraction of the DSL.
+ * Each referenced value gets an exact domain point, alongside an unverified
+ * state and an "other" verified value. Enumeration is bounded; overflow is
+ * unknown and therefore never proves disjointness or implication.
+ */
+function findSatisfyingAssignment(
+  expressions: readonly RuleExpression[],
+  predicate: (facts: FactAssignment) => boolean,
+): Satisfiability {
+  const values = new Map<string, Map<string, string | number | boolean>>();
+  expressions.forEach((expression) => collectFactValues(expression, values));
+  const factIds = [...new Set(expressions.flatMap((expression) => collectFactIds(expression)))].sort();
+  const domains: readonly AbstractFact[][] = factIds.map((factId) => {
+    const exactValues = [...(values.get(factId)?.values() ?? [])].map((value): AbstractFact => ({ verified: true, value }));
+    return [{ verified: false, value: undefined }, ...exactValues, { verified: true, value: OTHER_VALUE }];
+  });
+  const assignmentCount = domains.reduce((count, domain) => count * domain.length, 1);
+  if (assignmentCount > MAX_SAT_ASSIGNMENTS) return 'unknown';
+
+  const assignment = new Map<string, AbstractFact>();
+  const visit = (index: number): boolean => {
+    if (index === factIds.length) return predicate(assignment);
+    const factId = factIds[index];
+    for (const value of domains[index]) {
+      assignment.set(factId, value);
+      if (visit(index + 1)) return true;
     }
-    terms = product;
-  }
-  return terms;
-}
-
-function termSatisfiable(term: readonly Literal[]): boolean {
-  const facts = new Map<string, { verified: boolean; absent: boolean; included?: Set<string>; excluded: Set<string> }>();
-  for (const { expression, positive } of term) {
-    const current = facts.get(expression.factId) ?? { verified: false, absent: false, excluded: new Set<string>() };
-    if (expression.kind === 'fact_exists') {
-      if (positive) current.verified = true;
-      else current.absent = true;
-    } else {
-      current.verified = true;
-      const values = expression.kind === 'fact_equals' ? [expression.value] : expression.values;
-      const valueKeys = values.map(valueKey);
-      if (positive) {
-        const allowed = new Set(valueKeys);
-        current.included = current.included === undefined
-          ? allowed
-          : new Set([...current.included].filter((value) => allowed.has(value)));
-      } else {
-        valueKeys.forEach((value) => current.excluded.add(value));
-      }
-    }
-    if (current.verified && current.absent) return false;
-    if (current.included !== undefined
-      && (current.included.size === 0 || [...current.included].every((value) => current.excluded.has(value)))) return false;
-    facts.set(expression.factId, current);
-  }
-  return true;
-}
-
-function expressionSatisfiable(expression: RuleExpression): Satisfiability {
-  const terms = toDnf(expression);
-  if (terms === undefined) return 'unknown';
-  return terms.some(termSatisfiable) ? 'satisfiable' : 'unsatisfiable';
-}
-
-function conjunctionSatisfiable(left: RuleExpression, right: RuleExpression): Satisfiability {
-  return expressionSatisfiable({ kind: 'all', expressions: [left, right] });
-}
-
-function impliesCondition(candidate: RuleExpression, prior: RuleExpression): boolean {
-  const notPrior: RuleExpression = { kind: 'not', expression: prior };
-  return conjunctionSatisfiable(candidate, notPrior) === 'unsatisfiable';
+    assignment.delete(factId);
+    return false;
+  };
+  return visit(0) ? 'satisfiable' : 'unsatisfiable';
 }
 
 function provablyDisjoint(left: RuleExpression, right: RuleExpression): boolean {
-  return conjunctionSatisfiable(left, right) === 'unsatisfiable';
+  return findSatisfyingAssignment([left, right], (facts) =>
+    evaluateAbstractExpression(left, facts) === 'true'
+      && evaluateAbstractExpression(right, facts) === 'true') === 'unsatisfiable';
+}
+
+const preservesRestriction = (effects: readonly RuleEffect[]): boolean => effects.length > 0 && effects.every((effect) => {
+  if (effect.kind === 'block' || effect.kind === 'ask_question' || effect.kind === 'exclude_candidate'
+    || effect.kind === 'require_prerequisite' || effect.kind === 'insert_wait') return true;
+  return effect.kind === 'set_heat_assessment' && (effect.state === 'no_heat' || effect.state === 'restricted');
+});
+
+function canSelectFirstHitRow(
+  table: RuleAuthoringBundle['tables'][number],
+  tableRules: readonly RuleView[],
+  rowIndex: number,
+): Satisfiability {
+  const expressions = table.rows.map((row) => row.when);
+  return findSatisfyingAssignment(expressions, (facts) => {
+    const matches = table.rows.map((row, index) => {
+      const rule = tableRules.find((candidate) => candidate.table?.rowOrder === index);
+      if (index < rowIndex && (rule?.capabilityIds.length ?? 0) > 0) return 'false';
+      return evaluateAbstractExpression(row.when, facts);
+    });
+    const firstIndex = matches.findIndex((value) => value !== 'false');
+    if (firstIndex < 0) return false;
+    if (matches[firstIndex] === 'true') return firstIndex === rowIndex;
+    if (firstIndex === rowIndex) return true;
+    return rowIndex > firstIndex
+      && table.rows[rowIndex].severity === 'hard'
+      && matches[rowIndex] !== 'false'
+      && preservesRestriction(table.rows[rowIndex].effects);
+  });
 }
 
 function stageForEffect(effect: RuleEffect): string {
@@ -112,6 +150,7 @@ interface RuleView {
   readonly severity: 'hard' | 'caution' | 'info';
   readonly effects: readonly RuleEffect[];
   readonly when: RuleExpression;
+  readonly capabilityIds: readonly string[];
   readonly table?: { readonly tableId: string; readonly hitPolicy: 'first' | 'collect' | 'unique'; readonly rowOrder: number };
 }
 
@@ -121,9 +160,10 @@ function toView(
   severity: 'hard' | 'caution' | 'info',
   effects: readonly RuleEffect[],
   when: RuleExpression,
+  capabilityIds: readonly string[],
   table?: RuleView['table'],
 ): RuleView {
-  return { ruleId, version, severity, effects, when, table };
+  return { ruleId, version, severity, effects, when, capabilityIds, table };
 }
 
 /**
@@ -199,7 +239,7 @@ export function analyzeRules(bundle: RuleAuthoringBundle): readonly RuleDiagnost
   const ruleViews: RuleView[] = [];
   for (const table of bundle.tables) {
     for (const [rowOrder, row] of table.rows.entries()) {
-      ruleViews.push(toView(`${table.tableId}::${row.rowId}`, '1', row.severity, row.effects, row.when, {
+      ruleViews.push(toView(`${table.tableId}::${row.rowId}`, '1', row.severity, row.effects, row.when, row.capabilityIds, {
         tableId: table.tableId,
         hitPolicy: table.hitPolicy,
         rowOrder,
@@ -207,7 +247,7 @@ export function analyzeRules(bundle: RuleAuthoringBundle): readonly RuleDiagnost
     }
   }
   for (const constraint of bundle.constraints) {
-    ruleViews.push(toView(constraint.ruleId, constraint.version, constraint.severity, constraint.effects, constraint.when));
+    ruleViews.push(toView(constraint.ruleId, constraint.version, constraint.severity, constraint.effects, constraint.when, constraint.capabilityIds));
   }
 
   diagnostics.push(...capabilityConflicts(ruleViews));
@@ -232,7 +272,8 @@ export function analyzeRules(bundle: RuleAuthoringBundle): readonly RuleDiagnost
     for (let index = 0; index < table.rows.length; index += 1) {
       const row = table.rows[index];
       const previousRows = table.rows.slice(0, index);
-      if (table.hitPolicy === 'first' && previousRows.some((prior) => impliesCondition(row.when, prior.when))) {
+      const tableRules = ruleViews.filter((rule) => rule.table?.tableId === table.tableId);
+      if (table.hitPolicy === 'first' && canSelectFirstHitRow(table, tableRules, index) === 'unsatisfiable') {
         diagnostics.push({
           code: 'unreachable-row',
           severity: 'error',
