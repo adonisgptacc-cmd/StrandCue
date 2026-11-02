@@ -6,6 +6,7 @@ import {
   type WeatherProvider,
 } from '../../supabase/functions/weather-context/handler.ts';
 import type { WeatherContext } from '../../packages/domain/src/weather/weather-context.ts';
+import { WeatherCommandSchema } from '../../supabase/functions/weather-context/contracts.ts';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const AS_OF = '2026-11-01T10:00:00.000Z';
@@ -96,6 +97,34 @@ describe('weather context Edge boundary', () => {
     expect(h.provider.searchCities).toHaveBeenCalledWith('Durban', 'ZA');
     expect(await response.json()).toEqual({ candidates: [candidate] });
     expect(h.reserveRequest).toHaveBeenCalledWith('user-token');
+  });
+
+  it('rejects street-address and phone-like searches before calling the provider', async () => {
+    const h = harness();
+    for (const query of ['12 Main Street, Durban', 'Main Street, Durban', 'Main St, Durban', 'Main St. Durban', 'Main Rd., Durban', 'Main Ave., Cape Town', 'Main Ln., Cape Town', '082 123 4567']) {
+      const response = await handleWeatherContextRequest(request({ kind: 'search', query }), h.deps);
+      expect(response.status, query).toBe(400);
+    }
+    expect(h.provider.searchCities).not.toHaveBeenCalled();
+  });
+
+  it('keeps valid place names and South African postal-code searches available', async () => {
+    for (const [query, countryCode] of [['Road Town', undefined], ['Crescent City', undefined], ['Cape St Francis', 'ZA'], ['Port St Johns', 'ZA'], ['8001', 'ZA']] as const) {
+      const h = harness();
+      const response = await handleWeatherContextRequest(request({ kind: 'search', query, countryCode }), h.deps);
+      expect(response.status, query).toBe(200);
+      expect(h.provider.searchCities).toHaveBeenCalledWith(query, countryCode);
+    }
+  });
+
+  it('uses the command schema as the same city-search privacy boundary', () => {
+    const accepted = ['Road Town', 'Crescent City', 'Cape St Francis', 'Port St Johns']
+      .map(query => ({ kind: 'search', query, countryCode: query.includes('St ') ? 'ZA' : undefined }));
+    for (const command of accepted) expect(WeatherCommandSchema.safeParse(command).success).toBe(true);
+    expect(WeatherCommandSchema.safeParse({ kind: 'search', query: '8001', countryCode: 'ZA' }).success).toBe(true);
+    for (const query of ['12 Main Street, Durban', '082 123 4567', '8001']) {
+      expect(WeatherCommandSchema.safeParse({ kind: 'search', query }).success).toBe(false);
+    }
   });
 
   it('fetches only after explicit provider location id selection and returns attribution', async () => {

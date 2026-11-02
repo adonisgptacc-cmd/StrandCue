@@ -80,6 +80,14 @@ describe('weather settings', () => {
     expect(renderedText(renderer)).toContain('Inclusive dates: 2026-11-04 to 2026-11-06 (Africa/Johannesburg)');
   });
 
+  it('limits four-digit postal-code searches to South Africa', async () => {
+    const h = harness(true);
+    const renderer = await mount(h.controller);
+    type(renderer, 'City to search', '8001');
+    await act(async () => { press(renderer, 'Search city'); await Promise.resolve(); });
+    expect(h.api.searchWeatherCities).toHaveBeenCalledWith({ query: '8001', countryCode: 'ZA' });
+  });
+
   it('can revoke weather consent and clear saved locations', async () => {
     const h = harness(true);
     await h.controller.load();

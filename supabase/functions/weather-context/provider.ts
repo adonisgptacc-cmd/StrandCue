@@ -4,6 +4,7 @@ import {
   type WeatherContext,
   type WeatherSearchCandidate,
 } from '../../../packages/domain/src/weather/weather-context.ts';
+import { isWeatherCitySearchQueryAllowed } from './contracts.ts';
 
 const ATTRIBUTION = 'Weather data by Open-Meteo';
 const LOCATION_ID = /^open-meteo:(\d{1,12})$/;
@@ -139,8 +140,7 @@ export function createOpenMeteoWeatherProvider(options: OpenMeteoWeatherProvider
 
   return {
     async searchCities(query, countryCode) {
-      if (typeof query !== 'string' || query.trim().length < 2 || query.trim().length > 80
-          || !/^[\p{L}\p{M}\p{N} .,'’()-]+$/u.test(query.trim())) return [];
+      if (typeof query !== 'string' || !isWeatherCitySearchQueryAllowed(query, countryCode)) return [];
       const url = configuredUrl(geocodingHost, '/v1/search', key);
       url.searchParams.set('name', query.trim());
       url.searchParams.set('count', '5');

@@ -28,7 +28,8 @@ export function WeatherSettings({ controller }: { readonly controller: WeatherCo
     setSearching(true);
     setMessage('');
     try {
-      await controller.searchCities(query);
+      const countryCode = /^[0-9]{4}$/.test(query.trim()) ? 'ZA' : undefined;
+      await controller.searchCities(query, countryCode);
       if (controller.getState().candidates.length === 0) setMessage('No city matches. Try a nearby city name.');
     } catch {
       setMessage('City search is temporarily unavailable. Please try again.');
@@ -74,7 +75,7 @@ export function WeatherSettings({ controller }: { readonly controller: WeatherCo
   return <View style={styles.card}>
     <Text accessibilityRole="header" style={styles.heading}>Weather and travel</Text>
     <Text style={styles.body}>{WEATHER_CONSENT_EXPLANATION}</Text>
-    <Text style={styles.body}>Only a manually searched city is sent after you turn this on and choose Search city. Choosing a result saves that place; it does not request your device location.</Text>
+    <Text style={styles.body}>Only a manually searched city or South African postal code is sent after you turn this on and choose Search city. Choosing a result saves that place; it does not request your device location.</Text>
     <Button
       title={state.consent ? 'Turn off weather sharing' : 'Turn on weather sharing'}
       secondary={!state.consent}

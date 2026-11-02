@@ -234,9 +234,14 @@ selection. No purchase is authorized by this work order.
   `20261101130000_weather_context_consent.sql`. The local Edge smoke returned
   `authentication-required` for an unauthenticated request before contacting a
   provider. Provider tests use mocked fetch; no live provider request occurred.
+- City searches reject phone and street-address patterns in the shared command
+  schema and again at the provider boundary. Four-digit postal codes require
+  the `ZA` country code; the mobile form supplies it for numeric four-digit
+  searches. Regression cases preserve valid names such as Road Town, Crescent
+  City, Cape St Francis and Port St Johns.
 - Verification on 2026-11-02: `npm run typecheck`, `npm run lint`,
   `git diff --check`, and `npm test` passed. The full suite reported 259 passed
-  files, 8 skipped; 5,085 passed tests and 47 skipped (5,132 total).
+  files, 8 skipped; 5,090 passed tests and 47 skipped (5,137 total).
 - Independent code and security reviews reported no actionable findings.
   Review was static; no device or screen-reader run was performed.
 - Local-only scope: the feature worktree and local Supabase database were

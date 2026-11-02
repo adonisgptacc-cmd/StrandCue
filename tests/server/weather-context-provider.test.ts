@@ -75,6 +75,27 @@ describe('Open-Meteo weather provider', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('validates search input itself while preserving valid place names and ZA postal codes', async () => {
+    const fetcher = vi.fn(async (_input: string | URL | Request) => response({ results: [geocodingResult()] }));
+    const provider = createOpenMeteoWeatherProvider({ mode: 'development', fetcher, now: () => NOW });
+
+    expect(await provider.searchCities('12 Main Street, Durban', 'ZA')).toEqual([]);
+    expect(await provider.searchCities('Main St, Durban', 'ZA')).toEqual([]);
+    expect(await provider.searchCities('Main St. Durban', 'ZA')).toEqual([]);
+    expect(await provider.searchCities('Main Rd., Durban', 'ZA')).toEqual([]);
+    expect(await provider.searchCities('Main Ave., Cape Town', 'ZA')).toEqual([]);
+    expect(await provider.searchCities('Main Ln., Cape Town', 'ZA')).toEqual([]);
+    expect(await provider.searchCities('082 123 4567', 'ZA')).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+
+    await provider.searchCities('Road Town');
+    await provider.searchCities('Crescent City');
+    await provider.searchCities('Cape St Francis', 'ZA');
+    await provider.searchCities('Port St Johns', 'ZA');
+    await provider.searchCities('8001', 'ZA');
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  });
+
   it('uses an explicitly selected id, fixed hosts, required units and only returns the next 24 hourly readings', async () => {
     const fetcher = vi.fn((_input: string | URL | Request) => Promise.resolve(response({})))
       .mockResolvedValueOnce(response({ ...geocodingResult(), id: 12345 }))
