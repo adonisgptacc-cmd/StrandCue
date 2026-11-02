@@ -180,6 +180,27 @@ describe('rule static analysis', () => {
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(false);
   });
 
+  it('keeps conflicts possible when not fact-exists can match an absent fact', () => {
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      constraints: [
+        {
+          ruleId: 'include-when-absent', version: '1',
+          when: { kind: 'not', expression: { kind: 'fact_exists', factId: 'f-optional' } },
+          effects: [{ kind: 'include_candidate', candidateId: 'synthetic-product' }],
+          severity: 'hard', capabilityIds: [], claimIds: ['claim-1'], evidenceIds: ['evidence-1'],
+        },
+        {
+          ruleId: 'exclude-when-independent-fact', version: '1',
+          when: { kind: 'fact_exists', factId: 'f-independent' },
+          effects: [{ kind: 'exclude_candidate', candidateId: 'synthetic-product', reasonCode: 'synthetic' }],
+          severity: 'hard', capabilityIds: [], claimIds: ['claim-1'], evidenceIds: ['evidence-1'],
+        },
+      ],
+    });
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'hard-capability-conflict')).toBe(true);
+  });
+
   it.each([
     ['not', { kind: 'not', expression: { kind: 'fact_equals', factId: 'synthetic-fact', value: true } }],
     ['any', { kind: 'any', expressions: [
@@ -194,6 +215,21 @@ describe('rule static analysis', () => {
         rows: [
           { ...baseBundle.tables[0].rows[0], when: expression },
           { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: expression },
+        ],
+      }],
+    });
+    expect(diagnostics.find((diagnostic) => diagnostic.code === 'unreachable-row')?.rowId).toBe('row-2');
+  });
+
+  it('flags a row implied by a prior any expression as unreachable', () => {
+    const p = { kind: 'fact_equals', factId: 'synthetic-fact', value: true } as const;
+    const diagnostics = analyzeRules({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [
+          { ...baseBundle.tables[0].rows[0], when: { kind: 'any', expressions: [p, { kind: 'fact_exists', factId: 'synthetic-other-fact' }] } },
+          { ...baseBundle.tables[0].rows[0], rowId: 'row-2', when: p },
         ],
       }],
     });

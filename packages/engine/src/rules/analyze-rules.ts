@@ -48,12 +48,12 @@ function toDnf(expression: RuleExpression, negated = false): Dnf | undefined {
 }
 
 function termSatisfiable(term: readonly Literal[]): boolean {
-  const facts = new Map<string, { verified: boolean; included?: Set<string>; excluded: Set<string> }>();
+  const facts = new Map<string, { verified: boolean; absent: boolean; included?: Set<string>; excluded: Set<string> }>();
   for (const { expression, positive } of term) {
-    if (!positive && expression.kind === 'fact_exists') return false;
-    const current = facts.get(expression.factId) ?? { verified: false, excluded: new Set<string>() };
+    const current = facts.get(expression.factId) ?? { verified: false, absent: false, excluded: new Set<string>() };
     if (expression.kind === 'fact_exists') {
-      current.verified = true;
+      if (positive) current.verified = true;
+      else current.absent = true;
     } else {
       current.verified = true;
       const values = expression.kind === 'fact_equals' ? [expression.value] : expression.values;
@@ -67,6 +67,7 @@ function termSatisfiable(term: readonly Literal[]): boolean {
         valueKeys.forEach((value) => current.excluded.add(value));
       }
     }
+    if (current.verified && current.absent) return false;
     if (current.included !== undefined
       && (current.included.size === 0 || [...current.included].every((value) => current.excluded.has(value)))) return false;
     facts.set(expression.factId, current);
@@ -84,63 +85,9 @@ function conjunctionSatisfiable(left: RuleExpression, right: RuleExpression): Sa
   return expressionSatisfiable({ kind: 'all', expressions: [left, right] });
 }
 
-type FactDomain = { readonly allowed: ReadonlySet<string> | undefined };
-type ConjunctionDomain = { readonly facts: ReadonlyMap<string, FactDomain>; readonly impossible: boolean };
-
-function conjunctionDomain(expression: RuleExpression): ConjunctionDomain | undefined {
-  if (expression.kind === 'fact_exists') {
-    return { facts: new Map([[expression.factId, { allowed: undefined }]]), impossible: false };
-  }
-  if (expression.kind === 'fact_equals' || expression.kind === 'fact_in') {
-    const values = expression.kind === 'fact_equals' ? [expression.value] : expression.values;
-    return { facts: new Map([[expression.factId, { allowed: new Set(values.map(valueKey)) }]]), impossible: false };
-  }
-  if (expression.kind !== 'all') return undefined;
-
-  let merged: ConjunctionDomain = { facts: new Map(), impossible: false };
-  for (const child of expression.expressions) {
-    const next = conjunctionDomain(child);
-    if (next === undefined) return undefined;
-    if (merged.impossible || next.impossible) return { facts: merged.facts, impossible: true };
-    const facts = new Map(merged.facts);
-    for (const [factId, domain] of next.facts) {
-      const current = facts.get(factId);
-      if (current?.allowed === undefined) {
-        facts.set(factId, domain);
-      } else if (domain.allowed !== undefined) {
-        const allowed = new Set([...current.allowed].filter((value) => domain.allowed?.has(value)));
-        if (allowed.size === 0) return { facts, impossible: true };
-        facts.set(factId, { allowed });
-      }
-    }
-    merged = { facts, impossible: false };
-  }
-  return merged;
-}
-
-function expressionKey(expression: RuleExpression): string {
-  switch (expression.kind) {
-    case 'not': return `not(${expressionKey(expression.expression)})`;
-    case 'all':
-    case 'any': return `${expression.kind}(${expression.expressions.map(expressionKey).sort().join(',')})`;
-    default: return JSON.stringify(expression);
-  }
-}
-
 function impliesCondition(candidate: RuleExpression, prior: RuleExpression): boolean {
-  if (expressionKey(candidate) === expressionKey(prior)) return true;
-  const candidateDomain = conjunctionDomain(candidate);
-  const priorDomain = conjunctionDomain(prior);
-  if (candidateDomain?.impossible) return true;
-  if (candidateDomain === undefined || priorDomain === undefined || priorDomain.impossible) return false;
-  for (const [factId, priorFact] of priorDomain.facts) {
-    const candidateFact = candidateDomain.facts.get(factId);
-    if (candidateFact === undefined) return false;
-    if (priorFact.allowed === undefined) continue;
-    if (candidateFact.allowed === undefined) return false;
-    if ([...candidateFact.allowed].some((value) => !priorFact.allowed?.has(value))) return false;
-  }
-  return true;
+  const notPrior: RuleExpression = { kind: 'not', expression: prior };
+  return conjunctionSatisfiable(candidate, notPrior) === 'unsatisfiable';
 }
 
 function provablyDisjoint(left: RuleExpression, right: RuleExpression): boolean {
