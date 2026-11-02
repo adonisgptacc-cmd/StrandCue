@@ -19,10 +19,12 @@ in particular, historical RED-run evidence is not reconstructed here. See
 `docs/verification/phase-2a-status-2026-11-02.md` for verified commits, fresh
 checks and remaining release gates.
 
-The isolated follow-up `codex/phase2a-hash-integrity` corrects the ruleset hash
-implementation and pins evaluator version `1.0.1`. Its changes have passed
-review and fresh verification but still need the owner's local merge approval.
-This does not close Increment 6 or authorize publication or deployment.
+The isolated follow-up `codex/phase2a-hash-integrity` corrects the compiler's
+ruleset hash implementation and pins evaluator version `1.0.1`, but the
+end-to-end review found unresolved hash verification, compiler, analyzer,
+coverage and specification gaps. Do not integrate it yet; see
+`docs/verification/phase-2a-full-review-2026-11-02.md`. This does not close
+Increment 6 or authorize publication or deployment.
 
 ## Global constraints
 

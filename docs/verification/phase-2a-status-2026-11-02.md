@@ -1,7 +1,7 @@
 # Phase 2a status and remaining gates
 
 **Recorded:** 2 November 2026  
-**Disposition:** local implementation complete; release remains on HOLD
+**Disposition:** Phase 2a closure is NOT ACCEPTED; release remains on HOLD
 
 ## Integrated work
 
@@ -35,9 +35,11 @@ engine dependency, and increments the shared evaluator version to `1.0.1`.
 Synthetic golden references were regenerated. No production ruleset or stored
 decision requires migration; production content remains empty/draft.
 
-The branch is not yet merged. Independent review reported no remaining
+The branch is not yet merged. An earlier narrow review reported no remaining
 actionable findings after the version source and fixture references were
-aligned.
+aligned. A later end-to-end review supersedes that result: it found a P1 hash
+verification defect and multiple P2 compiler, analysis, coverage and contract
+gaps. See `docs/verification/phase-2a-full-review-2026-11-02.md`.
 
 ## Fresh local verification on the follow-up branch
 
@@ -48,10 +50,10 @@ aligned.
 | `npm run typecheck` | PASS |
 | `npm run lint` | PASS |
 | `npm test -- tests/engine` | PASS — 12 files, 177 tests |
-| `npm test` | PASS — 259 files, 5,090 tests; 8 files and 47 tests skipped |
+| `npm test -- --maxWorkers=8` | PASS — 259 files, 5,090 tests; 8 files and 47 tests skipped |
 | `npm run audit:control-plane` | `METADATA-PASS` after refreshing the installed Expo evidence; the existing 4 November review deadline was retained |
 | `npm ci --dry-run --ignore-scripts` | PASS — lockfile/workspace dependency resolution |
-| Independent code review | PASS — no actionable findings after the hash and evaluator-version fixes |
+| Independent end-to-end review | FAIL/HOLD — P1 and P2 findings; see full review report |
 
 The full suite emitted the existing Node module-type warning for
 `apps/mobile/src/guidance/heat-rule-publication.ts`; the suite still passed.
@@ -73,6 +75,10 @@ The local metadata audit does not verify device compatibility or host integrity.
   records 16/16 real PostgreSQL race cases on a fresh disposable local project.
   This hash correction did not rerun those database suites; refer to that
   acceptance record for their exact scope and limits.
+
+- Phase 2a's plan still has historical unchecked work-order boxes. Do not use
+  those boxes as completion evidence; use commit ancestry, current test output
+  and the full review report.
 
 No push, deployment, hosted Supabase or Cloudflare change, migration, or
 publication occurred. Local `main` remains ahead of `origin/main`; do not push
