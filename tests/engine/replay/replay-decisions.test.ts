@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { ENGINE_EVALUATOR_VERSION } from '../../../packages/engine/src/index.js';
 import { evaluateDecision } from '../../../packages/engine/src/pipeline/index.js';
 import type { CompiledRule, EngineInput } from '../../../packages/engine/src/index.js';
 import { ReplayCaseSchema, replayDecisions } from '../../../packages/engine/src/replay/index.js';
@@ -21,7 +22,7 @@ const candidateRuleset = (rules: CompiledRule[]): EngineInput['ruleset'] => ({
     rulesetId: 'synthetic-ruleset-candidate',
     contentHash: 'sha256:synthetic-candidate',
     schemaVersion: '1.0.0',
-    evaluatorVersion: '1.0.0',
+    evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   },
   capabilities: [],
   rules,

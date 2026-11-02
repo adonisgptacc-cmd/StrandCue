@@ -2,16 +2,16 @@
   {
     "id": "expo-compatible-sdk",
     "source": "node_modules/expo/bundledNativeModules.json",
-    "checked_at": "2026-10-31",
+    "checked_at": "2026-11-02",
     "review_after": "2026-11-04",
     "claim": "Installed mobile dependencies agree with the locked versions and installed Expo 57 SDK mapping. Offline install --check passed; no latest registry, device, or native compatibility claim.",
     "evidence": {
       "kind": "installed-expo-sdk",
       "expoVersion": "57.0.31",
-      "manifestSha256": "22811b1a91a1c55d250133dc4113ec4c97e1a11d9bb89a83c01020a7042cd963",
-      "lockSha256": "ffef8c565f68ea0df131511825c0aa97bdf425205dc0f4b6bba5ce5d7e61cb5e",
+      "manifestSha256": "3c4818e54ea570ab1d02ce4e33eab6be9c70d3f7c8b4336e8a3603b0958da1ce",
+      "lockSha256": "0359563e0a0113e359ec6732a51c0016f626dfef246c0f65de30c279e6e60324",
       "bundledSha256": "b662f0567845c33cd708859304fa11dc4e397b49977e3f5b1ba82e2ebf47bf44",
-      "installedSha256": "a33ee1e9cd86b7e613773ea49ba3f3183c4d163c2c70253fa791f6fc1c9e3a79"
+      "installedSha256": "25e59b18b0f6c68f551098846bf6e1522732b4d8280acbbd19277bdeddb9c772"
     }
   },
   {

@@ -1,20 +1,27 @@
+import { createHash } from 'node:crypto';
+
 /**
- * The engine's content hash for a compiled ruleset.
+ * Independent expected-content hash for a compiled ruleset.
  *
- * This mirrors `stableHash` in `packages/engine/src/rules/compile-rules.ts`:
- * FNV-1a over the canonical JSON of `{ capabilities, rules }`. It exists so a
- * golden fixture can pin - and later re-derive - the hash of its own compiled
- * ruleset without depending on the authoring bundle that produced it.
- *
- * The arithmetic is intentionally identical to the engine's, including the
- * non-`Math.imul` multiplication, so both produce the same value.
+ * It exists so a golden fixture can pin - and later re-derive - the SHA-256
+ * digest of its own compiled ruleset without depending on the authoring bundle
+ * that produced it.
  */
-export const rulesetContentHash = (ruleset: { readonly capabilities: unknown; readonly rules: unknown }): string => {
-  const canonical = JSON.stringify({ capabilities: ruleset.capabilities, rules: ruleset.rules });
-  let hash = 2166136261;
-  for (let index = 0; index < canonical.length; index += 1) {
-    hash ^= canonical.charCodeAt(index);
-    hash = (hash * 16777619) >>> 0;
+const sortKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (value !== null && typeof value === 'object') {
+    const source = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(source)
+        .filter((key) => source[key] !== undefined)
+        .sort()
+        .map((key) => [key, sortKeys(source[key])]),
+    );
   }
-  return `sha256:${hash.toString(16).padStart(8, '0')}`;
+  return value;
 };
+
+export const rulesetContentHash = (ruleset: { readonly capabilities: unknown; readonly rules: unknown }): string =>
+  `sha256:${createHash('sha256')
+    .update(JSON.stringify(sortKeys({ capabilities: ruleset.capabilities, rules: ruleset.rules })))
+    .digest('hex')}`;

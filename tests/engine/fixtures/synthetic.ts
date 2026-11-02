@@ -1,3 +1,4 @@
+import { ENGINE_EVALUATOR_VERSION } from '../../../packages/engine/src/index.js';
 import type {
   CompiledRule,
   EngineInput,
@@ -151,7 +152,7 @@ export const buildInput = (options: InputOptions = {}): EngineInput => ({
       rulesetId: options.rulesetId ?? 'synthetic-ruleset',
       contentHash: options.contentHash ?? 'sha256:synthetic',
       schemaVersion: '1.0.0',
-      evaluatorVersion: '1.0.0',
+      evaluatorVersion: ENGINE_EVALUATOR_VERSION,
     },
     capabilities: options.capabilities ?? [],
     rules: options.rules ?? [],

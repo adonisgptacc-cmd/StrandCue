@@ -1,6 +1,19 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { compileRules } from '../../../packages/engine/src/rules/index.js';
 import { CompiledRulesetSchema } from '../../../packages/engine/src/index.js';
+
+const canonicalJson = (value: unknown): string => {
+  const sortKeys = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(sortKeys);
+    if (input !== null && typeof input === 'object') {
+      const record = input as Record<string, unknown>;
+      return Object.fromEntries(Object.keys(record).sort().map((key) => [key, sortKeys(record[key])]));
+    }
+    return input;
+  };
+  return JSON.stringify(sortKeys(value));
+};
 
 const capability = {
   capabilityId: 'synthetic-capability',
@@ -126,12 +139,16 @@ describe('rule compiler', () => {
     expect(waitRule?.stageId).toBe('build_dependency_graph');
   });
 
-  it('produces a deterministic content-hash ref', () => {
+  it('uses a SHA-256 digest of canonical ruleset content', () => {
     const first = compileRules(validBundle);
     const second = compileRules(validBundle);
     expect(first.ref).toEqual(second.ref);
     expect(first.ref.rulesetId).toBe('synthetic-bundle');
-    expect(first.ref.contentHash).toMatch(/^sha256:/);
+    expect(first.ref.evaluatorVersion).toBe('1.0.1');
+    const expectedDigest = createHash('sha256')
+      .update(canonicalJson({ capabilities: first.capabilities, rules: first.rules }))
+      .digest('hex');
+    expect(first.ref.contentHash).toBe(`sha256:${expectedDigest}`);
   });
 
   it('throws on an unbound capability', () => {

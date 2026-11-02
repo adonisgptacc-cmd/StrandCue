@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import type {
   CompiledRule,
   CompiledRuleset,
@@ -8,11 +10,10 @@ import type {
   RuleEffect,
   RulesetRef,
 } from '../contracts.ts';
+import { canonicalJson } from '../canonical-json.ts';
+import { ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION } from '../pipeline/state.ts';
 import { authoringDiagnostics, parseAuthoringBundle } from './authoring-schema.ts';
 import { analyzeRules } from './analyze-rules.ts';
-
-const SCHEMA_VERSION = '1.0.0';
-const EVALUATOR_VERSION = '1.0.0';
 
 /**
  * Map a rule's effects to the engine stage that owns them. When a rule has
@@ -55,22 +56,15 @@ function deepFreeze<T>(value: T): T {
 }
 
 function stableHash(value: unknown): string {
-  const canonical = JSON.stringify(value);
-  // FNV-1a 32-bit: deterministic, pure, no I/O or clock dependency.
-  let hash = 2166136261;
-  for (let i = 0; i < canonical.length; i += 1) {
-    hash ^= canonical.charCodeAt(i);
-    hash = (hash * 16777619) >>> 0;
-  }
-  return `sha256:${hash.toString(16).padStart(8, '0')}`;
+  return `sha256:${bytesToHex(sha256(utf8ToBytes(canonicalJson(value))))}`;
 }
 
 function buildRef(bundle: RuleAuthoringBundle, rules: CompiledRuleset['rules']): RulesetRef {
   return {
     rulesetId: bundle.bundleId,
     contentHash: stableHash({ capabilities: bundle.capabilities, rules }),
-    schemaVersion: SCHEMA_VERSION,
-    evaluatorVersion: EVALUATOR_VERSION,
+    schemaVersion: ENGINE_SCHEMA_VERSION,
+    evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   };
 }
 

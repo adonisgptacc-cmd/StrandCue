@@ -10,9 +10,9 @@
   "ruleset": {
     "ref": {
       "rulesetId": "synthetic-ruleset-decided-basic",
-      "contentHash": "sha256:5c734fd8",
+      "contentHash": "sha256:498786d1fa5c9af52bc81444fa606c9ca61f085bbeff63de02c7a5656a431c7a",
       "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.0"
+      "evaluatorVersion": "1.0.1"
     },
     "capabilities": [],
     "rules": [
@@ -147,13 +147,13 @@
     "audit": {
       "ruleset": {
         "rulesetId": "synthetic-ruleset-decided-basic",
-        "contentHash": "sha256:5c734fd8",
+        "contentHash": "sha256:498786d1fa5c9af52bc81444fa606c9ca61f085bbeff63de02c7a5656a431c7a",
         "schemaVersion": "1.0.0",
-        "evaluatorVersion": "1.0.0"
+        "evaluatorVersion": "1.0.1"
       },
       "evaluatedAt": "2026-10-31T12:00:00.000Z",
       "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.0",
+      "evaluatorVersion": "1.0.1",
       "trace": [
         {
           "stageId": "validate_snapshot",

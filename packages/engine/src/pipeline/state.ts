@@ -10,7 +10,7 @@ import type {
 } from '../contracts.js';
 import { ENGINE_STAGE_IDS } from '../contracts.js';
 
-export const ENGINE_EVALUATOR_VERSION = '1.0.0';
+export const ENGINE_EVALUATOR_VERSION = '1.0.1';
 export const ENGINE_SCHEMA_VERSION = '1.0.0';
 
 export type FactResolution = 'verified' | 'unknown' | 'expired' | 'withdrawn' | 'contradictory' | 'missing';

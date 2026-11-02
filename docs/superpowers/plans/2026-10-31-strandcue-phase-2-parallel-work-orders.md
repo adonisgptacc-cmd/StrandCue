@@ -10,6 +10,20 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-31-strandcue-decision-engine-phase-2-design.md`
 
+## Current execution status (2026-11-02)
+
+Work Orders 1–5 were already implemented in separate worktrees and their heads
+are ancestors of local `main` at `e96b878`. The original checkboxes below were
+not maintained during that execution and are not a reliable progress indicator;
+in particular, historical RED-run evidence is not reconstructed here. See
+`docs/verification/phase-2a-status-2026-11-02.md` for verified commits, fresh
+checks and remaining release gates.
+
+The isolated follow-up `codex/phase2a-hash-integrity` corrects the ruleset hash
+implementation and pins evaluator version `1.0.1`. Its changes have passed
+review and fresh verification but still need the owner's local merge approval.
+This does not close Increment 6 or authorize publication or deployment.
+
 ## Global constraints
 
 - Same canonical snapshot, evaluation time, ruleset hash and engine/schema versions produce the same decision.

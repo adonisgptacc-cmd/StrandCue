@@ -1,24 +1,11 @@
 import type { CompiledRuleset, EngineDecision } from '../contracts.ts';
+import { canonicalJson } from '../canonical-json.ts';
 import { evaluateDecision } from '../pipeline/index.ts';
 import type { ReplayCase } from './replay-case.ts';
 import type { ReplayCaseOutcome, ReplayReport } from './replay-report.ts';
 import { ReplayReportSchema } from './replay-report.ts';
 
-/** Recursively sorts object keys so two structurally equal values compare equal. */
-const sortKeys = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (value !== null && typeof value === 'object') {
-    const source = value as Record<string, unknown>;
-    const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(source).sort()) {
-      if (source[key] !== undefined) sorted[key] = sortKeys(source[key]);
-    }
-    return sorted;
-  }
-  return value;
-};
-
-const canonical = (value: unknown): string => JSON.stringify(sortKeys(value));
+const canonical = canonicalJson;
 
 /**
  * The decision content that a ruleset change can affect.
