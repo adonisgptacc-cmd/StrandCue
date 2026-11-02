@@ -42,11 +42,13 @@ The plan commit `67c1da74da77cd61dfcaf960c40a17b0cd824042` is based on reviewed 
 
 **Interface:** Export one shared function that returns the prefixed SHA-256 identity for the canonical `{ capabilities, rules }` payload. The compiler and evaluator validator must use the same function.
 
-- [ ] Add a test that compiles a ruleset, changes a rule effect without changing the reference, and expects evaluation to reject it before executing effects.
-- [ ] Run the focused test and verify it fails because the tampered ruleset is currently accepted.
-- [ ] Add the shared content-hash function and evaluator-boundary comparison. Preserve array order where it affects rule/table semantics; canonicalize only semantically unordered data.
-- [ ] Add cases for capability changes, rule changes, valid compiled content, and canonical object-key ordering.
-- [ ] Run focused engine tests, typecheck and lint; record exact output.
+- [x] Add a test that compiles a ruleset, changes a rule effect without changing the reference, and expects evaluation to reject it before executing effects.
+- [x] Run the focused test and verify it fails because the tampered ruleset is currently accepted.
+- [x] Add the shared content-hash function and evaluator-boundary comparison. Preserve array order where it affects rule/table semantics; canonicalize only semantically unordered data.
+- [x] Add cases for capability changes, rule changes, valid compiled content, and canonical object-key ordering.
+- [x] Run focused engine tests, typecheck and lint; record exact output.
+
+Verified on the integrated isolated branch at commit `3fc4005`: engine tests 13/13 files and 181/181 tests passed; typecheck, full lint, and `git diff --check` passed. Commit `a21f683` was separately reviewed with no actionable findings. No main-branch or hosted changes were made.
 
 ## Work order 2: Make compiler and analyzer decisions sound
 
