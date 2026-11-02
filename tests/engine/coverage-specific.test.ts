@@ -155,7 +155,7 @@ describe('engine schema and analyzer edge coverage', () => {
     }).success).toBe(false);
   });
 
-  it('covers supported existence and equality domains and proves unique rows disjoint', () => {
+  it('keeps unresolved hard restrictions selectable and proves unique rows disjoint', () => {
     const row = (rowId: string, when: RuleExpression) => ({
       rowId, when, effects: [{ kind: 'block' as const, reasonCode: 'stop' }], severity: 'hard' as const,
       capabilityIds: [], claimIds: ['claim'], evidenceIds: ['evidence'],
@@ -168,7 +168,7 @@ describe('engine schema and analyzer edge coverage', () => {
     expect(analyzeRules(bundle('first', [
       row('exists', { kind: 'fact_exists', factId: 'f-1' }),
       row('equality', { kind: 'fact_equals', factId: 'f-1', value: true }),
-    ])).some(({ code }) => code === 'unreachable-row')).toBe(true);
+    ])).some(({ code }) => code === 'unreachable-row')).toBe(false);
     expect(analyzeRules(bundle('first', [
       row('equality', { kind: 'fact_equals', factId: 'f-1', value: true }),
       row('exists', { kind: 'fact_exists', factId: 'f-1' }),
