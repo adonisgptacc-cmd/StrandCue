@@ -174,7 +174,13 @@ interface CapabilityState {
 }
 
 function subjectKey(capability: RuleAuthoringBundle['capabilities'][number]): string {
-  return `${capability.subjectType}\u0000${capability.subjectId}`;
+  return [
+    capability.subjectType,
+    capability.subjectId,
+    capability.catalogueSubject.catalogueId,
+    capability.catalogueSubject.versionId,
+    capability.catalogueSubject.market,
+  ].join('\u0000');
 }
 
 function capabilityStatesForTable(

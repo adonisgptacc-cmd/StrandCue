@@ -1,26 +1,30 @@
 import type { PipelineState, TreatmentSummary } from '../state.js';
-import { compareStrings } from '../state.js';
 import { defineStage } from '../stage-runner.js';
 
-/** Counts confirmed events per type in a canonical order; independent of array order. */
+export const treatmentDueStatusFactId = (programmeId: string): string => `treatment:${programmeId}:due_status`;
+
+/** Consumes due-state projections made by the canonical treatment-programme evaluator. */
 export const summariseTreatment = (state: PipelineState): TreatmentSummary => {
-  const byType = new Map<string, { count: number; latestHappenedAt: string }>();
-  state.input.snapshot.eventHistory.forEach((event) => {
-    const current = byType.get(event.eventType);
-    const latest = current && Date.parse(current.latestHappenedAt) >= Date.parse(event.happenedAt)
-      ? current.latestHappenedAt
-      : event.happenedAt;
-    byType.set(event.eventType, { count: (current?.count ?? 0) + 1, latestHappenedAt: latest });
-  });
-  return {
-    eventTypes: [...byType.entries()]
-      .sort(([left], [right]) => compareStrings(left, right))
-      .map(([eventType, value]) => ({ eventType, ...value })),
-  };
+  return { programmes: [...(state.input.snapshot.treatmentPrograms ?? [])] };
+};
+
+const treatmentFacts = (state: PipelineState): PipelineState['facts'] => {
+  const facts = new Map(state.facts);
+  for (const programme of state.input.snapshot.treatmentPrograms ?? []) {
+    if (programme.prospective) continue;
+    const factId = treatmentDueStatusFactId(programme.programmeId);
+    facts.set(factId, {
+      factId,
+      resolution: programme.dueStatus === 'unknown' ? 'unknown' : 'verified',
+      fact: undefined,
+      ...(programme.dueStatus === 'unknown' ? {} : { derivedValue: programme.dueStatus }),
+    });
+  }
+  return facts;
 };
 
 export const deriveTreatmentState = defineStage({
   stageId: 'derive_treatment_state',
   intrinsic: true,
-  before: (state) => ({ ...state, treatment: summariseTreatment(state) }),
+  before: (state) => ({ ...state, treatment: summariseTreatment(state), facts: treatmentFacts(state) }),
 });

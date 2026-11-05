@@ -33,7 +33,9 @@ export const evaluateHeat = defineStage({
             alternativeId: effect.candidateId,
             labelKey: `alternative.${effect.candidateId}`,
             reasonCode: 'lower_exposure_alternative',
+            reasonSeverity: 'caution',
             ruleIds: [...provenance.ruleIds],
+            ruleRefs: [...provenance.ruleRefs],
             claimIds: [...provenance.claimIds],
             evidenceIds: [...provenance.evidenceIds],
           },
@@ -59,10 +61,11 @@ export const evaluateHeat = defineStage({
         reasonCode: 'heat_needs_input',
         neededFactIds: [],
         origin: 'heat',
+        ruleRefs: provenance.ruleRefs,
       });
     }
     if (strictest === 'unavailable') {
-      return { ...state, heat: strictest, noProtocol: [...state.noProtocol, { reasonCode: 'heat_unavailable', ...provenance }] };
+      return { ...state, heat: strictest, noProtocol: [...state.noProtocol, { reasonCode: 'heat_unavailable', reasonSeverity: 'blocker', ...provenance }] };
     }
     if (strictest !== undefined) return { ...state, heat: strictest };
 

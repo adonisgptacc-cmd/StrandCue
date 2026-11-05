@@ -35,7 +35,7 @@ export const buildDependencyGraph = defineStage({
       .sort((left, right) => compareStrings(left.prerequisiteId, right.prerequisiteId))
       .forEach((requirement) => {
         if (!selected.has(requirement.prerequisiteId)) {
-          if (requirement.hard) unmet.push({ reasonCode: `prerequisite_unmet:${requirement.prerequisiteId}`, ...requirement.provenance });
+          if (requirement.hard) unmet.push({ reasonCode: `prerequisite_unmet:${requirement.prerequisiteId}`, reasonSeverity: 'blocker', ...requirement.provenance });
           return;
         }
         nodes

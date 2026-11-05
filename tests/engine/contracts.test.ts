@@ -11,6 +11,7 @@ import {
   RuleEffectSchema,
   RuleExpressionSchema,
   RuleAuthoringBundleSchema,
+  SuccessorReviewSchema,
   type EngineDecision,
 } from '../../packages/engine/src/index.js';
 
@@ -18,16 +19,18 @@ const audit = {
   ruleset: {
     rulesetId: 'synthetic-ruleset-v1',
     contentHash: 'sha256:synthetic-hash',
-    schemaVersion: '1.0.0',
-    evaluatorVersion: '1.0.0',
+    schemaVersion: '1.1.0',
+    evaluatorVersion: '1.1.0',
   },
   evaluatedAt: '2026-10-31T12:00:00.000Z',
-  schemaVersion: '1.0.0',
-  evaluatorVersion: '1.0.0',
+  schemaVersion: '1.1.0',
+  evaluatorVersion: '1.1.0',
   trace: ENGINE_STAGE_IDS.map((stageId) => ({
     stageId,
     outcome: 'not_applicable' as const,
+    reasonSeverity: 'info' as const,
     ruleIds: [],
+    ruleRefs: [],
     claimIds: [],
     evidenceIds: [],
   })),
@@ -35,16 +38,64 @@ const audit = {
 
 const baseDecision = (status: EngineDecision['status'], heatAssessment: EngineDecision['heatAssessment']) => ({
   status,
-  steps: status === 'decided' ? [{ stepId: 'step-1', actionId: 'synthetic-action', labelKey: 'step.synthetic', reasonCode: 'synthetic', ruleIds: [], claimIds: [], evidenceIds: [], prerequisiteIds: [] }] : [],
+  steps: status === 'decided' ? [{ stepId: 'step-1', actionId: 'synthetic-action', labelKey: 'step.synthetic', reasonCode: 'synthetic', reasonSeverity: 'info', ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [], prerequisiteIds: [] }] : [],
   omissions: [],
   alternatives: [],
-  questions: status === 'needs_input' ? [{ questionId: 'synthetic-question', rank: 1, reasonCode: 'synthetic', neededFactIds: [] }] : [],
+  questions: status === 'needs_input' ? [{ questionId: 'synthetic-question', rank: 1, reasonCode: 'synthetic', reasonSeverity: 'caution', ruleRefs: [], neededFactIds: [] }] : [],
   heatAssessment,
-  confidence: { evidence: 'limited', applicability: 'limited' },
+  confidence: { instructionCompleteness: 'moderate', suitability: 'limited' },
   audit,
 });
 
 describe('decision engine public contracts', () => {
+  it('requires UUID identities and a distinct authenticated successor reviewer reference', () => {
+    const review = {
+      parentRulesetHash: `sha256:${'a'.repeat(64)}`,
+      withdrawals: [{ ruleId: 'rule.old', version: '1', affectedActionId: 'action.old' }],
+      authorizations: [{
+        withdrawnRuleId: 'rule.old', withdrawnRuleVersion: '1', affectedActionId: 'action.old',
+        successorRuleId: 'rule.new', successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-11-01T00:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    expect(SuccessorReviewSchema.safeParse(review).success).toBe(true);
+    expect(SuccessorReviewSchema.safeParse({
+      ...review,
+      authorizations: [{ ...review.authorizations[0], reviewerId: review.authorizations[0].authorId }],
+    }).success).toBe(false);
+    expect(SuccessorReviewSchema.safeParse({
+      ...review,
+      authorizations: [{ ...review.authorizations[0], reviewRef: 'synthetic-label' }],
+    }).success).toBe(false);
+  });
+
+  it('rejects successor lineage when no reviewed successor packet is present', () => {
+    const orphanRule = {
+      ruleId: 'rule.successor',
+      version: '2',
+      stageId: 'filter_candidates',
+      when: { kind: 'fact_exists', factId: 'fact.ready' },
+      effects: [{ kind: 'include_candidate', candidateId: 'action.reopened' }],
+      successorOf: {
+        parentRulesetHash: `sha256:${'b'.repeat(64)}`,
+        withdrawnRuleId: 'rule.withdrawn',
+        withdrawnRuleVersion: '1',
+      },
+      severity: 'info',
+      capabilityIds: [],
+      claimIds: ['claim.successor'],
+      evidenceIds: ['evidence.successor'],
+    };
+    expect(CompiledRulesetSchema.safeParse({
+      ref: audit.ruleset,
+      capabilities: [],
+      rules: [orphanRule],
+    }).success).toBe(false);
+  });
+
   it('pins the decision and heat assessment vocabularies', () => {
     expect(DECISION_STATUSES).toEqual(['decided', 'needs_input', 'blocked', 'no_protocol']);
     expect(HEAT_ASSESSMENT_STATES).toEqual([
@@ -104,7 +155,8 @@ describe('decision engine public contracts', () => {
       capabilityId: 'synthetic-capability',
       subjectType: 'product',
       subjectId: 'synthetic-product',
-      subjectVersion: '1',
+      catalogueSubject: { catalogueId: 'catalogue-synthetic-product', versionId: '1', market: 'ZA' },
+      reviewedUseScope: 'synthetic-routine-use',
       capabilityType: 'compatibility',
       value: 'synthetic-compatible',
       claimId: 'claim-1',
@@ -231,7 +283,7 @@ describe('decision engine public contracts', () => {
         omissions: [],
         alternatives: [],
         questions: [],
-        confidence: { evidence: 'limited', applicability: 'limited' },
+        confidence: { instructionCompleteness: 'moderate', suitability: 'limited' },
         audit: { ruleset: { contentHash: 'sha256:synthetic-hash' }, trace: expect.any(Array) },
       });
     }

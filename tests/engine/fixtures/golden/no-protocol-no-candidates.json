@@ -11,8 +11,8 @@
     "ref": {
       "rulesetId": "synthetic-ruleset-no-protocol",
       "contentHash": "sha256:04bc644495f5b870310a33001f87fdb5328b7b5357c7f355235859df6604deba",
-      "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.1"
+      "schemaVersion": "1.1.0",
+      "evaluatorVersion": "1.1.0"
     },
     "capabilities": [],
     "rules": []
@@ -59,7 +59,9 @@
       {
         "candidateId": "decision",
         "reasonCode": "no_eligible_candidates",
+        "reasonSeverity": "blocker",
         "ruleIds": [],
+        "ruleRefs": [],
         "claimIds": [],
         "evidenceIds": []
       }
@@ -67,87 +69,107 @@
     "alternatives": [],
     "questions": [],
     "confidence": {
-      "evidence": "low",
-      "applicability": "low"
+      "instructionCompleteness": "low",
+      "suitability": "limited"
     },
     "audit": {
       "ruleset": {
         "rulesetId": "synthetic-ruleset-no-protocol",
         "contentHash": "sha256:04bc644495f5b870310a33001f87fdb5328b7b5357c7f355235859df6604deba",
-        "schemaVersion": "1.0.0",
-        "evaluatorVersion": "1.0.1"
+        "schemaVersion": "1.1.0",
+        "evaluatorVersion": "1.1.0"
       },
       "evaluatedAt": "2026-10-31T12:00:00.000Z",
-      "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.1",
+      "schemaVersion": "1.1.0",
+      "evaluatorVersion": "1.1.0",
       "trace": [
         {
           "stageId": "validate_snapshot",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "apply_safety_restrictions",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "load_verified_facts",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "derive_treatment_state",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "filter_candidates",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "evaluate_heat",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "select_and_rank",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "build_dependency_graph",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "order_and_validate",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "assemble_decision",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         }

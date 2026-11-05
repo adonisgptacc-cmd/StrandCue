@@ -32,9 +32,37 @@ export type RuleApplicability = 'applicable' | 'not_applicable' | 'inert';
 export const ruleApplicability = (rule: CompiledRule, input: EngineInput, nowMs: number): RuleApplicability => {
   const capabilities = rule.capabilityIds.flatMap((capabilityId) =>
     input.ruleset.capabilities.filter((capability) => capability.capabilityId === capabilityId));
-  const owned = (subjectType: 'product' | 'tool', subjectId: string): boolean =>
-    (subjectType === 'product' ? input.snapshot.shelf : input.snapshot.tools).some((entry) => entry.entryId === subjectId);
-  if (capabilities.some((capability) => !owned(capability.subjectType, capability.subjectId))) return 'not_applicable';
+  if (capabilities.some((capability) => rule.useScope === undefined || capability.reviewedUseScope !== rule.useScope)) {
+    return 'not_applicable';
+  }
+  const successorReview = input.ruleset.successorReview;
+  if (successorReview !== undefined) {
+    for (const effect of rule.effects) {
+      if (effect.kind !== 'include_candidate') continue;
+      const withdrawals = successorReview.withdrawals.filter((entry) => entry.affectedActionId === effect.candidateId);
+      if (withdrawals.length === 0) continue;
+      const successorOf = rule.successorOf;
+      const lineageMatches = successorOf?.parentRulesetHash === successorReview.parentRulesetHash
+        && withdrawals.some((withdrawal) => successorOf.withdrawnRuleId === withdrawal.ruleId
+          && successorOf.withdrawnRuleVersion === withdrawal.version);
+      const explicitlyAuthorized = withdrawals.every((withdrawal) =>
+        successorReview.authorizations.some((authorization) =>
+          authorization.withdrawnRuleId === withdrawal.ruleId
+          && authorization.withdrawnRuleVersion === withdrawal.version
+          && authorization.affectedActionId === effect.candidateId
+          && authorization.successorRuleId === rule.ruleId
+          && authorization.successorRuleVersion === rule.version
+          && Date.parse(authorization.reviewedAt) <= nowMs));
+      if (!lineageMatches || !explicitlyAuthorized) return 'not_applicable';
+    }
+  }
+  const owned = (capability: (typeof capabilities)[number]): boolean =>
+    (capability.subjectType === 'product' ? input.snapshot.shelf : input.snapshot.tools).some((entry) =>
+      entry.entryId === capability.subjectId
+      && entry.catalogueSubject?.catalogueId === capability.catalogueSubject.catalogueId
+      && entry.catalogueSubject.versionId === capability.catalogueSubject.versionId
+      && entry.catalogueSubject.market === capability.catalogueSubject.market);
+  if (capabilities.some((capability) => !owned(capability))) return 'not_applicable';
   const inert = capabilities.some((capability) =>
     Date.parse(capability.reviewedAt) > nowMs
     || (capability.expiresAt !== undefined && Date.parse(capability.expiresAt) <= nowMs));
@@ -43,12 +71,10 @@ export const ruleApplicability = (rule: CompiledRule, input: EngineInput, nowMs:
 
 export const ruleProvenance = (rule: CompiledRule): Provenance => ({
   ruleIds: [rule.ruleId],
+  ruleRefs: [{ ruleId: rule.ruleId, version: rule.version }],
   claimIds: uniqueSorted(rule.claimIds),
   evidenceIds: uniqueSorted(rule.evidenceIds),
 });
-
-const SEVERITY_WEIGHT = { hard: 3, caution: 2, info: 1 } as const;
-export const severityWeight = (rule: CompiledRule): number => SEVERITY_WEIGHT[rule.severity];
 
 export interface StageDefinition {
   readonly stageId: EngineStageId;
@@ -138,21 +164,21 @@ function selectTableRows(state: PipelineState, stageId: EngineStageId): TableSel
 
 const withNotApplicableTrace = (state: PipelineState, stageId: EngineStageId): PipelineState => ({
   ...state,
-  trace: [...state.trace, { stageId, outcome: 'not_applicable', ruleIds: [], claimIds: [], evidenceIds: [] }],
+  trace: [...state.trace, { stageId, outcome: 'not_applicable', reasonSeverity: 'info', ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [] }],
 });
 
-const addBlocker = (state: PipelineState, reasonCode: string, provenance: Provenance): PipelineState => ({
+const addBlocker = (state: PipelineState, reasonCode: string, provenance: Provenance, reasonSeverity: 'blocker' | 'caution' | 'info' = 'blocker'): PipelineState => ({
   ...state,
-  blockers: [...state.blockers, { reasonCode, ...provenance }],
+  blockers: [...state.blockers, { reasonCode, reasonSeverity, ...provenance }],
 });
 
 const addQuestion = (
   state: PipelineState,
   stageId: EngineStageId,
-  question: { questionId: string; reasonCode: string; neededFactIds: readonly string[]; origin: 'rule' | 'fact' | 'heat' },
+  question: { questionId: string; reasonCode: string; reasonSeverity?: 'blocker' | 'caution' | 'info'; neededFactIds: readonly string[]; origin: 'rule' | 'fact' | 'heat'; ruleRefs?: readonly Provenance['ruleRefs'][number][] },
 ): PipelineState => ({
   ...state,
-  questions: [...state.questions, { ...question, stageIndex: stageIndexOf(stageId) }],
+  questions: [...state.questions, { ...question, reasonSeverity: question.reasonSeverity ?? 'caution', ruleRefs: question.ruleRefs ?? [], stageIndex: stageIndexOf(stageId) }],
 });
 
 export const defineStage = (definition: StageDefinition): StageFunction => (incoming) => {
@@ -188,6 +214,7 @@ export const defineStage = (definition: StageDefinition): StageFunction => (inco
             reasonCode: `fact_${issue.resolution}`,
             neededFactIds: [issue.factId],
             origin: 'fact',
+            ruleRefs: ruleProvenance(rule).ruleRefs,
           });
         }
       }
@@ -200,13 +227,15 @@ export const defineStage = (definition: StageDefinition): StageFunction => (inco
       if (!ALLOWED_EFFECTS[stageId].includes(effect.kind)) {
         state = addBlocker(state, 'invalid_effect_for_stage', ruleProvenance(rule));
       } else if (effect.kind === 'block') {
-        state = addBlocker(state, effect.reasonCode, ruleProvenance(rule));
+        state = addBlocker(state, effect.reasonCode, ruleProvenance(rule), effect.reasonSeverity ?? 'blocker');
       } else if (effect.kind === 'ask_question') {
         state = addQuestion(state, stageId, {
           questionId: effect.questionId,
           reasonCode: effect.reasonCode,
+          reasonSeverity: effect.reasonSeverity ?? 'caution',
           neededFactIds: collectFactIds(rule.when),
           origin: 'rule',
+          ruleRefs: ruleProvenance(rule).ruleRefs,
         });
       } else if (definition.onEffect) {
         state = definition.onEffect(state, rule, effect);
@@ -231,7 +260,15 @@ export const defineStage = (definition: StageDefinition): StageFunction => (inco
     halted: state.halted || state.blockers.length > 0,
     trace: [
       ...state.trace,
-      { stageId, outcome, ruleIds: [...provenance.ruleIds], claimIds: [...provenance.claimIds], evidenceIds: [...provenance.evidenceIds] },
+      {
+        stageId,
+        outcome,
+        reasonSeverity: outcome === 'blocked' ? 'blocker' : outcome === 'needs_input' ? 'caution' : 'info',
+        ruleIds: [...provenance.ruleIds],
+        ruleRefs: [...provenance.ruleRefs],
+        claimIds: [...provenance.claimIds],
+        evidenceIds: [...provenance.evidenceIds],
+      },
     ],
   };
 };

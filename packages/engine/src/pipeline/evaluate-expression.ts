@@ -34,13 +34,14 @@ export const evaluateExpression = (
   switch (expression.kind) {
     case 'fact_equals': {
       const fact = resolve(facts, expression.factId);
-      if (fact.resolution !== 'verified' || fact.fact?.value === undefined) return unresolved(fact);
-      return { value: fact.fact.value === expression.value ? 'true' : 'false', issues: [] };
+      const value = fact.fact?.value !== undefined ? fact.fact.value : fact.derivedValue;
+      if (fact.resolution !== 'verified' || value === undefined) return unresolved(fact);
+      return { value: value === expression.value ? 'true' : 'false', issues: [] };
     }
     case 'fact_in': {
       const fact = resolve(facts, expression.factId);
-      if (fact.resolution !== 'verified' || fact.fact?.value === undefined) return unresolved(fact);
-      const value = fact.fact.value;
+      const value = fact.fact?.value !== undefined ? fact.fact.value : fact.derivedValue;
+      if (fact.resolution !== 'verified' || value === undefined) return unresolved(fact);
       return { value: expression.values.some((candidate) => candidate === value) ? 'true' : 'false', issues: [] };
     }
     case 'fact_exists': {

@@ -2,12 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   EngineInputError,
   PIPELINE_STAGES,
-  createPipelineState,
   evaluateDecision,
   rankQuestions,
   topologicalOrder,
 } from '../../../packages/engine/src/pipeline/index.js';
-import { summariseTreatment } from '../../../packages/engine/src/pipeline/stages/derive-treatment-state.js';
 import { resolveFact } from '../../../packages/engine/src/pipeline/stages/validate-snapshot.js';
 import { ENGINE_STAGE_IDS } from '../../../packages/engine/src/index.js';
 import { FUTURE, NOW, PAST, buildInput, capability, fact, include, rule, when } from './fixtures.js';
@@ -143,6 +141,52 @@ describe('stage 1 validate_snapshot', () => {
   });
 });
 
+describe('catalogue-version capability applicability', () => {
+  it('requires exact catalogue identity, version and market on the owned row', () => {
+    const reviewedSubject = { catalogueId: 'catalogue-product-1', versionId: 'version-2', market: 'ZA' };
+    const binding = {
+      ...capability('cap-bound', { subjectId: 'prod-synthetic' }),
+      catalogueSubject: reviewedSubject,
+      reviewedUseScope: 'rinse-off-conditioner-use',
+    } as never;
+    const base = buildInput({
+      capabilities: [binding],
+      rules: [rule('r-bound', 'load_verified_facts', [include('cand-bound')], {
+        capabilityIds: ['cap-bound'],
+        useScope: 'rinse-off-conditioner-use',
+        claimIds: ['claim-cap-bound'],
+        evidenceIds: ['ev-cap-bound'],
+      })],
+    });
+    const decisionFor = (catalogueSubject: typeof reviewedSubject) => evaluateDecision({
+      ...base,
+      snapshot: {
+        ...base.snapshot,
+        shelf: [{ ...base.snapshot.shelf[0]!, catalogueSubject }],
+      },
+    });
+
+    expect(decisionFor({ ...reviewedSubject, versionId: 'version-1' }).steps.map((step) => step.actionId)).not.toContain('cand-bound');
+    expect(decisionFor({ ...reviewedSubject, market: 'US' }).steps.map((step) => step.actionId)).not.toContain('cand-bound');
+    expect(decisionFor(reviewedSubject).steps.map((step) => step.actionId)).toContain('cand-bound');
+    const withoutIdentity = evaluateDecision({
+      ...base,
+      snapshot: { ...base.snapshot, shelf: [{ entryId: 'prod-synthetic', revision: 1, factIds: [] }] },
+    });
+    expect(withoutIdentity.steps.map((step) => step.actionId)).not.toContain('cand-bound');
+    const wrongUseScope = buildInput({
+      capabilities: [binding],
+      rules: [rule('r-bound', 'load_verified_facts', [include('cand-bound')], {
+        capabilityIds: ['cap-bound'],
+        useScope: 'leave-in-treatment-use',
+        claimIds: ['claim-cap-bound'],
+        evidenceIds: ['ev-cap-bound'],
+      })],
+    });
+    expect(evaluateDecision(wrongUseScope).steps.map((step) => step.actionId)).not.toContain('cand-bound');
+  });
+});
+
 describe('stage 2 apply_safety_restrictions', () => {
   const blockRule = rule('r-block', 'apply_safety_restrictions', [{ kind: 'block', reasonCode: 'active_reaction' }]);
 
@@ -153,10 +197,15 @@ describe('stage 2 apply_safety_restrictions', () => {
     expect(decision.omissions[0]).toMatchObject({
       reasonCode: 'active_reaction',
       ruleIds: ['r-block'],
+      ruleRefs: [{ ruleId: 'r-block', version: '1' }],
       claimIds: ['claim-r-block'],
       evidenceIds: ['ev-r-block'],
     });
-    expect(traceOf(decision, 'apply_safety_restrictions')).toMatchObject({ outcome: 'blocked', ruleIds: ['r-block'] });
+    expect(traceOf(decision, 'apply_safety_restrictions')).toMatchObject({
+      outcome: 'blocked',
+      ruleIds: ['r-block'],
+      ruleRefs: [{ ruleId: 'r-block', version: '1' }],
+    });
   });
 
   it('asks for input instead of assuming "no" when a hard rule depends on an unknown fact', () => {
@@ -167,7 +216,7 @@ describe('stage 2 apply_safety_restrictions', () => {
     }));
     expect(decision.status).toBe('needs_input');
     expect(decision.steps).toEqual([]);
-    expect(decision.questions).toEqual([{ questionId: 'fact:f-reaction', rank: 1, reasonCode: 'fact_unknown', neededFactIds: ['f-reaction'] }]);
+    expect(decision.questions).toEqual([{ questionId: 'fact:f-reaction', rank: 1, reasonCode: 'fact_unknown', reasonSeverity: 'caution', ruleRefs: [{ ruleId: 'r-reaction', version: '1' }], neededFactIds: ['f-reaction'] }]);
   });
 
   it('treats a missing fact like an unknown fact', () => {
@@ -212,7 +261,14 @@ describe('stage 3 load_verified_facts', () => {
     const ruleset = { rules, capabilities: [capability('cap-1', { subjectId: 'prod-other' })] };
     const unowned = evaluateDecision(buildInput({ ...ruleset, shelf: ['prod-synthetic'] }));
     expect(unowned.status).toBe('no_protocol');
-    const owned = evaluateDecision(buildInput({ ...ruleset, shelf: ['prod-other'] }));
+    const ownedInput = buildInput({ ...ruleset, shelf: ['prod-other'] });
+    const owned = evaluateDecision({
+      ...ownedInput,
+      snapshot: {
+        ...ownedInput.snapshot,
+        shelf: [{ ...ownedInput.snapshot.shelf[0]!, catalogueSubject: ruleset.capabilities[0]!.catalogueSubject }],
+      },
+    });
     expect(owned.status).toBe('decided');
     expect(owned.steps[0]?.claimIds).toEqual(['claim-cap-1', 'claim-r-owned']);
   });
@@ -236,19 +292,45 @@ describe('stage 3 load_verified_facts', () => {
 });
 
 describe('stage 4 derive_treatment_state', () => {
-  it('summarises confirmed events per type independent of input order', () => {
-    const events = [
-      { eventId: 'e2', eventType: 'wash', happenedAt: '2026-10-10T00:00:00.000Z' },
-      { eventId: 'e1', eventType: 'wash', happenedAt: '2026-10-20T00:00:00.000Z' },
-      { eventId: 'e3', eventType: 'application', happenedAt: '2026-10-15T00:00:00.000Z' },
-    ];
-    const forward = summariseTreatment(createPipelineState(buildInput({ events })));
-    const reversed = summariseTreatment(createPipelineState(buildInput({ events: [...events].reverse() })));
-    expect(forward).toEqual(reversed);
-    expect(forward.eventTypes).toEqual([
-      { eventType: 'application', count: 1, latestHappenedAt: '2026-10-15T00:00:00.000Z' },
-      { eventType: 'wash', count: 2, latestHappenedAt: '2026-10-20T00:00:00.000Z' },
-    ]);
+  const programme = (dueStatus: 'due' | 'not_due' | 'unknown', prospective = false) => ({
+    programmeId: 'programme-1',
+    state: 'initial',
+    dueStatus,
+    ruleId: 'treatment-rule',
+    ruleVersion: '3',
+    evaluatedAt: NOW,
+    sourceEventIds: ['application-1', 'wash-1'],
+    prospective,
+  });
+
+  const decisionFor = (projection: ReturnType<typeof programme>) => {
+    const base = buildInput({
+      events: [
+        { eventId: 'wash-1', eventType: 'wash', happenedAt: PAST },
+        { eventId: 'application-1', eventType: 'treatment_application', happenedAt: PAST },
+      ],
+      rules: [
+        rule('r-include', 'load_verified_facts', [include('cand-a')]),
+        rule('r-due', 'filter_candidates', [{ kind: 'exclude_candidate', candidateId: 'cand-a', reasonCode: 'treatment_due' }], {
+          when: { kind: 'fact_equals', factId: 'treatment:programme-1:due_status', value: 'due' },
+        }),
+      ],
+    });
+    return evaluateDecision({
+      ...base,
+      snapshot: { ...base.snapshot, treatmentPrograms: [projection] },
+    } as never);
+  };
+
+  it('uses a canonical due projection, while unknown and prospective status never act as current due', () => {
+    const due = decisionFor(programme('due'));
+    expect(due.omissions.map((omission) => omission.reasonCode)).toContain('treatment_due');
+
+    const unknown = decisionFor(programme('unknown'));
+    expect(unknown.status).toBe('needs_input');
+
+    const prospective = decisionFor(programme('due', true));
+    expect(prospective.status).toBe('needs_input');
   });
 });
 
@@ -261,8 +343,24 @@ describe('stage 5 filter_candidates', () => {
     }));
     expect(decision.steps.map((step) => step.actionId)).toEqual(['cand-b']);
     expect(decision.omissions).toEqual([
-      { candidateId: 'cand-a', reasonCode: 'incompatible', ruleIds: ['r-x'], claimIds: ['claim-r-x'], evidenceIds: ['ev-r-x'] },
+      { candidateId: 'cand-a', reasonCode: 'incompatible', reasonSeverity: 'caution', ruleIds: ['r-x'], ruleRefs: [{ ruleId: 'r-x', version: '1' }], claimIds: ['claim-r-x'], evidenceIds: ['ev-r-x'] },
     ]);
+  });
+
+  it('reports reason severity independently from the rule authority level', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [
+        ...base,
+        rule('r-x', 'filter_candidates', [{
+          kind: 'exclude_candidate',
+          candidateId: 'cand-a',
+          reasonCode: 'incompatible',
+          reasonSeverity: 'caution',
+        }], { severity: 'hard' }),
+      ],
+    }));
+    expect(decision.omissions[0]).toMatchObject({ reasonCode: 'incompatible', reasonSeverity: 'caution' });
+    expect(decision.audit.trace.find((entry) => entry.stageId === 'filter_candidates')?.reasonSeverity).toBe('info');
   });
 
   it('does not keep a candidate when the exclusion cannot be evaluated', () => {
@@ -320,12 +418,12 @@ describe('stage 6 evaluate_heat', () => {
 });
 
 describe('stage 7 select_and_rank', () => {
-  it('ranks by goal suitability, then by candidate id', () => {
+  it('uses authored goal suitability then a stable id tie-break, independent of rule authority', () => {
     const decision = evaluateDecision(buildInput({
       rules: [
-        rule('r-1', 'load_verified_facts', [include('cand-c')], { severity: 'info' }),
-        rule('r-2', 'load_verified_facts', [include('cand-b')], { severity: 'hard' }),
-        rule('r-3', 'load_verified_facts', [include('cand-a')], { severity: 'info' }),
+        rule('r-1', 'load_verified_facts', [{ kind: 'include_candidate', candidateId: 'cand-c', goalSuitability: 2 }], { severity: 'hard' }),
+        rule('r-2', 'load_verified_facts', [{ kind: 'include_candidate', candidateId: 'cand-b', goalSuitability: 3 }], { severity: 'info' }),
+        rule('r-3', 'load_verified_facts', [{ kind: 'include_candidate', candidateId: 'cand-a', goalSuitability: 2 }], { severity: 'info' }),
       ],
     }));
     expect(decision.steps.map((step) => step.actionId)).toEqual(['cand-b', 'cand-a', 'cand-c']);
@@ -385,7 +483,7 @@ describe('stages 8-9 dependency graph and ordering', () => {
   });
 
   it('topologicalOrder reports a cycle without a partial order beyond the acyclic prefix', () => {
-    const provenance = { ruleIds: [], claimIds: [], evidenceIds: [] };
+    const provenance = { ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [] };
     const result = topologicalOrder({
       nodes: ['x', 'y'],
       edges: [{ from: 'x', to: 'y', provenance }, { from: 'y', to: 'x', provenance }],
@@ -398,11 +496,11 @@ describe('stages 8-9 dependency graph and ordering', () => {
 describe('stage 10 assemble_decision', () => {
   it('ranks and de-duplicates questions: authored asks, then missing facts, then heat', () => {
     expect(rankQuestions([
-      { questionId: 'fact:b', reasonCode: 'fact_unknown', neededFactIds: ['b'], origin: 'fact', stageIndex: 1 },
-      { questionId: 'heat_input_required', reasonCode: 'heat_needs_input', neededFactIds: [], origin: 'heat', stageIndex: 5 },
-      { questionId: 'fact:a', reasonCode: 'fact_unknown', neededFactIds: ['a'], origin: 'fact', stageIndex: 1 },
-      { questionId: 'fact:a', reasonCode: 'fact_expired', neededFactIds: ['z'], origin: 'fact', stageIndex: 4 },
-      { questionId: 'ask', reasonCode: 'authored', neededFactIds: [], origin: 'rule', stageIndex: 8 },
+      { questionId: 'fact:b', reasonCode: 'fact_unknown', reasonSeverity: 'caution', neededFactIds: ['b'], origin: 'fact', ruleRefs: [], stageIndex: 1 },
+      { questionId: 'heat_input_required', reasonCode: 'heat_needs_input', reasonSeverity: 'caution', neededFactIds: [], origin: 'heat', ruleRefs: [], stageIndex: 5 },
+      { questionId: 'fact:a', reasonCode: 'fact_unknown', reasonSeverity: 'caution', neededFactIds: ['a'], origin: 'fact', ruleRefs: [], stageIndex: 1 },
+      { questionId: 'fact:a', reasonCode: 'fact_expired', reasonSeverity: 'caution', neededFactIds: ['z'], origin: 'fact', ruleRefs: [], stageIndex: 4 },
+      { questionId: 'ask', reasonCode: 'authored', reasonSeverity: 'caution', neededFactIds: [], origin: 'rule', ruleRefs: [], stageIndex: 8 },
     ]).map((question) => [question.rank, question.questionId, question.neededFactIds])).toEqual([
       [1, 'ask', []],
       [2, 'fact:a', ['a', 'z']],
@@ -411,10 +509,23 @@ describe('stage 10 assemble_decision', () => {
     ]);
   });
 
-  it('only reports confidence above "low" for a decided outcome and never "strong" applicability', () => {
-    const decided = evaluateDecision(buildInput({ rules: [rule('r-a', 'load_verified_facts', [include('cand-a')])] }));
-    expect(decided.confidence).toEqual({ evidence: 'strong', applicability: 'limited' });
+  it('does not promote suitability from evidence identifiers alone and reflects reviewed capability support', () => {
+    const unbound = evaluateDecision(buildInput({ rules: [rule('r-a', 'load_verified_facts', [include('cand-a')], {
+      evidenceIds: ['ev-one', 'ev-two', 'ev-three'],
+    })] }));
+    expect(unbound.confidence).toEqual({ instructionCompleteness: 'high', suitability: 'limited' });
+
+    const reviewed = evaluateDecision(buildInput({
+      capabilities: [capability('cap-reviewed')],
+      rules: [rule('r-reviewed', 'load_verified_facts', [include('cand-a')], {
+        capabilityIds: ['cap-reviewed'],
+        claimIds: ['claim-cap-reviewed'],
+        evidenceIds: ['ev-cap-reviewed'],
+      })],
+    }));
+    expect(reviewed.confidence).toEqual({ instructionCompleteness: 'high', suitability: 'moderate' });
+
     const blocked = evaluateDecision(buildInput({ rules: [rule('r-b', 'apply_safety_restrictions', [{ kind: 'block', reasonCode: 'x' }])] }));
-    expect(blocked.confidence).toEqual({ evidence: 'low', applicability: 'low' });
+    expect(blocked.confidence).toEqual({ instructionCompleteness: 'low', suitability: 'limited' });
   });
 });

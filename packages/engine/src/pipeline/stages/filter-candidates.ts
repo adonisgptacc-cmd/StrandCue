@@ -16,7 +16,9 @@ export const filterCandidates = defineStage({
         {
           candidateId: effect.candidateId,
           reasonCode: effect.reasonCode,
+          reasonSeverity: effect.reasonSeverity ?? 'caution',
           ruleIds: [...ruleProvenance(rule).ruleIds],
+          ruleRefs: [...ruleProvenance(rule).ruleRefs],
           claimIds: [...ruleProvenance(rule).claimIds],
           evidenceIds: [...ruleProvenance(rule).evidenceIds],
         },

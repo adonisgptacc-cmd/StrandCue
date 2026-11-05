@@ -111,7 +111,7 @@ describe('engine expression coverage', () => {
 const decision = (status: 'decided' | 'needs_input') => ({
   status,
   steps: status === 'decided'
-    ? [{ stepId: 's-1', actionId: 'a-1', labelKey: 'step', reasonCode: 'ready', ruleIds: [], claimIds: [], evidenceIds: [], prerequisiteIds: [] }]
+    ? [{ stepId: 's-1', actionId: 'a-1', labelKey: 'step', reasonCode: 'ready', ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [], prerequisiteIds: [] }]
     : [],
   omissions: [],
   alternatives: [],
@@ -122,7 +122,7 @@ const decision = (status: 'decided' | 'needs_input') => ({
   audit: {
     ruleset: { rulesetId: 'r-1', contentHash: 'sha256:test', schemaVersion: '1', evaluatorVersion: '1' },
     evaluatedAt: '2026-11-01T00:00:00.000Z', schemaVersion: '1', evaluatorVersion: '1',
-    trace: ENGINE_STAGE_IDS.map((stageId) => ({ stageId, outcome: 'completed', ruleIds: [], claimIds: [], evidenceIds: [] })),
+    trace: ENGINE_STAGE_IDS.map((stageId) => ({ stageId, outcome: 'completed', ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [] })),
   },
 });
 

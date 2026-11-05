@@ -25,8 +25,12 @@ export function canonicalJson(value: unknown): string {
 export function canonicalRulesetContentHash(ruleset: {
   readonly capabilities: unknown;
   readonly rules: unknown;
+  readonly successorReview?: unknown;
 }): string {
+  const content = ruleset.successorReview === undefined
+    ? { capabilities: ruleset.capabilities, rules: ruleset.rules }
+    : { capabilities: ruleset.capabilities, rules: ruleset.rules, successorReview: ruleset.successorReview };
   return `sha256:${bytesToHex(
-    sha256(utf8ToBytes(canonicalJson({ capabilities: ruleset.capabilities, rules: ruleset.rules }))),
+    sha256(utf8ToBytes(canonicalJson(content))),
   )}`;
 }

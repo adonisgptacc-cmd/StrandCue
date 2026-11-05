@@ -9,7 +9,8 @@ const capability = {
   capabilityId: 'synthetic-capability',
   subjectType: 'product',
   subjectId: 'synthetic-product',
-  subjectVersion: '1',
+  catalogueSubject: { catalogueId: 'catalogue-synthetic-product', versionId: '1', market: 'ZA' },
+  reviewedUseScope: 'synthetic-routine-use',
   capabilityType: 'compatibility',
   value: 'synthetic-compatible',
   claimId: 'claim-1',
@@ -31,6 +32,7 @@ const baseBundle: RuleAuthoringBundle = {
           rowId: 'row-1',
           when: { kind: 'fact_exists', factId: 'synthetic-fact' },
           effects: [{ kind: 'block', reasonCode: 'synthetic' }],
+          useScope: 'synthetic-routine-use',
           severity: 'hard',
           capabilityIds: ['synthetic-capability'],
           claimIds: ['claim-1'],
@@ -50,6 +52,16 @@ describe('authoring schema', () => {
     const parsed = parseAuthoringBundle(baseBundle);
     expect(parsed.bundleId).toBe('synthetic-bundle');
     expect(parsed.tables).toHaveLength(1);
+  });
+
+  it('rejects a capability-bound row whose use scope differs from the reviewed binding', () => {
+    expect(() => parseAuthoringBundle({
+      ...baseBundle,
+      tables: [{
+        ...baseBundle.tables[0],
+        rows: [{ ...baseBundle.tables[0].rows[0], useScope: 'synthetic-leave-in-use' }],
+      }],
+    })).toThrow(/exactly matches every reviewed capability binding/);
   });
 
   it('rejects a missing bundle id', () => {
@@ -132,6 +144,7 @@ describe('authoring schema', () => {
       version: '1',
       when: { kind: 'fact_exists', factId: 'synthetic-fact' },
       effects: [{ kind: 'block', reasonCode: 'synthetic' }],
+      useScope: 'synthetic-routine-use',
       severity: 'hard',
       capabilityIds: ['synthetic-capability'],
       claimIds: ['claim-1'],

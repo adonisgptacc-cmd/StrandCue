@@ -22,7 +22,7 @@ const candidateRuleset = (rules: CompiledRule[]): EngineInput['ruleset'] => ({
   ref: {
     rulesetId: 'synthetic-ruleset-candidate',
     contentHash: canonicalRulesetContentHash({ capabilities: [], rules }),
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   },
   capabilities: [],
@@ -37,6 +37,27 @@ describe('replayDecisions', () => {
     expect(report.cases).toHaveLength(1);
     expect(report.cases[0].pinnedReplayReproduced).toBe(true);
     expect(report.cases[0].pinnedRulesetHash).toBe(replayCase.input.ruleset.ref.contentHash);
+  });
+
+  it('reports an explicit unsupported-version result for a historical evaluator', () => {
+    const current = historicalCase('case-old-evaluator', baseRules());
+    const replayCase = ReplayCaseSchema.parse({
+      ...current,
+      input: {
+        ...current.input,
+        ruleset: {
+          ...current.input.ruleset,
+          ref: { ...current.input.ruleset.ref, evaluatorVersion: '0.9.0' },
+        },
+      },
+    });
+
+    const report = replayDecisions([replayCase], candidateRuleset(baseRules()));
+
+    expect(report.cases[0]).toMatchObject({
+      pinnedReplayReproduced: false,
+      pinnedReplayStatus: 'unsupported_version',
+    });
   });
 
   it('reports no change when the candidate ruleset decides the same thing', () => {

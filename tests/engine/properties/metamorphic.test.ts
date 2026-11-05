@@ -34,15 +34,19 @@ const permissivenessOf = (decision: EngineDecision): number => PERMISSIVENESS[de
 const actionIds = (decision: EngineDecision): readonly string[] =>
   decision.steps.map((step) => step.actionId);
 
-const ruleset = (rules: CompiledRule[]): EngineInput['ruleset'] => ({
+const ruleset = (
+  rules: CompiledRule[],
+  successorReview?: EngineInput['ruleset']['successorReview'],
+): EngineInput['ruleset'] => ({
   ref: {
     rulesetId: 'synthetic-ruleset-metamorphic',
-    contentHash: canonicalRulesetContentHash({ capabilities: [], rules }),
-    schemaVersion: '1.0.0',
+    contentHash: canonicalRulesetContentHash({ capabilities: [], rules, ...(successorReview === undefined ? {} : { successorReview }) }),
+    schemaVersion: '1.1.0',
     evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   },
   capabilities: [],
   rules,
+  ...(successorReview === undefined ? {} : { successorReview }),
 });
 
 const baseRules = (): CompiledRule[] => [
@@ -171,13 +175,22 @@ describe('withdrawal properties', () => {
       decision: historicalDecision,
     });
 
-    // The restrictive rule is withdrawn: the published ruleset no longer
-    // carries it, so it no longer runs for new decisions.
-    const withdrawn = ruleset(baseRules());
-    const newDecision = evaluateDecision({ ...published, ruleset: withdrawn });
+    // The restrictive rule is withdrawn, but the unchanged inclusion is not
+    // treated as successor approval.
+    const withdrawn = ruleset(baseRules(), {
+      parentRulesetHash: published.ruleset.ref.contentHash,
+      withdrawals: [{ ruleId: 'r-exclude-heat', version: '1', affectedActionId: 'cand-heat' }],
+      authorizations: [],
+    });
+    const newDecision = evaluateDecision({
+      ...published,
+      priorRuleset: published.ruleset,
+      priorRulesetRef: published.ruleset.ref,
+      ruleset: withdrawn,
+    });
 
     expect(newDecision.status).toBe('decided');
-    expect(actionIds(newDecision)).toContain('cand-heat');
+    expect(actionIds(newDecision)).not.toContain('cand-heat');
     expect(newDecision.omissions.map((omission) => omission.candidateId)).not.toContain('cand-heat');
 
     // The historical decision is still exactly reproducible from its own
@@ -188,7 +201,7 @@ describe('withdrawal properties', () => {
     expect(report.cases[0].candidateRulesetHash).toBe(withdrawn.ref.contentHash);
   });
 
-  it('allows a newly permitted action only when an explicit reviewed successor rule permits it', () => {
+  it('requires a parent-bound, independently reviewed successor rule to permit a withdrawn action', () => {
     const restricted = [
       rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
       rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
@@ -202,18 +215,85 @@ describe('withdrawal properties', () => {
 
     // The exclusion is withdrawn, but the successor rule still permits the
     // action and attributes it to its own reviewed claim and evidence.
+    const parentRuleset = buildInput({ rules: restricted }).ruleset;
+    const successorRule = rule('r-successor-heat', 'load_verified_facts', [include('cand-heat')], {
+      version: '2',
+      successorOf: {
+        parentRulesetHash: parentRuleset.ref.contentHash,
+        withdrawnRuleId: 'r-exclude-heat',
+        withdrawnRuleVersion: '1',
+      },
+    });
+    const successorReview = {
+      parentRulesetHash: parentRuleset.ref.contentHash,
+      withdrawals: [{ ruleId: 'r-exclude-heat', version: '1', affectedActionId: 'cand-heat' }],
+      authorizations: [{
+        withdrawnRuleId: 'r-exclude-heat',
+        withdrawnRuleVersion: '1',
+        affectedActionId: 'cand-heat',
+        successorRuleId: 'r-successor-heat',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
     const withSuccessor = [
       rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
-      rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
+      successorRule,
     ];
-    const after = evaluateDecision(buildInput({ rules: withSuccessor }));
+    const successorRuleset = ruleset(withSuccessor, successorReview);
+    const successorInput = {
+      ...buildInput({ rules: withSuccessor }),
+      priorRuleset: parentRuleset,
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: successorRuleset,
+    };
+    const after = evaluateDecision(successorInput);
 
     expect(after.status).toBe('decided');
     expect(actionIds(after)).toContain('cand-heat');
     const permittedStep = after.steps.find((step) => step.actionId === 'cand-heat');
-    expect(permittedStep?.ruleIds).toContain('r-include-heat');
+    expect(permittedStep?.ruleIds).toContain('r-successor-heat');
     expect(permittedStep?.claimIds.length).toBeGreaterThan(0);
     expect(permittedStep?.evidenceIds.length).toBeGreaterThan(0);
+
+    expect(() => evaluateDecision({
+      ...buildInput({ rules: withSuccessor }),
+      priorRulesetRef: { ...parentRuleset.ref, contentHash: `sha256:${'0'.repeat(64)}` },
+      ruleset: successorRuleset,
+    })).toThrow(/parent ruleset/i);
+
+    const selfReviewed = {
+      ...successorReview,
+      authorizations: [{ ...successorReview.authorizations[0]!, reviewerId: '11111111-1111-4111-8111-111111111111' }],
+    };
+    expect(() => evaluateDecision({
+      ...buildInput({ rules: withSuccessor }),
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: ruleset(withSuccessor, selfReviewed),
+    })).toThrow(/independent reviewer/i);
+
+    const tamperedAuthorization = evaluateDecision({
+      ...successorInput,
+      ruleset: { ...successorRuleset, successorReview: {
+        ...successorReview,
+        authorizations: [{ ...successorReview.authorizations[0]!, reviewRef: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }],
+      } },
+    });
+    expect(tamperedAuthorization.status).toBe('blocked');
+    expect(tamperedAuthorization.omissions.map((omission) => omission.reasonCode)).toContain('ruleset_content_hash_mismatch');
+
+    const futureReviewed = {
+      ...successorReview,
+      authorizations: [{ ...successorReview.authorizations[0]!, reviewedAt: '2026-12-01T00:00:00.000Z' }],
+    };
+    const futureReviewDecision = evaluateDecision({
+      ...successorInput,
+      ruleset: ruleset(withSuccessor, futureReviewed),
+    });
+    expect(actionIds(futureReviewDecision)).not.toContain('cand-heat');
 
     // Without the successor rule the action is not permitted at all: it is
     // neither executed nor silently reported as omitted.
@@ -224,6 +304,90 @@ describe('withdrawal properties', () => {
     expect(actionIds(withheld)).not.toContain('cand-heat');
     expect(withheld.omissions.map((omission) => omission.candidateId)).not.toContain('cand-heat');
     expect(withheld.alternatives.map((alternative) => alternative.alternativeId)).not.toContain('cand-heat');
+  });
+
+  it('rejects a successor withdrawal that names no matching rule in the parent ruleset', () => {
+    const parentRuleset = buildInput({ rules: [
+      rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+      rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
+    ] }).ruleset;
+    const fabricatedWithdrawal = {
+      parentRulesetHash: parentRuleset.ref.contentHash,
+      withdrawals: [{ ruleId: 'r-never-existed', version: '9', affectedActionId: 'cand-heat' }],
+      authorizations: [{
+        withdrawnRuleId: 'r-never-existed',
+        withdrawnRuleVersion: '9',
+        affectedActionId: 'cand-heat',
+        successorRuleId: 'r-successor-heat',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    const successorRule = rule('r-successor-heat', 'load_verified_facts', [include('cand-heat')], {
+      version: '2',
+      successorOf: {
+        parentRulesetHash: parentRuleset.ref.contentHash,
+        withdrawnRuleId: 'r-never-existed',
+        withdrawnRuleVersion: '9',
+      },
+    });
+    const nextRules = [rule('r-include-base', 'load_verified_facts', [include('cand-base')]), successorRule];
+    const successorRuleset = ruleset(nextRules, fabricatedWithdrawal);
+
+    expect(() => evaluateDecision({
+      ...buildInput({ rules: nextRules }),
+      priorRuleset: parentRuleset,
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: successorRuleset,
+    })).toThrow(/withdrawn rule|parent ruleset/i);
+  });
+
+  it('fails closed when a candidate has multiple withdrawals but only one is authorized', () => {
+    const parentRuleset = buildInput({ rules: [
+      rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+      rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
+      rule('r-exclude-heat-first', 'filter_candidates', [exclude('cand-heat')]),
+      rule('r-exclude-heat-second', 'filter_candidates', [exclude('cand-heat')]),
+    ] }).ruleset;
+    const successorRule = rule('r-successor-heat', 'load_verified_facts', [include('cand-heat')], {
+      version: '2',
+      successorOf: {
+        parentRulesetHash: parentRuleset.ref.contentHash,
+        withdrawnRuleId: 'r-exclude-heat-first',
+        withdrawnRuleVersion: '1',
+      },
+    });
+    const successorReview = {
+      parentRulesetHash: parentRuleset.ref.contentHash,
+      withdrawals: [
+        { ruleId: 'r-exclude-heat-first', version: '1', affectedActionId: 'cand-heat' },
+        { ruleId: 'r-exclude-heat-second', version: '1', affectedActionId: 'cand-heat' },
+      ],
+      authorizations: [{
+        withdrawnRuleId: 'r-exclude-heat-first',
+        withdrawnRuleVersion: '1',
+        affectedActionId: 'cand-heat',
+        successorRuleId: 'r-successor-heat',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    const nextRules = [rule('r-include-base', 'load_verified_facts', [include('cand-base')]), successorRule];
+    const successorRuleset = ruleset(nextRules, successorReview);
+    const decision = evaluateDecision({
+      ...buildInput({ rules: nextRules }),
+      priorRuleset: parentRuleset,
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: successorRuleset,
+    });
+
+    expect(actionIds(decision)).not.toContain('cand-heat');
   });
 
   it('does not let a later revision rewrite a stored decision', () => {

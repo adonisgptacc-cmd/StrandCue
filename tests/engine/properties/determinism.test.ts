@@ -157,10 +157,9 @@ describe('determinism properties', () => {
     const decision = evaluateDecision(scenario());
     const order = decision.steps.map((step) => step.actionId);
 
-    // cand-bravo and cand-alpha have the same suitability, so the tie is
-    // broken by candidate identity. cand-bravo is additionally a prerequisite
-    // of every other step, so it is ordered first.
-    expect(order).toEqual(['cand-bravo', 'cand-echo', 'cand-alpha', 'cand-charlie', 'cand-delta']);
+    // Missing goal weights preserve candidate-id order; prerequisite edges
+    // still move cand-bravo before cand-alpha, and the remaining tie stays stable.
+    expect(order).toEqual(['cand-bravo', 'cand-alpha', 'cand-charlie', 'cand-delta', 'cand-echo']);
     expect(order.indexOf('cand-bravo')).toBeLessThan(order.indexOf('cand-alpha'));
 
     for (const seed of SEEDS) {

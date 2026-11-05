@@ -32,7 +32,9 @@ const buildSteps = (state: PipelineState, graph: DependencyGraph, order: readonl
       actionId,
       labelKey: `step.${actionId}`,
       reasonCode: 'selected_candidate',
+      reasonSeverity: 'info',
       ruleIds: [...provenance.ruleIds],
+      ruleRefs: [...provenance.ruleRefs],
       claimIds: [...provenance.claimIds],
       evidenceIds: [...provenance.evidenceIds],
       prerequisiteIds: [...new Set(incoming.map((edge) => edge.from))].sort(compareStrings),
@@ -51,10 +53,10 @@ export const orderAndValidate = defineStage({
     if (cyclic) {
       const cycleNodes = new Set(graph.nodes.filter((node) => !order.includes(node)));
       const provenance = mergeProvenance(...graph.edges.filter((edge) => cycleNodes.has(edge.from) && cycleNodes.has(edge.to)).map((edge) => edge.provenance));
-      return { ...state, steps: [], noProtocol: [...state.noProtocol, { reasonCode: 'dependency_cycle', ...provenance }] };
+      return { ...state, steps: [], noProtocol: [...state.noProtocol, { reasonCode: 'dependency_cycle', reasonSeverity: 'blocker', ...provenance }] };
     }
     if (order.length === 0) {
-      return { ...state, steps: [], noProtocol: [...state.noProtocol, { reasonCode: 'no_eligible_candidates', ...EMPTY_PROVENANCE }] };
+      return { ...state, steps: [], noProtocol: [...state.noProtocol, { reasonCode: 'no_eligible_candidates', reasonSeverity: 'blocker', ...EMPTY_PROVENANCE }] };
     }
     return { ...state, steps: buildSteps(state, graph, order) };
   },

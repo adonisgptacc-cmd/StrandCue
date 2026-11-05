@@ -1,4 +1,4 @@
-import { addBlocker, defineStage, ruleApplicability, ruleProvenance, severityWeight } from '../stage-runner.js';
+import { addBlocker, defineStage, ruleApplicability, ruleProvenance } from '../stage-runner.js';
 import type { CandidateRecord } from '../state.js';
 import { compareStrings, mergeProvenance } from '../state.js';
 
@@ -26,8 +26,8 @@ export const loadVerifiedFacts = defineStage({
     const existing = state.candidates.get(effect.candidateId);
     const record: CandidateRecord = {
       candidateId: effect.candidateId,
-      suitability: (existing?.suitability ?? 0) + severityWeight(rule),
-      provenance: mergeProvenance(existing?.provenance ?? { ruleIds: [], claimIds: [], evidenceIds: [] }, ruleProvenance(rule)),
+      goalSuitability: Math.max(existing?.goalSuitability ?? 0, effect.goalSuitability ?? 0),
+      provenance: mergeProvenance(existing?.provenance ?? { ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [] }, ruleProvenance(rule)),
     };
     return { ...state, candidates: new Map(state.candidates).set(effect.candidateId, record) };
   },

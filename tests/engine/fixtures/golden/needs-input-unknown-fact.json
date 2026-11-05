@@ -11,8 +11,8 @@
     "ref": {
       "rulesetId": "synthetic-ruleset-needs-input",
       "contentHash": "sha256:446cd9d060ef452b7fd2d2e5ed3eeecd1aadc23f45ba41141fa21254cb623ce5",
-      "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.1"
+      "schemaVersion": "1.1.0",
+      "evaluatorVersion": "1.1.0"
     },
     "capabilities": [],
     "rules": [
@@ -97,45 +97,63 @@
         "questionId": "fact:f-heat-risk",
         "rank": 1,
         "reasonCode": "fact_unknown",
+        "reasonSeverity": "caution",
+        "ruleRefs": [
+          {
+            "ruleId": "r-require-heat-fact",
+            "version": "1"
+          }
+        ],
         "neededFactIds": [
           "f-heat-risk"
         ]
       }
     ],
     "confidence": {
-      "evidence": "low",
-      "applicability": "low"
+      "instructionCompleteness": "low",
+      "suitability": "limited"
     },
     "audit": {
       "ruleset": {
         "rulesetId": "synthetic-ruleset-needs-input",
         "contentHash": "sha256:446cd9d060ef452b7fd2d2e5ed3eeecd1aadc23f45ba41141fa21254cb623ce5",
-        "schemaVersion": "1.0.0",
-        "evaluatorVersion": "1.0.1"
+        "schemaVersion": "1.1.0",
+        "evaluatorVersion": "1.1.0"
       },
       "evaluatedAt": "2026-10-31T12:00:00.000Z",
-      "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.1",
+      "schemaVersion": "1.1.0",
+      "evaluatorVersion": "1.1.0",
       "trace": [
         {
           "stageId": "validate_snapshot",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "apply_safety_restrictions",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "load_verified_facts",
           "outcome": "needs_input",
+          "reasonSeverity": "caution",
           "ruleIds": [
             "r-require-heat-fact"
+          ],
+          "ruleRefs": [
+            {
+              "ruleId": "r-require-heat-fact",
+              "version": "1"
+            }
           ],
           "claimIds": [
             "claim-r-require-heat-fact"
@@ -147,49 +165,63 @@
         {
           "stageId": "derive_treatment_state",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "filter_candidates",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "evaluate_heat",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "select_and_rank",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "build_dependency_graph",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "order_and_validate",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "assemble_decision",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         }

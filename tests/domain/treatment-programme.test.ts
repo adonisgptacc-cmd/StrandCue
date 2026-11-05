@@ -13,6 +13,7 @@ import {
   ProgrammeEnrolmentSchema,
   ProgrammeRuleSchema,
 } from '../../packages/domain/src/treatment-programme.ts';
+import { toEngineTreatmentProgrammeProjection } from '../../packages/domain/src/treatment-engine-adapter.ts';
 
 const APP_RUN = 'run-2026-10-13-001';
 const AS_OF = '2026-10-13T20:00:00+02:00';
@@ -275,6 +276,24 @@ describe('evaluateProgramme: schema and boundary', () => {
 // ---------------------------------------------------------------------------
 
 describe('evaluateProgramme: product and publication gates', () => {
+  it('maps missing canonical treatment inputs to an unknown engine due status', () => {
+    const evaluation = evaluateProgramme(
+      validEnrolment({ productVerificationStatus: 'unknown' }),
+      [appEvent('app-1', exact('2026-10-13T12:00:00+02:00'))],
+      validRule(),
+      AS_OF,
+    );
+
+    expect(toEngineTreatmentProgrammeProjection('enrol-1', evaluation)).toMatchObject({
+      programmeId: 'enrol-1',
+      dueStatus: 'unknown',
+      ruleId: 'rule-treatment-1',
+      ruleVersion: '1.0',
+      sourceEventIds: [],
+      prospective: false,
+    });
+  });
+
   it('12. unknown product returns needs_input', () => {
     const result = evaluateProgramme(
       validEnrolment({ productVerificationStatus: 'unknown' }),
@@ -652,6 +671,28 @@ describe('evaluateProgramme: maintenance', () => {
 // ---------------------------------------------------------------------------
 
 describe('evaluateProgramme: due status', () => {
+  it('projects canonical treatment evidence and prospective status into the engine contract', () => {
+    const events = [
+      appEvent('app-1', exact('2026-10-13T12:00:00+02:00')),
+      ...[1, 2, 3, 4, 5, 6].map((i) =>
+        washEvent(`w-${i}`, exact(`2026-10-13T${12 + i}:00:00+02:00`), 'yes'),
+      ),
+    ];
+    const evaluation = evaluateProgramme(validEnrolment(), events, validRule(), AS_OF);
+    const current = toEngineTreatmentProgrammeProjection('programme-synthetic', evaluation);
+    const prospective = toEngineTreatmentProgrammeProjection('programme-synthetic', evaluation, true);
+
+    expect(current).toMatchObject({
+      dueStatus: 'due',
+      ruleId: evaluation.ruleId,
+      ruleVersion: evaluation.ruleVersion,
+      evaluatedAt: AS_OF,
+      sourceEventIds: ['app-1', 'w-1', 'w-2', 'w-3', 'w-4', 'w-5', 'w-6'],
+      prospective: false,
+    });
+    expect(prospective).toMatchObject({ dueStatus: 'due', prospective: true });
+  });
+
   it('41. below lower bound returns not_due', () => {
     const events = [
       appEvent('app-1', exact('2026-10-13T12:00:00+02:00')),

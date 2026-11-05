@@ -3,14 +3,13 @@ import type { CandidateRecord } from '../state.js';
 import { compareStrings } from '../state.js';
 
 /**
- * Ranking factors implemented against the frozen contract, in order:
- * 1. goal suitability (summed severity weight of the rules that include the candidate),
- * 2. stable candidate-id tie-break.
- * Heat/product minimisation and personal-outcome ranking have no inputs in the
- * contract yet, so they are intentionally absent rather than faked.
+ * Eligibility and hard constraints have already run. Use only explicitly
+ * authored goal suitability; rule authority is not a preference score. Heat,
+ * product-use and personal-outcome hints remain deferred until the engine
+ * contract receives reviewed candidate metadata for those factors.
  */
 export const compareCandidates = (left: CandidateRecord, right: CandidateRecord): number =>
-  right.suitability - left.suitability || compareStrings(left.candidateId, right.candidateId);
+  right.goalSuitability - left.goalSuitability || compareStrings(left.candidateId, right.candidateId);
 
 export const selectAndRank = defineStage({
   stageId: 'select_and_rank',

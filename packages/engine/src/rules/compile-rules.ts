@@ -8,6 +8,7 @@ import type {
   RuleEffect,
   RulesetRef,
 } from '../contracts.ts';
+import { CompiledRulesetSchema } from '../contracts.ts';
 import { canonicalRulesetContentHash } from '../canonical-json.ts';
 import { ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION } from '../pipeline/state.ts';
 import { authoringDiagnostics, parseAuthoringBundle } from './authoring-schema.ts';
@@ -56,7 +57,11 @@ function deepFreeze<T>(value: T): T {
 function buildRef(bundle: RuleAuthoringBundle, rules: CompiledRuleset['rules']): RulesetRef {
   return {
     rulesetId: bundle.bundleId,
-    contentHash: canonicalRulesetContentHash({ capabilities: bundle.capabilities, rules }),
+    contentHash: canonicalRulesetContentHash({
+      capabilities: bundle.capabilities,
+      rules,
+      ...(bundle.successorReview === undefined ? {} : { successorReview: bundle.successorReview }),
+    }),
     schemaVersion: ENGINE_SCHEMA_VERSION,
     evaluatorVersion: ENGINE_EVALUATOR_VERSION,
   };
@@ -108,6 +113,8 @@ function compileTable(
       stageId: stageForEffects(row.effects),
       when: row.when,
       effects: row.effects,
+      ...(row.successorOf === undefined ? {} : { successorOf: row.successorOf }),
+      ...(row.useScope === undefined ? {} : { useScope: row.useScope }),
       table: { tableId: table.tableId, hitPolicy: table.hitPolicy, rowOrder },
       severity: row.severity,
       capabilityIds: row.capabilityIds,
@@ -161,6 +168,8 @@ function compileConstraint(
     stageId: stageForEffects(constraint.effects),
     when: constraint.when,
     effects: constraint.effects,
+    ...(constraint.successorOf === undefined ? {} : { successorOf: constraint.successorOf }),
+    ...(constraint.useScope === undefined ? {} : { useScope: constraint.useScope }),
     severity: constraint.severity,
     capabilityIds: constraint.capabilityIds,
     claimIds: constraint.claimIds,
@@ -222,6 +231,11 @@ export function compileRules(source: unknown): CompiledRuleset {
   }
 
   const ref = buildRef(bundle, rules);
-  const ruleset: CompiledRuleset = { ref, capabilities: bundle.capabilities, rules };
-  return deepFreeze(ruleset);
+  const ruleset: CompiledRuleset = {
+    ref,
+    capabilities: bundle.capabilities,
+    rules,
+    ...(bundle.successorReview === undefined ? {} : { successorReview: bundle.successorReview }),
+  };
+  return deepFreeze(CompiledRulesetSchema.parse(ruleset));
 }

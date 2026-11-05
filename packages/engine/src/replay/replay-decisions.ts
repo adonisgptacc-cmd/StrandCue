@@ -4,6 +4,7 @@ import { evaluateDecision } from '../pipeline/index.ts';
 import type { ReplayCase } from './replay-case.ts';
 import type { ReplayCaseOutcome, ReplayReport } from './replay-report.ts';
 import { ReplayReportSchema } from './replay-report.ts';
+import { ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION } from '../pipeline/state.ts';
 
 const canonical = canonicalJson;
 
@@ -36,8 +37,17 @@ const difference = (left: readonly string[], right: readonly string[]): readonly
   left.filter((value) => !right.includes(value));
 
 const replayCaseOutcome = (replayCase: ReplayCase, candidate: CompiledRuleset): ReplayCaseOutcome => {
-  const pinnedDecision = evaluateDecision(replayCase.input);
-  const candidateDecision = evaluateDecision({ ...replayCase.input, ruleset: candidate });
+  const pinnedVersionSupported = replayCase.input.ruleset.ref.evaluatorVersion === ENGINE_EVALUATOR_VERSION
+    && replayCase.input.ruleset.ref.schemaVersion === ENGINE_SCHEMA_VERSION;
+  const pinnedDecision = pinnedVersionSupported ? evaluateDecision(replayCase.input) : undefined;
+  const candidateDecision = evaluateDecision({
+    ...replayCase.input,
+    ruleset: candidate,
+    ...(candidate.successorReview === undefined ? {} : {
+      priorRuleset: replayCase.input.ruleset,
+      priorRulesetRef: replayCase.input.ruleset.ref,
+    }),
+  });
 
   const previousStepIds = replayCase.decision.steps.map((step) => step.stepId);
   const candidateStepIds = candidateDecision.steps.map((step) => step.stepId);
@@ -47,7 +57,10 @@ const replayCaseOutcome = (replayCase: ReplayCase, candidate: CompiledRuleset): 
   return {
     caseId: replayCase.caseId,
     changed: canonical(decisionContent(replayCase.decision)) !== canonical(decisionContent(candidateDecision)),
-    pinnedReplayReproduced: canonical(pinnedDecision) === canonical(replayCase.decision),
+    pinnedReplayReproduced: pinnedDecision !== undefined && canonical(pinnedDecision) === canonical(replayCase.decision),
+    pinnedReplayStatus: pinnedDecision === undefined
+      ? 'unsupported_version'
+      : canonical(pinnedDecision) === canonical(replayCase.decision) ? 'reproduced' : 'mismatch',
     pinnedRulesetHash: replayCase.input.ruleset.ref.contentHash,
     candidateRulesetHash: candidate.ref.contentHash,
     previousStatus: replayCase.decision.status,

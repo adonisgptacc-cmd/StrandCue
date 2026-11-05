@@ -78,6 +78,13 @@ const trustedMigrationNames = [
   '20261030120304_hold_unimplemented_heat_steps.sql',
   '20261030190000_validate_assessed_heat_steps.sql',
   '20261101130000_weather_context_consent.sql',
+  '20261104073159_engine_ruleset_publication_authority.sql',
+  '20261104074330_enforce_ruleset_successor_parent_bindings.sql',
+  '20261104080627_close_engine_ruleset_publication_bypasses.sql',
+  '20261104081700_freeze_engine_ruleset_publication_timestamp.sql',
+  '20261104123000_engine_ruleset_hash_verification.sql',
+  '20261104124000_use_claim_role_for_engine_hash_verification.sql',
+  '20261104182726_engine_ruleset_actor_anonymization.sql',
 ] as const;
 
 const candidateMigrationNames = [

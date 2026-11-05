@@ -270,6 +270,7 @@ const EXPORTED_OWNER_TABLES = new Set([
   'public.user_products', 'public.user_tool_revisions', 'public.user_tools',
 ]);
 const EXCLUDED_OWNER_TABLES = new Map<string, string>([
+  ['strandcue_private.engine_ruleset_reviewers', 'Administrative qualification roster; not user-owned export data.'],
   ['public.export_jobs', 'export receipts about prior exports; embedding prior documents would nest exports recursively; receipts remain via the status API'],
   ['public.deletion_tombstones', 'deletion lifecycle mapping, not user content: surviving fields repeat tombstone fields already covered by profile (username); excluded by the service-internals rule — a cancel-then-restore account can hold lifecycle rows while active, so unreachability is not claimed'],
   ['strandcue_private.activity_operations', 'service-internal idempotency material (operation ids and payloads), never owner content'],
@@ -581,11 +582,11 @@ describe('export completeness (consent and guidance history)', () => {
     const names = await listOwnerTables(db);
     expect(unclassifiedOwnerTables(names)).toEqual([]);
     // The registry itself stays honest: every entry still exists and every
-    // exclusion carries its reason. 26 exported + 21 excluded = 47 owner
+    // exclusion carries its reason. 26 exported + 22 excluded = 48 owner
     // tables, including the private derived source revision row.
-    expect(names).toHaveLength(47);
+    expect(names).toHaveLength(48);
     expect(EXPORTED_OWNER_TABLES.size).toBe(26);
-    expect(EXCLUDED_OWNER_TABLES.size).toBe(21);
+    expect(EXCLUDED_OWNER_TABLES.size).toBe(22);
     for (const name of [...EXPORTED_OWNER_TABLES, ...EXCLUDED_OWNER_TABLES.keys()]) {
       expect(names, `registry entry ${name} still exists`).toContain(name);
     }

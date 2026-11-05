@@ -1,8 +1,9 @@
 import type { DecisionConfidence, DecisionQuestion, EngineDecision, HeatAssessmentState } from '../../contracts.js';
 import { EngineDecisionSchema } from '../../contracts.js';
-import { defineStage } from '../stage-runner.js';
+import { defineStage, ruleApplicability } from '../stage-runner.js';
 import type { PipelineState, PendingQuestion } from '../state.js';
 import { ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION, compareStrings, uniqueSorted } from '../state.js';
+import { collectFactIds } from '../evaluate-expression.js';
 
 /** The contract has no decision-level reason field, so blockers are audited as omissions of this scope. */
 export const DECISION_SCOPE = 'decision';
@@ -21,9 +22,12 @@ export const rankQuestions = (pending: readonly PendingQuestion[]): readonly Dec
   const merged = new Map<string, PendingQuestion>();
   pending.forEach((question) => {
     const existing = merged.get(question.questionId);
+    const ruleRefs = [...new Map([...(existing?.ruleRefs ?? []), ...question.ruleRefs]
+      .map((reference) => [`${reference.ruleId}\u0000${reference.version}`, reference])).values()]
+      .sort((left, right) => compareStrings(left.ruleId, right.ruleId) || compareStrings(left.version, right.version));
     merged.set(question.questionId, existing
-      ? { ...existing, neededFactIds: uniqueSorted([...existing.neededFactIds, ...question.neededFactIds]) }
-      : { ...question, neededFactIds: uniqueSorted(question.neededFactIds) });
+      ? { ...existing, ruleRefs, neededFactIds: uniqueSorted([...existing.neededFactIds, ...question.neededFactIds]) }
+      : { ...question, ruleRefs, neededFactIds: uniqueSorted(question.neededFactIds) });
   });
   return [...merged.values()]
     .sort((left, right) => ORIGIN_PRIORITY[left.origin] - ORIGIN_PRIORITY[right.origin]
@@ -33,6 +37,8 @@ export const rankQuestions = (pending: readonly PendingQuestion[]): readonly Dec
       questionId: question.questionId,
       rank: index + 1,
       reasonCode: question.reasonCode,
+      reasonSeverity: question.reasonSeverity,
+      ruleRefs: [...question.ruleRefs],
       neededFactIds: [...question.neededFactIds],
     }));
 };
@@ -52,9 +58,25 @@ const heatFor = (state: PipelineState, status: EngineDecision['status']): HeatAs
 };
 
 const confidenceFor = (state: PipelineState, status: EngineDecision['status']): DecisionConfidence => {
-  if (status !== 'decided') return { evidence: 'low', applicability: 'low' };
-  // Suitability inputs are not in the frozen contract, so applicability never exceeds "limited".
-  return { evidence: state.steps.every((step) => step.evidenceIds.length > 0) ? 'strong' : 'limited', applicability: 'limited' };
+  if (status !== 'decided') return { instructionCompleteness: 'low', suitability: 'limited' };
+  const hardRules = state.input.ruleset.rules.filter((rule) =>
+    rule.severity === 'hard' && ruleApplicability(rule, state.input, state.evaluatedAtMs) === 'applicable');
+  const hasCompleteCriticalInputs = hardRules.length > 0 && hardRules.every((rule) =>
+    collectFactIds(rule.when).every((factId) => state.facts.get(factId)?.resolution === 'verified'));
+  const stepsHaveReviewedSupport = state.steps.every((step) => step.ruleIds.some((ruleId) => {
+    const rule = state.input.ruleset.rules.find((candidate) => candidate.ruleId === ruleId);
+    return rule !== undefined
+      && rule.capabilityIds.length > 0
+      && rule.effects.some((effect) => effect.kind === 'include_candidate' && effect.candidateId === step.actionId)
+      && ruleApplicability(rule, state.input, state.evaluatedAtMs) === 'applicable';
+  }));
+  return {
+    instructionCompleteness: hasCompleteCriticalInputs ? 'high' : 'moderate',
+    // Evidence identifiers alone do not describe evidence quality. The current
+    // contract can support moderate only when every chosen factor has an exact
+    // reviewed catalogue capability binding; high remains unavailable.
+    suitability: stepsHaveReviewedSupport ? 'moderate' : 'limited',
+  };
 };
 
 /** Builds the canonical decision from a fully run pipeline state and validates it against the contract. */
@@ -68,7 +90,9 @@ export const toEngineDecision = (state: PipelineState): EngineDecision => {
       ...reasons.map((reason) => ({
         candidateId: DECISION_SCOPE,
         reasonCode: reason.reasonCode,
+        reasonSeverity: reason.reasonSeverity,
         ruleIds: [...reason.ruleIds],
+        ruleRefs: [...reason.ruleRefs],
         claimIds: [...reason.claimIds],
         evidenceIds: [...reason.evidenceIds],
       })),
@@ -83,7 +107,7 @@ export const toEngineDecision = (state: PipelineState): EngineDecision => {
       evaluatedAt: state.input.evaluatedAt,
       schemaVersion: ENGINE_SCHEMA_VERSION,
       evaluatorVersion: ENGINE_EVALUATOR_VERSION,
-      trace: state.trace.map((entry) => ({ ...entry, ruleIds: [...entry.ruleIds], claimIds: [...entry.claimIds], evidenceIds: [...entry.evidenceIds] })),
+      trace: state.trace.map((entry) => ({ ...entry, ruleIds: [...entry.ruleIds], ruleRefs: [...entry.ruleRefs], claimIds: [...entry.claimIds], evidenceIds: [...entry.evidenceIds] })),
     },
   };
   return EngineDecisionSchema.parse(decision);

@@ -23,7 +23,7 @@ export const createPipelineState = (input: EngineInput): PipelineState => ({
   questions: [],
   noProtocol: [],
   facts: new Map(),
-  treatment: { eventTypes: [] },
+  treatment: { programmes: [] },
   candidates: new Map(),
   omissions: [],
   alternatives: [],

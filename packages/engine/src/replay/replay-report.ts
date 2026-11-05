@@ -15,6 +15,8 @@ export const ReplayCaseOutcomeSchema = z.object({
   changed: z.boolean(),
   /** True when the historical decision is still exactly reproducible from its own pinned ruleset. */
   pinnedReplayReproduced: z.boolean(),
+  /** Older history is never silently reinterpreted by a different evaluator or decoder. */
+  pinnedReplayStatus: z.enum(['reproduced', 'mismatch', 'unsupported_version']),
   pinnedRulesetHash: z.string().min(1),
   candidateRulesetHash: z.string().min(1),
   previousStatus: DecisionStatusSchema,

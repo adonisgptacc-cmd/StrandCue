@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "zod": "npm:zod@4.5.4",
+    "@supabase/server": "npm:@supabase/server@1",
+    "@noble/hashes/sha256": "npm:@noble/hashes@1.8.0/sha256",
+    "@noble/hashes/utils": "npm:@noble/hashes@1.8.0/utils"
+  }
+}

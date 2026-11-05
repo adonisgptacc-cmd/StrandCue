@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { compileRules } from '../../../packages/engine/src/rules/index.js';
 import { CompiledRulesetSchema } from '../../../packages/engine/src/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
 
 const canonicalJson = (value: unknown): string => {
   const sortKeys = (input: unknown): unknown => {
@@ -19,7 +20,8 @@ const capability = {
   capabilityId: 'synthetic-capability',
   subjectType: 'product',
   subjectId: 'synthetic-product',
-  subjectVersion: '1',
+  catalogueSubject: { catalogueId: 'catalogue-synthetic-product', versionId: '1', market: 'ZA' },
+  reviewedUseScope: 'synthetic-routine-use',
   capabilityType: 'compatibility',
   value: 'synthetic-compatible',
   claimId: 'claim-1',
@@ -41,6 +43,7 @@ const validBundle = {
           rowId: 'row-1',
           when: { kind: 'fact_exists', factId: 'synthetic-fact' },
           effects: [{ kind: 'block', reasonCode: 'synthetic' }],
+          useScope: 'synthetic-routine-use',
           severity: 'hard',
           capabilityIds: ['synthetic-capability'],
           claimIds: ['claim-1'],
@@ -64,6 +67,7 @@ const validBundle = {
       version: '1',
       when: { kind: 'fact_exists', factId: 'synthetic-fact' },
       effects: [{ kind: 'insert_wait', afterActionId: 'synthetic-action', minutes: 5 }],
+      useScope: 'synthetic-routine-use',
       severity: 'hard',
       capabilityIds: ['synthetic-capability'],
       claimIds: ['claim-1'],
@@ -85,6 +89,8 @@ describe('rule compiler', () => {
     expect(Object.isFrozen(compiled.rules)).toBe(true);
     expect(Object.isFrozen(compiled.capabilities)).toBe(true);
     expect(compiled.rules).toHaveLength(3);
+    expect(compiled.rules.find((rule) => rule.ruleId === 'synthetic-table::row-1')?.useScope).toBe('synthetic-routine-use');
+    expect(compiled.rules.find((rule) => rule.ruleId === 'synthetic-constraint')?.useScope).toBe('synthetic-routine-use');
   });
 
   it('preserves table policy and source row order in compiled rules', () => {
@@ -352,11 +358,55 @@ describe('rule compiler', () => {
     const second = compileRules(validBundle);
     expect(first.ref).toEqual(second.ref);
     expect(first.ref.rulesetId).toBe('synthetic-bundle');
-    expect(first.ref.evaluatorVersion).toBe('1.0.1');
+    expect(first.ref.evaluatorVersion).toBe('1.1.0');
     const expectedDigest = createHash('sha256')
       .update(canonicalJson({ capabilities: first.capabilities, rules: first.rules }))
       .digest('hex');
     expect(first.ref.contentHash).toBe(`sha256:${expectedDigest}`);
+  });
+
+  it('compiles successor metadata and binds it into the ruleset digest', () => {
+    const parentRulesetHash = `sha256:${'0'.repeat(64)}`;
+    const successorReview = {
+      parentRulesetHash,
+      withdrawals: [{ ruleId: 'r-withdrawn', version: '1', affectedActionId: 'cand-successor' }],
+      authorizations: [{
+        withdrawnRuleId: 'r-withdrawn',
+        withdrawnRuleVersion: '1',
+        affectedActionId: 'cand-successor',
+        successorRuleId: 'successor-table::row-successor',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    const compiled = compileRules({
+      bundleId: 'successor-bundle',
+      version: '2',
+      capabilities: [],
+      tables: [{
+        tableId: 'successor-table',
+        hitPolicy: 'collect',
+        rows: [{
+          rowId: 'row-successor',
+          when: { kind: 'fact_exists', factId: 'f-ready' },
+          effects: [{ kind: 'include_candidate', candidateId: 'cand-successor' }],
+          successorOf: { parentRulesetHash, withdrawnRuleId: 'r-withdrawn', withdrawnRuleVersion: '1' },
+          severity: 'info',
+          capabilityIds: [],
+          claimIds: ['claim-successor'],
+          evidenceIds: ['evidence-successor'],
+        }],
+      }],
+      constraints: [],
+      requiredFixtures: [],
+      successorReview,
+    });
+    expect(compiled.rules[0]?.successorOf).toEqual({ parentRulesetHash, withdrawnRuleId: 'r-withdrawn', withdrawnRuleVersion: '1' });
+    expect(compiled.successorReview).toEqual(successorReview);
+    expect(compiled.ref.contentHash).toBe(canonicalRulesetContentHash({ capabilities: compiled.capabilities, rules: compiled.rules, successorReview }));
   });
 
   it('throws on an unbound capability', () => {

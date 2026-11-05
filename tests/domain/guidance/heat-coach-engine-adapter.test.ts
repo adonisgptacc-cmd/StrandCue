@@ -89,24 +89,24 @@ const publication = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const audit = {
-  ruleset: { rulesetId: 'synthetic', contentHash: 'sha256:synthetic', schemaVersion: '1.0.0', evaluatorVersion: '1.0.0' },
+  ruleset: { rulesetId: 'synthetic', contentHash: 'sha256:synthetic', schemaVersion: '1.1.0', evaluatorVersion: '1.1.0' },
   evaluatedAt: '2026-10-31T12:00:00.000Z',
-  schemaVersion: '1.0.0',
-  evaluatorVersion: '1.0.0',
-  trace: ENGINE_STAGE_IDS.map((stageId) => ({ stageId, outcome: 'not_applicable' as const, ruleIds: [], claimIds: [], evidenceIds: [] })),
+  schemaVersion: '1.1.0',
+  evaluatorVersion: '1.1.0',
+  trace: ENGINE_STAGE_IDS.map((stageId) => ({ stageId, outcome: 'not_applicable' as const, reasonSeverity: 'info' as const, ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [] })),
 };
 
 /** A decision that is valid in every respect except possibly the status/heat pair under test. */
 const engineDecision = (status: (typeof DECISION_STATUSES)[number], heatAssessment: string) => ({
   status,
   steps: status === 'decided'
-    ? [{ stepId: 's1', actionId: 'a1', labelKey: 'step.a1', reasonCode: 'synthetic', ruleIds: [], claimIds: [], evidenceIds: [], prerequisiteIds: [] }]
+    ? [{ stepId: 's1', actionId: 'a1', labelKey: 'step.a1', reasonCode: 'synthetic', reasonSeverity: 'info', ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [], prerequisiteIds: [] }]
     : [],
   omissions: [],
   alternatives: [],
-  questions: status === 'needs_input' ? [{ questionId: 'q1', rank: 1, reasonCode: 'synthetic', neededFactIds: [] }] : [],
+  questions: status === 'needs_input' ? [{ questionId: 'q1', rank: 1, reasonCode: 'synthetic', reasonSeverity: 'caution', ruleRefs: [], neededFactIds: [] }] : [],
   heatAssessment,
-  confidence: { evidence: 'limited', applicability: 'limited' },
+  confidence: { instructionCompleteness: 'moderate', suitability: 'limited' },
   audit,
 });
 

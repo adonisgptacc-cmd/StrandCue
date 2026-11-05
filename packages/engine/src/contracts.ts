@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { canonicalRulesetContentHash } from './canonical-json.ts';
 
 export const DECISION_STATUSES = ['decided', 'needs_input', 'blocked', 'no_protocol'] as const;
 export const DecisionStatusSchema = z.enum(DECISION_STATUSES);
@@ -39,6 +40,15 @@ export const RulesetRefSchema = z.object({
 }).strict().readonly();
 export type RulesetRef = z.infer<typeof RulesetRefSchema>;
 
+export const RuleReferenceSchema = z.object({
+  ruleId: z.string().min(1),
+  version: z.string().min(1),
+}).strict().readonly();
+export type RuleReference = z.infer<typeof RuleReferenceSchema>;
+
+export const ReasonSeveritySchema = z.enum(['blocker', 'caution', 'info']);
+export type ReasonSeverity = z.infer<typeof ReasonSeveritySchema>;
+
 const SnapshotValueSchema = z.union([
   z.string(), z.number().finite(), z.boolean(), z.null(),
   z.array(z.union([z.string(), z.number().finite(), z.boolean(), z.null()])).readonly(),
@@ -61,6 +71,11 @@ export const SnapshotEntrySchema = z.object({
   entryId: z.string().min(1),
   revision: z.number().int().nonnegative(),
   factIds: z.array(z.string().min(1)).readonly(),
+  catalogueSubject: z.object({
+    catalogueId: z.string().min(1),
+    versionId: z.string().min(1),
+    market: z.string().regex(/^[A-Z]{2}$/),
+  }).strict().readonly().optional(),
 }).strict().readonly();
 export type SnapshotEntry = z.infer<typeof SnapshotEntrySchema>;
 
@@ -72,6 +87,18 @@ export const SnapshotEventSchema = z.object({
   factIds: z.array(z.string().min(1)).readonly(),
 }).strict().readonly();
 export type SnapshotEvent = z.infer<typeof SnapshotEventSchema>;
+
+export const TreatmentProgrammeProjectionSchema = z.object({
+  programmeId: z.string().min(1),
+  state: z.enum(['not_started', 'initial', 'reassessment', 'maintenance', 'paused', 'completed']),
+  dueStatus: z.enum(['due', 'not_due', 'unknown']),
+  ruleId: z.string().min(1),
+  ruleVersion: z.string().min(1),
+  evaluatedAt: z.string().datetime({ offset: true }),
+  sourceEventIds: z.array(z.string().min(1)).readonly(),
+  prospective: z.boolean(),
+}).strict().readonly();
+export type TreatmentProgrammeProjection = z.infer<typeof TreatmentProgrammeProjectionSchema>;
 
 export const RevisionSetSchema = z.object({
   passport: z.number().int().nonnegative(),
@@ -90,6 +117,7 @@ export const CanonicalSnapshotSchema = z.object({
   shelf: z.array(SnapshotEntrySchema).readonly(),
   tools: z.array(SnapshotEntrySchema).readonly(),
   eventHistory: z.array(SnapshotEventSchema).readonly(),
+  treatmentPrograms: z.array(TreatmentProgrammeProjectionSchema).readonly().optional(),
   revisions: RevisionSetSchema,
 }).strict().readonly().superRefine((snapshot, context) => {
   const factIds = new Set<string>();
@@ -112,6 +140,20 @@ export const CanonicalSnapshotSchema = z.object({
       context.addIssue({ code: 'custom', path, message: `Snapshot references an unknown fact: ${factId}` });
     }
   });
+
+  const eventIds = new Set(snapshot.eventHistory.map((event) => event.eventId));
+  const programmeIds = new Set<string>();
+  (snapshot.treatmentPrograms ?? []).forEach((programme, index) => {
+    if (programmeIds.has(programme.programmeId)) {
+      context.addIssue({ code: 'custom', path: ['treatmentPrograms', index, 'programmeId'], message: 'Treatment programme projection identifiers must be unique.' });
+    }
+    programmeIds.add(programme.programmeId);
+    programme.sourceEventIds.forEach((eventId, eventIndex) => {
+      if (!eventIds.has(eventId)) {
+        context.addIssue({ code: 'custom', path: ['treatmentPrograms', index, 'sourceEventIds', eventIndex], message: `Treatment projection references an unknown event: ${eventId}` });
+      }
+    });
+  });
 });
 export type CanonicalSnapshot = z.infer<typeof CanonicalSnapshotSchema>;
 
@@ -132,13 +174,18 @@ export type RuleExpression =
   | { readonly kind: 'not'; readonly expression: RuleExpression };
 
 export const RuleEffectSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('include_candidate'), candidateId: z.string().min(1) }).strict().readonly(),
-  z.object({ kind: z.literal('exclude_candidate'), candidateId: z.string().min(1), reasonCode: z.string().min(1) }).strict().readonly(),
+  z.object({
+    kind: z.literal('include_candidate'),
+    candidateId: z.string().min(1),
+    /** Explicit suitability, independent of rule authority/severity. */
+    goalSuitability: z.number().finite().min(0).max(100).optional(),
+  }).strict().readonly(),
+  z.object({ kind: z.literal('exclude_candidate'), candidateId: z.string().min(1), reasonCode: z.string().min(1), reasonSeverity: ReasonSeveritySchema.optional() }).strict().readonly(),
   z.object({ kind: z.literal('require_prerequisite'), prerequisiteId: z.string().min(1) }).strict().readonly(),
   z.object({ kind: z.literal('insert_wait'), afterActionId: z.string().min(1), minutes: z.number().int().positive() }).strict().readonly(),
   z.object({ kind: z.literal('set_heat_assessment'), state: HeatAssessmentStateSchema }).strict().readonly(),
-  z.object({ kind: z.literal('ask_question'), questionId: z.string().min(1), reasonCode: z.string().min(1) }).strict().readonly(),
-  z.object({ kind: z.literal('block'), reasonCode: z.string().min(1) }).strict().readonly(),
+  z.object({ kind: z.literal('ask_question'), questionId: z.string().min(1), reasonCode: z.string().min(1), reasonSeverity: ReasonSeveritySchema.optional() }).strict().readonly(),
+  z.object({ kind: z.literal('block'), reasonCode: z.string().min(1), reasonSeverity: ReasonSeveritySchema.optional() }).strict().readonly(),
 ]);
 export type RuleEffect = z.infer<typeof RuleEffectSchema>;
 
@@ -149,10 +196,50 @@ export const RuleFixtureRequirementSchema = z.object({
 }).strict().readonly();
 export type RuleFixtureRequirement = z.infer<typeof RuleFixtureRequirementSchema>;
 
+export const SuccessorOfSchema = z.object({
+  parentRulesetHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  withdrawnRuleId: z.string().min(1),
+  withdrawnRuleVersion: z.string().min(1),
+}).strict().readonly();
+export type SuccessorOf = z.infer<typeof SuccessorOfSchema>;
+
+export const SuccessorReviewSchema = z.object({
+  parentRulesetHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  withdrawals: z.array(z.object({
+    ruleId: z.string().min(1),
+    version: z.string().min(1),
+    affectedActionId: z.string().min(1),
+  }).strict().readonly()).min(1).readonly(),
+  authorizations: z.array(z.object({
+    withdrawnRuleId: z.string().min(1),
+    withdrawnRuleVersion: z.string().min(1),
+    affectedActionId: z.string().min(1),
+    successorRuleId: z.string().min(1),
+    successorRuleVersion: z.string().min(1),
+    authorId: z.string().uuid(),
+    reviewerId: z.string().uuid(),
+    reviewedAt: z.string().datetime({ offset: true }),
+    reviewRef: z.string().uuid(),
+  }).strict().readonly()).readonly().superRefine((authorizations, context) => {
+    authorizations.forEach((authorization, index) => {
+      if (authorization.authorId === authorization.reviewerId) {
+        context.addIssue({
+          code: 'custom',
+          path: [index, 'reviewerId'],
+          message: 'Successor authorization requires a distinct independent reviewer.',
+        });
+      }
+    });
+  }),
+}).strict().readonly();
+export type SuccessorReview = z.infer<typeof SuccessorReviewSchema>;
+
 export const DecisionTableRowSchema = z.object({
   rowId: z.string().min(1),
   when: RuleExpressionSchema,
   effects: z.array(RuleEffectSchema).min(1).readonly(),
+  useScope: z.string().min(1).optional(),
+  successorOf: SuccessorOfSchema.optional(),
   severity: z.enum(['hard', 'caution', 'info']),
   capabilityIds: z.array(z.string().min(1)).readonly(),
   claimIds: z.array(z.string().min(1)).min(1).readonly(),
@@ -172,6 +259,8 @@ export const ConstraintRuleSchema = z.object({
   version: z.string().min(1),
   when: RuleExpressionSchema,
   effects: z.array(RuleEffectSchema).min(1).readonly(),
+  useScope: z.string().min(1).optional(),
+  successorOf: SuccessorOfSchema.optional(),
   severity: z.enum(['hard', 'caution', 'info']),
   capabilityIds: z.array(z.string().min(1)).readonly(),
   claimIds: z.array(z.string().min(1)).min(1).readonly(),
@@ -182,8 +271,14 @@ export type ConstraintRule = z.infer<typeof ConstraintRuleSchema>;
 export const ReviewedCapabilityBindingSchema = z.object({
   capabilityId: z.string().min(1),
   subjectType: z.enum(['product', 'tool']),
+  /** Owner-scoped shelf/tool row, deliberately separate from catalogue identity. */
   subjectId: z.string().min(1),
-  subjectVersion: z.string().min(1),
+  catalogueSubject: z.object({
+    catalogueId: z.string().min(1),
+    versionId: z.string().min(1),
+    market: z.string().regex(/^[A-Z]{2}$/),
+  }).strict().readonly(),
+  reviewedUseScope: z.string().min(1),
   capabilityType: z.enum(['compatibility', 'application_method', 'use_constraint', 'heat_constraint', 'tool_capability']),
   value: SnapshotValueSchema,
   claimId: z.string().min(1),
@@ -201,6 +296,7 @@ export const RuleAuthoringBundleSchema = z.object({
   tables: z.array(DecisionTableSchema).readonly(),
   constraints: z.array(ConstraintRuleSchema).readonly(),
   requiredFixtures: z.array(RuleFixtureRequirementSchema).readonly(),
+  successorReview: SuccessorReviewSchema.optional(),
 }).strict().readonly().superRefine((bundle, context) => {
   const capabilityIds = new Set<string>();
   bundle.capabilities.forEach((capability, index) => {
@@ -208,6 +304,27 @@ export const RuleAuthoringBundleSchema = z.object({
       context.addIssue({ code: 'custom', path: ['capabilities', index, 'capabilityId'], message: 'Capability identifiers must be unique within an authoring bundle.' });
     }
     capabilityIds.add(capability.capabilityId);
+  });
+  const capabilityScopes = new Map(bundle.capabilities.map((capability) => [capability.capabilityId, capability.reviewedUseScope]));
+  const validateScope = (ids: readonly string[], useScope: string | undefined, path: (string | number)[]): void => {
+    if (ids.length === 0) return;
+    const reviewedScopes = ids.flatMap((capabilityId) => {
+      const scope = capabilityScopes.get(capabilityId);
+      return scope === undefined ? [] : [scope];
+    });
+    if (reviewedScopes.length > 0 && (useScope === undefined || reviewedScopes.some((scope) => scope !== useScope))) {
+      context.addIssue({
+        code: 'custom',
+        path,
+        message: 'Capability-bound rules must declare a use scope that exactly matches every reviewed capability binding.',
+      });
+    }
+  };
+  bundle.tables.forEach((table, tableIndex) => table.rows.forEach((row, rowIndex) => {
+    validateScope(row.capabilityIds, row.useScope, ['tables', tableIndex, 'rows', rowIndex, 'useScope']);
+  }));
+  bundle.constraints.forEach((rule, index) => {
+    validateScope(rule.capabilityIds, rule.useScope, ['constraints', index, 'useScope']);
   });
 });
 export type RuleAuthoringBundle = z.infer<typeof RuleAuthoringBundleSchema>;
@@ -218,6 +335,8 @@ export const CompiledRuleSchema = z.object({
   stageId: EngineStageIdSchema,
   when: RuleExpressionSchema,
   effects: z.array(RuleEffectSchema).min(1).readonly(),
+  useScope: z.string().min(1).optional(),
+  successorOf: SuccessorOfSchema.optional(),
   table: z.object({
     tableId: z.string().min(1),
     hitPolicy: z.enum(['first', 'collect', 'unique']),
@@ -234,6 +353,7 @@ export const CompiledRulesetSchema = z.object({
   ref: RulesetRefSchema,
   capabilities: z.array(ReviewedCapabilityBindingSchema).readonly(),
   rules: z.array(CompiledRuleSchema).readonly(),
+  successorReview: SuccessorReviewSchema.optional(),
 }).strict().readonly().superRefine((ruleset, context) => {
   const capabilitiesById = new Map(ruleset.capabilities.map((capability) => [capability.capabilityId, capability]));
   const seenCapabilityIds = new Set<string>();
@@ -244,6 +364,7 @@ export const CompiledRulesetSchema = z.object({
     seenCapabilityIds.add(capability.capabilityId);
   });
   const seenRuleIds = new Set<string>();
+  const rulesByVersion = new Map(ruleset.rules.map((rule) => [`${rule.ruleId}\u0000${rule.version}`, rule]));
   const tableMetadata = new Map<string, { hitPolicy: 'first' | 'collect' | 'unique'; rowOrders: Set<number> }>();
   ruleset.rules.forEach((rule, index) => {
     if (seenRuleIds.has(rule.ruleId)) {
@@ -289,6 +410,46 @@ export const CompiledRulesetSchema = z.object({
       });
     });
   });
+  const review = ruleset.successorReview;
+  if (review !== undefined) {
+    const withdrawalKeys = new Set<string>();
+    review.withdrawals.forEach((withdrawal, index) => {
+      const key = `${withdrawal.ruleId}\u0000${withdrawal.version}\u0000${withdrawal.affectedActionId}`;
+      if (withdrawalKeys.has(key)) context.addIssue({ code: 'custom', path: ['successorReview', 'withdrawals', index], message: 'Successor withdrawal entries must be unique.' });
+      withdrawalKeys.add(key);
+      if (rulesByVersion.has(`${withdrawal.ruleId}\u0000${withdrawal.version}`)) {
+        context.addIssue({ code: 'custom', path: ['successorReview', 'withdrawals', index], message: 'A withdrawn rule version cannot remain active in the successor ruleset.' });
+      }
+    });
+    const authorizationKeys = new Set<string>();
+    review.authorizations.forEach((authorization, index) => {
+      const withdrawalKey = `${authorization.withdrawnRuleId}\u0000${authorization.withdrawnRuleVersion}\u0000${authorization.affectedActionId}`;
+      const authorizationKey = `${withdrawalKey}\u0000${authorization.successorRuleId}\u0000${authorization.successorRuleVersion}`;
+      if (!withdrawalKeys.has(withdrawalKey)) context.addIssue({ code: 'custom', path: ['successorReview', 'authorizations', index], message: 'Successor authorization must identify a withdrawn rule and affected action.' });
+      if (authorizationKeys.has(authorizationKey)) context.addIssue({ code: 'custom', path: ['successorReview', 'authorizations', index], message: 'Successor authorizations must be unique.' });
+      authorizationKeys.add(authorizationKey);
+      if (authorization.authorId === authorization.reviewerId) context.addIssue({ code: 'custom', path: ['successorReview', 'authorizations', index, 'reviewerId'], message: 'Successor authorization requires an independent reviewer.' });
+      const successor = rulesByVersion.get(`${authorization.successorRuleId}\u0000${authorization.successorRuleVersion}`);
+      if (!successor
+        || !successor.effects.some((effect) => effect.kind === 'include_candidate' && effect.candidateId === authorization.affectedActionId)
+        || successor.successorOf?.parentRulesetHash !== review.parentRulesetHash
+        || successor.successorOf?.withdrawnRuleId !== authorization.withdrawnRuleId
+        || successor.successorOf?.withdrawnRuleVersion !== authorization.withdrawnRuleVersion) {
+        context.addIssue({ code: 'custom', path: ['successorReview', 'authorizations', index, 'successorRuleId'], message: 'Successor authorization must bind the exact permitting successor rule and version.' });
+      }
+    });
+    ruleset.rules.forEach((rule, index) => {
+      if (rule.successorOf !== undefined && rule.successorOf.parentRulesetHash !== review.parentRulesetHash) {
+        context.addIssue({ code: 'custom', path: ['rules', index, 'successorOf'], message: 'Successor rule must bind the review parent ruleset hash.' });
+      }
+    });
+  } else {
+    ruleset.rules.forEach((rule, index) => {
+      if (rule.successorOf !== undefined) {
+        context.addIssue({ code: 'custom', path: ['rules', index, 'successorOf'], message: 'Successor lineage requires an authenticated successor review packet.' });
+      }
+    });
+  }
 });
 export type CompiledRuleset = z.infer<typeof CompiledRulesetSchema>;
 
@@ -305,13 +466,49 @@ export const EngineInputSchema = z.object({
   snapshot: CanonicalSnapshotSchema,
   evaluatedAt: z.string().datetime({ offset: true }),
   ruleset: CompiledRulesetSchema,
-}).strict().readonly();
+  priorRuleset: CompiledRulesetSchema.optional(),
+  priorRulesetRef: RulesetRefSchema.optional(),
+}).strict().readonly().superRefine((input, context) => {
+  const review = input.ruleset.successorReview;
+  if (review === undefined) return;
+
+  const priorRuleset = input.priorRuleset;
+  if (priorRuleset === undefined) {
+    context.addIssue({ code: 'custom', path: ['priorRuleset'], message: 'Successor review requires the complete parent ruleset.' });
+    return;
+  }
+  if (input.priorRulesetRef?.contentHash !== review.parentRulesetHash
+    || priorRuleset.ref.contentHash !== review.parentRulesetHash) {
+    context.addIssue({ code: 'custom', path: ['priorRulesetRef', 'contentHash'], message: 'Successor review parent ruleset hash does not match the prior ruleset reference.' });
+  }
+  try {
+    if (canonicalRulesetContentHash(priorRuleset) !== priorRuleset.ref.contentHash) {
+      context.addIssue({ code: 'custom', path: ['priorRuleset', 'ref', 'contentHash'], message: 'Parent ruleset content hash does not match its content.' });
+    }
+  } catch {
+    context.addIssue({ code: 'custom', path: ['priorRuleset', 'ref', 'contentHash'], message: 'Parent ruleset content hash does not match its content.' });
+  }
+  review.withdrawals.forEach((withdrawal, index) => {
+    const existsInParent = priorRuleset.rules.some((rule) => rule.ruleId === withdrawal.ruleId
+      && rule.version === withdrawal.version
+      && rule.effects.some((effect) => 'candidateId' in effect && effect.candidateId === withdrawal.affectedActionId));
+    if (!existsInParent) {
+      context.addIssue({
+        code: 'custom',
+        path: ['ruleset', 'successorReview', 'withdrawals', index],
+        message: 'Successor withdrawal must identify a rule, version, and affected action present in the parent ruleset.',
+      });
+    }
+  });
+});
 export type EngineInput = z.infer<typeof EngineInputSchema>;
 
 export const StageTraceEntrySchema = z.object({
   stageId: EngineStageIdSchema,
   outcome: z.enum(['completed', 'needs_input', 'blocked', 'not_applicable']),
+  reasonSeverity: ReasonSeveritySchema,
   ruleIds: z.array(z.string().min(1)),
+  ruleRefs: z.array(RuleReferenceSchema),
   claimIds: z.array(z.string().min(1)),
   evidenceIds: z.array(z.string().min(1)),
 }).strict();
@@ -322,7 +519,9 @@ export const DecisionStepSchema = z.object({
   actionId: z.string().min(1),
   labelKey: z.string().min(1),
   reasonCode: z.string().min(1),
+  reasonSeverity: ReasonSeveritySchema,
   ruleIds: z.array(z.string().min(1)),
+  ruleRefs: z.array(RuleReferenceSchema),
   claimIds: z.array(z.string().min(1)),
   evidenceIds: z.array(z.string().min(1)),
   prerequisiteIds: z.array(z.string().min(1)),
@@ -333,7 +532,9 @@ export type DecisionStep = z.infer<typeof DecisionStepSchema>;
 export const DecisionOmissionSchema = z.object({
   candidateId: z.string().min(1),
   reasonCode: z.string().min(1),
+  reasonSeverity: ReasonSeveritySchema,
   ruleIds: z.array(z.string().min(1)),
+  ruleRefs: z.array(RuleReferenceSchema),
   claimIds: z.array(z.string().min(1)),
   evidenceIds: z.array(z.string().min(1)),
 }).strict();
@@ -343,7 +544,9 @@ export const DecisionAlternativeSchema = z.object({
   alternativeId: z.string().min(1),
   labelKey: z.string().min(1),
   reasonCode: z.string().min(1),
+  reasonSeverity: ReasonSeveritySchema,
   ruleIds: z.array(z.string().min(1)),
+  ruleRefs: z.array(RuleReferenceSchema),
   claimIds: z.array(z.string().min(1)),
   evidenceIds: z.array(z.string().min(1)),
 }).strict();
@@ -353,13 +556,15 @@ export const DecisionQuestionSchema = z.object({
   questionId: z.string().min(1),
   rank: z.number().int().positive(),
   reasonCode: z.string().min(1),
+  reasonSeverity: ReasonSeveritySchema,
+  ruleRefs: z.array(RuleReferenceSchema),
   neededFactIds: z.array(z.string().min(1)),
 }).strict();
 export type DecisionQuestion = z.infer<typeof DecisionQuestionSchema>;
 
 export const DecisionConfidenceSchema = z.object({
-  evidence: z.enum(['low', 'limited', 'strong']),
-  applicability: z.enum(['low', 'limited', 'strong']),
+  instructionCompleteness: z.enum(['low', 'moderate', 'high']),
+  suitability: z.enum(['limited', 'moderate', 'high']),
 }).strict();
 export type DecisionConfidence = z.infer<typeof DecisionConfidenceSchema>;
 

@@ -7,47 +7,55 @@ import type {
   HeatAssessmentState,
   SnapshotFact,
   StageTraceEntry,
-} from '../contracts.js';
-import { ENGINE_STAGE_IDS } from '../contracts.js';
+  TreatmentProgrammeProjection,
+  RuleReference,
+  ReasonSeverity,
+} from '../contracts.ts';
+import { ENGINE_STAGE_IDS } from '../contracts.ts';
 
-export const ENGINE_EVALUATOR_VERSION = '1.0.1';
-export const ENGINE_SCHEMA_VERSION = '1.0.0';
+export const ENGINE_EVALUATOR_VERSION = '1.1.0';
+export const ENGINE_SCHEMA_VERSION = '1.1.0';
 
 export type FactResolution = 'verified' | 'unknown' | 'expired' | 'withdrawn' | 'contradictory' | 'missing';
 export interface ResolvedFact {
   readonly factId: string;
   readonly resolution: FactResolution;
   readonly fact: SnapshotFact | undefined;
+  readonly derivedValue?: string | number | boolean | null;
 }
 
 export interface Provenance {
   readonly ruleIds: readonly string[];
+  readonly ruleRefs: readonly RuleReference[];
   readonly claimIds: readonly string[];
   readonly evidenceIds: readonly string[];
 }
 
 export interface Blocker extends Provenance {
   readonly reasonCode: string;
+  readonly reasonSeverity: ReasonSeverity;
 }
 
 export type QuestionOrigin = 'rule' | 'fact' | 'heat';
 export interface PendingQuestion {
   readonly questionId: string;
   readonly reasonCode: string;
+  readonly reasonSeverity: ReasonSeverity;
   readonly neededFactIds: readonly string[];
   readonly origin: QuestionOrigin;
+  readonly ruleRefs: readonly RuleReference[];
   readonly stageIndex: number;
 }
 
 export interface CandidateRecord {
   readonly candidateId: string;
-  /** Sum of severity weights of the rules that include the candidate. */
-  readonly suitability: number;
+  /** Highest explicit suitability score; absent scores preserve stable baseline order. */
+  readonly goalSuitability: number;
   readonly provenance: Provenance;
 }
 
 export interface TreatmentSummary {
-  readonly eventTypes: readonly { readonly eventType: string; readonly count: number; readonly latestHappenedAt: string }[];
+  readonly programmes: readonly TreatmentProgrammeProjection[];
 }
 
 export interface PrerequisiteRequirement {
@@ -77,6 +85,7 @@ export interface DependencyGraph {
 
 export interface NoProtocolReason extends Provenance {
   readonly reasonCode: string;
+  readonly reasonSeverity: ReasonSeverity;
 }
 
 export interface PipelineState {
@@ -113,10 +122,17 @@ export const compareStrings = (left: string, right: string): number => (left < r
 export const uniqueSorted = (values: readonly string[]): readonly string[] =>
   [...new Set(values)].sort(compareStrings);
 
-export const EMPTY_PROVENANCE: Provenance = { ruleIds: [], claimIds: [], evidenceIds: [] };
+export const EMPTY_PROVENANCE: Provenance = { ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [] };
 
-export const mergeProvenance = (...parts: readonly Provenance[]): Provenance => ({
+export const mergeProvenance = (...parts: readonly Provenance[]): Provenance => {
+  const ruleRefs = new Map<string, RuleReference>();
+  parts.flatMap((part) => part.ruleRefs).forEach((reference) => {
+    ruleRefs.set(`${reference.ruleId}\u0000${reference.version}`, reference);
+  });
+  return {
   ruleIds: uniqueSorted(parts.flatMap((part) => part.ruleIds)),
+  ruleRefs: [...ruleRefs.values()].sort((left, right) => compareStrings(left.ruleId, right.ruleId) || compareStrings(left.version, right.version)),
   claimIds: uniqueSorted(parts.flatMap((part) => part.claimIds)),
   evidenceIds: uniqueSorted(parts.flatMap((part) => part.evidenceIds)),
-});
+  };
+};

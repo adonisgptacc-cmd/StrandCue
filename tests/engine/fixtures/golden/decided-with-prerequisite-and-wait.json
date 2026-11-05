@@ -11,8 +11,8 @@
     "ref": {
       "rulesetId": "synthetic-ruleset-prerequisite-wait",
       "contentHash": "sha256:28052e69ebcf276d83ca1f4bc326ecf033e40fbf7d149471eec3135ce3ce102a",
-      "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.1"
+      "schemaVersion": "1.1.0",
+      "evaluatorVersion": "1.1.0"
     },
     "capabilities": [],
     "rules": [
@@ -158,9 +158,20 @@
         "actionId": "cand-wait",
         "labelKey": "step.cand-wait",
         "reasonCode": "selected_candidate",
+        "reasonSeverity": "info",
         "ruleIds": [
           "r-include-wait",
           "r-insert-wait"
+        ],
+        "ruleRefs": [
+          {
+            "ruleId": "r-include-wait",
+            "version": "1"
+          },
+          {
+            "ruleId": "r-insert-wait",
+            "version": "1"
+          }
         ],
         "claimIds": [
           "claim-r-include-wait",
@@ -178,9 +189,20 @@
         "actionId": "cand-rinse",
         "labelKey": "step.cand-rinse",
         "reasonCode": "selected_candidate",
+        "reasonSeverity": "info",
         "ruleIds": [
           "r-include-rinse",
           "r-require-wait"
+        ],
+        "ruleRefs": [
+          {
+            "ruleId": "r-include-rinse",
+            "version": "1"
+          },
+          {
+            "ruleId": "r-require-wait",
+            "version": "1"
+          }
         ],
         "claimIds": [
           "claim-r-include-rinse",
@@ -199,40 +221,55 @@
     "alternatives": [],
     "questions": [],
     "confidence": {
-      "evidence": "strong",
-      "applicability": "limited"
+      "instructionCompleteness": "high",
+      "suitability": "limited"
     },
     "audit": {
       "ruleset": {
         "rulesetId": "synthetic-ruleset-prerequisite-wait",
         "contentHash": "sha256:28052e69ebcf276d83ca1f4bc326ecf033e40fbf7d149471eec3135ce3ce102a",
-        "schemaVersion": "1.0.0",
-        "evaluatorVersion": "1.0.1"
+        "schemaVersion": "1.1.0",
+        "evaluatorVersion": "1.1.0"
       },
       "evaluatedAt": "2026-10-31T12:00:00.000Z",
-      "schemaVersion": "1.0.0",
-      "evaluatorVersion": "1.0.1",
+      "schemaVersion": "1.1.0",
+      "evaluatorVersion": "1.1.0",
       "trace": [
         {
           "stageId": "validate_snapshot",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "apply_safety_restrictions",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "load_verified_facts",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [
             "r-include-rinse",
             "r-include-wait"
+          ],
+          "ruleRefs": [
+            {
+              "ruleId": "r-include-rinse",
+              "version": "1"
+            },
+            {
+              "ruleId": "r-include-wait",
+              "version": "1"
+            }
           ],
           "claimIds": [
             "claim-r-include-rinse",
@@ -246,37 +283,56 @@
         {
           "stageId": "derive_treatment_state",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "filter_candidates",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "evaluate_heat",
           "outcome": "not_applicable",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "select_and_rank",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "build_dependency_graph",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [
             "r-insert-wait",
             "r-require-wait"
+          ],
+          "ruleRefs": [
+            {
+              "ruleId": "r-insert-wait",
+              "version": "1"
+            },
+            {
+              "ruleId": "r-require-wait",
+              "version": "1"
+            }
           ],
           "claimIds": [
             "claim-r-insert-wait",
@@ -290,14 +346,18 @@
         {
           "stageId": "order_and_validate",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         },
         {
           "stageId": "assemble_decision",
           "outcome": "completed",
+          "reasonSeverity": "info",
           "ruleIds": [],
+          "ruleRefs": [],
           "claimIds": [],
           "evidenceIds": []
         }
