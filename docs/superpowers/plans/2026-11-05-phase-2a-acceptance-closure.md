@@ -37,7 +37,7 @@ After Task 1's ranking and capability decisions are recorded, the shared contrac
 - **WO-C — authenticated verification proof:** local Edge-to-RPC HTTP harness and focused server/database integration tests. Do not change the generic publication schema unless a verified defect requires a separately reviewed migration.
 - **WO-D — baseline database diagnosis:** Node 24 setup, fresh local migration replay, full database suite, and timing diagnosis. No application behavior changes; any necessary fix becomes a separately scoped and reviewed work order.
 
-The approved heat-exposure and product-burden measures require shared typed candidate fields, so a separately reviewed contract work order is required before WO-A/WO-B. It owns `packages/engine/src/contracts.ts` and pipeline state. WO-A and WO-B do not change those shared files independently.
+The approved heat-exposure and product-burden measures require shared typed candidate fields, so a separately reviewed contract work order is required before WO-A/WO-B. It owns the include-candidate rule effect/schema, rule compiler representation, candidate state/population, and focused contract tests. WO-A and WO-B do not change those shared files independently.
 
 The shared contract work order must complete and pass review before WO-A/WO-B start. Its commit becomes their common base and must be integrated into the candidate before either implementation work order is integrated.
 
@@ -72,22 +72,24 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 ### Task 2 / WO-S: Add the shared heat/product ranking contract
 
 **Files:**
-- Modify: `packages/engine/src/pipeline/state.ts`
-- Modify: `packages/engine/src/contracts.ts` only if schema-level fields are required beyond candidate state
-- Test: focused engine contract/schema tests
+- Modify: `packages/engine/src/contracts.ts` (typed include-candidate measures and strict validation)
+- Modify: `packages/engine/src/pipeline/state.ts` and `packages/engine/src/pipeline/stages/load-verified-facts.ts` (carry rule-provided measures into candidates)
+- Modify: `packages/engine/src/rules/ir.ts` and `packages/engine/src/rules/compile-rules.ts` only as required to preserve the typed effect values
+- Test: focused engine contract, compiler, and candidate-accumulation tests
 
 **Interfaces:**
-- Add a typed, pinned-measure-version ordinal heat-exposure value and a nonnegative count of distinct required product items/steps to candidate state. Ordinal values support ordering only; arithmetic distance between levels has no meaning.
+- Add typed include-candidate inputs for a reviewed ordinal heat-exposure value and the count of distinct required product items/steps; carry them into candidate state. Both are pinned by the enclosing ruleset content hash/schema version. Ordinal values support ordering only; arithmetic distance between levels has no meaning.
 - Unknown heat exposure or product burden is explicit; unknown is not zero, the lowest tier, or evidence of superiority.
-- Pareto comparison applies only to values bound to the same pinned measure version. Unknown or cross-version pairs are incomparable. Do not add scalar weights or commercial inputs.
+- Pareto comparison applies only within the same pinned ruleset. Unknown values are incomparable. Do not add scalar weights or commercial inputs.
 - Preserve the canonical stage order. Personal-outcome inputs remain absent until Phase 2d.
 
-- [ ] Add contract tests for valid, unknown, malformed, and cross-version measure values.
+- [ ] Add contract tests for valid, unknown, malformed, and differently versioned ruleset values; the engine must not compare records across rulesets.
+- [ ] Ensure repeated include effects for one candidate combine deterministically; conflicting or missing measure inputs remain explicit unknowns rather than selecting a favorable value.
 - [ ] Ensure candidate identity/provenance and deterministic serialization remain valid.
-- [ ] Document where the reviewed ordinal heat-exposure value is sourced and version-pinned; do not derive an ordinal from raw heat method, temperature, pass, or duration without an approved mapping.
+- [ ] Do not derive an ordinal from raw heat method, temperature, pass, or duration. If no reviewed ruleset input can provide the ordinal value, stop and keep Phase 2a on HOLD.
 - [ ] Run focused engine tests, typecheck, and lint; obtain independent review before integrating this commit into the candidate.
 
-**Exit:** WO-S has a reviewed typed contract and tests, suitable as the common WO-A/WO-B base. If the existing reviewed rules cannot supply a pinned ordinal heat-exposure value, stop and keep Phase 2a on HOLD pending a narrower product decision.
+**Exit:** WO-S has a reviewed typed contract and tests, suitable as the common WO-A/WO-B base. The contract carries explicit ordinal values supplied by the reviewed ruleset; it does not derive them from raw method/temperature/pass/duration. Synthetic fixtures may exercise the contract, while production content remains subject to its separate review gates.
 
 ### Task 3 / WO-A: Implement approved heat/product Pareto ranking
 
