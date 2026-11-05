@@ -116,7 +116,6 @@ suite(suiteName, () => {
   };
 
   beforeAll(async () => {
-    // eslint-disable-next-line import/no-unresolved -- optional scratch driver, opt-in local suite only
     ({ Client } = await import('pg'));
     admin = await newClient();
     const signature = await admin.query<{ signature: string | null }>("select to_regprocedure('public.enrol_programme(uuid,uuid,uuid,text,text,jsonb,text)')::text as signature");

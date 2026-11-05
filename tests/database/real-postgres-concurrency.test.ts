@@ -38,7 +38,10 @@ describeLocal('concurrent retries and writes against real Postgres', () => {
     return { status: response.status, text: await response.text() };
   };
   const message = (text: string): string => (JSON.parse(text) as { message?: string }).message ?? '';
-  const count = (table: string): number => Number(psql(`select count(*) from ${table}`));
+  const count = (table: string): number => {
+    const ownerColumn = table.endsWith('_operations') ? 'user_id' : 'owner';
+    return Number(psql(`select count(*) from ${table} where ${ownerColumn} = '${userId}'`));
+  };
 
   beforeAll(async () => {
     const email = `strandcue-conc-${suffix}@example.test`;

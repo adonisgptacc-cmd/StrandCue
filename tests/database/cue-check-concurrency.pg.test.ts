@@ -84,7 +84,6 @@ suite(suiteName, () => {
   const settle = async (pending: Promise<unknown>) => pending.then(value => ({ ok: true as const, value }), (error: Error) => ({ ok: false as const, error }));
 
   beforeAll(async () => {
-    // eslint-disable-next-line import/no-unresolved -- optional scratch driver, opt-in local suite only
     ({ Client } = await import('pg'));
     admin = await newClient();
     const signature = await admin.query<{ signature: string | null }>("select to_regprocedure('public.record_cue_check(uuid,uuid,jsonb)')::text as signature");

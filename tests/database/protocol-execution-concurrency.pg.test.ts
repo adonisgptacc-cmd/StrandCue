@@ -74,7 +74,6 @@ suite('real-Postgres two-session op-id blocking (DB-002 local proof)', () => {
     throw new Error('Exact session B was not blocked by exact session A');
   };
   beforeAll(async () => {
-    // eslint-disable-next-line import/no-unresolved -- optional scratch driver, opt-in local suite only
     ({Client} = await import('pg'));
     admin = await newClient();
     const chain = await admin.query<{signature: string | null}>("select to_regprocedure('public.start_protocol_execution(uuid,uuid,uuid,timestamp with time zone)')::text as signature");
