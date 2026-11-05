@@ -4,7 +4,7 @@
 
 **Goal:** Close the remaining Phase 2a product-policy and verification gates, then prepare the isolated candidate for a reviewed local `main` integration.
 
-**Architecture:** Keep ranking inside the pure deterministic engine and preserve the approved precedence. Resolve ranking and capability semantics first; if they require shared fields, finish that contract slice before the parallel work orders. Then run isolated work for ranking (WO-A), capability applicability (WO-B), authenticated local Edge verification (WO-C), and baseline database diagnostics (WO-D). Integrate reviewed work into this candidate, complete combined verification, and only then prepare local `main` integration.
+**Architecture:** Keep ranking inside the pure deterministic engine and preserve the approved precedence. Complete the shared typed heat/product contract first, then run isolated work for heat/product ranking (WO-A), capability applicability (WO-B), authenticated local Edge verification (WO-C), and baseline database diagnostics (WO-D). Personal outcome ranking is deferred to Phase 2d. Integrate reviewed work into this candidate, complete combined verification, and only then prepare local `main` integration.
 
 **Tech Stack:** TypeScript, Node 24, Vitest, Supabase CLI, local PostgreSQL 17.
 
@@ -12,9 +12,9 @@
 
 ## Global constraints
 
-- Preserve EN-01 determinism and EN-02 order: verified constraints, goal suitability, heat/product minimization, personal ranking, stable tie-break.
+- Preserve EN-01 determinism and canonical EN-02 order. Phase 2a implements through heat/product minimization; personal outcome ranking remains an explicit Phase 2d dependency and must be inserted before the final stable tie-break there.
 - Hard eligibility and safety checks run before ranking. Personal outcomes cannot make an ineligible option eligible.
-- Preserve baseline order when personal evidence is sparse; show sample size, recency, context, and uncertainty; do not claim product causation.
+- Phase 2a does not consume personal outcomes. Phase 2d must preserve baseline order when personal evidence is sparse, show sample size, recency, context, and uncertainty, and avoid product-causation claims.
 - Keep commerce, advertising, price, and retailer inputs out of engine types and ranking.
 - Keep unknown facts explicit and restrictive; do not infer safety or due status from missing inputs.
 - Run only with Node 24 and disposable local Supabase/PostgreSQL. Do not write to hosted Supabase, publish content, deploy, or push.
@@ -23,23 +23,23 @@
 ## Review focus
 
 1. Hard exclusions must remain binding, withdrawals must stop use in new decisions, reviewed successors must be explicitly authorized, and historical decisions must replay from their pinned ruleset.
-2. Same versioned inputs and approved rules must return the same order, including stable ties; sparse, stale, conflicting, or context-mismatched personal outcomes must preserve baseline and not imply causation.
+2. Same versioned inputs and approved rules must return the same order, including stable ties. The Phase 2a heat/product stage uses Pareto dominance; trade-offs and unknown/incomparable values preserve pre-stage order. Personal-outcome handling is reviewed in Phase 2d, not claimed by this phase.
 3. Decision and explanation records must retain rule IDs/versions, claim/evidence IDs, evidence strength, last-checked date, limitations, eligible alternatives, and blocker/caution/info severity; the two qualitative confidence dimensions must follow EVD-03 and derive only from approved rule inputs.
 4. Exact capability applicability must bind catalogue identity/version/market and reviewed use scope; unknown, stale, unowned, or out-of-date bindings must fail closed.
 5. The verifier and full migration/database chain must bind the authenticated owner, exact packet digest, computed hash, and privileged write; negative cases must fail without weakening assertions to hide timeouts.
 
 ## Parallel work order boundaries
 
-After Task 1's ranking and capability decisions are recorded, the following work orders may run in parallel from the latest reviewed candidate tip. Each must have its own worktree and reviewer:
+After Task 1's ranking and capability decisions are recorded, the shared contract work order must complete first. Then the following implementation work orders may run in parallel from the latest reviewed candidate tip. Each must have its own worktree and reviewer:
 
-- **WO-A — ranking contract:** `packages/engine/src/pipeline/stages/select-and-rank.ts` and engine ranking tests. Do not edit shared schemas; if approved inputs require a contract change, pause for a separately owned contract slice.
+- **WO-A — heat/product ranking:** `packages/engine/src/pipeline/stages/select-and-rank.ts` and engine ranking tests. Implement approved Pareto dominance over the reviewed ordinal heat-exposure level and distinct required-product count, only within equal goal-suitability groups. Since Pareto is a partial order, emit non-dominated frontiers in stable pre-stage order, then repeat. Unknown or cross-version dimensions are incomparable and cannot establish dominance. Do not implement personal-outcome influence in Phase 2a.
 - **WO-B — capability applicability:** `packages/engine/src/pipeline/stage-runner.ts` and capability/ruleset tests. Reconcile exact catalogue identity, version, market, effective dates, and reviewed use scope to the approved contract. Do not edit shared schemas unless this work order is explicitly assigned that file.
 - **WO-C — authenticated verification proof:** local Edge-to-RPC HTTP harness and focused server/database integration tests. Do not change the generic publication schema unless a verified defect requires a separately reviewed migration.
 - **WO-D — baseline database diagnosis:** Node 24 setup, fresh local migration replay, full database suite, and timing diagnosis. No application behavior changes; any necessary fix becomes a separately scoped and reviewed work order.
 
-If Task 1 shows that either implementation needs fields shared by WO-A and WO-B, create a small separately reviewed contract work order first; it owns `packages/engine/src/contracts.ts` and pipeline state. WO-A and WO-B do not change those shared files independently.
+The approved heat-exposure and product-burden measures require shared typed candidate fields, so a separately reviewed contract work order is required before WO-A/WO-B. It owns `packages/engine/src/contracts.ts` and pipeline state. WO-A and WO-B do not change those shared files independently.
 
-If this contract work order is needed, it must complete and pass review before WO-A/WO-B start. Its commit becomes their common base and must be integrated into the candidate before either implementation work order is integrated.
+The shared contract work order must complete and pass review before WO-A/WO-B start. Its commit becomes their common base and must be integrated into the candidate before either implementation work order is integrated.
 
 Each work order reports its exact base SHA, changed paths, commands, results, skips, and unresolved items. No work order merges directly into local `main`. After review, integrate into this candidate and rerun combined verification because the work orders will not share a live test database or working tree.
 
@@ -57,19 +57,39 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 **Interfaces:**
 - Existing approved precedence is fixed: verified constraints → goal suitability → heat/product minimization → personal outcomes → stable tie-break.
 - Existing candidate matching pins catalogue identity, version, market, and reviewed use scope. This task confirms the intended exact-version, date-validity, unknown-data, and ownership behavior against the canonical product rules.
-- The current Phase 2a plan requires ranking closure, while the engine-phase design assigns personal outcome ranking to Phase 2d. The product owner must confirm whether Phase 2a requires the full behavior now or whether the acceptance baseline should be formally re-scoped; do not decide this by implementation convenience.
+- Owner decision on 2026-11-05: formally scope Phase 2a to its accepted core plus heat/product minimization. Personal outcome ranking remains a canonical product requirement assigned to Phase 2d; this plan must not claim it is delivered in Phase 2a.
 - This task decides only the missing, reviewable inputs and comparison semantics within the approved precedence levels. It does not introduce a universal score or commerce data.
 
-- [ ] Trace every proposed ranking input to a canonical requirement and an existing verified source or approved future dependency.
-- [ ] Reconcile the Phase 2a ranking acceptance requirement with the Phase 2 design's 2d personal-ranking scope; record the approved boundary and any explicit dependency.
-- [ ] Present the product owner with bounded choices for heat/product comparison semantics and personal-outcome signal handling; state data availability and trade-offs for each.
-- [ ] Record the owner's decision, including minimum evidence/context conditions, sparse-evidence fallback, explanation fields, and tie behavior.
-- [ ] Reconcile capability binding for exact catalogue identity/version/market, reviewed use scope, date validity, owned-row matching, and unknown/stale records; record expected fail-closed behavior and negative tests.
-- [ ] If a required signal has no approved source or semantics, mark that subrequirement deferred and keep Phase 2a on HOLD; do not invent a weight or substitute proxy.
+- [x] Trace every proposed ranking input to a canonical requirement and an existing verified source or approved future dependency; the reviewed ordinal heat-exposure source/version contract is owned by WO-S, with a HOLD condition if no approved source is available.
+- [x] Reconcile the Phase 2a ranking acceptance requirement with the Phase 2 design's 2d personal-ranking scope; the owner approved the boundary and explicit dependency on 2026-11-05.
+- [x] Present bounded choices for heat/product comparison semantics and personal-outcome signal handling, including data availability and trade-offs.
+- [x] Record the owner's decisions: Pareto heat/product comparison with reviewed ordinal heat exposure and distinct required-product count; personal outcome ranking deferred to 2d.
+- [x] Reconcile capability binding for exact catalogue identity/version/market, reviewed use scope, date validity, owned-row matching, and unknown/stale records; the owner approved exact-match/fail-closed behavior and negative tests.
+- [x] Record that no scalar weight is approved; if a reviewed heat-exposure source cannot be established in WO-S, defer that required input and keep Phase 2a on HOLD rather than inventing a proxy.
 
-**Exit:** A dated decision record either defines testable semantics for ranking and capability applicability or names each exact deferred requirement and dependency.
+**Exit:** Dated owner decisions and the exact Phase 2d personal-ranking handoff are recorded in `docs/superpowers/specs/2026-11-05-phase-2a-product-contract-decisions.md`.
 
-### Task 2 / WO-A: Implement the approved ranking contract
+### Task 2 / WO-S: Add the shared heat/product ranking contract
+
+**Files:**
+- Modify: `packages/engine/src/pipeline/state.ts`
+- Modify: `packages/engine/src/contracts.ts` only if schema-level fields are required beyond candidate state
+- Test: focused engine contract/schema tests
+
+**Interfaces:**
+- Add a typed, pinned-measure-version ordinal heat-exposure value and a nonnegative count of distinct required product items/steps to candidate state. Ordinal values support ordering only; arithmetic distance between levels has no meaning.
+- Unknown heat exposure or product burden is explicit; unknown is not zero, the lowest tier, or evidence of superiority.
+- Pareto comparison applies only to values bound to the same pinned measure version. Unknown or cross-version pairs are incomparable. Do not add scalar weights or commercial inputs.
+- Preserve the canonical stage order. Personal-outcome inputs remain absent until Phase 2d.
+
+- [ ] Add contract tests for valid, unknown, malformed, and cross-version measure values.
+- [ ] Ensure candidate identity/provenance and deterministic serialization remain valid.
+- [ ] Document where the reviewed ordinal heat-exposure value is sourced and version-pinned; do not derive an ordinal from raw heat method, temperature, pass, or duration without an approved mapping.
+- [ ] Run focused engine tests, typecheck, and lint; obtain independent review before integrating this commit into the candidate.
+
+**Exit:** WO-S has a reviewed typed contract and tests, suitable as the common WO-A/WO-B base. If the existing reviewed rules cannot supply a pinned ordinal heat-exposure value, stop and keep Phase 2a on HOLD pending a narrower product decision.
+
+### Task 3 / WO-A: Implement approved heat/product Pareto ranking
 
 **Files:**
 - Modify: `packages/engine/src/pipeline/stages/select-and-rank.ts`
@@ -79,18 +99,18 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 
 **Interfaces:**
 - Preserve `selectAndRank` as the `select_and_rank` stage and `compareCandidates(left, right): number` as its deterministic ordering boundary unless the approved decision requires a typed replacement.
-- Consume only already-approved typed inputs. If the policy requires a new input, pause until the separately owned contract work order is reviewed and integrated.
+- Consume only the typed inputs from reviewed WO-S.
 
-- [ ] Add failing tests for the approved ordering between goal suitability, heat/product minimization, personal outcomes, and the stable tie-break.
-- [ ] Add failing tests proving hard exclusions cannot be reversed and sparse/mismatched personal evidence preserves the baseline.
+- [ ] Add failing tests for goal-suitability precedence, Pareto dominance within equal-suitability groups, stable ordering of non-dominated frontiers, and stable ties.
+- [ ] Add failing tests proving hard exclusions cannot be reversed and trade-offs or unknown/incomparable dimensions preserve pre-stage order.
 - [ ] Add or retain tests proving withdrawal prevents use in new decisions, historical decisions replay from the pinned parent ruleset, and successor rules require their reviewed parent/authorization bindings.
-- [ ] Implement only the approved semantics; keep commercial fields absent from engine contracts.
+- [ ] Implement only the approved semantics; keep personal outcome influence deferred to 2d and commercial fields absent from engine contracts.
 - [ ] Run the engine suite and engine coverage configuration; record exact test count and all coverage percentages.
 - [ ] Run typecheck and lint; commit this task separately after independent review.
 
-**Exit:** All approved ordering rules are deterministic, tested, explainable, and covered by the engine coverage gate. Any deferred level remains explicitly deferred and prevents acceptance.
+**Exit:** Phase 2a ordering through heat/product minimization is deterministic, tested, explainable, and covered by the engine coverage gate. Personal outcome ranking remains a named Phase 2d dependency and is not claimed as delivered in 2a.
 
-### Task 3 / WO-C: Prove authenticated hash verification over local HTTP
+### Task 4 / WO-C: Prove authenticated hash verification over local HTTP
 
 **Files:**
 - Review: `supabase/functions/verify-engine-ruleset/handler.ts` and `index.ts`
@@ -113,7 +133,7 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 
 **Exit:** The successful owner-to-Edge-to-service-RPC flow and all negative cases pass against local Supabase; no hosted project was selected or touched.
 
-### Task 4 / WO-D: Replay migrations and diagnose the database suite
+### Task 5 / WO-D: Replay migrations and diagnose the database suite
 
 **Files:**
 - Verify: all candidate migrations and `tests/database/`
@@ -131,21 +151,21 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 
 **Exit:** Fresh migration replay passes; database and real-PostgreSQL suites pass or any unresolved failure is documented with a named owner and Phase 2a stays HOLD.
 
-### Task 5: Integrate reviewed work orders and rerun combined verification
+### Task 6: Integrate reviewed work orders and rerun combined verification
 
 **Files:**
-- Integrate: the conditional shared-contract work order, if required, followed by reviewed WO-A, WO-B, and WO-C commits into `codex/phase2a-integration-candidate`
+- Integrate: reviewed WO-S first, followed by WO-A, WO-B, and WO-C commits into `codex/phase2a-integration-candidate`
 - Verify: complete candidate and local migration chain
 
 - [ ] Confirm each work-order base is the planned candidate SHA and no worktree contains unrelated dirty paths.
-- [ ] If a shared-contract work order was required, inspect and integrate it first; confirm WO-A/WO-B use that reviewed contract base. Then inspect and integrate only the reviewed WO-A/WO-B/WO-C slices; retain WO-D as evidence unless it has a separately reviewed code fix.
+- [ ] Inspect and integrate reviewed WO-S first; confirm WO-A/WO-B use that exact contract base. Then inspect and integrate only the reviewed WO-A/WO-B/WO-C slices; retain WO-D as evidence unless it has a separately reviewed code fix.
 - [ ] Run `npm run check:runtime`, `npm run typecheck`, `npm run lint`, `npm test -- --maxWorkers=8 tests/engine tests/server tests/domain`, and `npm test -- --maxWorkers=8 tests/database` on Node 24.
 - [ ] Replay migrations on a fresh disposable local PostgreSQL 17 instance and rerun the local Edge HTTP proof plus all required real-PostgreSQL proofs.
 - [ ] Run the bounded full repository suite with `npm test -- --maxWorkers=8`; record exact counts, skips, runtime, and any environment constraints.
 
 **Exit:** Reviewed work orders integrate without unrelated paths, and combined verification is green. Any failure keeps the candidate on HOLD and gets a named remediation work order.
 
-### Task 6: Final independent acceptance review
+### Task 7: Final independent acceptance review
 
 **Files:**
 - Review: complete candidate diff from local `main` to `codex/phase2a-integration-candidate`
@@ -163,7 +183,7 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 
 **Exit:** Independent review has no unresolved Critical/Important findings and the status report accurately distinguishes verified behavior from deferred work.
 
-### Task 7: Prepare local `main` integration
+### Task 8: Prepare local `main` integration
 
 **Files:**
 - Review: candidate diff and merge-base against local `main`
@@ -178,7 +198,7 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 
 ## Phase 2a acceptance rule
 
-Phase 2a remains `PARTIAL / HOLD` if ranking inputs or semantics remain deferred, authenticated Edge-to-RPC behavior is unproven, the required database evidence is incomplete, or independent review has unresolved important findings. Passing code tests alone does not satisfy the product-policy or trust-boundary gates.
+Personal outcome ranking is not a Phase 2a acceptance criterion after the owner-approved 2026-11-05 scope decision; it remains required in Phase 2d. Phase 2a remains `PARTIAL / HOLD` if the approved heat/product Pareto contract is not implemented and tested, authenticated Edge-to-RPC behavior is unproven, the required database evidence is incomplete, or independent review has unresolved important findings. Passing code tests alone does not satisfy the product-policy or trust-boundary gates.
 
 ## Separate release work
 
