@@ -572,6 +572,14 @@ export const DecisionConfidenceSchema = z.object({
 }).strict();
 export type DecisionConfidence = z.infer<typeof DecisionConfidenceSchema>;
 
+export const RankingLimitationSchema = z.object({
+  candidateId: z.string().min(1),
+  reasonCode: z.literal('ranking_measure_unknown'),
+  reasonSeverity: z.literal('info'),
+  unknownMeasures: z.array(z.enum(['heat_exposure_ordinal', 'distinct_required_product_count'])).min(1),
+}).strict().readonly();
+export type RankingLimitation = z.infer<typeof RankingLimitationSchema>;
+
 export const DecisionAuditSchema = z.object({
   ruleset: RulesetRefSchema,
   evaluatedAt: z.string().datetime({ offset: true }),
@@ -600,6 +608,7 @@ export const EngineDecisionSchema = z.object({
   omissions: z.array(DecisionOmissionSchema),
   alternatives: z.array(DecisionAlternativeSchema),
   questions: z.array(DecisionQuestionSchema),
+  rankingLimitations: z.array(RankingLimitationSchema).optional(),
   heatAssessment: HeatAssessmentStateSchema.optional(),
   confidence: DecisionConfidenceSchema,
   audit: DecisionAuditSchema,

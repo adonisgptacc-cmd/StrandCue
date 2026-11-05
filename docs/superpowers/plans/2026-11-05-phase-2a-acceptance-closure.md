@@ -95,20 +95,23 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 
 **Files:**
 - Modify: `packages/engine/src/pipeline/stages/select-and-rank.ts`
+- Modify: `packages/engine/src/pipeline/stages/assemble-decision.ts` and `packages/engine/src/contracts.ts` to expose unknown-measure limitations in the EngineDecision explanation contract.
 - Test: `tests/engine/pipeline/stages.test.ts`
 - Test: `tests/engine/properties/determinism.test.ts`
 - Test: `tests/engine/properties/metamorphic.test.ts`
+- Test: reviewed golden decision fixtures for the new explanation field.
 
 **Interfaces:**
 - Preserve `selectAndRank` as the `select_and_rank` stage and `compareCandidates(left, right): number` as its deterministic ordering boundary unless the approved decision requires a typed replacement.
 - Consume only the typed inputs from reviewed WO-S.
 
-- [ ] Add failing tests for goal-suitability precedence, Pareto dominance within equal-suitability groups, stable ordering of non-dominated frontiers, and stable ties.
-- [ ] Add failing tests proving hard exclusions cannot be reversed and trade-offs or unknown/incomparable dimensions preserve pre-stage order.
-- [ ] Add or retain tests proving withdrawal prevents use in new decisions, historical decisions replay from the pinned parent ruleset, and successor rules require their reviewed parent/authorization bindings.
-- [ ] Implement only the approved semantics; keep personal outcome influence deferred to 2d and commercial fields absent from engine contracts.
-- [ ] Run the engine suite and engine coverage configuration; record exact test count and all coverage percentages.
-- [ ] Run typecheck and lint; commit this task separately after independent review.
+- [x] Add failing tests for goal-suitability precedence, Pareto dominance within equal-suitability groups, stable ordering of non-dominated frontiers, and stable ties.
+- [x] Add tests proving hard exclusions cannot be reversed and trade-offs or unknown/incomparable dimensions preserve pre-stage order. The hard-exclusion regression is green on the base because stage 5 already removes excluded candidates before ranking.
+- [x] Expose unknown measures as structured, informational ranking limitations in the EngineDecision so consumers can see why those candidates were incomparable.
+- [x] Retain tests proving withdrawal prevents use in new decisions, historical decisions replay from the pinned parent ruleset, and successor rules require their reviewed parent/authorization bindings.
+- [x] Implement only the approved semantics; personal outcome influence remains deferred to 2d and no commercial fields were added to engine contracts.
+- [x] Run the engine suite and engine coverage configuration; 264 files passed / 8 skipped, 5,170 tests passed / 47 skipped. Full coverage: 95.30% statements, 89.77% branches, 97.92% functions, 97.35% lines. `select-and-rank.ts`: 97.61% statements, 96.15% branches, 100% functions, 97.29% lines.
+- [x] Run typecheck and lint; review findings were fixed with a regression and the task is committed separately.
 
 **Exit:** Phase 2a ordering through heat/product minimization is deterministic, tested, explainable, and covered by the engine coverage gate. Personal outcome ranking remains a named Phase 2d dependency and is not claimed as delivered in 2a.
 

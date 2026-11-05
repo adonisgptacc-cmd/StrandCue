@@ -83,6 +83,21 @@ const confidenceFor = (state: PipelineState, status: EngineDecision['status']): 
 export const toEngineDecision = (state: PipelineState): EngineDecision => {
   const status = resolveStatus(state);
   const reasons = status === 'blocked' ? state.blockers : status === 'no_protocol' ? state.noProtocol : [];
+  const heatAssessment = heatFor(state, status);
+  const rankingLimitations = [...state.candidates.values()]
+    .flatMap((candidate) => {
+      const unknownMeasures = [
+        candidate.heatExposureOrdinal === null ? 'heat_exposure_ordinal' as const : undefined,
+        candidate.distinctRequiredProductCount === null ? 'distinct_required_product_count' as const : undefined,
+      ].filter((measure): measure is 'heat_exposure_ordinal' | 'distinct_required_product_count' => measure !== undefined);
+      return unknownMeasures.length === 0 ? [] : [{
+        candidateId: candidate.candidateId,
+        reasonCode: 'ranking_measure_unknown' as const,
+        reasonSeverity: 'info' as const,
+        unknownMeasures,
+      }];
+    })
+    .sort((left, right) => compareStrings(left.candidateId, right.candidateId));
   const decision = {
     status,
     steps: status === 'decided' ? [...state.steps] : [],
@@ -100,7 +115,8 @@ export const toEngineDecision = (state: PipelineState): EngineDecision => {
     ],
     alternatives: [...state.alternatives].sort((left, right) => compareStrings(left.alternativeId, right.alternativeId)),
     questions: status === 'needs_input' ? [...rankQuestions(state.questions)] : [],
-    heatAssessment: heatFor(state, status),
+    ...(rankingLimitations.length === 0 ? {} : { rankingLimitations }),
+    ...(heatAssessment === undefined ? {} : { heatAssessment }),
     confidence: confidenceFor(state, status),
     audit: {
       ruleset: state.input.ruleset.ref,

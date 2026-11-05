@@ -55,6 +55,25 @@ const baseRules = (): CompiledRule[] => [
 ];
 
 describe('metamorphic properties', () => {
+  it('never reintroduces a hard-excluded candidate because its ranking measures are favorable', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [
+        rule('r-include-excluded', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-excluded', goalSuitability: 100,
+          heatExposureOrdinal: 0, distinctRequiredProductCount: 0,
+        }]),
+        rule('r-include-eligible', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-eligible', goalSuitability: 1,
+          heatExposureOrdinal: 9, distinctRequiredProductCount: 9,
+        }]),
+        rule('r-hard-exclude', 'filter_candidates', [exclude('cand-excluded')], { severity: 'hard' }),
+      ],
+    }));
+
+    expect(actionIds(decision)).toEqual(['cand-eligible']);
+    expect(decision.omissions.map((omission) => omission.candidateId)).toContain('cand-excluded');
+  });
+
   it('cannot loosen a decision when a restriction is tightened', () => {
     const base = buildInput({ rules: baseRules() });
     const before = evaluateDecision(base);

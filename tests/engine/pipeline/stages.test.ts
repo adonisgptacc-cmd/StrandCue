@@ -509,6 +509,104 @@ describe('stage 6 evaluate_heat', () => {
 });
 
 describe('stage 7 select_and_rank', () => {
+  it('uses suitability precedence, then stable Pareto frontiers for heat exposure and product burden', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [
+        rule('r-a-dominates-b', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-a', goalSuitability: 5,
+          heatExposureOrdinal: 1, distinctRequiredProductCount: 2,
+        }]),
+        rule('r-b-dominated', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-b', goalSuitability: 5,
+          heatExposureOrdinal: 2, distinctRequiredProductCount: 3,
+        }]),
+        rule('r-c-tradeoff', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-c', goalSuitability: 5,
+          heatExposureOrdinal: 2, distinctRequiredProductCount: 1,
+        }]),
+        rule('r-d-higher-suitability', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-d', goalSuitability: 6,
+          heatExposureOrdinal: 8, distinctRequiredProductCount: 8,
+        }]),
+      ],
+    }));
+
+    expect(decision.steps.map((step) => step.actionId)).toEqual(['cand-d', 'cand-a', 'cand-c', 'cand-b']);
+  });
+
+  it('preserves pre-stage order for trade-offs and candidates with unknown measures', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [
+        rule('r-a-unknown-heat', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-a', goalSuitability: 5,
+          heatExposureOrdinal: null, distinctRequiredProductCount: 1,
+        }]),
+        rule('r-b-tradeoff', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-b', goalSuitability: 5,
+          heatExposureOrdinal: 0, distinctRequiredProductCount: 2,
+        }]),
+        rule('r-c-opposite-tradeoff', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-c', goalSuitability: 5,
+          heatExposureOrdinal: 3, distinctRequiredProductCount: null,
+        }]),
+      ],
+    }));
+
+    expect(decision.steps.map((step) => step.actionId)).toEqual(['cand-a', 'cand-b', 'cand-c']);
+    expect(decision.rankingLimitations).toEqual([
+      {
+        candidateId: 'cand-a',
+        reasonCode: 'ranking_measure_unknown',
+        reasonSeverity: 'info',
+        unknownMeasures: ['heat_exposure_ordinal'],
+      },
+      {
+        candidateId: 'cand-c',
+        reasonCode: 'ranking_measure_unknown',
+        reasonSeverity: 'info',
+        unknownMeasures: ['distinct_required_product_count'],
+      },
+    ]);
+  });
+
+  it('keeps candidates with identical reviewed measures in stable tie order', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [
+        rule('r-a', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-a', goalSuitability: 5,
+          heatExposureOrdinal: 2, distinctRequiredProductCount: 2,
+        }]),
+        rule('r-b', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-b', goalSuitability: 5,
+          heatExposureOrdinal: 2, distinctRequiredProductCount: 2,
+        }]),
+      ],
+    }));
+
+    expect(decision.steps.map((step) => step.actionId)).toEqual(['cand-a', 'cand-b']);
+  });
+
+  it('keeps a hard-excluded candidate out regardless of its ranking measures', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [
+        rule('r-include-a', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-a', goalSuitability: 100,
+          heatExposureOrdinal: 0, distinctRequiredProductCount: 0,
+        }]),
+        rule('r-include-b', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-b', goalSuitability: 1,
+          heatExposureOrdinal: 9, distinctRequiredProductCount: 9,
+        }]),
+        rule('r-exclude-a', 'filter_candidates', [{
+          kind: 'exclude_candidate', candidateId: 'cand-a', reasonCode: 'hard_exclusion',
+        }], { severity: 'hard' }),
+      ],
+    }));
+
+    expect(decision.steps.map((step) => step.actionId)).toEqual(['cand-b']);
+    expect(decision.omissions.map((omission) => omission.candidateId)).toContain('cand-a');
+  });
+
   it('uses authored goal suitability then a stable id tie-break, independent of rule authority', () => {
     const decision = evaluateDecision(buildInput({
       rules: [

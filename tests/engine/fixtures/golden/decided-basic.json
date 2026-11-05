@@ -154,6 +154,26 @@
     "omissions": [],
     "alternatives": [],
     "questions": [],
+    "rankingLimitations": [
+      {
+        "candidateId": "cand-rinse",
+        "reasonCode": "ranking_measure_unknown",
+        "reasonSeverity": "info",
+        "unknownMeasures": [
+          "heat_exposure_ordinal",
+          "distinct_required_product_count"
+        ]
+      },
+      {
+        "candidateId": "cand-wait",
+        "reasonCode": "ranking_measure_unknown",
+        "reasonSeverity": "info",
+        "unknownMeasures": [
+          "heat_exposure_ordinal",
+          "distinct_required_product_count"
+        ]
+      }
+    ],
     "confidence": {
       "instructionCompleteness": "high",
       "suitability": "limited"

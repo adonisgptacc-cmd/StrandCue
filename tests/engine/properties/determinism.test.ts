@@ -167,6 +167,29 @@ describe('determinism properties', () => {
     }
   });
 
+  it.each(SEEDS)('keeps Pareto frontiers stable when rule input arrays are reordered (seed %i)', (seed) => {
+    const input = buildInput({
+      rules: [
+        rule('r-include-a', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-a', goalSuitability: 5,
+          heatExposureOrdinal: 2, distinctRequiredProductCount: 2,
+        }]),
+        rule('r-include-b', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-b', goalSuitability: 5,
+          heatExposureOrdinal: 3, distinctRequiredProductCount: 3,
+        }]),
+        rule('r-include-c', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-c', goalSuitability: 5,
+          heatExposureOrdinal: 1, distinctRequiredProductCount: 4,
+        }]),
+      ],
+    });
+
+    const decision = evaluateDecision(permuted(input, seed));
+
+    expect(decision.steps.map((step) => step.actionId)).toEqual(['cand-a', 'cand-c', 'cand-b']);
+  });
+
   it('produces an acyclic result', () => {
     const decision = evaluateDecision(scenario());
 
