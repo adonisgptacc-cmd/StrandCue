@@ -81,6 +81,49 @@ const validBundle = {
 } as const;
 
 describe('rule compiler', () => {
+  it('preserves reviewed ranking measures on compiled candidate effects', () => {
+    const rankingMeasures = {
+      heatExposureOrdinal: 2,
+      distinctRequiredProductCount: 3,
+    };
+    const bundle = {
+      ...validBundle,
+      tables: [{
+        ...validBundle.tables[0],
+        rows: validBundle.tables[0].rows.map((row, index) => index === 0
+          ? {
+              ...row,
+              effects: [{
+                kind: 'include_candidate' as const,
+                candidateId: 'candidate.synthetic',
+                ...rankingMeasures,
+              }],
+            }
+          : row),
+      }],
+    };
+
+    const compiled = compileRules(bundle);
+
+    expect(compiled.rules.find((rule) => rule.ruleId === 'synthetic-table::row-1')?.effects).toEqual([{
+      kind: 'include_candidate',
+      candidateId: 'candidate.synthetic',
+      ...rankingMeasures,
+    }]);
+    expect(CompiledRulesetSchema.safeParse(compiled).success).toBe(true);
+
+    const changedMeasure = compileRules({
+      ...bundle,
+      tables: [{
+        ...bundle.tables[0],
+        rows: bundle.tables[0].rows.map((row, index) => index === 0
+          ? { ...row, effects: [{ kind: 'include_candidate' as const, candidateId: 'candidate.synthetic', heatExposureOrdinal: 1, distinctRequiredProductCount: 3 }] }
+          : row),
+      }],
+    });
+    expect(changedMeasure.ref.contentHash).not.toBe(compiled.ref.contentHash);
+  });
+
   it('compiles a valid bundle into a frozen ruleset', () => {
     const compiled = compileRules(validBundle);
     const parsed = CompiledRulesetSchema.safeParse(compiled);

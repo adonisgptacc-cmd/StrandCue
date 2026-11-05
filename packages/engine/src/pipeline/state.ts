@@ -10,6 +10,7 @@ import type {
   TreatmentProgrammeProjection,
   RuleReference,
   ReasonSeverity,
+  RulesetRef,
 } from '../contracts.ts';
 import { ENGINE_STAGE_IDS } from '../contracts.ts';
 
@@ -49,8 +50,14 @@ export interface PendingQuestion {
 
 export interface CandidateRecord {
   readonly candidateId: string;
+  /** Full ruleset pin for reviewed measures; records from other pins are incomparable. */
+  readonly rulesetRef: RulesetRef;
   /** Highest explicit suitability score; absent scores preserve stable baseline order. */
   readonly goalSuitability: number;
+  /** Reviewed ordinal from the pinned ruleset; null means unknown. */
+  readonly heatExposureOrdinal: number | null;
+  /** Count of distinct required product items/steps; null means unknown. */
+  readonly distinctRequiredProductCount: number | null;
   readonly provenance: Provenance;
 }
 

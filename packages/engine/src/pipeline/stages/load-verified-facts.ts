@@ -2,6 +2,15 @@ import { addBlocker, defineStage, ruleApplicability, ruleProvenance } from '../s
 import type { CandidateRecord } from '../state.js';
 import { compareStrings, mergeProvenance } from '../state.js';
 
+const mergeReviewedMeasure = (
+  existing: number | null | undefined,
+  incoming: number | null | undefined,
+): number | null => {
+  if (existing === undefined) return incoming ?? null;
+  if (existing === null || incoming === null || incoming === undefined) return null;
+  return existing === incoming ? existing : null;
+};
+
 /**
  * Loads the reviewed capability facts that apply to what the person owns and
  * generates the candidate pool. A hard rule whose capability review has
@@ -26,7 +35,13 @@ export const loadVerifiedFacts = defineStage({
     const existing = state.candidates.get(effect.candidateId);
     const record: CandidateRecord = {
       candidateId: effect.candidateId,
+      rulesetRef: state.input.ruleset.ref,
       goalSuitability: Math.max(existing?.goalSuitability ?? 0, effect.goalSuitability ?? 0),
+      heatExposureOrdinal: mergeReviewedMeasure(existing?.heatExposureOrdinal, effect.heatExposureOrdinal),
+      distinctRequiredProductCount: mergeReviewedMeasure(
+        existing?.distinctRequiredProductCount,
+        effect.distinctRequiredProductCount,
+      ),
       provenance: mergeProvenance(existing?.provenance ?? { ruleIds: [], ruleRefs: [], claimIds: [], evidenceIds: [] }, ruleProvenance(rule)),
     };
     return { ...state, candidates: new Map(state.candidates).set(effect.candidateId, record) };

@@ -179,6 +179,10 @@ export const RuleEffectSchema = z.discriminatedUnion('kind', [
     candidateId: z.string().min(1),
     /** Explicit suitability, independent of rule authority/severity. */
     goalSuitability: z.number().finite().min(0).max(100).optional(),
+    /** Reviewed ordinal within this pinned ruleset; ordinal distance has no meaning. */
+    heatExposureOrdinal: z.number().int().nonnegative().nullable().optional(),
+    /** Count of distinct required product items/steps; null means unknown. */
+    distinctRequiredProductCount: z.number().int().nonnegative().nullable().optional(),
   }).strict().readonly(),
   z.object({ kind: z.literal('exclude_candidate'), candidateId: z.string().min(1), reasonCode: z.string().min(1), reasonSeverity: ReasonSeveritySchema.optional() }).strict().readonly(),
   z.object({ kind: z.literal('require_prerequisite'), prerequisiteId: z.string().min(1) }).strict().readonly(),

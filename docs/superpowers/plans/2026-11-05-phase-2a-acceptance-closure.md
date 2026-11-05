@@ -83,11 +83,11 @@ Each work order reports its exact base SHA, changed paths, commands, results, sk
 - Pareto comparison applies only within the same pinned ruleset. Unknown values are incomparable. Do not add scalar weights or commercial inputs.
 - Preserve the canonical stage order. Personal-outcome inputs remain absent until Phase 2d.
 
-- [ ] Add contract tests for valid, unknown, malformed, and differently versioned ruleset values; the engine must not compare records across rulesets.
-- [ ] Ensure repeated include effects for one candidate combine deterministically; conflicting or missing measure inputs remain explicit unknowns rather than selecting a favorable value.
-- [ ] Ensure candidate identity/provenance and deterministic serialization remain valid.
-- [ ] Do not derive an ordinal from raw heat method, temperature, pass, or duration. If no reviewed ruleset input can provide the ordinal value, stop and keep Phase 2a on HOLD.
-- [ ] Run focused engine tests, typecheck, and lint; obtain independent review before integrating this commit into the candidate.
+- [x] Add contract tests for valid, unknown, malformed, and differently versioned ruleset values; the engine rejects comparison across ruleset ID, content hash, schema version, or evaluator version.
+- [x] Ensure repeated include effects for one candidate combine deterministically; conflicting or missing measure inputs remain explicit unknowns rather than selecting a favorable value.
+- [x] Ensure candidate identity/provenance and deterministic serialization remain valid; full engine regression suite passes with the added internal state fields.
+- [x] Do not derive an ordinal from raw heat method, temperature, pass, or duration. The typed ruleset fields are explicit inputs; production content remains subject to separate review gates.
+- [x] Run focused engine tests, typecheck, and lint; obtain independent review before integrating this commit into the candidate.
 
 **Exit:** WO-S has a reviewed typed contract and tests, suitable as the common WO-A/WO-B base. The contract carries explicit ordinal values supplied by the reviewed ruleset; it does not derive them from raw method/temperature/pass/duration. Synthetic fixtures may exercise the contract, while production content remains subject to its separate review gates.
 

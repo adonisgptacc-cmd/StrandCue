@@ -6,12 +6,103 @@ import {
   rankQuestions,
   topologicalOrder,
 } from '../../../packages/engine/src/pipeline/index.js';
-import { resolveFact } from '../../../packages/engine/src/pipeline/stages/validate-snapshot.js';
+import { createPipelineState, resolveFact } from '../../../packages/engine/src/pipeline/stages/validate-snapshot.js';
+import { loadVerifiedFacts } from '../../../packages/engine/src/pipeline/stages/load-verified-facts.js';
+import { compareCandidates } from '../../../packages/engine/src/pipeline/stages/select-and-rank.js';
 import { ENGINE_STAGE_IDS } from '../../../packages/engine/src/index.js';
 import { FUTURE, NOW, PAST, buildInput, capability, fact, include, rule, when } from './fixtures.js';
 
 const traceOf = (decision: ReturnType<typeof evaluateDecision>, stage: (typeof ENGINE_STAGE_IDS)[number]) =>
   decision.audit.trace.find((entry) => entry.stageId === stage);
+
+describe('candidate ranking measure accumulation', () => {
+  it('binds measures to their ruleset version and refuses cross-ruleset comparisons', () => {
+    const firstInput = buildInput({ rules: [rule('candidate::include', 'load_verified_facts', [{
+      kind: 'include_candidate', candidateId: 'candidate.synthetic', goalSuitability: 70,
+      heatExposureOrdinal: 2, distinctRequiredProductCount: 3,
+    }])] });
+    const secondInput = buildInput({ rules: [rule('candidate::include', 'load_verified_facts', [{
+      kind: 'include_candidate', candidateId: 'candidate.synthetic', goalSuitability: 70,
+      heatExposureOrdinal: 1, distinctRequiredProductCount: 3,
+    }])] });
+
+    const loadCandidate = (input: typeof firstInput) => {
+      const initial = createPipelineState(input);
+      return loadVerifiedFacts({
+        ...initial,
+        facts: new Map([['f-ready', resolveFact(input.snapshot.factRegistry[0], Date.parse(input.evaluatedAt))]]),
+      }).candidates.get('candidate.synthetic')!;
+    };
+    const first = loadCandidate(firstInput);
+    const second = loadCandidate(secondInput);
+
+    expect(firstInput.ruleset.ref.contentHash).not.toBe(secondInput.ruleset.ref.contentHash);
+    expect(first.rulesetRef).toEqual(firstInput.ruleset.ref);
+    expect(second.rulesetRef).toEqual(secondInput.ruleset.ref);
+    expect(() => compareCandidates(first, second)).toThrow('Cannot compare candidates from different rulesets.');
+    expect(() => compareCandidates(first, {
+      ...first,
+      rulesetRef: { ...first.rulesetRef, schemaVersion: `${first.rulesetRef.schemaVersion}.next` },
+    })).toThrow('Cannot compare candidates from different rulesets.');
+    expect(() => compareCandidates(first, {
+      ...first,
+      rulesetRef: { ...first.rulesetRef, evaluatorVersion: `${first.rulesetRef.evaluatorVersion}.next` },
+    })).toThrow('Cannot compare candidates from different rulesets.');
+  });
+
+  it('retains matching reviewed measures from include effects', () => {
+    const measures = { heatExposureOrdinal: 2, distinctRequiredProductCount: 3 };
+    const input = buildInput({ rules: [
+      rule('candidate::include-a', 'load_verified_facts', [{
+        kind: 'include_candidate', candidateId: 'candidate.synthetic', goalSuitability: 60, ...measures,
+      }]),
+      rule('candidate::include-b', 'load_verified_facts', [{
+        kind: 'include_candidate', candidateId: 'candidate.synthetic', goalSuitability: 70, ...measures,
+      }]),
+    ] });
+
+    const initial = createPipelineState(input);
+    const state = loadVerifiedFacts({
+      ...initial,
+      facts: new Map([['f-ready', resolveFact(input.snapshot.factRegistry[0], Date.parse(input.evaluatedAt))]]),
+    });
+
+    expect(state.candidates.get('candidate.synthetic')).toMatchObject({
+      goalSuitability: 70,
+      heatExposureOrdinal: 2,
+      distinctRequiredProductCount: 3,
+    });
+  });
+
+  it('keeps conflicting or missing measure values explicitly unknown', () => {
+    const input = buildInput({ rules: [
+      rule('candidate::include-a', 'load_verified_facts', [{
+        kind: 'include_candidate', candidateId: 'candidate.synthetic', goalSuitability: 60,
+        heatExposureOrdinal: 2, distinctRequiredProductCount: 3,
+      }]),
+      rule('candidate::include-b', 'load_verified_facts', [{
+        kind: 'include_candidate', candidateId: 'candidate.synthetic', goalSuitability: 70,
+        heatExposureOrdinal: 1, distinctRequiredProductCount: 3,
+      }]),
+      rule('candidate::include-c', 'load_verified_facts', [{
+        kind: 'include_candidate', candidateId: 'candidate.synthetic', goalSuitability: 70,
+        heatExposureOrdinal: 1,
+      }]),
+    ] });
+
+    const initial = createPipelineState(input);
+    const state = loadVerifiedFacts({
+      ...initial,
+      facts: new Map([['f-ready', resolveFact(input.snapshot.factRegistry[0], Date.parse(input.evaluatedAt))]]),
+    });
+
+    expect(state.candidates.get('candidate.synthetic')).toMatchObject({
+      goalSuitability: 70,
+      heatExposureOrdinal: null,
+      distinctRequiredProductCount: null,
+    });
+  });
+});
 
 describe('pipeline structure', () => {
   it('exposes one pure function per public stage id', () => {

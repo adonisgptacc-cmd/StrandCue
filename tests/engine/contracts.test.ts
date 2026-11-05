@@ -48,6 +48,25 @@ const baseDecision = (status: EngineDecision['status'], heatAssessment: EngineDe
 });
 
 describe('decision engine public contracts', () => {
+  it('accepts reviewed ordinal heat exposure and distinct product counts, including explicit unknowns', () => {
+    const include = {
+      kind: 'include_candidate',
+      candidateId: 'candidate.synthetic',
+      heatExposureOrdinal: 2,
+      distinctRequiredProductCount: 3,
+    };
+    expect(RuleEffectSchema.safeParse(include).success).toBe(true);
+    expect(RuleEffectSchema.safeParse({
+      ...include,
+      heatExposureOrdinal: null,
+      distinctRequiredProductCount: null,
+    }).success).toBe(true);
+    expect(RuleEffectSchema.safeParse({ ...include, heatExposureOrdinal: -1 }).success).toBe(false);
+    expect(RuleEffectSchema.safeParse({ ...include, heatExposureOrdinal: 1.5 }).success).toBe(false);
+    expect(RuleEffectSchema.safeParse({ ...include, distinctRequiredProductCount: -1 }).success).toBe(false);
+    expect(RuleEffectSchema.safeParse({ ...include, distinctRequiredProductCount: 1.5 }).success).toBe(false);
+  });
+
   it('requires UUID identities and a distinct authenticated successor reviewer reference', () => {
     const review = {
       parentRulesetHash: `sha256:${'a'.repeat(64)}`,
