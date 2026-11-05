@@ -9,6 +9,7 @@ import {
 import { createPipelineState, resolveFact } from '../../../packages/engine/src/pipeline/stages/validate-snapshot.js';
 import { loadVerifiedFacts } from '../../../packages/engine/src/pipeline/stages/load-verified-facts.js';
 import { compareCandidates } from '../../../packages/engine/src/pipeline/stages/select-and-rank.js';
+import { ruleApplicability } from '../../../packages/engine/src/pipeline/stage-runner.js';
 import { ENGINE_STAGE_IDS } from '../../../packages/engine/src/index.js';
 import { FUTURE, NOW, PAST, buildInput, capability, fact, include, rule, when } from './fixtures.js';
 
@@ -258,6 +259,7 @@ describe('catalogue-version capability applicability', () => {
     });
 
     expect(decisionFor({ ...reviewedSubject, versionId: 'version-1' }).steps.map((step) => step.actionId)).not.toContain('cand-bound');
+    expect(decisionFor({ ...reviewedSubject, catalogueId: 'catalogue-product-other' }).steps.map((step) => step.actionId)).not.toContain('cand-bound');
     expect(decisionFor({ ...reviewedSubject, market: 'US' }).steps.map((step) => step.actionId)).not.toContain('cand-bound');
     expect(decisionFor(reviewedSubject).steps.map((step) => step.actionId)).toContain('cand-bound');
     const withoutIdentity = evaluateDecision({
@@ -275,6 +277,51 @@ describe('catalogue-version capability applicability', () => {
       })],
     });
     expect(evaluateDecision(wrongUseScope).steps.map((step) => step.actionId)).not.toContain('cand-bound');
+  });
+
+  it('rejects a hard rule whose referenced capability binding is missing', () => {
+    expect(() => evaluateDecision(buildInput({
+      rules: [rule('r-missing-capability', 'load_verified_facts', [include('cand-missing')], {
+        capabilityIds: ['cap-not-in-ruleset'],
+      })],
+    }))).toThrow(/references an unbound capability/);
+
+  });
+
+  it('rejects duplicate capability identifiers instead of choosing an ambiguous binding', () => {
+    const first = capability('cap-ambiguous');
+    const second = capability('cap-ambiguous', { reviewRef: 'review-other' });
+    expect(() => evaluateDecision(buildInput({
+      capabilities: [first, second],
+      rules: [rule('r-ambiguous-capability', 'load_verified_facts', [include('cand-ambiguous')], {
+        capabilityIds: ['cap-ambiguous'],
+      })],
+    }))).toThrow(/Capability identifiers must be unique/);
+  });
+
+  it('fails closed if rule applicability is called with a missing capability binding', () => {
+    const input = buildInput({
+      rules: [rule('r-missing-capability', 'load_verified_facts', [include('cand-missing')], {
+        capabilityIds: ['cap-not-in-ruleset'],
+      })],
+    });
+    const decisionInput = {
+      ...input,
+      ruleset: { ...input.ruleset, capabilities: [] },
+    };
+
+    expect(ruleApplicability(input.ruleset.rules[0]!, decisionInput, Date.parse(NOW))).toBe('inert');
+  });
+
+  it('fails closed if rule applicability is called with duplicate bindings', () => {
+    const input = buildInput({
+      rules: [rule('r-ambiguous-capability', 'load_verified_facts', [include('cand-ambiguous')], {
+        capabilityIds: ['cap-ambiguous'],
+      })],
+      capabilities: [capability('cap-ambiguous'), capability('cap-ambiguous', { reviewRef: 'review-other' })],
+    });
+
+    expect(ruleApplicability(input.ruleset.rules[0]!, input, Date.parse(NOW))).toBe('inert');
   });
 });
 
@@ -371,6 +418,22 @@ describe('stage 3 load_verified_facts', () => {
     }));
     expect(decision.status).toBe('blocked');
     expect(decision.omissions[0]).toMatchObject({ reasonCode: 'capability_unavailable', ruleIds: ['r-exp'] });
+  });
+
+  it('treats a capability review expiring at the fixed evaluation time as unavailable', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [rule('r-exp-at-now', 'load_verified_facts', [include('cand-a')], {
+        capabilityIds: ['cap-1'], claimIds: ['claim-cap-1', 'claim-r-exp-at-now'],
+        evidenceIds: ['ev-cap-1', 'ev-r-exp-at-now'],
+      })],
+      capabilities: [capability('cap-1', { expiresAt: NOW })],
+    }));
+
+    expect(decision.status).toBe('blocked');
+    expect(decision.omissions).toContainEqual(expect.objectContaining({
+      reasonCode: 'capability_unavailable',
+      ruleIds: ['r-exp-at-now'],
+    }));
   });
 
   it('does not rely on a capability whose review is dated after the evaluation time', () => {

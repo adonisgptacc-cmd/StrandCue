@@ -30,8 +30,11 @@ export type RuleApplicability = 'applicable' | 'not_applicable' | 'inert';
  * is expired or not yet effective, the rule is inert and cannot be relied on.
  */
 export const ruleApplicability = (rule: CompiledRule, input: EngineInput, nowMs: number): RuleApplicability => {
-  const capabilities = rule.capabilityIds.flatMap((capabilityId) =>
+  if (new Set(rule.capabilityIds).size !== rule.capabilityIds.length) return 'inert';
+  const bindingMatches = rule.capabilityIds.map((capabilityId) =>
     input.ruleset.capabilities.filter((capability) => capability.capabilityId === capabilityId));
+  if (bindingMatches.some((matches) => matches.length !== 1)) return 'inert';
+  const capabilities = bindingMatches.flatMap((matches) => matches);
   if (capabilities.some((capability) => rule.useScope === undefined || capability.reviewedUseScope !== rule.useScope)) {
     return 'not_applicable';
   }
