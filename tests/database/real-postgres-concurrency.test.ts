@@ -13,7 +13,9 @@ const config = readLocalSupabaseTestConfig(process.env);
 const describeLocal = config === null ? describe.skip : describe;
 
 function psql(sql: string): string {
-  const url = new URL(process.env.STRANDCUE_LOCAL_DB_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres');
+  const databaseUrl = process.env.STRANDCUE_LOCAL_DB_URL;
+  if (!databaseUrl) throw new Error('STRANDCUE_LOCAL_DB_URL is required for local API concurrency tests');
+  const url = new URL(databaseUrl);
   if (!['127.0.0.1', '[::1]'].includes(url.hostname)) throw new Error('Expected a disposable loopback database');
   const result = spawnSync('psql', [url.toString(), '-At', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error('psql failed');

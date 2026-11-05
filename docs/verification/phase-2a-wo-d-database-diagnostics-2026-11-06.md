@@ -15,6 +15,7 @@ The local stack used Supabase CLI 2.117.0, Edge Runtime 1.74.3, and PostgreSQL 1
 - Full repository suite with local API and real PostgreSQL opt-in checks enabled, four workers: 883 files, 5,204 tests passed, 0 failed, 0 pending.
 - Focused local API and real-Postgres concurrency files together, two workers: 2 files, 13 tests passed.
 - The seven real-Postgres race scenarios passed against PostgreSQL 17 through PostgREST, including same-operation retries, payload conflicts, concurrent revision changes, and shelf/tool overlap.
+- After independent review, the SQL helper was hardened to require an explicit `STRANDCUE_LOCAL_DB_URL` instead of silently defaulting to port 54322. The local API and real-Postgres files were rerun together against the isolated stack: 13/13 passed.
 - `npm run typecheck`: passed.
 - `npm run lint`: passed with zero warnings. Four pre-existing, unused `import/no-unresolved` disable comments were removed from database test files; no behavior changed.
 - `npm audit`: reported 20 dependency advisories (1 low, 14 moderate, 5 high, 0 critical). No dependency changes or automatic fixes were applied because dependency remediation is outside WO-D scope.
