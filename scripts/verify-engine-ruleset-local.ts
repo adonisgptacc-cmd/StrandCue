@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { URL } from 'node:url';
 
 import { canonicalRulesetContentHash } from '../packages/engine/src/canonical-json.ts';
 import { ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION } from '../packages/engine/src/pipeline/state.ts';
+import { parseLocalApiTarget, parseLocalDatabaseTarget } from './verify-engine-ruleset-local-target.ts';
 
 const apiUrl = process.env.STRANDCUE_LOCAL_SUPABASE_URL;
 const anonKey = process.env.STRANDCUE_LOCAL_SUPABASE_ANON_KEY;
@@ -13,15 +13,8 @@ const databaseUrl = process.env.STRANDCUE_LOCAL_SUPABASE_DATABASE_URL;
 
 assert(apiUrl && anonKey && serviceKey && databaseUrl, 'Local Supabase environment is incomplete.');
 
-const api = new URL(apiUrl);
-assert(api.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(api.hostname),
-  'Refusing to run the WO-C proof against a non-local Supabase URL.');
-assert(api.port === '55431', 'Refusing to run the WO-C proof outside its dedicated local Supabase API port.');
-const dbUrl = new URL(databaseUrl);
-assert(['127.0.0.1', 'localhost', '::1'].includes(dbUrl.hostname),
-  'Refusing to run the WO-C proof against a non-local database URL.');
-assert(dbUrl.port === '55432' && dbUrl.pathname === '/postgres',
-  'Refusing to run the WO-C proof outside its dedicated local PostgreSQL target.');
+const api = parseLocalApiTarget(apiUrl);
+const dbUrl = parseLocalDatabaseTarget(databaseUrl);
 
 type JsonRecord = Record<string, unknown>;
 type Packet = {

@@ -11,6 +11,7 @@ This work order verifies the real local Supabase Edge HTTP path for `verify-engi
 - Supabase CLI: 2.117.0; Edge runtime: 1.74.3; PostgreSQL: 17 (`server_version_num=170006`).
 - The stack used a WO-C-specific project ID and dedicated API/database ports 55431/55432 after checking those ports and the container name were unused. The harness itself requires these exact ports and a local `postgres` database. Existing local StrandCue stacks were left running.
 - The harness refuses non-loopback or wrong-port Supabase HTTP/database URLs before making requests. Supabase status values were passed through process environment and were not printed.
+- Independent review found that `localhost` could be redirected by local host configuration. The harness now accepts only numeric loopback literals (`127.0.0.1` or `[::1]`) and checks protocol, dedicated port, database path, credentials, and URL components before sending requests. Four target-validation tests cover accepted numeric targets and rejected `localhost` values.
 - Test accounts use generated addresses and passwords. The harness deletes created Auth accounts in `finally`; the disposable local stack was then stopped without a backup. A container check confirmed no WO-C containers remained.
 - `supabase/config.toml` was restored after the local run. No remote project ref was present or created.
 
