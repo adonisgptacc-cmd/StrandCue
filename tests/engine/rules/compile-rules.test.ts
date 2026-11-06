@@ -452,6 +452,40 @@ describe('rule compiler', () => {
     expect(compiled.ref.contentHash).toBe(canonicalRulesetContentHash({ capabilities: compiled.capabilities, rules: compiled.rules, successorReview }));
   });
 
+  it('keeps successor content hashes stable when authenticated actors are anonymized', () => {
+    const successorReview = {
+      parentRulesetHash: `sha256:${'0'.repeat(64)}`,
+      withdrawals: [{ ruleId: 'r-withdrawn', version: '1', affectedActionId: 'cand-successor' }],
+      authorizations: [{
+        withdrawnRuleId: 'r-withdrawn',
+        withdrawnRuleVersion: '1',
+        affectedActionId: 'cand-successor',
+        successorRuleId: 'successor-table::row-successor',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    const anonymizedSuccessorReview = {
+      ...successorReview,
+      authorizations: successorReview.authorizations.map((authorization) => ({
+        ...authorization,
+        authorId: '33333333-3333-4333-8333-333333333333',
+        reviewerId: '44444444-4444-4444-8444-444444444444',
+      })),
+    };
+
+    expect(canonicalRulesetContentHash({ capabilities: [], rules: [], successorReview: anonymizedSuccessorReview }))
+      .toBe(canonicalRulesetContentHash({ capabilities: [], rules: [], successorReview }));
+    expect(canonicalRulesetContentHash({
+      capabilities: [],
+      rules: [],
+      successorReview: { ...successorReview, withdrawals: [{ ...successorReview.withdrawals[0], version: '2' }] },
+    })).not.toBe(canonicalRulesetContentHash({ capabilities: [], rules: [], successorReview }));
+  });
+
   it('throws on an unbound capability', () => {
     expect(() =>
       compileRules({

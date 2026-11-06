@@ -21,7 +21,27 @@ export function canonicalJson(value: unknown): string {
   return serialized;
 }
 
-/** Hash the exact executable ruleset payload used by both compiler and evaluator. */
+function contentSuccessorReview(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  const review = value as Record<string, unknown>;
+  if (!Array.isArray(review.authorizations)) return review;
+  return {
+    ...review,
+    authorizations: review.authorizations.map((authorization) => {
+      if (authorization === null || typeof authorization !== 'object' || Array.isArray(authorization)) {
+        return authorization;
+      }
+      return Object.fromEntries(Object.entries(authorization)
+        .filter(([key]) => key !== 'authorId' && key !== 'reviewerId'));
+    }),
+  };
+}
+
+/**
+ * Hash executable ruleset content. Successor A/B identities are omitted because
+ * publication anonymizes them; the immutable packet digest and approval rows
+ * bind the opaque packet references to the authenticated reviewers.
+ */
 export function canonicalRulesetContentHash(ruleset: {
   readonly capabilities: unknown;
   readonly rules: unknown;
@@ -29,7 +49,11 @@ export function canonicalRulesetContentHash(ruleset: {
 }): string {
   const content = ruleset.successorReview === undefined
     ? { capabilities: ruleset.capabilities, rules: ruleset.rules }
-    : { capabilities: ruleset.capabilities, rules: ruleset.rules, successorReview: ruleset.successorReview };
+    : {
+        capabilities: ruleset.capabilities,
+        rules: ruleset.rules,
+        successorReview: contentSuccessorReview(ruleset.successorReview),
+      };
   return `sha256:${bytesToHex(
     sha256(utf8ToBytes(canonicalJson(content))),
   )}`;

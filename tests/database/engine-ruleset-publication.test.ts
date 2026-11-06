@@ -2,6 +2,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ENGINE_EVALUATOR_VERSION, ENGINE_SCHEMA_VERSION } from '../../packages/engine/src/pipeline/state.ts';
+import { canonicalRulesetContentHash } from '../../packages/engine/src/canonical-json.ts';
 import { asUser, database, UNVERIFIED, USER_A, USER_B } from './harness.ts';
 
 let db: PGlite;
@@ -133,6 +134,58 @@ describe('generic engine ruleset publication authority', () => {
     } });
     await asUser(db, USER_A);
     await expect(createDraft(id, invalid, parentHash)).rejects.toThrow(/engine-ruleset-successor-rule-invalid/);
+  });
+
+  it('verifies and publishes a successor after its A/B actor IDs are anonymized', async () => {
+    await enrollReviewer();
+    const parentId = crypto.randomUUID();
+    const parentRules = [{
+      ruleId: 'rule.old', version: '1', effects: [{ kind: 'include_candidate', candidateId: 'action.old' }],
+    }];
+    const parentHash = canonicalRulesetContentHash({ capabilities: [], rules: parentRules });
+    await asUser(db, USER_A);
+    const parentDraft = await createDraft(parentId, packet(parentHash, { rules: parentRules }));
+    await approveDraft(parentId, parentDraft.packetDigest);
+    await verifyDraft(parentId, parentDraft.packetDigest, parentHash);
+    await asUser(db, USER_A);
+    await query('select public.publish_engine_ruleset($1,$2)', [parentId, parentDraft.packetDigest]);
+
+    const childId = crypto.randomUUID();
+    const childRules = [{
+      ruleId: 'rule.new', version: '2', effects: [{ kind: 'include_candidate', candidateId: 'action.old' }],
+      successorOf: { parentRulesetHash: parentHash, withdrawnRuleId: 'rule.old', withdrawnRuleVersion: '1' },
+    }];
+    const successorReview = {
+      parentRulesetHash: parentHash,
+      withdrawals: [{ ruleId: 'rule.old', version: '1', affectedActionId: 'action.old' }],
+      authorizations: [{
+        withdrawnRuleId: 'rule.old', withdrawnRuleVersion: '1', affectedActionId: 'action.old',
+        successorRuleId: 'rule.new', successorRuleVersion: '2', authorId: USER_A, reviewerId: USER_B,
+        reviewedAt: '2026-11-06T12:00:00.000Z', reviewRef: childId,
+      }],
+    };
+    const childHash = canonicalRulesetContentHash({ capabilities: [], rules: childRules, successorReview });
+    const childPacket = packet(childHash, { rules: childRules, successorReview });
+    await asUser(db, USER_A);
+    const childDraft = await createDraft(childId, childPacket, parentHash);
+
+    await db.exec('set session authorization postgres');
+    const stored = await query<{ packet: { capabilities: unknown; rules: unknown; successorReview: typeof successorReview } }>(
+      'select packet from strandcue_private.engine_ruleset_publications where id=$1', [childId],
+    );
+    const storedPacket = stored.rows[0]!.packet;
+    const storedAuthorization = storedPacket.successorReview.authorizations[0]!;
+    expect(storedAuthorization.authorId).not.toBe(USER_A);
+    expect(storedAuthorization.reviewerId).not.toBe(USER_B);
+    expect(canonicalRulesetContentHash(storedPacket)).toBe(childHash);
+
+    await approveDraft(childId, childDraft.packetDigest);
+    await verifyDraft(childId, childDraft.packetDigest, childHash);
+    await asUser(db, USER_A);
+    const published = await query<{ publication: { state: string } }>(
+      'select public.publish_engine_ruleset($1,$2) publication', [childId, childDraft.packetDigest],
+    );
+    expect(published.rows[0]!.publication.state).toBe('published');
   });
 
   it('rejects a privileged direct insert that tries to bypass authenticated approvals', async () => {

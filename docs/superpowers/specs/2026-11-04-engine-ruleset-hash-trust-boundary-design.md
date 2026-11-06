@@ -31,6 +31,8 @@ Add a private, append-only `engine_ruleset_hash_verifications` table keyed by pu
 
 The Edge Function accepts only a publication UUID and packet digest. It authenticates the bearer token, reads the caller-owned draft through the owner RPC, requires strict `CompiledRulesetSchema` parsing, recomputes `canonicalRulesetContentHash`, and rejects if it differs from `packet.ref.contentHash`. On success it invokes the service-only verification RPC. It never accepts packet contents or a claimed verified hash from the client.
 
+The canonical content hash covers executable successor semantics, including the parent hash, withdrawals, affected actions, successor rule bindings, review time, and review reference. It omits only `authorId` and `reviewerId` inside successor authorizations because the database replaces those Auth UUIDs with opaque packet references when creating the immutable draft. The full transformed packet remains bound by `packetDigest`; the separate authenticated author/reviewer approval rows and successor actor-binding rows retain the identity proof. This keeps the executable content hash stable across anonymization without weakening approval binding.
+
 The publication trigger requires a verification row matching the immutable publication ID, packet digest, and content hash before transition to `published`. The privileged loader requires the same row. Parent lookup continues to resolve only published or withdrawn records that passed this gate. Existing A/B approval remains required and remains bound to the same packet digest.
 
 ## Constraints and anti-goals
