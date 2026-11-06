@@ -22,6 +22,20 @@ function psql(sql: string): string {
   return result.stdout.trim();
 }
 
+describe('local Auth fixture user IDs', () => {
+  it('accepts a UUID and rejects SQL-shaped identifiers before database interpolation', () => {
+    expect(requireLocalAuthUserId('f4b24b4c-0c4a-4f10-9636-17ce77bf13a2')).toBe('f4b24b4c-0c4a-4f10-9636-17ce77bf13a2');
+    expect(() => requireLocalAuthUserId("' OR TRUE; --")).toThrow('Expected a UUID from local Auth');
+  });
+});
+
+function requireLocalAuthUserId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value)) {
+    throw new Error('Expected a UUID from local Auth');
+  }
+  return value;
+}
+
 const DAY = { precision: 'day', value: '2026-03-01' };
 const ATTEMPTS = 8;
 
@@ -51,7 +65,7 @@ describeLocal('concurrent retries and writes against real Postgres', () => {
       method: 'POST', headers: { apikey: config!.secretKey, Authorization: `Bearer ${config!.secretKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, email_confirm: true }),
     });
-    userId = ((await created.json()) as { id: string }).id;
+    userId = requireLocalAuthUserId(((await created.json()) as { id?: unknown }).id);
     const session = await fetcher(`${url}/auth/v1/token?grant_type=password`, {
       method: 'POST', headers: { apikey: config!.publishableKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }),
     });
