@@ -1262,6 +1262,10 @@ describe('dependency audit CLI', () => {
   it('reports an unreviewed branch with a fixed code and no untrusted path details', async () => {
     const untrustedPackageName = 'attacker-controlled-android-runtime';
     const baseline = cliAuditReport();
+    // Branch from a package the live registry has reviewed, so the new parent is the only unreviewed path.
+    const reviewedLeaf = Object.values(baseline.vulnerabilities)
+      .find(({ via }) => via.some(entry => typeof entry !== 'string'))?.name;
+    expect(reviewedLeaf).toBeDefined();
     const report = {
       ...baseline,
       vulnerabilities: {
@@ -1269,7 +1273,7 @@ describe('dependency audit CLI', () => {
         hostile: {
           name: untrustedPackageName,
           severity: 'moderate',
-          via: ['uuid'],
+          via: [reviewedLeaf as string],
           effects: [],
         },
       },
