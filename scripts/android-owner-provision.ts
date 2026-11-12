@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { cleanupOwnerIsolationFixtures, seedOwnerIsolationFixtures, type PrivilegedProbe } from './owner-isolation-scenarios.ts';
@@ -33,8 +33,12 @@ export interface OwnerCredential { readonly label: string; readonly id: string; 
 const LABELS = ['SC-ANDROID-T5-OWNER-A', 'SC-ANDROID-T5-OWNER-B'] as const;
 
 function outsideRepository(path: string, root: string): string {
-  const absolute = resolve(path);
-  const from = relative(resolve(root), absolute);
+  // A drive-letter repository root is compared with Windows rules on every host, so the containment
+  // answer never depends on the platform running the check.
+  const flavor = process.platform === 'win32' || /^[A-Za-z]:[\\/]/.test(root) ? win32 : posix;
+  const { isAbsolute, relative } = flavor;
+  const absolute = flavor.resolve(path);
+  const from = relative(flavor.resolve(root), absolute);
   // A path on another drive, or above the repository, is outside it. Anything else is inside.
   if (from === '' || !(from.startsWith('..') || isAbsolute(from))) throw new Error('CREDENTIALS_PATH_INSIDE_REPOSITORY');
   return absolute;

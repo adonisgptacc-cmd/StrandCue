@@ -131,15 +131,16 @@ function command(file: string, args: readonly string[], probes: PreflightProbes)
 
 function sdkIsAvailable(probes: PreflightProbes): boolean {
   const sdkRoot = probes.env.ANDROID_HOME ?? probes.env.ANDROID_SDK_ROOT
-    ?? join(probes.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Android', 'Sdk');
+    ?? win32.join(probes.env.LOCALAPPDATA ?? win32.join(homedir(), 'AppData', 'Local'), 'Android', 'Sdk');
   const requiredFiles = [
     'platforms/android-36/android.jar',
     'build-tools/36.0.0/apksigner.bat', 'build-tools/36.0.0/aapt.exe',
     'build-tools/36.0.0/zipalign.exe', 'platform-tools/adb.exe',
     'cmake/3.22.1/bin/cmake.exe', 'cmake/3.22.1/bin/ninja.exe',
   ];
-  return probes.exists(join(sdkRoot, 'ndk/27.1.12297006'))
-    && requiredFiles.every(path => probes.isFile(join(sdkRoot, path)));
+  // The SDK layout checked here is Windows-only, so its paths use Windows rules on every host.
+  return probes.exists(win32.join(sdkRoot, 'ndk/27.1.12297006'))
+    && requiredFiles.every(path => probes.isFile(win32.join(sdkRoot, path)));
 }
 
 function scratchRealPathIsContained(scratchPath: string, probes: PreflightProbes): boolean {

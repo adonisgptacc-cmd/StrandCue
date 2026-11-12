@@ -38,6 +38,7 @@ describe('Android owner provisioning (local stack only)', () => {
   it('refuses a credentials file inside the repository, a hosted target and a missing key', async () => {
     await expect(provisionAndroidOwners('C:\\repo\\StrandCue\\creds.json', dependencies().deps)).rejects.toThrow('CREDENTIALS_PATH_INSIDE_REPOSITORY');
     await expect(provisionAndroidOwners('C:\\repo\\StrandCue', dependencies().deps)).rejects.toThrow('CREDENTIALS_PATH_INSIDE_REPOSITORY');
+    await expect(provisionAndroidOwners('/repo/StrandCue/creds.json', dependencies({ repositoryRoot: '/repo/StrandCue' }).deps)).rejects.toThrow('CREDENTIALS_PATH_INSIDE_REPOSITORY');
     const hosted = { SUPABASE_ACCEPTANCE_TARGET: 'isolated-test', SUPABASE_ACCEPTANCE_URL: 'https://abcdefghijklmnopqrst.supabase.co', SUPABASE_ACCEPTANCE_ENV_LABEL: 'isolated_test',
       SUPABASE_ACCEPTANCE_PROJECT_REF: 'abcdefghijklmnopqrst', SUPABASE_ACCEPTANCE_PRODUCTION_REFS: 'zzzzzzzzzzzzzzzzzzzz', SUPABASE_ACCEPTANCE_PUBLISHABLE_KEY: 'k', SUPABASE_ACCEPTANCE_ADMIN_KEY: 'x' };
     await expect(provisionAndroidOwners('C:\\scb\\e\\b.json', dependencies({ env: hosted }).deps)).rejects.toThrow('CONFIG_INVALID');
