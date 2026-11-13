@@ -1,10 +1,10 @@
 {
   "tree": "tools/eas-runner/package.json",
-  "lockSha256": "4f2e29679c842a17029e5c801fb5568dedc0ba9027cd84f265899ab7b94bdf6c",
-  "reviewedOn": "2026-10-17",
-  "recheckOn": "2026-10-24",
-  "expiresOn": "2026-10-31",
-  "owner": "<UNASSIGNED - dependency risk owner must be named before CI-001 closes>",
+  "lockSha256": "acef431adbf61d2ba2c89cd03bddd51116d282e694f040c3eda4ea155dfe9b08",
+  "reviewedOn": "2026-11-13",
+  "recheckOn": "2026-11-20",
+  "expiresOn": "2026-11-27",
+  "owner": "Alain Adonis (dependency risk owner; approved 2026-11-13)",
   "audit": {
     "auditReportVersion": 2,
     "vulnerabilities": {
@@ -28,115 +28,43 @@
           "isSemVerMajor": true
         }
       },
-      "@expo/code-signing-certificates": {
-        "name": "@expo/code-signing-certificates",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "node-forge"
-        ],
-        "effects": [
-          "eas-cli"
-        ],
-        "range": "*",
-        "nodes": [
-          "node_modules/@expo/code-signing-certificates"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
       "@expo/config": {
         "name": "@expo/config",
         "severity": "moderate",
         "isDirect": false,
         "via": [
-          "@expo/config-plugins"
+          "@expo/config-plugins",
+          "deepmerge",
+          "glob",
+          "sucrase"
         ],
         "effects": [
           "@expo/prebuild-config"
         ],
-        "range": "<=0.0.1-canary-20240418-8d74597 || 3.3.23-alpha.0 - 55.0.0-canary-20260223-05214f1 || 55.0.4-canary-20260128-67ce8d5 || 55.0.9-canary-20260424-7bedc9d - 55.0.9-canary-20260429-a5e59cf || 55.0.12-canary-20260327-0789fbc - 55.0.12-canary-20260402-9da566b || 56.0.0-canary-20260212-4f61309 - 56.0.0 || 56.0.10-canary-20260526-6cd5e37 - 56.0.10-canary-20260701-9100865 || 57.0.0-canary-20260526-13e89ca - 57.0.0-canary-20260723-64edab9 || >=58.0.0-canary-20260806-8c2d007",
+        "range": "9.1.0-canary-20240628-1ba8152 - 57.0.10 || 58.0.0-canary-20260806-8c2d007 - 58.0.10",
         "nodes": [
+          "node_modules/@expo/config",
           "node_modules/@expo/prebuild-config/node_modules/@expo/config"
         ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
+        "fixAvailable": true
       },
       "@expo/config-plugins": {
         "name": "@expo/config-plugins",
         "severity": "moderate",
         "isDirect": false,
         "via": [
+          "glob",
           "xcode"
         ],
         "effects": [
           "@expo/config",
-          "@expo/prebuild-config"
+          "@expo/prebuild-config",
+          "eas-cli"
         ],
-        "range": "<=55.0.11 || 56.0.0-canary-20260212-4f61309 - 56.0.16 || 57.0.0-canary-20260526-13e89ca - 57.0.10 || >=58.0.0-canary-20260806-8c2d007",
+        "range": "<=57.0.11 || 58.0.0-canary-20260806-8c2d007 - 58.0.11",
         "nodes": [
           "node_modules/@expo/config-plugins",
           "node_modules/@expo/prebuild-config/node_modules/@expo/config-plugins"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "@expo/pkcs12": {
-        "name": "@expo/pkcs12",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "node-forge"
-        ],
-        "effects": [],
-        "range": "*",
-        "nodes": [
-          "node_modules/@expo/pkcs12"
-        ],
-        "fixAvailable": true
-      },
-      "@expo/plugin-help": {
-        "name": "@expo/plugin-help",
-        "severity": "moderate",
-        "isDirect": false,
-        "via": [
-          "@oclif/core"
-        ],
-        "effects": [
-          "eas-cli"
-        ],
-        "range": "*",
-        "nodes": [
-          "node_modules/@expo/plugin-help"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "@expo/plugin-warn-if-update-available": {
-        "name": "@expo/plugin-warn-if-update-available",
-        "severity": "moderate",
-        "isDirect": false,
-        "via": [
-          "@oclif/core"
-        ],
-        "effects": [
-          "eas-cli"
-        ],
-        "range": ">=2.1.0",
-        "nodes": [
-          "node_modules/@expo/plugin-warn-if-update-available"
         ],
         "fixAvailable": {
           "name": "eas-cli",
@@ -152,18 +80,12 @@
           "@expo/config",
           "@expo/config-plugins"
         ],
-        "effects": [
-          "eas-cli"
-        ],
-        "range": "<=56.0.23 || >=57.0.0-canary-20260526-13e89ca",
+        "effects": [],
+        "range": "7.0.9-canary-20240719-83ee47b - 7.0.9-canary-20240814-ce0f7d5 || 7.1.0-canary-20240904-69100c1 - 57.0.19 || 58.0.0-canary-20260806-8c2d007 - 58.0.18",
         "nodes": [
           "node_modules/@expo/prebuild-config"
         ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
+        "fixAvailable": true
       },
       "@expo/rudder-sdk-node": {
         "name": "@expo/rudder-sdk-node",
@@ -186,62 +108,20 @@
           "isSemVerMajor": true
         }
       },
-      "@expo/steps": {
-        "name": "@expo/steps",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "fast-glob"
-        ],
-        "effects": [
-          "eas-cli"
-        ],
-        "range": ">=21.7.1",
-        "nodes": [
-          "node_modules/@expo/steps"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
       "@oclif/core": {
         "name": "@oclif/core",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "globby",
-          "js-yaml"
-        ],
-        "effects": [
-          "@expo/plugin-help",
-          "@expo/plugin-warn-if-update-available"
-        ],
-        "range": "<=4.3.0",
-        "nodes": [
-          "node_modules/@expo/plugin-help/node_modules/@oclif/core",
-          "node_modules/@expo/plugin-warn-if-update-available/node_modules/@oclif/core"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "argparse": {
-        "name": "argparse",
         "severity": "moderate",
         "isDirect": false,
         "via": [
-          "sprintf-js"
+          "minimatch"
         ],
         "effects": [
-          "js-yaml"
+          "@oclif/plugin-autocomplete",
+          "eas-cli"
         ],
-        "range": "1.0.0 - 1.0.10",
+        "range": "3.22.0 - 5.1.11",
         "nodes": [
-          "node_modules/argparse"
+          "node_modules/@oclif/core"
         ],
         "fixAvailable": {
           "name": "eas-cli",
@@ -249,40 +129,50 @@
           "isSemVerMajor": true
         }
       },
-      "braces": {
-        "name": "braces",
-        "severity": "high",
+      "@oclif/plugin-autocomplete": {
+        "name": "@oclif/plugin-autocomplete",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "@oclif/core"
+        ],
+        "effects": [],
+        "range": "3.0.13 - 3.3.0",
+        "nodes": [
+          "node_modules/@oclif/plugin-autocomplete"
+        ],
+        "fixAvailable": true
+      },
+      "deepmerge": {
+        "name": "deepmerge",
+        "severity": "low",
         "isDirect": false,
         "via": [
           {
-            "source": 1240992,
-            "name": "braces",
-            "dependency": "braces",
-            "title": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
-            "url": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
-            "severity": "high",
+            "source": 1243505,
+            "name": "deepmerge",
+            "dependency": "deepmerge",
+            "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+            "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+            "severity": "low",
             "cwe": [
-              "CWE-674"
+              "CWE-1321"
             ],
             "cvss": {
-              "score": 7.5,
-              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              "score": 5.3,
+              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
             },
-            "range": "<=3.0.3"
+            "range": ">=4.2.0 <=4.3.1"
           }
         ],
         "effects": [
-          "micromatch"
+          "@expo/config"
         ],
-        "range": "*",
+        "range": ">=4.2.0",
         "nodes": [
-          "node_modules/braces"
+          "node_modules/deepmerge"
         ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
+        "fixAvailable": true
       },
       "diff": {
         "name": "diff",
@@ -322,25 +212,20 @@
       },
       "eas-cli": {
         "name": "eas-cli",
-        "severity": "high",
+        "severity": "moderate",
         "isDirect": true,
         "via": [
-          "@expo/code-signing-certificates",
+          "@expo/config",
           "@expo/config-plugins",
-          "@expo/pkcs12",
-          "@expo/plugin-help",
-          "@expo/plugin-warn-if-update-available",
           "@expo/prebuild-config",
           "@expo/rudder-sdk-node",
-          "@expo/steps",
+          "@oclif/core",
+          "@oclif/plugin-autocomplete",
           "diff",
-          "fast-glob",
-          "jks-js",
-          "node-forge",
           "ts-deepmerge"
         ],
         "effects": [],
-        "range": ">=0.1.0-alpha.10",
+        "range": ">=0.24.0",
         "nodes": [
           "node_modules/eas-cli"
         ],
@@ -350,179 +235,180 @@
           "isSemVerMajor": true
         }
       },
-      "fast-glob": {
-        "name": "fast-glob",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "micromatch"
-        ],
-        "effects": [
-          "@expo/steps",
-          "globby"
-        ],
-        "range": "*",
-        "nodes": [
-          "node_modules/fast-glob"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "globby": {
-        "name": "globby",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "fast-glob"
-        ],
-        "effects": [
-          "@oclif/core"
-        ],
-        "range": ">=8.0.0",
-        "nodes": [
-          "node_modules/globby"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "jks-js": {
-        "name": "jks-js",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "node-forge"
-        ],
-        "effects": [
-          "eas-cli"
-        ],
-        "range": ">=1.0.0",
-        "nodes": [
-          "node_modules/jks-js"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "js-yaml": {
-        "name": "js-yaml",
-        "severity": "moderate",
-        "isDirect": false,
-        "via": [
-          "argparse"
-        ],
-        "effects": [
-          "@oclif/core"
-        ],
-        "range": "3.2.7 - 3.15.2",
-        "nodes": [
-          "node_modules/js-yaml"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "micromatch": {
-        "name": "micromatch",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          "braces"
-        ],
-        "effects": [
-          "fast-glob"
-        ],
-        "range": ">=0.2.0",
-        "nodes": [
-          "node_modules/micromatch"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "node-forge": {
-        "name": "node-forge",
-        "severity": "high",
-        "isDirect": false,
-        "via": [
-          {
-            "source": 1240912,
-            "name": "node-forge",
-            "dependency": "node-forge",
-            "title": "node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements",
-            "url": "https://github.com/advisories/GHSA-86w9-cpqp-85rv",
-            "severity": "high",
-            "cwe": [
-              "CWE-347"
-            ],
-            "cvss": {
-              "score": 7.5,
-              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
-            },
-            "range": "<=1.4.0"
-          }
-        ],
-        "effects": [
-          "@expo/code-signing-certificates",
-          "@expo/pkcs12",
-          "eas-cli",
-          "jks-js"
-        ],
-        "range": "*",
-        "nodes": [
-          "node_modules/node-forge"
-        ],
-        "fixAvailable": {
-          "name": "eas-cli",
-          "version": "13.4.2",
-          "isSemVerMajor": true
-        }
-      },
-      "sprintf-js": {
-        "name": "sprintf-js",
+      "fast-uri": {
+        "name": "fast-uri",
         "severity": "moderate",
         "isDirect": false,
         "via": [
           {
-            "source": 1241202,
-            "name": "sprintf-js",
-            "dependency": "sprintf-js",
-            "title": "sprintf-js vulnerable to denial of service through unbounded precision specifiers",
-            "url": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c",
+            "source": 1243098,
+            "name": "fast-uri",
+            "dependency": "fast-uri",
+            "title": "fast-uri vulnerable to URI scheme spoofing via percent-encoded scheme decoding",
+            "url": "https://github.com/advisories/GHSA-w74x-v6f9-j3xg",
             "severity": "moderate",
             "cwe": [
-              "CWE-1284"
+              "CWE-172",
+              "CWE-180"
             ],
             "cvss": {
-              "score": 5.3,
-              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+              "score": 6.1,
+              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"
             },
-            "range": "<=1.1.3"
+            "range": ">=3.0.0 <3.1.9"
+          },
+          {
+            "source": 1243101,
+            "name": "fast-uri",
+            "dependency": "fast-uri",
+            "title": "fast-uri vulnerable to improper path equivalence in relative reference normalization",
+            "url": "https://github.com/advisories/GHSA-xhq7-xmqj-769h",
+            "severity": "low",
+            "cwe": [
+              "CWE-41"
+            ],
+            "cvss": {
+              "score": 3.7,
+              "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N"
+            },
+            "range": ">=3.0.0 <3.1.9"
+          },
+          {
+            "source": 1243104,
+            "name": "fast-uri",
+            "dependency": "fast-uri",
+            "title": "fast-uri vulnerable to host confusion via unchecked WHATWG host canonicalization",
+            "url": "https://github.com/advisories/GHSA-wjr9-j795-jxcr",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-20",
+              "CWE-436"
+            ],
+            "cvss": {
+              "score": 4.8,
+              "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
+            },
+            "range": ">=3.1.3 <3.1.9"
+          },
+          {
+            "source": 1243107,
+            "name": "fast-uri",
+            "dependency": "fast-uri",
+            "title": "fast-uri vulnerable to scheme injection via an unescaped first-segment colon in suffix references",
+            "url": "https://github.com/advisories/GHSA-333x-w4r6-6crp",
+            "severity": "low",
+            "cwe": [
+              "CWE-41",
+              "CWE-116"
+            ],
+            "cvss": {
+              "score": 3.7,
+              "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N"
+            },
+            "range": ">=3.0.0 <3.1.9"
           }
         ],
-        "effects": [
-          "argparse"
-        ],
-        "range": "*",
+        "effects": [],
+        "range": "3.0.0 - 3.1.8",
         "nodes": [
-          "node_modules/sprintf-js"
+          "node_modules/fast-uri"
+        ],
+        "fixAvailable": true
+      },
+      "glob": {
+        "name": "glob",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1244013,
+            "name": "glob",
+            "dependency": "glob",
+            "title": "Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal",
+            "url": "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-400"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": ">=9.0.0 <=14.0.1"
+          },
+          "minimatch"
+        ],
+        "effects": [
+          "@expo/config",
+          "@expo/config-plugins",
+          "sucrase"
+        ],
+        "range": "9.0.0 - 14.0.1",
+        "nodes": [
+          "node_modules/@expo/prebuild-config/node_modules/glob",
+          "node_modules/glob",
+          "node_modules/sucrase/node_modules/glob"
         ],
         "fixAvailable": {
           "name": "eas-cli",
           "version": "13.4.2",
           "isSemVerMajor": true
         }
+      },
+      "minimatch": {
+        "name": "minimatch",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1244623,
+            "name": "minimatch",
+            "dependency": "minimatch",
+            "title": "minimatch has potential denial of service via globparts amplification",
+            "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-405"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": ">=7.0.0 <11.0.1"
+          }
+        ],
+        "effects": [
+          "@oclif/core",
+          "glob"
+        ],
+        "range": "7.0.0 - 11.0.0",
+        "nodes": [
+          "node_modules/@expo/prebuild-config/node_modules/minimatch",
+          "node_modules/@oclif/core/node_modules/minimatch",
+          "node_modules/glob/node_modules/minimatch",
+          "node_modules/sucrase/node_modules/minimatch"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "sucrase": {
+        "name": "sucrase",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "glob"
+        ],
+        "effects": [
+          "@expo/config"
+        ],
+        "range": "3.35.0",
+        "nodes": [
+          "node_modules/sucrase"
+        ],
+        "fixAvailable": true
       },
       "ts-deepmerge": {
         "name": "ts-deepmerge",
@@ -623,11 +509,11 @@
     "metadata": {
       "vulnerabilities": {
         "info": 0,
-        "low": 1,
-        "moderate": 13,
-        "high": 11,
+        "low": 2,
+        "moderate": 15,
+        "high": 0,
         "critical": 0,
-        "total": 25
+        "total": 17
       },
       "dependencies": {
         "prod": 504,
@@ -641,23 +527,40 @@
   },
   "advisories": [
     {
-      "advisoryId": "GHSA-vfj7-8cjw-p6xm",
-      "package": "braces",
-      "severity": "high",
+      "advisoryId": "GHSA-333x-w4r6-6crp",
+      "package": "fast-uri",
+      "severity": "low",
       "versions": [
-        "node_modules/braces@3.0.3"
+        "node_modules/fast-uri@3.1.8"
       ],
       "paths": [
-        "runner > eas-cli@24.10.0 > @expo/plugin-help@5.1.23 > @oclif/core@2.16.0 > globby@11.1.0 > fast-glob@3.3.2 > micromatch@4.0.8 > braces@3.0.3",
-        "runner > eas-cli@24.10.0 > @expo/plugin-warn-if-update-available@2.5.1 > @oclif/core@2.16.0 > globby@11.1.0 > fast-glob@3.3.2 > micromatch@4.0.8 > braces@3.0.3",
-        "runner > eas-cli@24.10.0 > @expo/steps@24.9.0 > fast-glob@3.3.2 > micromatch@4.0.8 > braces@3.0.3",
-        "runner > eas-cli@24.10.0 > fast-glob@3.3.2 > micromatch@4.0.8 > braces@3.0.3"
+        "runner > eas-cli@24.14.0 > ajv@8.18.0 > fast-uri@3.1.8"
       ],
-      "reachability": "Metro/fast-glob pattern expansion is callable during builds. Trusted repo patterns only; no application runtime import.",
-      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed.",
-      "upstream": "3.0.3 latest published; no fixed release (npm view 2026-10-17).",
-      "compatibility": "Keep eas-cli 24.10.0 exact; retain Expo/Stryker direct pins. 3.0.3 latest published; no fixed release (npm view 2026-10-17).",
-      "controls": "Use controlled manual CI and trusted configs; reject untrusted patterns. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; review 2026-10-24, expire 2026-10-31."
+      "reachability": "Suffix reference handling inside schema validation of trusted configuration. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "controls": "Trusted configuration only; refresh the lock to 3.1.9 at the next recheck. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
+    },
+    {
+      "advisoryId": "GHSA-3g3m-2fjr-6pw4",
+      "package": "glob",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/@expo/prebuild-config/node_modules/glob@10.5.0",
+        "node_modules/glob@13.0.6",
+        "node_modules/sucrase/node_modules/glob@10.5.0"
+      ],
+      "paths": [
+        "runner > eas-cli@24.14.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > glob@10.5.0",
+        "runner > eas-cli@24.14.0 > @expo/config@55.0.10 > glob@13.0.6",
+        "runner > eas-cli@24.14.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > sucrase@3.35.0 > glob@10.5.0"
+      ],
+      "reachability": "An aborted glob can keep traversing the filesystem after its timeout; traversal targets are the project directory. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Affects 9.0.0 through 14.0.1; the consumers pin older majors (10.5.0 and 13.0.6 are locked).",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Affects 9.0.0 through 14.0.1; the consumers pin older majors (10.5.0 and 13.0.6 are locked).",
+      "controls": "Trusted repository files only; bounded CI job time. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
     },
     {
       "advisoryId": "GHSA-73rr-hh4g-fpgx",
@@ -667,49 +570,13 @@
         "node_modules/diff@7.0.0"
       ],
       "paths": [
-        "runner > eas-cli@24.10.0 > diff@7.0.0"
+        "runner > eas-cli@24.14.0 > diff@7.0.0"
       ],
       "reachability": "parsePatch/applyPatch are vulnerable; EAS diff helper uses textual diff output. No untrusted patch ingestion is established; callable tool exposure remains possible.",
-      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed.",
-      "upstream": "Fixed in 8.0.3; EAS pins 7.0.0, a major upgrade requires upstream API verification.",
-      "compatibility": "Keep eas-cli 24.10.0 exact; retain Expo/Stryker direct pins. Fixed in 8.0.3; EAS pins 7.0.0, a major upgrade requires upstream API verification.",
-      "controls": "Trusted build inputs, fixed build command and bounded CI time; no arbitrary patch input. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; review 2026-10-24, expire 2026-10-31."
-    },
-    {
-      "advisoryId": "GHSA-86w9-cpqp-85rv",
-      "package": "node-forge",
-      "severity": "high",
-      "versions": [
-        "node_modules/node-forge@1.4.0"
-      ],
-      "paths": [
-        "runner > eas-cli@24.10.0 > @expo/code-signing-certificates@0.0.5 > node-forge@1.4.0",
-        "runner > eas-cli@24.10.0 > @expo/pkcs12@0.1.3 > node-forge@1.4.0",
-        "runner > eas-cli@24.10.0 > jks-js@1.1.0 > node-forge@1.4.0",
-        "runner > eas-cli@24.10.0 > node-forge@1.4.0"
-      ],
-      "reachability": "Certificate/signature parsing is callable in EAS credential/signing tooling, including Android keystore/JKS paths; runtime not bundled. Reachability of the vulnerable verifier on this command is uncertain, not proven absent.",
-      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed.",
-      "upstream": "1.4.0 latest published; no fixed release (npm view 2026-10-17).",
-      "compatibility": "Keep eas-cli 24.10.0 exact; retain Expo/Stryker direct pins. 1.4.0 latest published; no fixed release (npm view 2026-10-17).",
-      "controls": "Use existing reviewed remote credentials; do not import untrusted certificate/keystore material. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; review 2026-10-24, expire 2026-10-31."
-    },
-    {
-      "advisoryId": "GHSA-hp3w-g68c-fv3c",
-      "package": "sprintf-js",
-      "severity": "moderate",
-      "versions": [
-        "node_modules/sprintf-js@1.0.3"
-      ],
-      "paths": [
-        "runner > eas-cli@24.10.0 > @expo/plugin-help@5.1.23 > @oclif/core@2.16.0 > js-yaml@3.15.2 > argparse@1.0.10 > sprintf-js@1.0.3",
-        "runner > eas-cli@24.10.0 > @expo/plugin-warn-if-update-available@2.5.1 > @oclif/core@2.16.0 > js-yaml@3.15.2 > argparse@1.0.10 > sprintf-js@1.0.3"
-      ],
-      "reachability": "Formatting is transitive through argparse/js-yaml and old oclif helpers. Hostile format precision could exhaust memory; reviewed command uses fixed CLI flags and trusted configuration.",
-      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed.",
-      "upstream": "1.1.3 latest published is affected; no patched release.",
-      "compatibility": "Keep eas-cli 24.10.0 exact; retain Expo/Stryker direct pins. 1.1.3 latest published is affected; no patched release.",
-      "controls": "Bound workflow choices, trusted repository inputs, CI time limits; avoid user-provided format strings. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; review 2026-10-24, expire 2026-10-31."
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Fixed in 8.0.3; eas-cli 24.14.0 pins 7.0.0, and a major upgrade requires upstream API verification.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 8.0.3; eas-cli 24.14.0 pins 7.0.0, and a major upgrade requires upstream API verification.",
+      "controls": "Trusted build inputs, fixed build command and bounded CI time; no arbitrary patch input. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
     },
     {
       "advisoryId": "GHSA-87mf-gv2c-c62c",
@@ -719,13 +586,51 @@
         "node_modules/ts-deepmerge@6.2.0"
       ],
       "paths": [
-        "runner > eas-cli@24.10.0 > ts-deepmerge@6.2.0"
+        "runner > eas-cli@24.14.0 > ts-deepmerge@6.2.0"
       ],
       "reachability": "Merge executes on build configuration. Attacker-controlled property names could override inherited methods; config is trusted repository input.",
-      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed.",
-      "upstream": "Fixed in 8.0.0; EAS 24.10.0 pins 6.2.0.",
-      "compatibility": "Keep eas-cli 24.10.0 exact; retain Expo/Stryker direct pins. Fixed in 8.0.0; EAS 24.10.0 pins 6.2.0.",
-      "controls": "Manual reviewed builds only; no untrusted PR/config input in credential-bearing job. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; review 2026-10-24, expire 2026-10-31."
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Fixed in 8.0.0; eas-cli 24.14.0 pins 6.2.0.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 8.0.0; eas-cli 24.14.0 pins 6.2.0.",
+      "controls": "Manual reviewed builds only; no untrusted PR/config input in the credential-bearing job. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
+    },
+    {
+      "advisoryId": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/@expo/prebuild-config/node_modules/minimatch@9.0.9",
+        "node_modules/@oclif/core/node_modules/minimatch@10.2.6",
+        "node_modules/glob/node_modules/minimatch@10.2.6",
+        "node_modules/sucrase/node_modules/minimatch@9.0.9"
+      ],
+      "paths": [
+        "runner > eas-cli@24.14.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > glob@10.5.0 > minimatch@9.0.9",
+        "runner > eas-cli@24.14.0 > @oclif/core@4.14.0 > minimatch@10.2.6",
+        "runner > eas-cli@24.14.0 > @expo/config@55.0.10 > glob@13.0.6 > minimatch@10.2.6",
+        "runner > eas-cli@24.14.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > sucrase@3.35.0 > glob@10.5.0 > minimatch@9.0.9"
+      ],
+      "reachability": "Glob-part amplification can exhaust CPU on hostile patterns; patterns come from repository and tool configuration. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Fixed in 11.0.1; the consumers pin 9.x and 10.x.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 11.0.1; the consumers pin 9.x and 10.x.",
+      "controls": "Trusted patterns only; bounded CI job time. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
+    },
+    {
+      "advisoryId": "GHSA-gcqx-w48m-w2h4",
+      "package": "deepmerge",
+      "severity": "low",
+      "versions": [
+        "node_modules/deepmerge@4.3.1"
+      ],
+      "paths": [
+        "runner > eas-cli@24.14.0 > @expo/config@55.0.10 > deepmerge@4.3.1"
+      ],
+      "reachability": "mergeObject can return prototype-poisoned objects when merging hostile input; inputs here are repository configuration. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Affects 4.2.0 through 4.3.1; 4.3.1 is installed and no fixed release is available inside the pinned range.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Affects 4.2.0 through 4.3.1; 4.3.1 is installed and no fixed release is available inside the pinned range.",
+      "controls": "Trusted repository configuration only; manual reviewed builds. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
     },
     {
       "advisoryId": "GHSA-w5hq-g745-h8pq",
@@ -737,18 +642,63 @@
         "node_modules/xcode/node_modules/uuid@7.0.3"
       ],
       "paths": [
-        "runner > eas-cli@24.10.0 > @expo/config-plugins@55.0.7 > xcode@3.0.1 > uuid@7.0.3",
-        "runner > eas-cli@24.10.0 > @expo/config@55.0.10 > @expo/config-plugins@55.0.7 > xcode@3.0.1 > uuid@7.0.3",
-        "runner > eas-cli@24.10.0 > @expo/prebuild-config@9.0.12 > @expo/config-plugins@10.1.2 > xcode@3.0.1 > uuid@7.0.3",
-        "runner > eas-cli@24.10.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > @expo/config-plugins@10.1.2 > xcode@3.0.1 > uuid@7.0.3",
-        "runner > eas-cli@24.10.0 > @expo/rudder-sdk-node@1.1.1 > @expo/bunyan@4.0.1 > uuid@8.3.2",
-        "runner > eas-cli@24.10.0 > @expo/rudder-sdk-node@1.1.1 > uuid@8.3.2"
+        "runner > eas-cli@24.14.0 > @expo/rudder-sdk-node@1.1.1 > @expo/bunyan@4.0.1 > uuid@8.3.2",
+        "runner > eas-cli@24.14.0 > @expo/rudder-sdk-node@1.1.1 > uuid@8.3.2",
+        "runner > eas-cli@24.14.0 > @expo/config-plugins@55.0.7 > xcode@3.0.1 > uuid@7.0.3"
       ],
-      "reachability": "Xcode and Rudder analytics use v4 without a caller-supplied output buffer; Bunyan uses v1() without a buffer (lib/bunyan.js:928). Advisory concerns v3/v5/v6 with a supplied output buffer; reviewed call shapes do not match.",
-      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed.",
+      "reachability": "Xcode and Rudder analytics use v4 without a caller-supplied output buffer; Bunyan uses v1() without a buffer. The advisory concerns v3/v5/v6 with a supplied output buffer; reviewed call shapes do not match.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
       "upstream": "Fixed in 11.1.1, but xcode requires ^7.0.3 and bunyan/rudder require older 8.x releases.",
-      "compatibility": "Keep eas-cli 24.10.0 exact; retain Expo/Stryker direct pins. Fixed in 11.1.1, but xcode requires ^7.0.3 and bunyan/rudder require older 8.x releases.",
-      "controls": "Keep iOS outside release scope; no caller-provided buffers; recheck callsites before expanding commands. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; review 2026-10-24, expire 2026-10-31."
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 11.1.1, but xcode requires ^7.0.3 and bunyan/rudder require older 8.x releases.",
+      "controls": "Keep iOS outside release scope; no caller-provided buffers; recheck call sites before expanding commands. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
+    },
+    {
+      "advisoryId": "GHSA-w74x-v6f9-j3xg",
+      "package": "fast-uri",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/fast-uri@3.1.8"
+      ],
+      "paths": [
+        "runner > eas-cli@24.14.0 > ajv@8.18.0 > fast-uri@3.1.8"
+      ],
+      "reachability": "URI scheme handling inside schema validation of trusted configuration. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "controls": "Trusted configuration only; refresh the lock to 3.1.9 at the next recheck. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
+    },
+    {
+      "advisoryId": "GHSA-wjr9-j795-jxcr",
+      "package": "fast-uri",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/fast-uri@3.1.8"
+      ],
+      "paths": [
+        "runner > eas-cli@24.14.0 > ajv@8.18.0 > fast-uri@3.1.8"
+      ],
+      "reachability": "Host canonicalization inside schema validation of trusted configuration. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "controls": "Trusted configuration only; refresh the lock to 3.1.9 at the next recheck. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
+    },
+    {
+      "advisoryId": "GHSA-xhq7-xmqj-769h",
+      "package": "fast-uri",
+      "severity": "low",
+      "versions": [
+        "node_modules/fast-uri@3.1.8"
+      ],
+      "paths": [
+        "runner > eas-cli@24.14.0 > ajv@8.18.0 > fast-uri@3.1.8"
+      ],
+      "reachability": "Relative reference normalization inside schema validation of trusted configuration. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The manual EAS build process has EXPO_TOKEN and remote credential access; source-side controls do not eliminate tool-process exposure. No hosted build executed for this review.",
+      "upstream": "Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "compatibility": "Keep eas-cli 24.14.0 exact with the reviewed overrides (node-forge 1.4.3, joi 17.13.9). Fixed in 3.1.9; 3.1.8 is locked. A lock refresh should take the fix and remove this entry.",
+      "controls": "Trusted configuration only; refresh the lock to 3.1.9 at the next recheck. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
     }
   ]
 }

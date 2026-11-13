@@ -1003,6 +1003,8 @@ describe('dependency advisory policy', () => {
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const CLEAN_AUDIT_REPORT = JSON.stringify({ auditReportVersion: 2, vulnerabilities: {} });
+// The CLI fixtures use a fixed registry, so these tests never depend on what the live registry holds.
+const registryFixturePath = resolve(repositoryRoot, 'tests/fixtures/dependency-advisory-exceptions.fixture.json');
 let fakeNpmDirectory = '';
 let fakeNpmPath = '';
 let fixedClockPath = '';
@@ -1019,10 +1021,7 @@ function cliAuditReport() {
     via: (string | { name: string; severity: 'moderate' | 'high'; url: string })[];
     effects: string[];
   };
-  const registry = JSON.parse(readFileSync(
-    resolve(repositoryRoot, 'docs/verification/dependency-advisory-exceptions.json'),
-    'utf8',
-  )) as RegistryEntry[];
+  const registry = JSON.parse(readFileSync(registryFixturePath, 'utf8')) as RegistryEntry[];
   const vulnerabilities: Record<string, Vulnerability> = {};
   const ensureVulnerability = (name: string, severity: 'moderate' | 'high') => {
     vulnerabilities[name] ??= { name, severity, via: [], effects: [] };
@@ -1110,15 +1109,24 @@ describe('dependency audit CLI', () => {
     fakeNpmDirectory = await mkdtemp(join(tmpdir(), 'strandcue-audit-cli-'));
     fakeNpmPath = join(fakeNpmDirectory, 'fake-npm.mjs');
     fixedClockPath = join(fakeNpmDirectory, 'fixed-clock.mjs');
-    // Freeze only the fixture subprocess. The real CLI must keep its live expiry gate.
+    // Freeze only the fixture subprocess and serve it the fixture registry. The real CLI keeps its
+    // live expiry gate and reads the live registry.
     await writeFile(
       fixedClockPath,
       [
+        "import fsPromises from 'node:fs/promises';",
+        "import { syncBuiltinESMExports } from 'node:module';",
         'const RealDate = Date;',
         'globalThis.Date = class extends RealDate {',
         `  constructor(...args) { super(...(args.length ? args : ['${TODAY}T12:00:00Z'])); }`,
         `  static now() { return new RealDate('${TODAY}T12:00:00Z').getTime(); }`,
         '};',
+        'const realReadFile = fsPromises.readFile;',
+        `const registryFixture = ${JSON.stringify(readFileSync(registryFixturePath, 'utf8'))};`,
+        'fsPromises.readFile = (path, ...rest) => (path instanceof URL',
+        "  && path.pathname.endsWith('/docs/verification/dependency-advisory-exceptions.json')",
+        '  ? Promise.resolve(registryFixture) : realReadFile(path, ...rest));',
+        'syncBuiltinESMExports();',
         '',
       ].join('\n'),
       'utf8',
@@ -1298,7 +1306,8 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
-    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+    // The fixture clock predates the live runner reviews, so they hold on their lock or their dates.
+    expect(result.stdout).toMatch(/RUNNER-REVIEW-(LOCK|DATE)/);
 
     const audited = auditedDirectories(auditLog);
     expect(audited).toHaveLength(4);
@@ -1416,7 +1425,8 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
-    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+    // The fixture clock predates the live runner reviews, so they hold on their lock or their dates.
+    expect(result.stdout).toMatch(/RUNNER-REVIEW-(LOCK|DATE)/);
     expect(result.audited).toHaveLength(4);
     expect(result.audited.some(dir => dir.endsWith('/workers/account-deletion'))).toBe(true);
   }, 10_000);

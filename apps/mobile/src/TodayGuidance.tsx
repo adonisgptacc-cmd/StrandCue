@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text, View, type TextInstance } from 'react-native';
 import * as Crypto from 'expo-crypto';
 
 import {
@@ -189,7 +189,7 @@ export function TodayGuidance({ ownerId, assessmentId, onNavigate, onCueCheck, o
   const inflight = useRef(false);
   const mounted = useRef(true);
   const readFailed = useRef(false);
-  const resultRef = useRef<Text | null>(null);
+  const resultRef = useRef<TextInstance | null>(null);
 
   /**
    * The fail-closed preview for the current server decision, rebuilt from its

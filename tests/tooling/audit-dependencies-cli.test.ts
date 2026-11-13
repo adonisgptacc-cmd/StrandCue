@@ -8,6 +8,8 @@ type Scenario = {
   target?: string;
   symlinkEntry?: boolean;
   missingCandidate?: boolean;
+  /** Serve a fixed, already-stale registry so the case does not depend on the live one. */
+  staleRegistry?: boolean;
   npmPath?: string;
   auditOutput?: unknown;
   auditError?: number;
@@ -47,6 +49,9 @@ async function runGate(scenario: Scenario = {}) {
     readFile: async (path: URL, encoding: 'utf8') => {
       if ('config' in scenario && path.pathname.endsWith('/apps/mobile/app.json')) {
         return JSON.stringify(scenario.config);
+      }
+      if (scenario.staleRegistry && path.pathname.endsWith('/docs/verification/dependency-advisory-exceptions.json')) {
+        return fs.readFile(new URL('../fixtures/dependency-advisory-exceptions.fixture.json', import.meta.url), encoding);
       }
       return fs.readFile(path, encoding);
     },
@@ -97,7 +102,7 @@ describe('dependency audit CLI boundary handling', () => {
   });
 
   it('reports zero reviewed worker advisories when only the root has stale exceptions', async () => {
-    const result = await runGate({ missingCandidate: true });
+    const result = await runGate({ missingCandidate: true, staleRegistry: true });
     expect(result.exitCode).toBe(1);
     const hold = JSON.parse(result.stdout);
     expect(hold.status).toBe('DEPENDENCY-POLICY-HOLD');
