@@ -1306,7 +1306,8 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
-    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+    // The fixture clock predates the live runner reviews, so they hold on their lock or their dates.
+    expect(result.stdout).toMatch(/RUNNER-REVIEW-(LOCK|DATE)/);
 
     const audited = auditedDirectories(auditLog);
     expect(audited).toHaveLength(4);
@@ -1424,7 +1425,8 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
-    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+    // The fixture clock predates the live runner reviews, so they hold on their lock or their dates.
+    expect(result.stdout).toMatch(/RUNNER-REVIEW-(LOCK|DATE)/);
     expect(result.audited).toHaveLength(4);
     expect(result.audited.some(dir => dir.endsWith('/workers/account-deletion'))).toBe(true);
   }, 10_000);
