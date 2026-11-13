@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View, type TextInstance } from 'react-native';
 
 import type { CurrentConditionZone } from '../../../packages/domain/src/index';
 import {
@@ -98,11 +98,11 @@ const MONTH_NAMES = [
  *   optional, and no zone is ever inferred from a photo or any other fact.
  */
 export function TodayCheckIn({ draft, errors, nowIso, dispatch, focusSection = null }: TodayCheckInProps) {
-  const concernsRef = useRef<Text | null>(null);
-  const goalRef = useRef<Text | null>(null);
-  const timeRef = useRef<Text | null>(null);
-  const observedAtRef = useRef<Text | null>(null);
-  const zonesRef = useRef<Text | null>(null);
+  const concernsRef = useRef<TextInstance | null>(null);
+  const goalRef = useRef<TextInstance | null>(null);
+  const timeRef = useRef<TextInstance | null>(null);
+  const observedAtRef = useRef<TextInstance | null>(null);
+  const zonesRef = useRef<TextInstance | null>(null);
   const [region, setRegion] = useState<CurrentConditionZone['region'] | null>(null);
   const [status, setStatus] = useState('');
 
