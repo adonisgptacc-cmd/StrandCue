@@ -1,0 +1,1076 @@
+import { createElement } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAllCheckInDrafts } from '../../apps/mobile/src/guidance/current-condition-state';
+
+import type { GuidanceGap, ProtocolDecision } from '../../packages/domain/src/index';
+import { normalizeCurrentCondition } from '../../packages/domain/src/index';
+import { TodayGuidance } from '../../apps/mobile/src/TodayGuidance';
+import { type ProtocolPreviewModel } from '../../apps/mobile/src/guidance/protocol-preview-model';
+import {
+  CHECK_IN_CONTINUE_LABEL,
+  CHECK_IN_START_LABEL,
+  CHECK_IN_SUMMARY_HEADING,
+  EXECUTION_START_LABEL,
+  START_OVER_LABEL,
+  TIME_INPUT_LABEL,
+} from '../../apps/mobile/src/guidance/guidance-copy';
+
+const mocks = vi.hoisted(() => ({
+  generate: vi.fn(),
+  recordRun: vi.fn(),
+  executionStart: vi.fn(),
+  executionTransition: vi.fn(),
+  executionGetActive: vi.fn(),
+  restoreAggregate: vi.fn(),
+  preview: vi.fn(),
+  heatAssessment: vi.fn(),
+  heatReviewedCopy: vi.fn(),
+  nowIso: '2026-10-11T09:00:00.000Z',
+  uuidCounter: { value: 0 },
+}));
+
+vi.mock('react-native', () => {
+  const host = (tag: string) => {
+    function HostComponent({ children, ...props }: { children?: unknown } & Record<string, unknown>) {
+      return createElement(tag, props, children as never);
+    }
+    HostComponent.displayName = `Mock${tag}`;
+    return HostComponent;
+  };
+  return {
+    Platform: { OS: 'web' },
+    AppState: { currentState: 'active', addEventListener: () => ({ remove() {} }) },
+    Pressable: host('button'),
+    ScrollView: host('main'),
+    StyleSheet: { create: (value: unknown) => value },
+    Text: host('span'),
+    TextInput: host('input'),
+    View: host('div'),
+  };
+});
+
+vi.mock('expo-crypto', () => ({
+  randomUUID: () => {
+    mocks.uuidCounter.value += 1;
+    return `00000000-0000-4000-8000-${String(mocks.uuidCounter.value).padStart(12, '0')}`;
+  },
+}));
+
+vi.mock('../../apps/mobile/src/guidance/today-guidance-server-api', () => ({
+  requestTodayGuidance: mocks.generate,
+  hasMatchingTrustedReceipt: (result: { status: string; requestId?: string; inputFingerprint?: string; decision?: { requestId?: string }; receipt?: { status?: string; requestId?: string; inputFingerprint?: string } }) =>
+    result.status === 'ready' && result.receipt?.status === 'ready'
+    && result.receipt.requestId === result.requestId
+    && result.receipt.inputFingerprint === result.inputFingerprint
+    && result.decision?.requestId === result.requestId,
+}));
+
+vi.mock('../../apps/mobile/src/guidance/recommendation-run-api', () => ({
+  recordRecommendationRun: mocks.recordRun,
+}));
+vi.mock('../../apps/mobile/src/guidance/protocol-preview-model', () => ({
+  buildProtocolPreview: mocks.preview,
+}));
+vi.mock('../../apps/mobile/src/heat-coach-api', () => ({
+  getHeatCoachAssessment: mocks.heatAssessment,
+  getHeatCoachReviewedCopy: mocks.heatReviewedCopy,
+}));
+
+// The execution surface mounts beside a ready plan but records nothing until
+// an explicit start tap. Mocking the boundary keeps these preflight tests
+// hermetic; execution behavior is proven in protocol-execution.test.tsx.
+// The restore aggregate resolves null here so every test starts from the
+// normal idle journey; recovery itself is proven in today-restore.test.tsx.
+vi.mock('../../apps/mobile/src/guidance/protocol-execution-api', () => ({
+  startProtocolExecution: mocks.executionStart,
+  transitionProtocolExecution: mocks.executionTransition,
+  getActiveProtocolExecution: mocks.executionGetActive,
+  getActiveExecutionWithDecision: mocks.restoreAggregate,
+}));
+
+// The substitute picker reads the shelf through shelf-api; mocking it keeps
+// the client (and its native modules) out of these preflight tests.
+vi.mock('../../apps/mobile/src/shelf-api', () => ({
+  listUserProducts: vi.fn(async () => ({ items: [], nextCursor: null })),
+  getUserProduct: vi.fn(async () => null),
+}));
+
+const OWNER = 'owner-1';
+
+function readyDecision(overrides: Partial<ProtocolDecision> = {}): ProtocolDecision {
+  return {
+    status: 'ready',
+    requestId: 'request-1',
+    confidence: 'moderate',
+    noPurchaseNeeded: true,
+    steps: [
+      {
+        stepId: 'step-1',
+        position: 1,
+        action: 'apply',
+        productId: 'owner-product-1',
+        productVersionId: 'version-1',
+        toolId: null,
+        toolVersionId: null,
+        waitSeconds: null,
+        rinse: null,
+        reasons: ["rule-wash@1 requires 'mild-cleanse'"],
+      },
+      {
+        stepId: 'step-2',
+        position: 2,
+        action: 'rinse',
+        productId: null,
+        productVersionId: null,
+        toolId: null,
+        toolVersionId: null,
+        waitSeconds: null,
+        rinse: true,
+        reasons: ['rule-rinse@1 requires rinsing'],
+      },
+    ],
+    omissions: ['Omitted Synthetic conditioner (owner-product-2): capability not verified'],
+    alternatives: ['Alternative: Synthetic balm (owner-product-3)'],
+    missingInputs: [],
+    audit: {
+      requestId: 'request-1',
+      engineVersion: '1',
+      evaluatedRules: [
+        {
+          ruleId: 'rule-wash',
+          versionId: '1',
+          outcome: 'applied',
+          reason: 'Reviewed reason.',
+          evidenceIds: ['evidence-1'],
+        },
+      ],
+      conflicts: [],
+      rankedCandidates: [],
+      rejectedCandidates: [],
+      restrictions: [],
+      missingInputs: [],
+    },
+    ...overrides,
+  };
+}
+
+function readyResult(overrides: Record<string, unknown> = {}) {
+  return {
+    status: 'ready',
+    decision: readyDecision(),
+    requestId: 'request-1',
+    asOf: '2026-10-11T09:00:00.000Z',
+    engineVersion: '1',
+    bundleId: 'bundle-synthetic',
+    bundleVersion: '1',
+    inputFingerprint: 'a'.repeat(64),
+    input: {
+      requestId: 'request-1',
+      asOf: '2026-10-11T09:00:00.000Z',
+      goal: 'basic_wash',
+      profileFacts: {},
+      historyFacts: {
+        activityKind: 'wash',
+        precision: 'exact_day',
+        status: 'active',
+      },
+      environmentFacts: {},
+      products: [],
+      tools: [],
+      rules: [],
+    },
+    ...overrides,
+  };
+}
+
+function readyPreviewModel(overrides: Partial<ProtocolPreviewModel> = {}): ProtocolPreviewModel {
+  return {
+    status: 'ready',
+    route: {
+      summary: 'Basic wash: treat with the products and tools you own.',
+      goal: 'Basic wash',
+    },
+    ownedItems: [
+      { kind: 'product', name: 'Garnier shampoo', available: true, owned: true },
+    ],
+    steps: [
+      {
+        position: 1,
+        action: 'apply',
+        item: { kind: 'product', name: 'Garnier shampoo', available: true, owned: true },
+        waitSeconds: null,
+        rinse: null,
+        reason: 'Use Garnier shampoo.',
+      },
+      {
+        position: 2,
+        action: 'wait',
+        item: undefined,
+        waitSeconds: 60,
+        rinse: null,
+        reason: 'Wait 60 seconds.',
+      },
+    ],
+    reasons: [
+      { step: 1, text: 'Use Garnier shampoo.' },
+      { step: 2, text: 'Wait 60 seconds.' },
+    ],
+    confidence: { level: 'moderate', limitedBecause: [] },
+    evidence: [
+      { kind: 'rule', covered: true, note: 'Reviewed evidence supports this rule.' },
+    ],
+    limitations: [
+      { text: 'This plan covers cosmetic hair care only; it is not a diagnosis or a treatment.' },
+    ],
+    alternatives: [],
+    noPurchaseNeeded: true,
+    ...overrides,
+  } as ProtocolPreviewModel;
+}
+
+const GAP: GuidanceGap = {
+  kind: 'hair_profile',
+  detail: "My Hair is missing 'naturalPattern', which this goal needs before reviewed guidance can be produced.",
+  subject: 'naturalPattern',
+  state: 'missing',
+  destination: 'my_hair',
+};
+
+function text(renderer: ReactTestRenderer): string {
+  return JSON.stringify(renderer.toJSON()).toLowerCase();
+}
+
+function button(renderer: ReactTestRenderer, label: string) {
+  return renderer.root.find(
+    node => node.type === 'button' && node.props.accessibilityLabel === label,
+  );
+}
+
+function hasButton(renderer: ReactTestRenderer, label: string): boolean {
+  return (
+    renderer.root.findAll(
+      node => node.type === 'button' && node.props.accessibilityLabel === label,
+    ).length > 0
+  );
+}
+
+async function render(
+  ownerId: string = OWNER,
+  onNavigate: () => void = vi.fn(),
+  assessmentId?: string,
+  onOpenHeatCoach?: (condition: unknown) => void,
+): Promise<ReactTestRenderer> {
+  let renderer!: ReactTestRenderer;
+  await act(async () => {
+    renderer = create(
+      createElement(TodayGuidance, { ownerId, onNavigate: onNavigate as never, assessmentId, onOpenHeatCoach }),
+    );
+    await Promise.resolve();
+  });
+  return renderer;
+}
+
+async function press(renderer: ReactTestRenderer, label: string): Promise<void> {
+  await act(async () => {
+    button(renderer, label).props.onPress();
+    await Promise.resolve();
+  });
+}
+
+/**
+ * Drives the check-in form through to the ready-to-generate summary.
+ *
+ * The form may already be open: a check-in that survived a trip to another
+ * screen is restored when the owner comes back, and its answers are already
+ * ticked. The helper therefore only presses what is not already there.
+ */
+async function completeCheckIn(
+  renderer: ReactTestRenderer,
+  concerns: string[] = ['Dryness'],
+  minutes: string = '20',
+): Promise<void> {
+  if (hasButton(renderer, CHECK_IN_START_LABEL)) {
+    await press(renderer, CHECK_IN_START_LABEL);
+  }
+  for (const concern of concerns) {
+    const control = button(renderer, concern);
+    if (control.props.accessibilityState?.checked !== true) {
+      await press(renderer, concern);
+    }
+  }
+  const time = renderer.root.find(
+    node => node.type === 'input' && node.props.accessibilityLabel === TIME_INPUT_LABEL,
+  );
+  await act(async () => {
+    time.props.onChangeText(minutes);
+    await Promise.resolve();
+  });
+  await press(renderer, CHECK_IN_CONTINUE_LABEL);
+}
+
+/** Full preflight: check-in, then generate. */
+async function generate(
+  renderer: ReactTestRenderer,
+  concerns: string[] = ['Dryness'],
+  minutes: string = '20',
+): Promise<void> {
+  await completeCheckIn(renderer, concerns, minutes);
+  await press(renderer, 'Generate my plan');
+}
+
+const originalConsoleError = console.error.bind(console);
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((message?: unknown, ...rest: unknown[]) => {
+    if (String(message).includes('react-test-renderer is deprecated')) return;
+    originalConsoleError(message, ...rest);
+  });
+});
+afterAll(() => { consoleErrorSpy.mockRestore(); });
+
+beforeEach(() => {
+  clearAllCheckInDrafts();
+  vi.clearAllMocks();
+  mocks.uuidCounter.value = 0;
+  mocks.generate.mockResolvedValue({ status: 'content_pending' });
+  mocks.recordRun.mockResolvedValue({ requestId: 'request-1' });
+  mocks.restoreAggregate.mockResolvedValue(null);
+  mocks.executionGetActive.mockResolvedValue(null);
+  mocks.preview.mockReturnValue(readyPreviewModel());
+  mocks.heatAssessment.mockReset();
+  mocks.heatReviewedCopy.mockReset();
+});
+
+describe('today guidance states', () => {
+  it('forwards only an explicitly supplied assessment identity with the check-in', async () => {
+    const assessmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const renderer = await render(OWNER, vi.fn(), assessmentId);
+    await generate(renderer);
+    expect(mocks.generate).toHaveBeenCalledWith(expect.objectContaining({ assessmentId }));
+    const sent = mocks.generate.mock.calls[0][0];
+    expect(sent).not.toHaveProperty('heatVerdict');
+    expect(sent).not.toHaveProperty('selectedHeatMethod');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('loads the exact assessment copy before preview and routes changed choices to a fresh Heat Coach assessment', async () => {
+    const assessmentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const publicationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const digest = `sha256:${'a'.repeat(64)}`;
+    const heatReceipt = { assessmentId, publicationId, publicationDigest: digest,
+      sourceFingerprint: digest, stale: false, status: 'appropriate', result: { state: 'appropriate' } };
+    const reviewedCopy = { assessmentId, publicationId, publicationDigest: digest,
+      copy: [{ copyKey: 'heat.limitations', text: 'Reviewed synthetic heat limits.' }] };
+    const heatDecision = readyDecision({
+      heatAssessmentBinding: { assessmentId, sourceFingerprint: digest, publicationId, publicationDigest: digest },
+      steps: [{ stepId: 'heat-step', position: 1, action: 'heat', productId: null, productVersionId: null,
+        toolId: 'tool-1', toolVersionId: 'tool-version-1', waitSeconds: null, rinse: null, reasons: [],
+        heatActionRef: { publicationId, publicationDigest: digest },
+        heatPrescription: { method: 'heated-air', temperature: { value: 160, unit: 'C' }, setting: 'Medium',
+          passes: 2, durationMinutes: 15, zones: [{ region: 'crown', segment: 'ends' }] } }],
+    });
+    mocks.generate.mockResolvedValue(readyResult({ decision: heatDecision, receipt: { status: 'ready', requestId: 'request-1', inputFingerprint: 'a'.repeat(64) } }));
+    mocks.heatAssessment.mockResolvedValue(heatReceipt);
+    mocks.heatReviewedCopy.mockResolvedValue(reviewedCopy);
+    mocks.preview.mockImplementation((value: { heatAssessment?: unknown }) => readyPreviewModel({
+      heatPrescription: value.heatAssessment === null || value.heatAssessment === undefined ? undefined : {
+        method: 'Heated air', temperature: '160°C', setting: 'Medium', passes: 2,
+        durationMinutes: 15, zones: ['Crown · ends'], reviewedLimitations: 'Reviewed synthetic heat limits.', adjustedLower: false,
+      },
+    }));
+    const onOpenHeatCoach = vi.fn();
+    const renderer = await render(OWNER, vi.fn(), assessmentId, onOpenHeatCoach);
+    await generate(renderer, ['Worried about heat styling']);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.heatAssessment).toHaveBeenCalledExactlyOnceWith(assessmentId);
+    expect(mocks.heatReviewedCopy).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ assessmentId }));
+    expect(mocks.preview).toHaveBeenLastCalledWith(expect.objectContaining({ heatAssessment: heatReceipt, heatReviewedCopy: reviewedCopy }));
+    expect(hasButton(renderer, 'Change heat choices')).toBe(true);
+    await press(renderer, 'Change heat choices');
+    expect(onOpenHeatCoach).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      concerns: ['heat-concern'], availableMinutes: 20,
+    }));
+    await act(async () => { renderer.unmount(); });
+  });
+  it('shows a loading state and disables Generate while generating', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    mocks.generate.mockImplementation(
+      () => new Promise(resolve => { release = resolve; }),
+    );
+    const renderer = await render();
+    await completeCheckIn(renderer);
+    expect(button(renderer, 'Generate my plan').props.accessibilityState.disabled).toBe(false);
+    await act(async () => {
+      button(renderer, 'Generate my plan').props.onPress();
+      await Promise.resolve();
+    });
+    expect(text(renderer)).toContain('loading');
+    expect(button(renderer, 'Working…').props.accessibilityState.disabled).toBe(true);
+    await act(async () => { release({ status: 'content_pending' }); await Promise.resolve(); });
+    expect(button(renderer, 'Start a new check-in').props.accessibilityState.disabled).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not generate anything until the user asks', async () => {
+    const renderer = await render();
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('shows the honest draft-content message and no protocol in production', async () => {
+    const renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).toContain('reviewed guidance content is still being prepared');
+    expect(text(renderer)).not.toContain('step 1');
+    expect(text(renderer)).not.toContain('no purchase needed');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('links each setup gap to the destination that can fix it', async () => {
+    mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [GAP] });
+    const onNavigate = vi.fn();
+    const renderer = await render(OWNER, onNavigate);
+    await generate(renderer);
+    expect(text(renderer)).toContain('naturalpattern');
+    expect(hasButton(renderer, 'Add this in My Hair')).toBe(true);
+    await press(renderer, 'Add this in My Hair');
+    expect(onNavigate).toHaveBeenCalledWith('my_hair');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('routes shelf, tool and service gaps to their own destinations', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [
+        { kind: 'product_capability', detail: 'Shelf gap', subject: 'p1', state: 'unsupported', destination: 'my_shelf' },
+        { kind: 'tool_capability', detail: 'Tool gap', subject: 't1', state: 'unsupported', destination: 'my_tools' },
+        { kind: 'service_presence', detail: 'Service gap', subject: 's1', state: 'unknown', destination: 'my_hair_services' },
+      ],
+    });
+    const onNavigate = vi.fn();
+    const renderer = await render(OWNER, onNavigate);
+    await generate(renderer);
+    expect(hasButton(renderer, 'Review My Shelf')).toBe(true);
+    expect(hasButton(renderer, 'Review My Tools')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('follows each gap\'s own destination and says in a few words why it stops the plan', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [
+        { kind: 'service_presence', detail: 'Service gap', subject: 's1', state: 'unsupported', destination: 'my_hair_services' },
+        { kind: 'hair_profile', detail: 'Profile gap', subject: 'p', state: 'missing', destination: 'my_hair' },
+        { kind: 'current_condition', detail: 'Check-in gap', subject: 'current.goal', state: 'contradictory', destination: 'today_check_in' },
+      ],
+    });
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    expect(rendered).toContain('not covered yet');
+    expect(rendered).toContain('not answered yet');
+    expect(rendered).toContain('these answers do not agree');
+    expect(hasButton(renderer, 'Add this in My Hair')).toBe(true);
+    expect(hasButton(renderer, 'Review check-in answers')).toBe(true);
+    expect(hasButton(renderer, 'Review My Shelf')).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('names the areas that could not be read instead of one generic message', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'source_error',
+      detail: 'Your records could not be read completely.',
+      incompleteSources: [{ source: 'products', state: 'failed' }, { source: 'tools', state: 'truncated' }],
+    });
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    expect(rendered).toContain('we could not read my shelf');
+    expect(rendered).toContain('we could not read my tools');
+    expect(hasButton(renderer, 'Try again')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('keeps the generic message when no area is known', async () => {
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Your records could not be read completely.' });
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    // It says the read failed without naming an area it does not know, and
+    // it still offers exactly one way forward.
+    expect(rendered).toContain('we could not read your records');
+    expect(rendered).not.toContain('my shelf');
+    expect(rendered).not.toContain('my tools');
+    expect(hasButton(renderer, 'Try again')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('renders the plain-language preview instead of the raw engine dump', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    expect(rendered).toContain('step 1');
+    expect(rendered).toContain('step 2');
+    expect(rendered).toContain('use garnier shampoo.');
+    expect(rendered).toContain('wait 60 seconds.');
+    expect(rendered).toContain('moderate confidence');
+    expect(rendered).toContain('reviewed evidence supports each rule in this plan.');
+    expect(rendered).not.toContain('rule-wash@1');
+    expect(rendered).not.toContain('evidence-1');
+    expect(rendered).not.toContain('omitted synthetic conditioner');
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('states no purchase needed only when the decision says so', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    let renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).toContain('no purchase needed');
+    await act(async () => { renderer.unmount(); });
+
+    mocks.generate.mockResolvedValue(
+      readyResult({ decision: readyDecision({ noPurchaseNeeded: false }) }),
+    );
+    mocks.preview.mockReturnValue(readyPreviewModel({ noPurchaseNeeded: false }));
+    renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).not.toContain('no purchase needed');
+    await act(async () => { renderer.unmount(); });
+    mocks.preview.mockReturnValue(readyPreviewModel());
+  });
+
+  it('keeps needs_input, rule_conflict and unsupported visibly distinct and never successful', async () => {
+    // The titles say it in the owner's words, never in engine vocabulary.
+    const titles = {
+      needs_input: 'this plan needs a little more from you',
+      rule_conflict: 'two reviewed rules disagree here',
+      unsupported: 'nothing reviewed covers this yet',
+    } as const;
+    for (const status of ['needs_input', 'rule_conflict', 'unsupported'] as const) {
+      mocks.generate.mockResolvedValue(
+        readyResult({
+          status,
+          decision: readyDecision({
+            status,
+            ...(status === 'needs_input' ? { missingInputs: ['profile.unrecorded'] } : {}),
+          }),
+        }),
+      );
+      const renderer = await render();
+      await generate(renderer);
+      const rendered = text(renderer);
+      expect(rendered).not.toContain('your plan is ready');
+      expect(rendered).toContain(titles[status]);
+      await act(async () => { renderer.unmount(); });
+    }
+  });
+
+  it('offers Retry on a source error and keeps the selected goal', async () => {
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
+    const renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).toContain('could not read records');
+    expect(hasButton(renderer, 'Try again')).toBe(true);
+    expect(text(renderer)).toContain('basic wash');
+    mocks.generate.mockResolvedValue(readyResult());
+    await press(renderer, 'Try again');
+    expect(text(renderer)).toContain('step 1');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('never substitutes cached or generic advice when generation fails', async () => {
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Network unavailable.' });
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    expect(rendered).not.toContain('step 1');
+    expect(rendered).not.toContain('try this instead');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not submit a client-generated ready decision to the persistence RPC', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    const renderer = await render();
+    await generate(renderer);
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not offer protocol start for a client-generated ready plan without a trusted server receipt', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    const renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).toContain('step 1');
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('offers start only for a matching trusted server receipt', async () => {
+    mocks.generate.mockResolvedValue(readyResult({
+      receipt: { id: 'run-1', requestId: 'request-1', inputFingerprint: 'a'.repeat(64), status: 'ready' },
+    }));
+    const renderer = await render();
+    await generate(renderer);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(true);
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    await press(renderer, EXECUTION_START_LABEL);
+    expect(mocks.executionGetActive).toHaveBeenCalled();
+    expect(mocks.executionStart).not.toHaveBeenCalled();
+    mocks.executionStart.mockRejectedValue(new Error('source-changed'));
+    await press(renderer, EXECUTION_START_LABEL);
+    expect(mocks.executionStart).toHaveBeenCalledTimes(1);
+    expect(mocks.executionStart.mock.calls[0][0].recommendationRunId).toBe('request-1');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('rejects a receipt for a different fingerprint', async () => {
+    mocks.generate.mockResolvedValue(readyResult({
+      receipt: { id: 'run-1', requestId: 'request-1', inputFingerprint: 'b'.repeat(64), status: 'ready' },
+    }));
+    const renderer = await render();
+    await generate(renderer);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('never sends the prepared input, owner item names or tool facts to the persistence call', async () => {
+    mocks.generate.mockResolvedValue(readyResult({
+      status: 'needs_input',
+      decision: { status: 'needs_input', steps: [] },
+      prepared: { schemaVersion: 1, products: [{ name: 'Synthetic owner-entered name' }], tools: [{ ownerFacts: { wattageWatts: 1800 } }] },
+    }));
+    const renderer = await render();
+    await generate(renderer);
+    expect(mocks.recordRun).toHaveBeenCalledTimes(1);
+    const sent = JSON.stringify(mocks.recordRun.mock.calls[0][0]);
+    expect(sent).not.toMatch(/prepared|ownerFacts|zoneConcerns|Synthetic owner-entered name|wattage/);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not persist a plan that was never generated', async () => {
+    mocks.generate.mockResolvedValue({ status: 'needs_setup', missing: [GAP] });
+    const renderer = await render();
+    await generate(renderer);
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('does not attempt a client save of an executable plan', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    mocks.recordRun.mockRejectedValue(new Error('run-conflict'));
+    const renderer = await render();
+    await generate(renderer);
+    expect(text(renderer)).not.toContain('plan created, audit save failed');
+    expect(text(renderer)).toContain('step 1');
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('ignores a late response from a superseded request', async () => {
+    // First Generate is slow and returns a ready result for a stale bundle;
+    // the owner change supersedes it before it lands.
+    mocks.generate.mockImplementation(
+      () => new Promise(resolve => { setTimeout(() => resolve(readyResult({ bundleId: 'stale-bundle' })), 25); }),
+    );
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createElement(TodayGuidance, { ownerId: OWNER, onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    await completeCheckIn(renderer);
+    await act(async () => {
+      button(renderer, 'Generate my plan').props.onPress();
+      await Promise.resolve();
+    });
+    mocks.generate.mockResolvedValue({ status: 'content_pending' });
+    await act(async () => {
+      renderer.update(createElement(TodayGuidance, { key: 'owner-2', ownerId: 'owner-2', onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await Promise.resolve();
+    });
+    expect(text(renderer)).not.toContain('stale-bundle');
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('ignores a response that arrives after unmount', async () => {
+    let resolveGenerate!: (value: ReturnType<typeof readyResult>) => void;
+    mocks.generate.mockImplementation(
+      () => new Promise(resolve => { resolveGenerate = resolve; }),
+    );
+    const renderer = await render();
+    await completeCheckIn(renderer);
+    await act(async () => {
+      button(renderer, 'Generate my plan').props.onPress();
+      await Promise.resolve();
+    });
+    await act(async () => { renderer.unmount(); });
+    await act(async () => {
+      resolveGenerate(readyResult());
+      await Promise.resolve();
+    });
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+  });
+
+  it('clears the previous owner result when the owner changes', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    let renderer!: ReactTestRenderer;
+    // The component is keyed by owner in records.tsx, so switching owners
+    // remounts it and the previous owner's result cannot linger.
+    const tree = (id: string) =>
+      createElement(TodayGuidance, { key: id, ownerId: id, onNavigate: vi.fn() });
+    await act(async () => {
+      renderer = create(tree(OWNER));
+      await Promise.resolve();
+    });
+    await generate(renderer);
+    expect(text(renderer)).toContain('step 1');
+    await act(async () => {
+      renderer.update(tree('owner-2'));
+      await Promise.resolve();
+    });
+    expect(text(renderer)).not.toContain('step 1');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('labels controls for screen readers and meets minimum target size', async () => {
+    const renderer = await render();
+    await press(renderer, CHECK_IN_START_LABEL);
+    const dryness = button(renderer, 'Dryness');
+    expect(dryness.props.accessibilityRole).toBe('checkbox');
+    const style = dryness.props.style as Record<string, unknown>[];
+    const base = style[0] as { minHeight?: number };
+    expect(base.minHeight).toBeGreaterThanOrEqual(44);
+    await act(async () => { renderer.unmount(); });
+  });
+});
+
+describe('task 6 integration: honest states without purchase pressure', () => {
+  function labeled(renderer: ReactTestRenderer, label: string) {
+    return renderer.root.find(
+      node => node.type === 'span' && node.props.accessibilityLabel === label,
+    );
+  }
+
+  function hasLabeled(renderer: ReactTestRenderer, label: string): boolean {
+    return (
+      renderer.root.findAll(
+        node => node.type === 'span' && node.props.accessibilityLabel === label,
+      ).length > 0
+    );
+  }
+
+  function unsupportedResult() {
+    return readyResult({
+      status: 'unsupported',
+      decision: readyDecision({
+        status: 'unsupported',
+        noPurchaseNeeded: null,
+        steps: [],
+        omissions: [
+          "profile.unrecorded rule-wash@1 https://example.invalid/secret 11111111-1111-4111-8111-111111111111",
+        ],
+        alternatives: [],
+      }),
+    });
+  }
+
+  it('keeps unsupported engine omissions out of visible and accessibility text', async () => {
+    mocks.generate.mockResolvedValue(unsupportedResult());
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    expect(rendered).toContain('no published reviewed rule covers this situation yet');
+    expect(rendered).not.toContain('profile.unrecorded');
+    expect(rendered).not.toContain('rule-wash@1');
+    expect(rendered).not.toContain('example.invalid');
+    expect(rendered).not.toContain('11111111-1111-4111-8111-111111111111');
+    expect(hasLabeled(renderer, 'What is missing')).toBe(false);
+    expect(rendered).not.toContain('no purchase needed');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('labels every new state and control for screen readers', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    let renderer = await render();
+    await generate(renderer);
+    expect(labeled(renderer, 'Your plan is ready').props.accessibilityRole).toBe('header');
+    expect(hasLabeled(renderer, 'No purchase needed — what you own can do this.')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+
+    mocks.generate.mockResolvedValue(unsupportedResult());
+    renderer = await render();
+    await generate(renderer);
+    expect(hasLabeled(renderer, 'What is missing')).toBe(false);
+    expect(hasLabeled(renderer, 'profile.unrecorded rule-wash@1 https://example.invalid/secret 11111111-1111-4111-8111-111111111111')).toBe(false);
+    await act(async () => { renderer.unmount(); });
+
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
+    renderer = await render();
+    await generate(renderer);
+    expect(hasButton(renderer, 'Try again')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('carries no purchase pressure, retailer direction or outcome promise', async () => {
+    const banned = [
+      /\bbuy\b/i,
+      /\bshop\b/i,
+      /\bretailer\b/i,
+      /\bguarantee\b/i,
+      /https?:\/\//,
+      /\bdiscount\b/i,
+      /\baffiliate\b/i,
+      /\bsponsor/i,
+      /\bmiracle\b/i,
+      /toxic/i,
+      /checkout/i,
+    ];
+    const copy = await import('../../apps/mobile/src/guidance/guidance-copy');
+    const strings: string[] = [];
+    for (const value of Object.values(copy)) {
+      if (typeof value === 'string') strings.push(value);
+      else if (typeof value === 'object' && value !== null) {
+        for (const nested of Object.values(value as Record<string, unknown>)) {
+          if (typeof nested === 'string') strings.push(nested);
+          else if (typeof nested === 'function') {
+            for (const sample of [0, 1, 20, 45]) {
+              try {
+                const produced = (nested as (minutes: number) => unknown)(sample);
+                if (typeof produced === 'string') strings.push(produced);
+              } catch { /* not a minutes formatter */ }
+            }
+          }
+        }
+      }
+    }
+    expect(strings.length).toBeGreaterThan(0);
+    expect(copy.NO_PURCHASE_NEEDED).toBe('No purchase needed — what you own can do this.');
+    for (const candidate of strings) {
+      for (const pattern of banned) {
+        expect(candidate).not.toMatch(pattern);
+      }
+    }
+    for (const status of ['needs_input', 'rule_conflict', 'unsupported'] as const) {
+      const title = copy.statusTitle({ status } as never);
+      for (const pattern of banned) {
+        expect(title).not.toMatch(pattern);
+      }
+    }
+
+    mocks.generate.mockResolvedValue(unsupportedResult());
+    const renderer = await render();
+    await generate(renderer);
+    const rendered = text(renderer);
+    for (const pattern of banned) {
+      expect(rendered).not.toMatch(pattern);
+    }
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('keeps start unavailable after starting over and generating another client preview', async () => {
+    mocks.generate.mockResolvedValue(readyResult());
+    const renderer = await render();
+    await generate(renderer);
+
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+
+    await press(renderer, START_OVER_LABEL);
+    await generate(renderer);
+    expect(hasButton(renderer, EXECUTION_START_LABEL)).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+});
+
+describe('task 5 preflight: condition-aware generation', () => {
+  it('opens on a check-in start and never generates on mount or on owner change', async () => {
+    const renderer = await render();
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(hasButton(renderer, 'Generate my plan')).toBe(false);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    await act(async () => {
+      renderer.update(createElement(TodayGuidance, { ownerId: 'owner-2', onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('passes the exact normalized check-in with an explicit reference time', async () => {
+    const renderer = await render();
+    // Tapped frizz-first: normalization must still sort concerns.
+    await generate(renderer, ['Frizz', 'Dryness'], '20');
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    const request = mocks.generate.mock.calls[0][0];
+    expect(request).not.toHaveProperty('ownerId');
+    expect(request.goalId).toBe('basic_wash');
+    expect(request).not.toHaveProperty('asOf');
+    const expected = normalizeCurrentCondition(
+      {
+        observedAt: (request.currentCondition as { observedAt: string }).observedAt,
+        concerns: ['frizz', 'dryness'],
+        goal: 'basic_wash',
+        availableMinutes: 20,
+      },
+      new Date((request.currentCondition as { observedAt: string }).observedAt),
+    );
+    expect(request.currentCondition).toEqual(expected);
+    expect(request.currentCondition.concerns).toEqual(['dryness', 'frizz']);
+    expect(request.currentCondition).not.toHaveProperty('saveToPassport');
+    expect(Object.isFrozen(request.currentCondition)).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('generates only once for duplicate taps on Generate', async () => {
+    let release: (value: unknown) => void = () => undefined;
+    mocks.generate.mockImplementation(
+      () => new Promise(resolve => { release = resolve; }),
+    );
+    const renderer = await render();
+    await completeCheckIn(renderer);
+    await act(async () => {
+      const generateButton = button(renderer, 'Generate my plan');
+      generateButton.props.onPress();
+      generateButton.props.onPress();
+      await Promise.resolve();
+    });
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { release({ status: 'content_pending' }); await Promise.resolve(); });
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('discards a late response when the owner changes without a remount', async () => {
+    mocks.generate.mockImplementation(
+      () => new Promise(resolve => { setTimeout(() => resolve(readyResult()), 25); }),
+    );
+    const renderer = await render();
+    await completeCheckIn(renderer);
+    await act(async () => {
+      button(renderer, 'Generate my plan').props.onPress();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      renderer.update(createElement(TodayGuidance, { ownerId: 'owner-2', onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await Promise.resolve();
+    });
+    expect(mocks.recordRun).not.toHaveBeenCalled();
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('clears an in-progress check-in when the owner changes', async () => {
+    const renderer = await render();
+    await press(renderer, CHECK_IN_START_LABEL);
+    await press(renderer, 'Dryness');
+    expect(
+      button(renderer, 'Dryness').props.accessibilityState,
+    ).toMatchObject({ checked: true });
+    await act(async () => {
+      renderer.update(createElement(TodayGuidance, { ownerId: 'owner-2', onNavigate: vi.fn() }));
+      await Promise.resolve();
+    });
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(hasButton(renderer, 'Dryness')).toBe(false);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('shows the completed check-in beside pending content with no invented advice', async () => {
+    const renderer = await render();
+    await generate(renderer, ['Dryness'], '20');
+    const rendered = text(renderer);
+    expect(hasLabeledPreflight(renderer, CHECK_IN_SUMMARY_HEADING)).toBe(true);
+    expect(rendered).toContain('dryness');
+    expect(rendered).toContain('20 minutes available');
+    expect(rendered).toContain('reviewed guidance content is still being prepared');
+    expect(rendered).not.toContain('step 1');
+    expect(rendered).not.toContain('no purchase needed');
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('returns check-in validation failures to the form with its draft intact', async () => {
+    const renderer = await render();
+    await press(renderer, CHECK_IN_START_LABEL);
+    await press(renderer, 'Dryness');
+    await press(renderer, CHECK_IN_CONTINUE_LABEL);
+    expect(text(renderer)).toContain('time you have available');
+    expect(
+      button(renderer, 'Dryness').props.accessibilityState,
+    ).toMatchObject({ checked: true });
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('loops a current-condition gap back to the check-in with the draft intact', async () => {
+    mocks.generate.mockResolvedValue({
+      status: 'needs_setup',
+      missing: [
+        {
+          kind: 'current_condition',
+          detail: 'You chose "I am not sure". Pick what you notice today.',
+          subject: 'current.concerns',
+          state: 'unknown',
+          destination: 'today_check_in',
+        },
+      ],
+    });
+    const renderer = await render();
+    await generate(renderer, ['Dryness'], '20');
+    expect(hasButton(renderer, 'Review check-in answers')).toBe(true);
+    expect(hasButton(renderer, 'Add this in My Hair')).toBe(false);
+    await press(renderer, 'Review check-in answers');
+    expect(
+      button(renderer, 'Dryness').props.accessibilityState,
+    ).toMatchObject({ checked: true });
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('retries a source error with the same normalized check-in', async () => {
+    mocks.generate.mockResolvedValue({ status: 'source_error', detail: 'Could not read records.' });
+    const renderer = await render();
+    await generate(renderer, ['Frizz'], '30');
+    const first = mocks.generate.mock.calls[0][0].currentCondition;
+    await press(renderer, 'Try again');
+    expect(mocks.generate).toHaveBeenCalledTimes(2);
+    expect(mocks.generate.mock.calls[1][0].currentCondition).toEqual(first);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('starts over from a result without carrying the previous check-in', async () => {
+    const renderer = await render();
+    await generate(renderer, ['Dryness'], '20');
+    expect(hasButton(renderer, START_OVER_LABEL)).toBe(true);
+    await press(renderer, START_OVER_LABEL);
+    expect(hasButton(renderer, CHECK_IN_START_LABEL)).toBe(true);
+    expect(hasButton(renderer, 'Generate my plan')).toBe(false);
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  function hasLabeledPreflight(renderer: ReactTestRenderer, label: string): boolean {
+    return (
+      renderer.root.findAll(
+        node => node.type === 'span' && node.props.accessibilityLabel === label,
+      ).length > 0
+    );
+  }
+});

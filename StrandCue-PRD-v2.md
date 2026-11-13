@@ -1,5 +1,7 @@
 # StrandCue — Master Product Requirements Document
 
+> **Historical source — not current product authority.** This PRD is preserved as design evidence. The approved product authority is the [canonical product specification](docs/superpowers/specs/2026-10-10-canonical-product-spec.md) (v1.0, 10 October 2026), which supersedes the authority order in section 1 below. `docs/PHASE_1.md` remains historical delivery context for the foundation release.
+
 Version 2.0 • 9 September 2026 • Data foundation first
 
 ## 1. Authority and decision

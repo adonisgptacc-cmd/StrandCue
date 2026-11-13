@@ -4,6 +4,14 @@ const supportedWorkspacePatternSchema = z.enum(['apps/*', 'packages/*']);
 const workspaceManifestPathSchema = z.string().regex(
   /^(apps|packages)\/[A-Za-z0-9][A-Za-z0-9._-]*\/package\.json$/,
 );
+// A standalone dependency tree is a committed npm package that is deliberately
+// not an npm workspace (the account-deletion Cloudflare Worker is one). Its
+// manifest path is declared explicitly in the surface context instead of being
+// derived from the root `workspaces` array, so a repository root, workspace, or
+// tooling path can never be presented as one.
+export const standaloneManifestPathSchema = z.string().regex(
+  /^workers\/[A-Za-z0-9][A-Za-z0-9._-]*\/package\.json$/,
+);
 const rootWorkspaceManifestSchema = z.object({
   name: z.string().trim().min(1),
   workspaces: z.array(supportedWorkspacePatternSchema).min(1),

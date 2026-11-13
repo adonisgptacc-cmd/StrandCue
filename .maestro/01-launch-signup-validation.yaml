@@ -1,0 +1,14 @@
+# Signup validation without network submission.
+# appId is the D2-decided Android application identifier (za.co.strandcue.app).
+# Emulator execution stays Beta-owned.
+appId: za.co.strandcue.app
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Begin your hair record"
+- tapOn: "Create account"
+- assertVisible: "Enter a valid email address."
+- tapOn: "Email"
+- inputText: "not-an-email"
+- tapOn: "Create account"
+- assertVisible: "Enter a valid email address."

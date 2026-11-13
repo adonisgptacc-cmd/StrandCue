@@ -1,0 +1,225 @@
+/**
+ * Catalogue intake contract.
+ *
+ * Intake rows are checked-in notes about products and tools a person wants to
+ * catalogue — they are not catalogue facts. A row becomes usable only after a
+ * reviewer marks it `identity_verified`, which requires the exact identity
+ * (brand, exact name or model, variant or formulation identity, lifecycle) and
+ * an original source (the manufacturer's own URL or photographs of the label).
+ *
+ * Column semantics align with the catalogue DDL
+ * (`supabase/migrations/20260924170000_shelf_catalogue.sql` for products,
+ * `supabase/migrations/20260924210000_tools_catalogue.sql` for tools):
+ * trimmed 1–200 names, `ZA`/`unknown` markets, `https:` manufacturer URLs,
+ * string barcodes, and `active`/`retired` lifecycles. The initial `basic_wash`
+ * scope permits product categories `shampoo` and `conditioner` only; tool rows
+ * are schema-supported with the full catalogue tool vocabulary but are not
+ * required for `basic_wash`.
+ */
+
+import { z } from 'zod';
+
+import { frozen } from './guidance/schemas.ts';
+import { LifecycleSchema } from './shelf.ts';
+import { ToolTypeSchema } from './tools.ts';
+
+export const CatalogueIntakeStatusSchema = z.enum([
+  'awaiting_input',
+  'draft',
+  'identity_verified',
+  'rejected',
+]);
+export type CatalogueIntakeStatus = z.output<typeof CatalogueIntakeStatusSchema>;
+
+export const CatalogueIntakeMarketSchema = z.enum(['ZA', 'unknown']);
+export type CatalogueIntakeMarket = z.output<typeof CatalogueIntakeMarketSchema>;
+
+/** Initial `basic_wash` scope: shampoo and conditioner only. */
+export const CatalogueIntakeCategorySchema = z.enum(['shampoo', 'conditioner']);
+export type CatalogueIntakeCategory = z.output<typeof CatalogueIntakeCategorySchema>;
+
+const intakeNameSchema = z.string().trim().min(1).max(200);
+
+/** Optional identity text: absent is explicit null, present is trimmed 1–200. */
+const optionalIdentityTextSchema = z.string().trim().min(1).max(200).nullable();
+
+/** Barcodes stay strings: a GTIN is an identifier, never a number. */
+const gtinSchema = z.string().trim().min(1).max(100).nullable();
+
+const manufacturerUrlSchema = z
+  .url()
+  .refine(value => value.startsWith('https://'), 'Manufacturer links must use https:')
+  .nullable();
+
+const labelImageRefsSchema = z.array(z.string().trim().min(1).max(500)).max(50);
+
+const identityNotesSchema = z.string().trim().max(2000).nullable();
+
+const baseRowFields = {
+  recordId: z.string().uuid(),
+  brand: intakeNameSchema,
+  market: CatalogueIntakeMarketSchema,
+  gtin: gtinSchema,
+  lifecycle: LifecycleSchema,
+  manufacturerUrl: manufacturerUrlSchema,
+  labelImageRefs: labelImageRefsSchema,
+  identityNotes: identityNotesSchema,
+  status: CatalogueIntakeStatusSchema,
+};
+
+export const CatalogueIntakeProductRowSchema = z
+  .object({
+    ...baseRowFields,
+    kind: z.literal('product'),
+    productName: intakeNameSchema,
+    variant: optionalIdentityTextSchema,
+    sizeOrPack: optionalIdentityTextSchema,
+    category: CatalogueIntakeCategorySchema,
+  })
+  .strict()
+  .superRefine(assertVerifiableIdentity);
+export type CatalogueIntakeProductRow = z.output<typeof CatalogueIntakeProductRowSchema>;
+
+export const CatalogueIntakeToolRowSchema = z
+  .object({
+    ...baseRowFields,
+    kind: z.literal('tool'),
+    modelName: intakeNameSchema,
+    versionLabel: intakeNameSchema,
+    toolType: ToolTypeSchema,
+  })
+  .strict()
+  .superRefine(assertVerifiableIdentity);
+export type CatalogueIntakeToolRow = z.output<typeof CatalogueIntakeToolRowSchema>;
+
+export const CatalogueIntakeRowSchema = z.discriminatedUnion('kind', [
+  CatalogueIntakeProductRowSchema,
+  CatalogueIntakeToolRowSchema,
+]);
+export type CatalogueIntakeRow = z.output<typeof CatalogueIntakeRowSchema>;
+
+type VerifiableRow = Pick<
+  CatalogueIntakeRow,
+  'kind' | 'brand' | 'lifecycle' | 'manufacturerUrl' | 'labelImageRefs' | 'status'
+> & {
+  readonly productName?: string;
+  readonly modelName?: string;
+  readonly variant?: string | null;
+  readonly versionLabel?: string;
+};
+
+/**
+ * A row marked `identity_verified` must carry the full normalized identity
+ * (brand, exact name or model, variant or formulation identity, lifecycle —
+ * all schema-required except the nullable variant) and an original source:
+ * the manufacturer's own URL or photographs of the label. Anything less stays
+ * `draft` or `awaiting_input`.
+ */
+function assertVerifiableIdentity(row: VerifiableRow, context: z.RefinementCtx): void {
+  if (row.status !== 'identity_verified') return;
+  const exactName = row.kind === 'product' ? row.productName : row.modelName;
+  if (row.brand.trim() === '') {
+    context.addIssue({ code: 'custom', path: ['brand'], message: 'An identity_verified row records its brand' });
+  }
+  if (exactName === undefined || exactName.trim() === '') {
+    context.addIssue({
+      code: 'custom',
+      path: [row.kind === 'product' ? 'productName' : 'modelName'],
+      message: 'An identity_verified row records its exact name or model',
+    });
+  }
+  const formulationIdentity = row.kind === 'product' ? row.variant : row.versionLabel;
+  if (formulationIdentity === undefined || formulationIdentity === null) {
+    context.addIssue({
+      code: 'custom',
+      path: [row.kind === 'product' ? 'variant' : 'versionLabel'],
+      message: 'An identity_verified row records its variant or formulation identity',
+    });
+  }
+  if (row.lifecycle.trim() === '') {
+    context.addIssue({
+      code: 'custom',
+      path: ['lifecycle'],
+      message: 'An identity_verified row records its lifecycle',
+    });
+  }
+  if (row.manufacturerUrl === null && row.labelImageRefs.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['manufacturerUrl'],
+      message:
+        'An identity_verified row records the original manufacturer URL or label photographs',
+    });
+  }
+}
+
+/** Collapse case and whitespace so the same identity always matches itself. */
+function normalizeIdentityPart(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function nullableIdentityPart(value: string | null): string {
+  return value === null ? '' : normalizeIdentityPart(value);
+}
+
+/**
+ * The normalized identity tuple: everything that makes a catalogue version
+ * distinct. Brand, exact name or model, variant or version label, pack size,
+ * market, GTIN, category or tool type, and the manufacturer source each keep
+ * rows apart — a reformulation, a market move, or a manufacturer-confirmed
+ * formulation change is a separate row, never a silent merge. Free-text notes
+ * and label photo refs are evidence, not identity, and stay out of the tuple.
+ */
+function identityKey(row: CatalogueIntakeRow): string {
+  const shared = [
+    normalizeIdentityPart(row.brand),
+    row.market,
+    nullableIdentityPart(row.gtin),
+    nullableIdentityPart(row.manufacturerUrl),
+  ];
+  if (row.kind === 'product') {
+    return [
+      'product',
+      ...shared,
+      normalizeIdentityPart(row.productName),
+      nullableIdentityPart(row.variant),
+      nullableIdentityPart(row.sizeOrPack),
+      row.category,
+    ].join('\0');
+  }
+  return [
+    'tool',
+    ...shared,
+    normalizeIdentityPart(row.modelName),
+    normalizeIdentityPart(row.versionLabel),
+    row.toolType,
+  ].join('\0');
+}
+
+export const CatalogueIntakeSchema = frozen(
+  z
+    .object({
+      status: CatalogueIntakeStatusSchema,
+      rows: z.array(CatalogueIntakeRowSchema),
+    })
+    .strict()
+    .superRefine((intake, context) => {
+      const recordIds = intake.rows.map(row => row.recordId);
+      if (new Set(recordIds).size !== recordIds.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rows'],
+          message: 'A catalogue intake lists each record id once',
+        });
+      }
+      const identities = intake.rows.map(identityKey);
+      if (new Set(identities).size !== identities.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rows'],
+          message: 'A catalogue intake lists each normalized identity once',
+        });
+      }
+    }),
+);
+export type CatalogueIntake = z.output<typeof CatalogueIntakeSchema>;

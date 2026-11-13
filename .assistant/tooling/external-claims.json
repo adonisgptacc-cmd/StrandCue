@@ -1,16 +1,24 @@
 [
   {
     "id": "expo-compatible-sdk",
-    "source": "https://docs.expo.dev/versions/latest/",
-    "checked_at": "2026-09-11",
-    "review_after": "2026-10-11",
-    "claim": "Verify Expo dependencies from installed bundledNativeModules and Expo install check."
+    "source": "node_modules/expo/bundledNativeModules.json",
+    "checked_at": "2026-11-13",
+    "review_after": "2026-12-12",
+    "claim": "Installed mobile dependencies agree with the locked versions and installed Expo 58 SDK mapping. Offline install --check passed; no latest registry, device, or native compatibility claim.",
+    "evidence": {
+      "kind": "installed-expo-sdk",
+      "expoVersion": "58.0.25",
+      "manifestSha256": "7109572b1c7752b1e8494f1edfc95ebb998935583ce6a3bf9836dd5e471c9aee",
+      "lockSha256": "fe30f7636ccfa24733c52d470e941ca59cb03bfbd46abcdb709ba0beed5a891b",
+      "bundledSha256": "5167339fa4e919d0c8675c7bee4492d6289c6356e0609428b07ddee3f7f909eb",
+      "installedSha256": "0becf45d97e660700d7130d6bcb067b3ac45a575665bee29726f5df3acd0e68c"
+    }
   },
   {
     "id": "supabase-functions",
     "source": "https://supabase.com/docs/guides/database/functions",
-    "checked_at": "2026-09-09",
-    "review_after": "2026-10-09",
+    "checked_at": "2026-11-12",
+    "review_after": "2026-12-12",
     "claim": "Functions require deliberate privileges and explicit grants; implementation must test ownership."
   }
 ]

@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://strandcue.co.za/sitemap.xml

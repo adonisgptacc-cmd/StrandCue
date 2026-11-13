@@ -2,15 +2,15 @@ import { z } from 'zod';
 
 import {
   DateOnlySchema,
-  EffectiveDateSchema,
   currentDateOnly,
-  effectiveDateToInterval,
+  effectiveDateToIntervalUnchecked,
+  StoredEffectiveDateSchema,
   type EffectiveDate,
   type EffectiveInterval,
 } from './dates.ts';
 import {
-  PassportPatchSchema,
-  PassportSchema,
+  PassportPatchReadSchema,
+  PassportReadSchema,
   type Passport,
   type PassportField,
   type PassportPatch,
@@ -21,7 +21,11 @@ const RevisionBaseSchema = z.object({
   passportId: z.string().uuid(),
   sequence: z.number().int().positive(),
   baseRevision: z.number().int().nonnegative(),
-  effectiveDate: EffectiveDateSchema,
+  // A stored date is read as the record holds it: the write path refuses a date
+  // that is not a real calendar value or that lies in the future, but stored
+  // history can still carry one, and refusing to open the record would lock the
+  // owner out of their own data.
+  effectiveDate: StoredEffectiveDateSchema,
   recordedAt: z.string().datetime({ offset: true }),
   source: z.enum([
     'user-reported',
@@ -32,17 +36,17 @@ const RevisionBaseSchema = z.object({
 
 export const BaselineRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('baseline'),
-  patch: PassportSchema,
+  patch: PassportReadSchema,
 }).strict();
 
 export const ChangeRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('change'),
-  patch: PassportPatchSchema,
+  patch: PassportPatchReadSchema,
 }).strict();
 
 export const CorrectionRevisionSchema = RevisionBaseSchema.extend({
   kind: z.literal('correction'),
-  patch: PassportPatchSchema,
+  patch: PassportPatchReadSchema,
   correctsId: z.string().uuid(),
   correctionReason: z.string().trim().min(1).max(500),
 }).strict();
@@ -270,7 +274,7 @@ function resolveActiveFacts(
   return roots.map((root) => {
     const replacement = finalReplacement(root, correctionByTarget);
     if (root.kind === 'baseline') {
-      const correctedBaseline = PassportSchema.safeParse(replacement.patch);
+      const correctedBaseline = PassportReadSchema.safeParse(replacement.patch);
       if (!correctedBaseline.success) {
         throw new HistoryValidationError(
           'invalid-baseline-correction',
@@ -281,7 +285,7 @@ function resolveActiveFacts(
 
     return {
       revision: replacement,
-      interval: effectiveDateToInterval(replacement.effectiveDate),
+      interval: effectiveDateToIntervalUnchecked(replacement.effectiveDate),
     };
   });
 }
