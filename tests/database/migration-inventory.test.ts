@@ -86,6 +86,7 @@ const trustedMigrationNames = [
   '20261104124000_use_claim_role_for_engine_hash_verification.sql',
   '20261104182726_engine_ruleset_actor_anonymization.sql',
   '20261114120000_execution_timestamp_skew_window.sql',
+  '20261114130000_recommendation_decision_hash.sql',
 ] as const;
 
 const candidateMigrationNames = [
