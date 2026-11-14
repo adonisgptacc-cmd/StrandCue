@@ -5,6 +5,8 @@ import { asUser, complete, database, USER_A } from './harness.ts';
 
 const EXECUTION_ID = '44444444-4444-4444-8444-444444444444';
 const RUN_ID = '55555555-5555-4555-8555-555555555555';
+// Fixed reference time for deterministic skew boundary tests
+const REFERENCE_TIME = new Date('2026-11-14T20:00:00.000Z').getTime();
 
 function stepFixture(stepId: string, position: number) {
   return {
@@ -136,7 +138,7 @@ describe('execution timestamp skew window', () => {
   });
 
   it('rejects p_at > 5 min in future with timestamp-out-of-range', async () => {
-    const futureAt = new Date(Date.now() + 6 * 60 * 1000).toISOString();
+    const futureAt = new Date(REFERENCE_TIME + 6 * 60 * 1000).toISOString();
     await expect(
       transition(db, {
         operationId: crypto.randomUUID(),
@@ -148,7 +150,7 @@ describe('execution timestamp skew window', () => {
   });
 
   it('rejects p_at > 5 min in past with timestamp-out-of-range', async () => {
-    const pastAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    const pastAt = new Date(REFERENCE_TIME - 6 * 60 * 1000).toISOString();
     await expect(
       transition(db, {
         operationId: crypto.randomUUID(),

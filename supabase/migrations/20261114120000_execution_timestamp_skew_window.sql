@@ -16,8 +16,9 @@ create table if not exists public.strandcue_config (
 
 -- 2. Insert default skew window (5 minutes in milliseconds) BEFORE enabling RLS
 -- This allows the migration to run as migration_admin (non-authenticated)
+-- Stored as JSON array ['300000'] to match helper function's value->>0 extraction
 insert into public.strandcue_config (key, value)
-values ('execution_timestamp_skew_ms', '300000'::jsonb)
+values ('execution_timestamp_skew_ms', '["300000"]'::jsonb)
 on conflict (key) do update set value = excluded.value, updated_at = now();
 
 -- 3. Enable RLS on config table
