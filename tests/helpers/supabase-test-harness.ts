@@ -118,10 +118,10 @@ export async function createSupabaseTestHarness(): Promise<SupabaseTestHarness> 
   }) {
     await pg.exec('set session authorization postgres');
     try {
-      await harnessPg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-      await harnessPg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-      await harnessPg.exec('set session authorization service_role');
-      await harnessPg.query(
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
+      await pg.exec('set session authorization service_role');
+      await pg.query(
         `select public.record_server_recommendation_run($1::uuid,$2::uuid,$3,$4::timestamptz,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::bigint)`,
         [
           ownerId,
@@ -138,12 +138,9 @@ export async function createSupabaseTestHarness(): Promise<SupabaseTestHarness> 
         ]
       );
     } finally {
-      await harnessPg.exec('set session authorization postgres');
+      await pg.exec('set session authorization postgres');
     }
   }
-
-  // Helper reference for createTrustedRun
-  const harnessPg = pg;
 
   async function cleanup() {
     await pg.close();
@@ -152,7 +149,7 @@ export async function createSupabaseTestHarness(): Promise<SupabaseTestHarness> 
   return { pg, supabase, serviceRole, signUp, signIn, signOut, createTrustedRun, cleanup };
 }
 
-function createPGliteFetch(pg: PGlite, role: 'anon' | 'authenticated' | 'service_role') {
+export function createPGliteFetch(pg: PGlite, role: 'anon' | 'authenticated' | 'service_role') {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = input instanceof Request ? input.url : input.toString();
     const method = init?.method || 'GET';
@@ -173,6 +170,33 @@ function createPGliteFetch(pg: PGlite, role: 'anon' | 'authenticated' | 'service
     // Handle auth endpoints - for signInWithPassword
     if (path === '/auth/v1/token' && parsedUrl.searchParams.get('grant_type') === 'password') {
       return handleSignIn(pg, init);
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  };
+}
+
+export function createAuthenticatedFetch(pg: PGlite, accessToken: string) {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = input instanceof Request ? input.url : input.toString();
+    const method = init?.method || 'GET';
+    
+    const parsedUrl = new URL(url, 'http://localhost:54321');
+    const path = parsedUrl.pathname;
+    
+    // Add Authorization header
+    const headers = new Headers(init?.headers);
+    headers.set('Authorization', `Bearer ${accessToken}`);
+    const newInit = { ...init, headers };
+    
+    // Handle RPC endpoints
+    if (path.includes('/rest/v1/rpc/')) {
+      return handleRpcEndpoint(pg, 'authenticated', method, parsedUrl, newInit);
+    }
+    
+    // Handle table endpoints
+    if (path.includes('/rest/v1/')) {
+      return handleTableEndpoint(pg, 'authenticated', method, parsedUrl, newInit);
     }
     
     return new Response('Not Found', { status: 404 });

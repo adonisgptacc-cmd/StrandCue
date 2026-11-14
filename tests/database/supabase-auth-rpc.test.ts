@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { PGlite } from '@electric-sql/pglite';
-import { createSupabaseTestHarness, type SupabaseTestHarness } from '../helpers/supabase-test-harness';
+import { createSupabaseTestHarness, type SupabaseTestHarness, createAuthenticatedFetch } from '../helpers/supabase-test-harness';
 
 let harness: SupabaseTestHarness;
 
@@ -27,7 +26,7 @@ describe('Real Auth/PostgREST RPC security', () => {
       supabase: createClient('http://localhost:54321', 'anon-key', {
         auth: { persistSession: false },
         global: {
-          fetch: createAuthFetch(harness.pg, userAData.session.access_token),
+          fetch: createAuthenticatedFetch(harness.pg, userAData.session.access_token),
         },
       }),
     };
@@ -37,7 +36,7 @@ describe('Real Auth/PostgREST RPC security', () => {
       supabase: createClient('http://localhost:54321', 'anon-key', {
         auth: { persistSession: false },
         global: {
-          fetch: createAuthFetch(harness.pg, userBData.session.access_token),
+          fetch: createAuthenticatedFetch(harness.pg, userBData.session.access_token),
         },
       }),
     };
@@ -345,6 +344,21 @@ describe('Real Auth/PostgREST RPC security', () => {
       }
     });
 
+    it('deletion_cancel succeeds with fresh auth (mock JWT has fresh password AMR)', async () => {
+      // The mock JWT has fresh password AMR, so cancellation should succeed
+      // First request a deletion
+      const { error: delError } = await userA.supabase.rpc('deletion_request', {
+        p_operation_id: crypto.randomUUID(),
+        p_reason: 'test cancellation',
+      });
+      expect(delError).toBeNull();
+
+      // With fresh password auth, cancellation should succeed
+      const { error, data } = await userA.supabase.rpc('deletion_cancel');
+      expect(error).toBeNull();
+      expect(data).toMatchObject({ accountStatus: 'active', message: 'Account deletion cancelled. Full access restored.' });
+    });
+
     it('deletion_cancel fails when account not deleting', async () => {
       // User B hasn't requested deletion
       const { error } = await userB.supabase.rpc('deletion_cancel');
@@ -546,288 +560,3 @@ describe('Real Auth/PostgREST RPC security', () => {
     });
   });
 });
-
-function createAuthFetch(pg: PGlite, accessToken: string) {
-  return async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = input instanceof Request ? input.url : input.toString();
-    const method = init?.method || 'GET';
-    
-    const parsedUrl = new URL(url, 'http://localhost:54321');
-    const path = parsedUrl.pathname;
-    
-    // Add Authorization header
-    const headers = new Headers(init?.headers);
-    headers.set('Authorization', `Bearer ${accessToken}`);
-    const newInit = { ...init, headers };
-    
-    // Handle RPC endpoints
-    if (path.includes('/rest/v1/rpc/')) {
-      return handleRpcEndpoint(pg, 'authenticated', method, parsedUrl, newInit);
-    }
-    
-    // Handle table endpoints
-    if (path.includes('/rest/v1/')) {
-      return handleTableEndpoint(pg, 'authenticated', method, parsedUrl, newInit);
-    }
-    
-    return new Response('Not Found', { status: 404 });
-  };
-}
-
-// The harness already exports the fetch creator. We just need to use it.
-// But since we can't import individual functions from the harness module easily,
-// we'll keep the minimal wrappers that use the harness's pg instance directly.
-// Actually, let's just use the harness's pg instance with the same logic.
-// We can just re-export the handlers from the harness module.
-
-// Re-export the handler functions from the harness (they're not exported, so we duplicate minimally)
-// This is necessary because the test file needs to create authenticated Supabase clients
-// with the same handler logic. The harness module doesn't export the internal handlers,
-// so we import the pg instance and use it directly.
-
-// Actually, we can just use the harness's pg instance and the same handler functions.
-// Let me create simple wrappers that call the harness's internal functions.
-// But since those aren't exported, we need to duplicate them or export them from harness.
-// For now, we'll keep the minimal duplication here.
-
-async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit): Promise<Response> {
-  if (method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
-  }
-
-  const rpcName = url.pathname.replace('/rest/v1/rpc/', '');
-  const body = init?.body ? JSON.parse(init.body as string) : {};
-  
-  const authHeader = init?.headers?.get?.('authorization') || '';
-  let userId: string | null = null;
-  let claims: Record<string, unknown> = { role };
-  
-  if (authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
-      userId = payload.sub;
-      claims = payload;
-    } catch {
-      // Invalid token
-    }
-  }
-  
-  await pg.exec('set session authorization postgres');
-  try {
-    if (userId) {
-      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
-      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
-      await pg.exec(`set session authorization authenticated`);
-    } else if (role === 'service_role') {
-      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-      await pg.exec('set session authorization service_role');
-    } else {
-      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
-      await pg.exec('set session authorization anon');
-    }
-
-    const paramEntries = Object.entries(body);
-    const params = paramEntries.map((_, index) => {
-      const value = paramEntries[index][1];
-      if (value === null) {
-        return `$${index + 1}`;
-      }
-      if (typeof value === 'boolean') {
-        return `$${index + 1}`;
-      }
-      if (typeof value === 'string' && value.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-        return `$${index + 1}::uuid`;
-      }
-      if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) {
-        return `$${index + 1}::timestamptz`;
-      }
-      if (typeof value === 'object') {
-        return `$${index + 1}::jsonb`;
-      }
-      if (typeof value === 'number') {
-        return `$${index + 1}`;
-      }
-      return `$${index + 1}::text`;
-    }).join(', ');
-    
-    const paramValues = paramEntries.map(([, value]) => value);
-    
-    const result = await pg.query(
-      `select public.${rpcName}(${params}) result`,
-      paramValues
-    );
-    
-    return new Response(JSON.stringify(result.rows[0]?.result ?? null), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (error: unknown) {
-    const pgError = error instanceof Error ? error.message : String(error);
-    let code = 'P0001';
-    let message = pgError;
-    
-    const codeMatch = pgError.match(/using errcode = '([^']+)'/);
-    if (codeMatch) {
-      code = codeMatch[1];
-      message = pgError.replace(/.*using errcode = '[^']+'/, '').trim();
-    }
-    
-    return new Response(JSON.stringify({
-      code,
-      message,
-      details: pgError,
-      hint: null
-    }), {
-      status: code === '42501' ? 401 : code === '22023' ? 400 : code === '23505' ? 409 : 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } finally {
-    await pg.exec('set session authorization postgres');
-  }
-}
-
-async function handleTableEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit): Promise<Response> {
-  if (method !== 'GET' && method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') {
-    return new Response('Method Not Allowed', { status: 405 });
-  }
-
-  const pathParts = url.pathname.replace('/rest/v1/', '').split('?');
-  const tableName = pathParts[0];
-  const queryParams = new URLSearchParams(pathParts[1] || '');
-  
-  const authHeader = init?.headers?.get?.('authorization') || '';
-  let userId: string | null = null;
-  let claims: Record<string, unknown> = { role };
-  
-  if (authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
-      userId = payload.sub;
-      claims = payload;
-    } catch {
-      // Invalid token
-    }
-  }
-  
-  await pg.exec('set session authorization postgres');
-  try {
-    if (userId) {
-      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
-      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
-      await pg.exec(`set session authorization authenticated`);
-    } else if (role === 'service_role') {
-      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-      await pg.exec('set session authorization service_role');
-    } else {
-      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
-      await pg.exec('set session authorization anon');
-    }
-
-    if (method === 'GET') {
-      const selectCols = queryParams.get('select') || '*';
-      let whereClause = '';
-      const whereParams: unknown[] = [];
-      let paramIndex = 1;
-      
-      for (const [key, value] of queryParams.entries()) {
-        if (key === 'select') continue;
-        if (key.endsWith('.eq')) {
-          const col = key.replace('.eq', '');
-          whereClause += (whereClause ? ' and ' : ' where ') + `${col} = $${paramIndex++}`;
-          whereParams.push(value);
-        }
-      }
-      
-      const result = await pg.query(`select ${selectCols} from ${tableName}${whereClause}`, whereParams);
-      return new Response(JSON.stringify(result.rows), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', 'Content-Range': `0-${result.rows.length - 1}/${result.rows.length}` }
-      });
-    }
-    
-    if (method === 'PATCH') {
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      let whereClause = '';
-      const whereParams: unknown[] = [];
-      let paramIndex = 1;
-      
-      for (const [key, value] of queryParams.entries()) {
-        if (key === 'select') continue;
-        if (key.endsWith('.eq')) {
-          const col = key.replace('.eq', '');
-          whereClause += (whereClause ? ' and ' : ' where ') + `${col} = $${paramIndex++}`;
-          whereParams.push(value);
-        }
-      }
-      
-      const setClause = Object.entries(body).map(([col, val], idx) => `${col} = $${paramIndex + idx}`).join(', ');
-      const setParams = Object.values(body);
-      
-      await pg.query(
-        `update ${tableName} set ${setClause}${whereClause}`,
-        [...setParams, ...whereParams]
-      );
-      
-      return new Response(JSON.stringify([]), {
-        status: 204,
-        headers: { 'Content-Type': 'application/json', 'Preference-Applied': 'return=minimal' }
-      });
-    }
-    
-    if (method === 'DELETE') {
-      let whereClause = '';
-      const whereParams: unknown[] = [];
-      let paramIndex = 1;
-      
-      for (const [key, value] of queryParams.entries()) {
-        if (key === 'select') continue;
-        if (key.endsWith('.eq')) {
-          const col = key.replace('.eq', '');
-          whereClause += (whereClause ? ' and ' : ' where ') + `${col} = $${paramIndex++}`;
-          whereParams.push(value);
-        }
-      }
-      
-      await pg.query(`delete from ${tableName}${whereClause}`, whereParams);
-      
-      return new Response(JSON.stringify([]), {
-        status: 204,
-        headers: { 'Content-Type': 'application/json', 'Preference-Applied': 'return=minimal' }
-      });
-    }
-    
-    return new Response(JSON.stringify({ error: { code: 'P0001', message: 'Not implemented' } }), { status: 501 });
-  } catch (error: unknown) {
-    const pgError = error instanceof Error ? error.message : String(error);
-    let code = 'P0001';
-    let message = pgError;
-    
-    const codeMatch = pgError.match(/using errcode = '([^']+)'/);
-    if (codeMatch) {
-      code = codeMatch[1];
-      message = pgError.replace(/.*using errcode = '[^']+'/, '').trim();
-    }
-    
-    return new Response(JSON.stringify({
-      code,
-      message,
-      details: pgError,
-      hint: null
-    }), {
-      status: code === '42501' ? 401 : code === '22023' ? 400 : code === '23505' ? 409 : 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } finally {
-    await pg.exec('set session authorization postgres');
-  }
-}
