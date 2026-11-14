@@ -87,6 +87,7 @@ const trustedMigrationNames = [
   '20261104182726_engine_ruleset_actor_anonymization.sql',
   '20261114120000_execution_timestamp_skew_window.sql',
   '20261114130000_recommendation_decision_hash.sql',
+  '20261114140000_export_size_guard.sql',
 ] as const;
 
 const candidateMigrationNames = [
