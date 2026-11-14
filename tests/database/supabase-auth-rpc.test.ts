@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { createSupabaseTestHarness } from '../helpers/supabase-test-harness';
+import { PGlite } from '@electric-sql/pglite';
+import { createSupabaseTestHarness, type SupabaseTestHarness } from '../helpers/supabase-test-harness';
 
-let harness: Awaited<ReturnType<typeof createSupabaseTestHarness>>;
+let harness: SupabaseTestHarness;
 
 beforeAll(async () => {
   harness = await createSupabaseTestHarness();
@@ -17,26 +18,26 @@ describe('Real Auth/PostgREST RPC security', () => {
   let userB: { supabase: SupabaseClient; id: string };
 
   beforeAll(async () => {
-    // Create two users
-    const userAData = await harness.createUser('usera@test.com');
-    const userBData = await harness.createUser('userb@test.com');
+    // Create two users using the harness signUp
+    const userAData = await harness.signUp('usera@test.com', 'password123');
+    const userBData = await harness.signUp('userb@test.com', 'password123');
 
     userA = {
-      id: userAData.id,
+      id: userAData.user.id,
       supabase: createClient('http://localhost:54321', 'anon-key', {
         auth: { persistSession: false },
         global: {
-          fetch: createAuthFetch(harness.pg, userAData.accessToken),
+          fetch: createAuthFetch(harness.pg, userAData.session.access_token),
         },
       }),
     };
 
     userB = {
-      id: userBData.id,
+      id: userBData.user.id,
       supabase: createClient('http://localhost:54321', 'anon-key', {
         auth: { persistSession: false },
         global: {
-          fetch: createAuthFetch(harness.pg, userBData.accessToken),
+          fetch: createAuthFetch(harness.pg, userBData.session.access_token),
         },
       }),
     };
@@ -158,27 +159,24 @@ describe('Real Auth/PostgREST RPC security', () => {
     let trustedRunId: string;
 
     beforeAll(async () => {
-      // Create a trusted run for testing using direct PGlite call as service_role
+      // Create a trusted run for testing using harness helper
       const requestId = crypto.randomUUID();
       trustedRunId = requestId;
       const { data: revisionData } = await userA.supabase.rpc('get_guidance_source_revision');
       const sourceRevision = revisionData ?? 0;
 
-      await harness.pg.exec('set session authorization postgres');
-      await harness.pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-      await harness.pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-      await harness.pg.exec('set session authorization service_role');
-      try {
-        await harness.pg.query(
-          `select public.record_server_recommendation_run($1::uuid,$2::uuid,$3,$4::timestamptz,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::bigint)`,
-          [userA.id, requestId, 'a'.repeat(64), new Date().toISOString(), '1.0.1', 'test', '1', 'ready',
-            JSON.stringify({ requestId, goal: 'basic_wash' }), 
-            JSON.stringify({ status: 'ready', requestId, steps: [{ stepId: 'step-1', position: 1, action: 'wait', waitSeconds: 30 }] }),
-            sourceRevision]
-        );
-      } finally {
-        await harness.pg.exec('set session authorization postgres');
-      }
+      await harness.createTrustedRun(userA.id, {
+        requestId,
+        inputFingerprint: 'a'.repeat(64),
+        asOf: new Date().toISOString(),
+        engineVersion: '1.0.1',
+        bundleId: 'test',
+        bundleVersion: '1',
+        status: 'ready',
+        input: { requestId, goal: 'basic_wash' },
+        decision: { status: 'ready', requestId, steps: [{ stepId: 'step-1', position: 1, action: 'wait', waitSeconds: 30 }] },
+        sourceRevision,
+      });
     });
 
     it('start_execution rejects untrusted run', async () => {
@@ -212,21 +210,18 @@ describe('Real Auth/PostgREST RPC security', () => {
       const { data: revisionData } = await userA.supabase.rpc('get_guidance_source_revision');
       const currentRevision = revisionData ?? 0;
 
-      await harness.pg.exec('set session authorization postgres');
-      await harness.pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-      await harness.pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-      await harness.pg.exec('set session authorization service_role');
-      try {
-        await harness.pg.query(
-          `select public.record_server_recommendation_run($1::uuid,$2::uuid,$3,$4::timestamptz,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::bigint)`,
-          [userA.id, validRequestId, 'c'.repeat(64), new Date().toISOString(), '1.0.1', 'test', '1', 'ready',
-            JSON.stringify({ requestId: validRequestId, goal: 'basic_wash' }), 
-            JSON.stringify({ status: 'ready', requestId: validRequestId, steps: [{ stepId: 'step-1', position: 1, action: 'wait', waitSeconds: 30 }] }),
-            currentRevision]
-        );
-      } finally {
-        await harness.pg.exec('set session authorization postgres');
-      }
+      await harness.createTrustedRun(userA.id, {
+        requestId: validRequestId,
+        inputFingerprint: 'c'.repeat(64),
+        asOf: new Date().toISOString(),
+        engineVersion: '1.0.1',
+        bundleId: 'test',
+        bundleVersion: '1',
+        status: 'ready',
+        input: { requestId: validRequestId, goal: 'basic_wash' },
+        decision: { status: 'ready', requestId: validRequestId, steps: [{ stepId: 'step-1', position: 1, action: 'wait', waitSeconds: 30 }] },
+        sourceRevision: currentRevision,
+      });
 
       // Now try to start a non-existent run (should fail with run-not-owned)
       const staleRequestId = crypto.randomUUID();
@@ -378,20 +373,129 @@ describe('Real Auth/PostgREST RPC security', () => {
       }
     });
 
-    it('substitute-step command shape is validated', async () => {
+    it('substitute-step with unknown shelf item returns unknown-shelf-item', async () => {
+      // Create a trusted run and start execution for user A
+      const requestId = crypto.randomUUID();
+      const { data: revisionData } = await userA.supabase.rpc('get_guidance_source_revision');
+      const sourceRevision = revisionData ?? 0;
+
+      await harness.createTrustedRun(userA.id, {
+        requestId,
+        inputFingerprint: 'e'.repeat(64),
+        asOf: new Date().toISOString(),
+        engineVersion: '1.0.1',
+        bundleId: 'test',
+        bundleVersion: '1',
+        status: 'ready',
+        input: { requestId, goal: 'basic_wash' },
+        decision: { status: 'ready', requestId, steps: [{ stepId: 'step-1', position: 1, action: 'wait', waitSeconds: 30 }] },
+        sourceRevision,
+      });
+
+      const execId = crypto.randomUUID();
+      await userA.supabase.rpc('start_protocol_execution', {
+        p_operation_id: crypto.randomUUID(),
+        p_execution_id: execId,
+        p_recommendation_run_id: requestId,
+        p_started_at: new Date().toISOString(),
+      });
+
+      // User A tries to substitute with a non-existent shelf item
       const { error } = await userA.supabase.rpc('apply_protocol_execution_command', {
         p_operation_id: crypto.randomUUID(),
-        p_execution_id: crypto.randomUUID(),
+        p_execution_id: execId,
         p_expected_revision: 0,
-        p_command: { kind: 'substitute-step', stepId: 'step-1', shelfItemId: 'not-a-uuid' },
+        p_command: { kind: 'substitute-step', stepId: 'step-1', reason: 'test', replacement: { shelfItemId: crypto.randomUUID() } },
         p_at: new Date().toISOString(),
       });
-      // Function exists - should not return "function does not exist"
-      if (error) {
-        expect(error.message).not.toContain('function.*does not exist');
-      } else {
-        expect(true).toBe(true);
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('unknown-shelf-item');
+    });
+
+    it('substitute-step with archived shelf item returns archived-shelf-item', async () => {
+      // Create a shelf item and archive it
+      const { data: addData, error: addError } = await userA.supabase.rpc('shelf_add', {
+        p_operation_id: crypto.randomUUID(),
+        p_user_product_id: crypto.randomUUID(),
+        p_version_id: null, // manual product
+        p_manual_brand: 'Test Brand',
+        p_manual_name: 'Archived Product',
+        p_manual_category: 'conditioner',
+        p_availability: 'available',
+        p_notes: null,
+        p_effective_date: { precision: 'day', value: '2026-01-01' },
+        p_facts: {},
+      });
+      console.log('shelf_add response:', addData, addError);
+      const archivedShelfItemId = addData?.userProductId;
+      const shelfRevision = addData?.revision ?? 0;
+
+      // Verify the shelf item exists before archive
+      await harness.pg.exec('set session authorization postgres');
+      await harness.pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userA.id]);
+      await harness.pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'authenticated', email: 'usera@test.com', is_anonymous: false })]);
+      await harness.pg.exec('set session authorization authenticated');
+      try {
+        const shelfCheckBefore = await harness.pg.query(`select availability from public.user_products where id = $1`, [archivedShelfItemId]);
+        console.log('Shelf item before archive:', shelfCheckBefore.rows);
+      } finally {
+        await harness.pg.exec('set session authorization postgres');
       }
+
+      await userA.supabase.rpc('shelf_archive', {
+        p_operation_id: crypto.randomUUID(),
+        p_user_product_id: archivedShelfItemId,
+        p_expected_revision: shelfRevision,
+      });
+
+      // Verify the shelf item is archived
+      await harness.pg.exec('set session authorization postgres');
+      await harness.pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userA.id]);
+      await harness.pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'authenticated', email: 'usera@test.com', is_anonymous: false })]);
+      await harness.pg.exec('set session authorization authenticated');
+      try {
+        const shelfCheck = await harness.pg.query(`select availability from public.user_products where id = $1`, [archivedShelfItemId]);
+        console.log('Shelf item availability after archive:', shelfCheck.rows);
+      } finally {
+        await harness.pg.exec('set session authorization postgres');
+      }
+
+      // Create a trusted run and start execution for user A
+      const requestId = crypto.randomUUID();
+      const { data: revisionData } = await userA.supabase.rpc('get_guidance_source_revision');
+      const sourceRevision = revisionData ?? 0;
+
+      await harness.createTrustedRun(userA.id, {
+        requestId,
+        inputFingerprint: 'f'.repeat(64),
+        asOf: new Date().toISOString(),
+        engineVersion: '1.0.1',
+        bundleId: 'test',
+        bundleVersion: '1',
+        status: 'ready',
+        input: { requestId, goal: 'basic_wash' },
+        decision: { status: 'ready', requestId, steps: [{ stepId: 'step-1', position: 1, action: 'wait', waitSeconds: 30 }] },
+        sourceRevision,
+      });
+
+      const execId = crypto.randomUUID();
+      await userA.supabase.rpc('start_protocol_execution', {
+        p_operation_id: crypto.randomUUID(),
+        p_execution_id: execId,
+        p_recommendation_run_id: requestId,
+        p_started_at: new Date().toISOString(),
+      });
+
+      // User A tries to substitute with their own archived shelf item
+      const { error } = await userA.supabase.rpc('apply_protocol_execution_command', {
+        p_operation_id: crypto.randomUUID(),
+        p_execution_id: execId,
+        p_expected_revision: 0,
+        p_command: { kind: 'substitute-step', stepId: 'step-1', reason: 'test', replacement: { shelfItemId: archivedShelfItemId } },
+        p_at: new Date().toISOString(),
+      });
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('archived-shelf-item');
     });
   });
 
@@ -443,7 +547,7 @@ describe('Real Auth/PostgREST RPC security', () => {
   });
 });
 
-function createAuthFetch(pg: any, accessToken: string) {
+function createAuthFetch(pg: PGlite, accessToken: string) {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : input.toString();
     const method = init?.method || 'GET';
@@ -470,8 +574,23 @@ function createAuthFetch(pg: any, accessToken: string) {
   };
 }
 
+// The harness already exports the fetch creator. We just need to use it.
+// But since we can't import individual functions from the harness module easily,
+// we'll keep the minimal wrappers that use the harness's pg instance directly.
+// Actually, let's just use the harness's pg instance with the same logic.
+// We can just re-export the handlers from the harness module.
+
 // Re-export the handler functions from the harness (they're not exported, so we duplicate minimally)
-async function handleRpcEndpoint(pg: any, role: string, method: string, url: URL, init?: RequestInit) {
+// This is necessary because the test file needs to create authenticated Supabase clients
+// with the same handler logic. The harness module doesn't export the internal handlers,
+// so we import the pg instance and use it directly.
+
+// Actually, we can just use the harness's pg instance and the same handler functions.
+// Let me create simple wrappers that call the harness's internal functions.
+// But since those aren't exported, we need to duplicate them or export them from harness.
+// For now, we'll keep the minimal duplication here.
+
+async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit): Promise<Response> {
   if (method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
@@ -497,24 +616,27 @@ async function handleRpcEndpoint(pg: any, role: string, method: string, url: URL
   }
   
   await pg.exec('set session authorization postgres');
-  if (userId) {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
-    await pg.exec(`set session authorization authenticated`);
-  } else if (role === 'service_role') {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-    await pg.exec('set session authorization service_role');
-  } else {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
-    await pg.exec('set session authorization anon');
-  }
-
   try {
+    if (userId) {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
+      await pg.exec(`set session authorization authenticated`);
+    } else if (role === 'service_role') {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
+      await pg.exec('set session authorization service_role');
+    } else {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
+      await pg.exec('set session authorization anon');
+    }
+
     const paramEntries = Object.entries(body);
     const params = paramEntries.map((_, index) => {
       const value = paramEntries[index][1];
+      if (value === null) {
+        return `$${index + 1}`;
+      }
       if (typeof value === 'boolean') {
         return `$${index + 1}`;
       }
@@ -540,13 +662,12 @@ async function handleRpcEndpoint(pg: any, role: string, method: string, url: URL
       paramValues
     );
     
-    // Return the result directly (PostgREST RPC format)
     return new Response(JSON.stringify(result.rows[0]?.result ?? null), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
-  } catch (error: any) {
-    const pgError = error.message || String(error);
+  } catch (error: unknown) {
+    const pgError = error instanceof Error ? error.message : String(error);
     let code = 'P0001';
     let message = pgError;
     
@@ -556,7 +677,6 @@ async function handleRpcEndpoint(pg: any, role: string, method: string, url: URL
       message = pgError.replace(/.*using errcode = '[^']+'/, '').trim();
     }
     
-    // Return PostgREST error format
     return new Response(JSON.stringify({
       code,
       message,
@@ -566,10 +686,12 @@ async function handleRpcEndpoint(pg: any, role: string, method: string, url: URL
       status: code === '42501' ? 401 : code === '22023' ? 400 : code === '23505' ? 409 : 500,
       headers: { 'Content-Type': 'application/json' }
     });
+  } finally {
+    await pg.exec('set session authorization postgres');
   }
 }
 
-async function handleTableEndpoint(pg: any, role: string, method: string, url: URL, init?: RequestInit) {
+async function handleTableEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit): Promise<Response> {
   if (method !== 'GET' && method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') {
     return new Response('Method Not Allowed', { status: 405 });
   }
@@ -596,25 +718,25 @@ async function handleTableEndpoint(pg: any, role: string, method: string, url: U
   }
   
   await pg.exec('set session authorization postgres');
-  if (userId) {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
-    await pg.exec(`set session authorization authenticated`);
-  } else if (role === 'service_role') {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-    await pg.exec('set session authorization service_role');
-  } else {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
-    await pg.exec('set session authorization anon');
-  }
-
   try {
+    if (userId) {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
+      await pg.exec(`set session authorization authenticated`);
+    } else if (role === 'service_role') {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
+      await pg.exec('set session authorization service_role');
+    } else {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
+      await pg.exec('set session authorization anon');
+    }
+
     if (method === 'GET') {
       const selectCols = queryParams.get('select') || '*';
       let whereClause = '';
-      const whereParams: any[] = [];
+      const whereParams: unknown[] = [];
       let paramIndex = 1;
       
       for (const [key, value] of queryParams.entries()) {
@@ -634,10 +756,9 @@ async function handleTableEndpoint(pg: any, role: string, method: string, url: U
     }
     
     if (method === 'PATCH') {
-      // Build UPDATE query
       const body = init?.body ? JSON.parse(init.body as string) : {};
       let whereClause = '';
-      const whereParams: any[] = [];
+      const whereParams: unknown[] = [];
       let paramIndex = 1;
       
       for (const [key, value] of queryParams.entries()) {
@@ -664,9 +785,8 @@ async function handleTableEndpoint(pg: any, role: string, method: string, url: U
     }
     
     if (method === 'DELETE') {
-      // Build DELETE query
       let whereClause = '';
-      const whereParams: any[] = [];
+      const whereParams: unknown[] = [];
       let paramIndex = 1;
       
       for (const [key, value] of queryParams.entries()) {
@@ -687,8 +807,8 @@ async function handleTableEndpoint(pg: any, role: string, method: string, url: U
     }
     
     return new Response(JSON.stringify({ error: { code: 'P0001', message: 'Not implemented' } }), { status: 501 });
-  } catch (error: any) {
-    const pgError = error.message || String(error);
+  } catch (error: unknown) {
+    const pgError = error instanceof Error ? error.message : String(error);
     let code = 'P0001';
     let message = pgError;
     
@@ -707,5 +827,7 @@ async function handleTableEndpoint(pg: any, role: string, method: string, url: U
       status: code === '42501' ? 401 : code === '22023' ? 400 : code === '23505' ? 409 : 500,
       headers: { 'Content-Type': 'application/json' }
     });
+  } finally {
+    await pg.exec('set session authorization postgres');
   }
 }

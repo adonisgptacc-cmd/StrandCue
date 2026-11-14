@@ -7,7 +7,21 @@ export interface SupabaseTestHarness {
   pg: PGlite;
   supabase: SupabaseClient;
   serviceRole: SupabaseClient;
-  createUser: (email: string) => Promise<{ id: string; accessToken: string }>;
+  signUp: (email: string, password: string) => Promise<{ user: { id: string }; session: { access_token: string } }>;
+  signIn: (email: string, password: string) => Promise<{ user: { id: string }; session: { access_token: string } }>;
+  signOut: () => Promise<void>;
+  createTrustedRun: (ownerId: string, options: {
+    requestId: string;
+    inputFingerprint: string;
+    asOf: string;
+    engineVersion: string;
+    bundleId: string;
+    bundleVersion: string;
+    status: string;
+    input: Record<string, unknown>;
+    decision: Record<string, unknown>;
+    sourceRevision: number;
+  }) => Promise<void>;
   cleanup: () => Promise<void>;
 }
 
@@ -20,7 +34,7 @@ export async function createSupabaseTestHarness(): Promise<SupabaseTestHarness> 
     create role authenticated nologin;
     create role service_role nologin;
     create schema auth;
-    create table auth.users(id uuid primary key, email_confirmed_at timestamptz);
+    create table auth.users(id uuid primary key, email_confirmed_at timestamptz, email text);
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid
     $$;
@@ -49,26 +63,97 @@ export async function createSupabaseTestHarness(): Promise<SupabaseTestHarness> 
     },
   });
 
-  async function createUser(email: string) {
+  // Track users by email for signIn lookup
+  const userByEmail = new Map<string, string>();
+
+  async function signUp(email: string, password: string) {
     const userId = crypto.randomUUID();
-    await pg.exec(`insert into auth.users (id, email_confirmed_at) values ('${userId}', now())`);
+    await pg.exec(`insert into auth.users (id, email_confirmed_at, email) values ('${userId}', now(), '${email}')`);
+    userByEmail.set(email, userId);
     
     const accessToken = createMockJWT(userId, 'authenticated', [
       { method: 'password', timestamp: Math.floor(Date.now() / 1000) }
     ], email);
     
-    return { id: userId, accessToken };
+    return { 
+      user: { id: userId }, 
+      session: { access_token: accessToken } 
+    };
   }
+
+  async function signIn(email: string, password: string) {
+    let userId = userByEmail.get(email);
+    if (!userId) {
+      // Create user if doesn't exist (for testing)
+      userId = crypto.randomUUID();
+      await pg.exec(`insert into auth.users (id, email_confirmed_at, email) values ('${userId}', now(), '${email}') on conflict do nothing`);
+      userByEmail.set(email, userId);
+    }
+    
+    const accessToken = createMockJWT(userId, 'authenticated', [
+      { method: 'password', timestamp: Math.floor(Date.now() / 1000) }
+    ], email);
+    
+    return { 
+      user: { id: userId }, 
+      session: { access_token: accessToken } 
+    };
+  }
+
+  async function signOut() {
+    // No-op for mock
+  }
+
+  async function createTrustedRun(ownerId: string, options: {
+    requestId: string;
+    inputFingerprint: string;
+    asOf: string;
+    engineVersion: string;
+    bundleId: string;
+    bundleVersion: string;
+    status: string;
+    input: Record<string, unknown>;
+    decision: Record<string, unknown>;
+    sourceRevision: number;
+  }) {
+    await pg.exec('set session authorization postgres');
+    try {
+      await harnessPg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await harnessPg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
+      await harnessPg.exec('set session authorization service_role');
+      await harnessPg.query(
+        `select public.record_server_recommendation_run($1::uuid,$2::uuid,$3,$4::timestamptz,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::bigint)`,
+        [
+          ownerId,
+          options.requestId,
+          options.inputFingerprint,
+          options.asOf,
+          options.engineVersion,
+          options.bundleId,
+          options.bundleVersion,
+          options.status,
+          JSON.stringify(options.input),
+          JSON.stringify(options.decision),
+          options.sourceRevision
+        ]
+      );
+    } finally {
+      await harnessPg.exec('set session authorization postgres');
+    }
+  }
+
+  // Helper reference for createTrustedRun
+  const harnessPg = pg;
 
   async function cleanup() {
     await pg.close();
   }
 
-  return { pg, supabase, serviceRole, createUser, cleanup };
+  return { pg, supabase, serviceRole, signUp, signIn, signOut, createTrustedRun, cleanup };
 }
 
 function createPGliteFetch(pg: PGlite, role: 'anon' | 'authenticated' | 'service_role') {
-  return async (input: RequestInfo | URL, init?: RequestInit) => {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = input instanceof Request ? input.url : input.toString();
     const method = init?.method || 'GET';
     
@@ -94,7 +179,7 @@ function createPGliteFetch(pg: PGlite, role: 'anon' | 'authenticated' | 'service
   };
 }
 
-async function handleSignIn(pg: PGlite, init?: RequestInit) {
+async function handleSignIn(pg: PGlite, init?: RequestInit): Promise<Response> {
   if (!init?.body) {
     return new Response(JSON.stringify({ error: { message: 'Missing body' } }), { status: 400 });
   }
@@ -106,7 +191,7 @@ async function handleSignIn(pg: PGlite, init?: RequestInit) {
   // For simplicity, we'll use a deterministic UUID based on email
   let userId = crypto.randomUUID();
   
-  await pg.exec(`insert into auth.users (id, email_confirmed_at) values ('${userId}', now()) on conflict do nothing`);
+  await pg.exec(`insert into auth.users (id, email_confirmed_at, email) values ('${userId}', now(), '${email}') on conflict do nothing`);
   
   const accessToken = createMockJWT(userId, 'authenticated', [
     { method: 'password', timestamp: Math.floor(Date.now() / 1000) }
@@ -121,7 +206,7 @@ async function handleSignIn(pg: PGlite, init?: RequestInit) {
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
-async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit) {
+async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit): Promise<Response> {
   if (method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
@@ -152,25 +237,28 @@ async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: 
   
   // Set up the session context
   await pg.exec('set session authorization postgres');
-  if (userId) {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
-    await pg.exec(`set session authorization authenticated`);
-  } else if (role === 'service_role') {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-    await pg.exec('set session authorization service_role');
-  } else {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
-    await pg.exec('set session authorization anon');
-  }
-
   try {
+    if (userId) {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
+      await pg.exec(`set session authorization authenticated`);
+    } else if (role === 'service_role') {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
+      await pg.exec('set session authorization service_role');
+    } else {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
+      await pg.exec('set session authorization anon');
+    }
+
     // Build the RPC call using positional parameters
     const paramEntries = Object.entries(body);
     const params = paramEntries.map((_, index) => {
       const value = paramEntries[index][1];
+      if (value === null) {
+        return `$${index + 1}`;
+      }
       if (typeof value === 'boolean') {
         return `$${index + 1}`;
       }
@@ -201,8 +289,8 @@ async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: 
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
-  } catch (error: any) {
-    const pgError = error.message || String(error);
+  } catch (error: unknown) {
+    const pgError = error instanceof Error ? error.message : String(error);
     let code = 'P0001';
     let message = pgError;
     
@@ -223,10 +311,12 @@ async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: 
       status: code === '42501' ? 401 : code === '22023' ? 400 : code === '23505' ? 409 : 500,
       headers: { 'Content-Type': 'application/json' }
     });
+  } finally {
+    await pg.exec('set session authorization postgres');
   }
 }
 
-async function handleTableEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit) {
+async function handleTableEndpoint(pg: PGlite, role: string, method: string, url: URL, init?: RequestInit): Promise<Response> {
   if (method !== 'GET' && method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') {
     return new Response('Method Not Allowed', { status: 405 });
   }
@@ -254,26 +344,26 @@ async function handleTableEndpoint(pg: PGlite, role: string, method: string, url
   }
   
   await pg.exec('set session authorization postgres');
-  if (userId) {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
-    await pg.exec(`set session authorization authenticated`);
-  } else if (role === 'service_role') {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
-    await pg.exec('set session authorization service_role');
-  } else {
-    await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
-    await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
-    await pg.exec('set session authorization anon');
-  }
-
   try {
+    if (userId) {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [userId]);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify(claims)]);
+      await pg.exec(`set session authorization authenticated`);
+    } else if (role === 'service_role') {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'service_role' })]);
+      await pg.exec('set session authorization service_role');
+    } else {
+      await pg.query("select set_config('request.jwt.claim.sub', $1, false)", ['']);
+      await pg.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ role: 'anon' })]);
+      await pg.exec('set session authorization anon');
+    }
+
     if (method === 'GET') {
       // Build SELECT query
       const selectCols = queryParams.get('select') || '*';
       let whereClause = '';
-      const whereParams: any[] = [];
+      const whereParams: unknown[] = [];
       let paramIndex = 1;
       
       for (const [key, value] of queryParams.entries()) {
@@ -296,7 +386,7 @@ async function handleTableEndpoint(pg: PGlite, role: string, method: string, url
       // Build UPDATE query
       const body = init?.body ? JSON.parse(init.body as string) : {};
       let whereClause = '';
-      const whereParams: any[] = [];
+      const whereParams: unknown[] = [];
       let paramIndex = 1;
       
       for (const [key, value] of queryParams.entries()) {
@@ -325,7 +415,7 @@ async function handleTableEndpoint(pg: PGlite, role: string, method: string, url
     if (method === 'DELETE') {
       // Build DELETE query
       let whereClause = '';
-      const whereParams: any[] = [];
+      const whereParams: unknown[] = [];
       let paramIndex = 1;
       
       for (const [key, value] of queryParams.entries()) {
@@ -346,8 +436,8 @@ async function handleTableEndpoint(pg: PGlite, role: string, method: string, url
     }
     
     return new Response(JSON.stringify({ error: { code: 'P0001', message: 'Not implemented' } }), { status: 501 });
-  } catch (error: any) {
-    const pgError = error.message || String(error);
+  } catch (error: unknown) {
+    const pgError = error instanceof Error ? error.message : String(error);
     let code = 'P0001';
     let message = pgError;
     
@@ -366,12 +456,14 @@ async function handleTableEndpoint(pg: PGlite, role: string, method: string, url
       status: code === '42501' ? 401 : code === '22023' ? 400 : code === '23505' ? 409 : 500,
       headers: { 'Content-Type': 'application/json' }
     });
+  } finally {
+    await pg.exec('set session authorization postgres');
   }
 }
 
-function createMockJWT(sub: string, role: string, amr: any[], email?: string): string {
+function createMockJWT(sub: string, role: string, amr: Record<string, unknown>[], email?: string): string {
   const header = { alg: 'HS256', typ: 'JWT' };
-  const payload: Record<string, any> = {
+  const payload: Record<string, unknown> = {
     sub,
     role,
     amr,

@@ -66,4 +66,16 @@ export default defineConfig({
       },
     },
   },
+  projects: [
+    {
+      name: 'supabase-auth',
+      test: {
+        include: ['tests/database/supabase-auth-rpc.test.ts'],
+        environment: 'node',
+        pool: 'forks',
+        poolOptions: { forks: { singleFork: true } },
+        testTimeout: 60000
+      }
+    }
+  ],
 });
