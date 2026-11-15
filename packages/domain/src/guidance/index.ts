@@ -114,3 +114,8 @@ export {
   SUPPORTED_BUNDLE_VERSIONS,
   deepFreeze,
 } from './schemas.ts';
+export {
+  heatInputToEngineInput,
+  heatPublicationToCompiledRuleset,
+  engineDecisionToHeatState,
+} from './heat-coach-engine-bridge.ts';
