@@ -54,6 +54,69 @@ export const RollbackRecordSchema = z
 export type RollbackRecord = z.infer<typeof RollbackRecordSchema>;
 
 /**
+ * Rollback store: maps rulesetId to an array of rollback records for that ruleset.
+ * Records are appended in chronological order.
+ */
+export type RollbackStore = ReadonlyMap<string, ReadonlyArray<RollbackRecord>>;
+
+/**
+ * Create an empty rollback store.
+ */
+export function createRollbackStore(): RollbackStore {
+  return new Map<string, ReadonlyArray<RollbackRecord>>();
+}
+
+/**
+ * Record a rollback from one ruleset hash to another.
+ * Returns a new store with the rollback record appended.
+ * Does not mutate the input store.
+ */
+export function rollbackToPriorHash(
+  store: RollbackStore,
+  rulesetId: string,
+  fromContentHash: string,
+  toContentHash: string,
+  rolledBackAt: string,
+  rolledBackBy: string,
+  reason: string,
+): RollbackStore {
+  const record: RollbackRecord = {
+    rulesetId,
+    fromContentHash,
+    toContentHash,
+    rolledBackAt,
+    rolledBackBy,
+    reason,
+  };
+  const newStore = new Map(store);
+  const existing = newStore.get(rulesetId) ?? [];
+  newStore.set(rulesetId, [...existing, record]);
+  return newStore;
+}
+
+/**
+ * Return all rollback records across all rulesets, in insertion order.
+ */
+export function getRollbackRecords(store: RollbackStore): readonly RollbackRecord[] {
+  const all: RollbackRecord[] = [];
+  for (const records of store.values()) {
+    all.push(...records);
+  }
+  return all;
+}
+
+/**
+ * Return all rollback records for a specific ruleset.
+ */
+export function getRollbackRecordsForRuleset(
+  store: RollbackStore,
+  rulesetId: string,
+): readonly RollbackRecord[] {
+  return store.get(rulesetId) ?? [];
+}
+
+
+/**
  * One entry in the reviewer queue: Human A authors/assembles, Human B
  * independently reviews. The author and reviewer must be different people.
  */

@@ -3,12 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   disengageKillSwitch,
   engageKillSwitch,
+  getRollbackRecords,
+  getRollbackRecordsForRuleset,
   getWithdrawnRulesets,
   isWithdrawn,
   KillSwitchStateSchema,
   RollbackRecordSchema,
   ReviewerQueueEntrySchema,
   ReviewReminderSchema,
+  rollbackToPriorHash,
   type KillSwitchState,
   type RollbackRecord,
   type ReviewerQueueEntry,
@@ -160,5 +163,53 @@ describe('kill switch', () => {
     const store = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
     const store2 = engageKillSwitch(store, 'rs-2', 'sha256:def', withdrawnAt, 'human-b', 'another issue');
     expect(getWithdrawnRulesets(store2)).toEqual(['rs-1', 'rs-2']);
+  });
+});
+
+describe('rollback', () => {
+  const rolledBackAt = '2026-10-31T13:00:00.000Z';
+
+  it('records a rollback from one ruleset hash to another', () => {
+    const store: Map<string, RollbackRecord> = new Map();
+    const result = rollbackToPriorHash(
+      store,
+      'rs-1',
+      'sha256:current',
+      'sha256:prior',
+      rolledBackAt,
+      'human-b',
+      'regression detected',
+    );
+    const records = getRollbackRecords(result);
+    expect(records).toHaveLength(1);
+    expect(records[0].rulesetId).toBe('rs-1');
+    expect(records[0].fromContentHash).toBe('sha256:current');
+    expect(records[0].toContentHash).toBe('sha256:prior');
+    expect(records[0].rolledBackBy).toBe('human-b');
+    expect(records[0].reason).toBe('regression detected');
+  });
+
+  it('returns empty array when no rollbacks have been recorded', () => {
+    const store: Map<string, RollbackRecord> = new Map();
+    expect(getRollbackRecords(store)).toEqual([]);
+  });
+
+  it('returns rollback records for a specific ruleset', () => {
+    let store: Map<string, RollbackRecord> = new Map();
+    store = rollbackToPriorHash(store, 'rs-1', 'sha256:a', 'sha256:b', rolledBackAt, 'human-a', 'issue 1');
+    store = rollbackToPriorHash(store, 'rs-2', 'sha256:c', 'sha256:d', rolledBackAt, 'human-b', 'issue 2');
+    store = rollbackToPriorHash(store, 'rs-1', 'sha256:e', 'sha256:f', rolledBackAt, 'human-a', 'issue 3');
+
+    const rs1Records = getRollbackRecordsForRuleset(store, 'rs-1');
+    expect(rs1Records).toHaveLength(2);
+    expect(rs1Records[0].fromContentHash).toBe('sha256:a');
+    expect(rs1Records[1].fromContentHash).toBe('sha256:e');
+
+    const rs2Records = getRollbackRecordsForRuleset(store, 'rs-2');
+    expect(rs2Records).toHaveLength(1);
+    expect(rs2Records[0].fromContentHash).toBe('sha256:c');
+
+    const rs3Records = getRollbackRecordsForRuleset(store, 'rs-3');
+    expect(rs3Records).toHaveLength(0);
   });
 });
