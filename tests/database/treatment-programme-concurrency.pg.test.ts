@@ -11,6 +11,7 @@
 // Without a configured real PostgreSQL the suite is SKIPPED and reports itself as blocked. A skip is
 // never reported as a concurrency pass. The published rule and catalogue fixtures are immutable by
 // design and stay in the disposable database; every owner row is removed with the owner.
+import { createRequire } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { refusalReason } from '../helpers/local-postgres-target';
 type PgClient = import('pg').Client;
@@ -116,7 +117,7 @@ suite(suiteName, () => {
   };
 
   beforeAll(async () => {
-    ({ Client } = await import('pg'));
+    ({ Client } = createRequire(import.meta.url)('pg'));
     admin = await newClient();
     const signature = await admin.query<{ signature: string | null }>("select to_regprocedure('public.enrol_programme(uuid,uuid,uuid,text,text,jsonb,text)')::text as signature");
     expect(signature.rows[0].signature).toBeTruthy();

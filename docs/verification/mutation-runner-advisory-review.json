@@ -1,31 +1,110 @@
 {
   "tree": "tools/mutation-runner/package.json",
-  "lockSha256": "811eb5bf2241a9a224d1d4122b38964b4911b390a77c22d655c739f67c93ac7f",
-  "reviewedOn": "2026-10-17",
-  "recheckOn": "2026-10-24",
-  "expiresOn": "2026-10-31",
-  "owner": "<UNASSIGNED - dependency risk owner must be named before CI-001 closes>",
+  "lockSha256": "d7b659c13704640f3a0df7d7d3a9fe6a63707c35bf3248a64e75b8d6591d6b5f",
+  "reviewedOn": "2026-11-13",
+  "recheckOn": "2026-11-20",
+  "expiresOn": "2026-11-27",
+  "owner": "Alain Adonis (dependency risk owner; approved 2026-11-13)",
   "audit": {
     "auditReportVersion": 2,
-    "vulnerabilities": {},
+    "vulnerabilities": {
+      "@stryker-mutator/core": {
+        "name": "@stryker-mutator/core",
+        "severity": "moderate",
+        "isDirect": true,
+        "via": [
+          "minimatch"
+        ],
+        "effects": [
+          "@stryker-mutator/vitest-runner"
+        ],
+        "range": ">=6.4.2",
+        "nodes": [
+          "node_modules/@stryker-mutator/core"
+        ],
+        "fixAvailable": false
+      },
+      "@stryker-mutator/vitest-runner": {
+        "name": "@stryker-mutator/vitest-runner",
+        "severity": "moderate",
+        "isDirect": true,
+        "via": [
+          "@stryker-mutator/core"
+        ],
+        "effects": [],
+        "range": "*",
+        "nodes": [
+          "node_modules/@stryker-mutator/vitest-runner"
+        ],
+        "fixAvailable": false
+      },
+      "minimatch": {
+        "name": "minimatch",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1244623,
+            "name": "minimatch",
+            "dependency": "minimatch",
+            "title": "minimatch has potential denial of service via globparts amplification",
+            "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-405"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": ">=7.0.0 <11.0.1"
+          }
+        ],
+        "effects": [
+          "@stryker-mutator/core"
+        ],
+        "range": "7.0.0 - 11.0.0",
+        "nodes": [
+          "node_modules/minimatch"
+        ],
+        "fixAvailable": false
+      }
+    },
     "metadata": {
       "vulnerabilities": {
         "info": 0,
         "low": 0,
-        "moderate": 0,
+        "moderate": 3,
         "high": 0,
         "critical": 0,
-        "total": 0
+        "total": 3
       },
       "dependencies": {
-        "prod": 191,
+        "prod": 192,
         "dev": 0,
         "optional": 27,
-        "peer": 36,
+        "peer": 5,
         "peerOptional": 0,
-        "total": 226
+        "total": 223
       }
     }
   },
-  "advisories": []
+  "advisories": [
+    {
+      "advisoryId": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/minimatch@10.2.6"
+      ],
+      "paths": [
+        "runner > @stryker-mutator/core@10.1.1 > minimatch@10.2.6"
+      ],
+      "reachability": "Glob-part amplification can exhaust CPU on hostile patterns; patterns come from stryker.conf.json in the repository. Reasoned from the package role; not traced through the tool source.",
+      "exposure": "CI executable tooling only, not an Android/web application runtime tree. The optional mutation workflow holds no release credential.",
+      "upstream": "Fixed in 11.0.1; @stryker-mutator/core 10.1.1 is the latest release and requires ~10.2.4.",
+      "compatibility": "Keep @stryker-mutator/core and vitest-runner 10.1.1 exact. Fixed in 11.0.1; @stryker-mutator/core 10.1.1 is the latest release and requires ~10.2.4.",
+      "controls": "Optional manual workflow only; trusted repository configuration; bounded CI job time. Lock and complete audit graph bound by the reviewed gate; scripts disabled at install; no force upgrade; recheck 2026-11-20, expire 2026-11-27."
+    }
+  ]
 }

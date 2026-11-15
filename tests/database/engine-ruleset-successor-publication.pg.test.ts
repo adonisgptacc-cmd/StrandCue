@@ -12,8 +12,7 @@ const dsn = process.env.STRANDCUE_PG_DSN ?? '';
 const refusal = refusalReason(dsn);
 if (refusal) console.warn(`[engine-ruleset-successor-publication.pg] SKIP/BLOCKED: ${refusal}`);
 const suite = refusal === null ? describe : describe.skip;
-const require = createRequire(import.meta.url);
-const { Client } = require('pg') as { Client: PgConstructor };
+let Client: PgConstructor;
 
 suite('real-Postgres successor ruleset publication', () => {
   let admin: PgClient;
@@ -23,6 +22,7 @@ suite('real-Postgres successor ruleset publication', () => {
   const childId = crypto.randomUUID();
 
   beforeAll(async () => {
+    ({ Client } = createRequire(import.meta.url)('pg') as { Client: PgConstructor });
     admin = new Client({ connectionString: dsn });
     await admin.connect();
     await admin.query("set statement_timeout='20000'");

@@ -8,6 +8,7 @@
 //
 // Without a configured real PostgreSQL the suite is SKIPPED and reports
 // itself as blocked. A skip is never reported as a concurrency pass.
+import { createRequire } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { refusalReason } from '../helpers/local-postgres-target';
 type PgClient = import('pg').Client;
@@ -66,7 +67,7 @@ suite(suiteName, () => {
   ];
 
   beforeAll(async () => {
-    ({ Client } = await import('pg'));
+    ({ Client } = createRequire(import.meta.url)('pg'));
     admin = await newClient();
     const signature = await admin.query<{ signature: string | null }>(
       "select to_regprocedure('public.shelf_add(uuid,uuid,uuid,text,text,text,text,text,jsonb,jsonb)')::text as signature");
