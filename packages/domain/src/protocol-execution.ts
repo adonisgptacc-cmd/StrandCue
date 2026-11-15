@@ -60,6 +60,7 @@ export type ExecutionStatus = z.output<typeof ExecutionStatusSchema>;
 
 export const ExecutionStepStateSchema = z.enum([
   'pending',
+  'waiting',
   'confirmed',
   'skipped',
   'substituted',
@@ -182,6 +183,7 @@ export const ExecutionStepSchema = z
     planned: PlannedStepSchema,
     state: ExecutionStepStateSchema,
     confirmedAt: IsoOffsetTimestampSchema.nullable(),
+    waitStartedAt: IsoOffsetTimestampSchema.nullable(),
     deviation: ExecutionDeviationSchema.nullable(),
   })
   .strict()
@@ -227,6 +229,27 @@ export const ExecutionStepSchema = z
         code: 'custom',
         path: ['deviation'],
         message: 'Only a deviated step carries a deviation record',
+      });
+    }
+    if (step.state === 'waiting' && step.waitStartedAt === null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['waitStartedAt'],
+        message: 'A waiting step records when its timer started',
+      });
+    }
+    if (step.state !== 'waiting' && step.waitStartedAt !== null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['waitStartedAt'],
+        message: 'Only a waiting step carries a wait-start timestamp',
+      });
+    }
+    if (step.waitStartedAt !== null && step.confirmedAt !== null && Date.parse(step.confirmedAt) < Date.parse(step.waitStartedAt)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['confirmedAt'],
+        message: 'A step cannot be confirmed before its wait timer started',
       });
     }
   });
@@ -360,7 +383,8 @@ export type ProtocolExecutionErrorCode =
   | 'execution-terminal'
   | 'invalid-status-transition'
   | 'pending-steps-remain'
-  | 'missing-timestamp';
+  | 'missing-timestamp'
+  | 'wait-timer-active';
 
 export class ProtocolExecutionError extends Error {
   readonly code: ProtocolExecutionErrorCode;
@@ -465,14 +489,16 @@ export function startProtocolExecution(args: StartExecutionArgs): ProtocolExecut
     startedAt,
     updatedAt: startedAt,
     status: 'in_progress',
-    steps: args.decision.steps.map(step => {
+    steps: args.decision.steps.map((step, index) => {
       const planned = copyPlannedStep(step);
+      const isFirstWait = index === 0 && planned.action === 'wait';
       return {
         stepId: planned.stepId,
         position: planned.position,
         planned,
-        state: 'pending',
+        state: isFirstWait ? ('waiting' as const) : ('pending' as const),
         confirmedAt: null,
+        waitStartedAt: isFirstWait ? startedAt : null,
         deviation: null,
       };
     }),
@@ -518,16 +544,81 @@ function resolveStep(
   requireActiveForStep(execution);
   const index = findStepIndex(execution, stepId);
   const current = execution.steps[index] as ExecutionStep;
-  if (current.state !== 'pending') {
+  if (current.state !== 'pending' && current.state !== 'waiting') {
     throw new ProtocolExecutionError(
       'step-already-resolved',
       `Step '${stepId}' is already ${current.state}; a step is confirmed at most once`,
     );
   }
+  // A waiting step can only be confirmed once its timer has expired. Deviating
+  // (skip/substitute/modify) is allowed at any time while waiting.
+  if (current.state === 'waiting' && current.waitStartedAt !== null && state === 'confirmed') {
+    const waitSeconds = current.planned.waitSeconds ?? 0;
+    const waitExpires = Date.parse(current.waitStartedAt) + waitSeconds * 1000;
+    if (Date.parse(at) < waitExpires) {
+      throw new ProtocolExecutionError(
+        'wait-timer-active',
+        `Step '${stepId}' is waiting; its timer has not yet expired`,
+      );
+    }
+  }
   const steps = execution.steps.map((step, position) =>
-    position === index ? { ...step, state, confirmedAt, deviation } : step,
+    position === index
+      ? { ...step, state, confirmedAt, deviation, waitStartedAt: null }
+      : step,
   );
-  return ProtocolExecutionSchema.parse({ ...execution, steps, updatedAt: at });
+  let next = ProtocolExecutionSchema.parse({ ...execution, steps, updatedAt: at });
+  // When a step is resolved, the next pending step becomes current. If it is a
+  // wait step, start its timer.
+  const nextPending = next.steps.find(step => step.state === 'pending');
+  if (nextPending !== undefined && nextPending.planned.action === 'wait') {
+    next = {
+      ...next,
+      steps: next.steps.map(step =>
+        step.stepId === nextPending.stepId
+          ? { ...step, state: 'waiting', waitStartedAt: at }
+          : step,
+      ),
+    };
+    next = ProtocolExecutionSchema.parse(next);
+  }
+  return next;
+}
+
+/**
+ * Auto-advances every waiting step whose timer has expired by the injected
+ * `at` timestamp, in position order. An expired wait becomes `pending` — it
+ * is eligible for confirmation but still requires an explicit step command.
+ * Returns the execution unchanged when no wait timer has expired. Each
+ * advanced step may reveal the next pending wait step, which starts its own
+ * timer — so the loop repeats until stable.
+ */
+function advanceExpiredWaits(execution: ProtocolExecution, at: string): ProtocolExecution {
+  let next = execution;
+  let advanced = true;
+  while (advanced) {
+    advanced = false;
+    const waiting = next.steps
+      .filter(step => step.state === 'waiting' && step.waitStartedAt !== null)
+      .sort((left, right) => left.position - right.position);
+    const atMs = Date.parse(at);
+    for (const step of waiting) {
+      const waitSeconds = step.planned.waitSeconds ?? 0;
+      const waitExpires = Date.parse(step.waitStartedAt!) + waitSeconds * 1000;
+      if (atMs >= waitExpires) {
+        next = {
+          ...next,
+          steps: next.steps.map(s =>
+            s.stepId === step.stepId ? { ...s, state: 'pending', waitStartedAt: null } : s,
+          ),
+        };
+        next = ProtocolExecutionSchema.parse(next);
+        advanced = true;
+        break;
+      }
+    }
+  }
+  return next;
 }
 
 /**
@@ -536,15 +627,16 @@ function resolveStep(
  *
  * Allowed transitions:
  * - `complete-step` / `skip-step` / `substitute-step` / `modify-step`:
- *   `in_progress` only, and only on a `pending` step.
+ *   `in_progress` only, and only on a `pending` or `waiting` step.
  * - `pause`: `in_progress` → `paused`.
  * - `resume`: `paused` → `in_progress`.
  * - `abandon`: `in_progress` | `paused` → `abandoned` (history preserved).
  * - `complete`: `in_progress` → `completed`, only when no step is pending.
  *
- * `completed` and `abandoned` are terminal: every further command is
- * rejected. Confirmed step actions stay execution history only; this
- * function emits no activity, wash, or heat events.
+ * Before any command is applied, wait steps whose timer has expired are
+ * auto-confirmed in position order. `completed` and `abandoned` are terminal:
+ * every further command is rejected. Confirmed step actions stay execution
+ * history only; this function emits no activity, wash, or heat events.
  */
 export function applyExecutionCommand(
   execution: ProtocolExecution,
@@ -559,13 +651,14 @@ export function applyExecutionCommand(
     );
   }
   const at = requireTimestamp(options.at);
+  let next = advanceExpiredWaits(execution, at);
 
   switch (parsed.kind) {
     case 'complete-step':
-      return resolveStep(execution, parsed.stepId, 'confirmed', at, null, at);
+      return resolveStep(next, parsed.stepId, 'confirmed', at, null, at);
     case 'skip-step':
       return resolveStep(
-        execution,
+        next,
         parsed.stepId,
         'skipped',
         null,
@@ -578,7 +671,7 @@ export function applyExecutionCommand(
       // referenced catalogue version at command time before persisting the
       // verified replacement.
       return resolveStep(
-        execution,
+        next,
         parsed.stepId,
         'substituted',
         null,
@@ -592,7 +685,7 @@ export function applyExecutionCommand(
     }
     case 'modify-step':
       return resolveStep(
-        execution,
+        next,
         parsed.stepId,
         'modified',
         null,
@@ -600,32 +693,32 @@ export function applyExecutionCommand(
         at,
       );
     case 'pause': {
-      if (execution.status !== 'in_progress') {
+      if (next.status !== 'in_progress') {
         throw new ProtocolExecutionError(
           'invalid-status-transition',
-          `Cannot pause while ${execution.status}; pause applies only while in progress`,
+          `Cannot pause while ${next.status}; pause applies only while in progress`,
         );
       }
-      return ProtocolExecutionSchema.parse({ ...execution, status: 'paused', updatedAt: at });
+      return ProtocolExecutionSchema.parse({ ...next, status: 'paused', updatedAt: at });
     }
     case 'resume': {
-      if (execution.status !== 'paused') {
+      if (next.status !== 'paused') {
         throw new ProtocolExecutionError(
           'invalid-status-transition',
-          `Cannot resume while ${execution.status}; resume applies only while paused`,
+          `Cannot resume while ${next.status}; resume applies only while paused`,
         );
       }
-      return ProtocolExecutionSchema.parse({ ...execution, status: 'in_progress', updatedAt: at });
+      return ProtocolExecutionSchema.parse({ ...next, status: 'in_progress', updatedAt: at });
     }
     case 'abandon': {
-      if (execution.status !== 'in_progress' && execution.status !== 'paused') {
+      if (next.status !== 'in_progress' && next.status !== 'paused') {
         throw new ProtocolExecutionError(
           'invalid-status-transition',
-          `Cannot abandon while ${execution.status}`,
+          `Cannot abandon while ${next.status}`,
         );
       }
       return ProtocolExecutionSchema.parse({
-        ...execution,
+        ...next,
         status: 'abandoned',
         updatedAt: at,
         finishedAt: at,
@@ -633,13 +726,13 @@ export function applyExecutionCommand(
       });
     }
     case 'complete': {
-      if (execution.status !== 'in_progress') {
+      if (next.status !== 'in_progress') {
         throw new ProtocolExecutionError(
           'invalid-status-transition',
-          `Cannot complete while ${execution.status}; complete applies only while in progress`,
+          `Cannot complete while ${next.status}; complete applies only while in progress`,
         );
       }
-      const pending = execution.steps.filter(step => step.state === 'pending');
+      const pending = next.steps.filter(step => step.state === 'pending');
       if (pending.length > 0) {
         throw new ProtocolExecutionError(
           'pending-steps-remain',
@@ -647,7 +740,7 @@ export function applyExecutionCommand(
         );
       }
       return ProtocolExecutionSchema.parse({
-        ...execution,
+        ...next,
         status: 'completed',
         updatedAt: at,
         finishedAt: at,

@@ -428,3 +428,151 @@ describe('ProtocolExecution purity and schemas', () => {
     expect(() => ExecutionCommandSchema.parse({ kind: 'nope' })).toThrow();
   });
 });
+
+describe('ProtocolExecution wait-step timers', () => {
+  function waitFirstDecision() {
+    return {
+      ...readyDecision(),
+      steps: [
+        {
+          stepId: 'step-wait-1',
+          position: 1,
+          action: 'wait',
+          productId: null,
+          productVersionId: null,
+          toolId: null,
+          toolVersionId: null,
+          waitSeconds: 120,
+          rinse: null,
+          reasons: ['rule a@1 requires a 120s wait'],
+        },
+        {
+          stepId: 'step-apply-2',
+          position: 2,
+          action: 'apply',
+          productId: 'prod-cleanse',
+          productVersionId: 'v3',
+          toolId: null,
+          toolVersionId: null,
+          waitSeconds: null,
+          rinse: null,
+          reasons: ['rule a@1 requires cleansing'],
+        },
+      ],
+    } as unknown as ProtocolDecision;
+  }
+
+  it('starts the first wait step in waiting state with waitStartedAt', () => {
+    const execution = startProtocolExecution({
+      executionId: 'exec-wait-1',
+      decision: waitFirstDecision(),
+      startedAt: T0,
+    });
+
+    expect(execution.steps[0]?.state).toBe('waiting');
+    expect(execution.steps[0]?.waitStartedAt).toBe(T0);
+    expect(execution.steps[1]?.state).toBe('pending');
+    expect(execution.steps[1]?.waitStartedAt).toBeNull();
+  });
+
+  it('rejects confirming a wait step before its timer expires', () => {
+    const execution = startProtocolExecution({
+      executionId: 'exec-wait-2',
+      decision: waitFirstDecision(),
+      startedAt: T0,
+    });
+
+    const beforeExpiry = '2026-10-13T12:01:00+02:00';
+    expect(() =>
+      run({ kind: 'complete-step', stepId: 'step-wait-1' }, beforeExpiry, execution),
+    ).toThrow(expect.objectContaining({ code: 'wait-timer-active' }));
+  });
+
+  it('allows skipping a wait step before its timer expires', () => {
+    const execution = startProtocolExecution({
+      executionId: 'exec-wait-3',
+      decision: waitFirstDecision(),
+      startedAt: T0,
+    });
+
+    const beforeExpiry = '2026-10-13T12:01:00+02:00';
+    const next = run(
+      { kind: 'skip-step', stepId: 'step-wait-1', reason: 'no time to wait' },
+      beforeExpiry,
+      execution,
+    );
+
+    expect(next.steps[0]?.state).toBe('skipped');
+    expect(next.steps[1]?.state).toBe('pending');
+  });
+
+  it('advances an expired wait step from waiting to pending on the next command', () => {
+    const execution = startProtocolExecution({
+      executionId: 'exec-wait-4',
+      decision: waitFirstDecision(),
+      startedAt: T0,
+    });
+
+    const next = run({ kind: 'complete-step', stepId: 'step-wait-1' }, T2, execution);
+
+    expect(next.steps[0]?.state).toBe('confirmed');
+    expect(next.steps[0]?.confirmedAt).toBe(T2);
+    expect(next.steps[1]?.state).toBe('pending');
+  });
+
+  it('starts a timer on the next pending wait step after the current step is resolved', () => {
+    const decision = {
+      ...waitFirstDecision(),
+      steps: [
+        waitFirstDecision().steps[0],
+        waitFirstDecision().steps[1],
+        {
+          stepId: 'step-wait-3',
+          position: 3,
+          action: 'wait',
+          productId: null,
+          productVersionId: null,
+          toolId: null,
+          toolVersionId: null,
+          waitSeconds: 60,
+          rinse: null,
+          reasons: ['rule a@1 requires a 60s wait'],
+        },
+      ],
+    };
+
+    const execution = startProtocolExecution({
+      executionId: 'exec-wait-5',
+      decision,
+      startedAt: T0,
+    });
+
+    const afterFirst = run({ kind: 'complete-step', stepId: 'step-wait-1' }, T2, execution);
+    expect(afterFirst.steps[0]?.state).toBe('confirmed');
+    expect(afterFirst.steps[1]?.state).toBe('pending');
+
+    const afterSecond = run({ kind: 'complete-step', stepId: 'step-apply-2' }, T3, afterFirst);
+    expect(afterSecond.steps[2]?.state).toBe('waiting');
+    expect(afterSecond.steps[2]?.waitStartedAt).toBe(T3);
+  });
+
+  it('does not start a timer on a non-wait step after resolution', () => {
+    const execution = startProtocolExecution({
+      executionId: 'exec-wait-6',
+      decision: readyDecision(),
+      startedAt: T0,
+    });
+
+    const afterFirst = run({ kind: 'complete-step', stepId: 'step-1' }, T1, execution);
+    expect(afterFirst.steps[1]?.state).toBe('waiting');
+    expect(afterFirst.steps[1]?.waitStartedAt).toBe(T1);
+
+    const afterSecond = run(
+      { kind: 'skip-step', stepId: 'step-2', reason: 'no wait' },
+      T2,
+      afterFirst,
+    );
+    expect(afterSecond.steps[2]?.state).toBe('pending');
+    expect(afterSecond.steps[2]?.waitStartedAt).toBeNull();
+  });
+});
