@@ -8,15 +8,19 @@ import {
   getRollbackRecords,
   getRollbackRecordsForRuleset,
   getReviewerQueue,
+  getReviewReminders,
+  getDueReminders,
   getReviewsByReviewer,
   getWithdrawnRulesets,
   isWithdrawn,
   KillSwitchStateSchema,
+  markReminderSent,
   reviewQueueEntry,
   RollbackRecordSchema,
   ReviewerQueueEntrySchema,
   ReviewReminderSchema,
   rollbackToPriorHash,
+  scheduleReviewReminder,
   type KillSwitchState,
   type RollbackRecord,
   type ReviewerQueueEntry,
@@ -280,7 +284,7 @@ describe('reviewer queue', () => {
 
   it('returns pending reviews only', () => {
     const store1 = addToReviewerQueue(emptyStore, entry);
-    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', 'approved', 'looks good');
+    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
     const store3 = addToReviewerQueue(store2, {
       ...entry,
       entryId: 'entry-2',
@@ -293,14 +297,73 @@ describe('reviewer queue', () => {
 
   it('returns reviews by a specific reviewer', () => {
     const store1 = addToReviewerQueue(emptyStore, entry);
-    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', 'approved', 'looks good');
+    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
     const store3 = addToReviewerQueue(store2, {
       ...entry,
       entryId: 'entry-2',
       authoredBy: 'human-c',
     });
-    const store4 = reviewQueueEntry(store3, 'entry-2', 'human-b', 'rejected', 'not good');
+    const store4 = reviewQueueEntry(store3, 'entry-2', 'human-b', reviewedAt, 'rejected', 'not good');
     const byHumanB = getReviewsByReviewer(store4, 'human-b');
     expect(byHumanB).toHaveLength(2);
+  });
+});
+
+describe('review reminders', () => {
+  const emptyStore: Map<string, ReviewReminder> = new Map();
+
+  const reminder: ReviewReminder = {
+    reminderId: 'reminder-1',
+    bundleId: 'bundle-1',
+    bundleVersion: '2',
+    reminderType: '180-day-review',
+    dueAt: '2026-10-31T12:00:00.000Z',
+    sentAt: null,
+  };
+
+  it('schedules a review reminder', () => {
+    const store = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const reminders = getReviewReminders(store);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0].reminderId).toBe('reminder-1');
+    expect(reminders[0].sentAt).toBeNull();
+  });
+
+  it('returns empty array when no reminders exist', () => {
+    expect(getReviewReminders(emptyStore)).toEqual([]);
+  });
+
+  it('returns due reminders as of a given time', () => {
+    const store1 = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const store2 = scheduleReviewReminder(store1, 'reminder-2', 'bundle-2', '2', '180-day-review', '2026-11-01T12:00:00.000Z');
+    const store3 = scheduleReviewReminder(store2, 'reminder-3', 'bundle-3', '2', '180-day-review', '2026-12-01T12:00:00.000Z');
+
+    const due = getDueReminders(store3, '2026-11-15T12:00:00.000Z');
+    expect(due).toHaveLength(2);
+    expect(due[0].reminderId).toBe('reminder-1');
+    expect(due[1].reminderId).toBe('reminder-2');
+  });
+
+  it('returns no reminders when none are due yet', () => {
+    const store = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-12-01T12:00:00.000Z');
+    const due = getDueReminders(store, '2026-10-31T12:00:00.000Z');
+    expect(due).toHaveLength(0);
+  });
+
+  it('marks a reminder as sent', () => {
+    const store = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const updated = markReminderSent(store, 'reminder-1', '2026-10-31T13:00:00.000Z');
+    const reminders = getReviewReminders(updated);
+    expect(reminders[0].sentAt).toBe('2026-10-31T13:00:00.000Z');
+  });
+
+  it('returns all reminders sorted by due date', () => {
+    const store1 = scheduleReviewReminder(emptyStore, 'reminder-3', 'bundle-1', '2', '180-day-review', '2026-12-01T12:00:00.000Z');
+    const store2 = scheduleReviewReminder(store1, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const store3 = scheduleReviewReminder(store2, 'reminder-2', 'bundle-1', '2', '180-day-review', '2026-11-01T12:00:00.000Z');
+    const reminders = getReviewReminders(store3);
+    expect(reminders[0].reminderId).toBe('reminder-1');
+    expect(reminders[1].reminderId).toBe('reminder-2');
+    expect(reminders[2].reminderId).toBe('reminder-3');
   });
 });

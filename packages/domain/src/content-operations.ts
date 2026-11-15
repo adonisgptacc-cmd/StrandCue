@@ -361,3 +361,75 @@ export function getWithdrawnRulesets(store: KillSwitchStore): readonly string[] 
   return [...store.keys()];
 }
 
+/**
+ * Review reminder store: maps reminderId to its review reminder.
+ */
+export type ReviewReminderStore = ReadonlyMap<string, ReviewReminder>;
+
+/**
+ * Create an empty review reminder store.
+ */
+export function createReviewReminderStore(): ReviewReminderStore {
+  return new Map<string, ReviewReminder>();
+}
+
+/**
+ * Schedule a review reminder for a bundle.
+ * Returns a new store with the reminder added.
+ * Does not mutate the input store.
+ */
+export function scheduleReviewReminder(
+  store: ReviewReminderStore,
+  reminderId: string,
+  bundleId: string,
+  bundleVersion: string,
+  reminderType: string,
+  dueAt: string,
+): ReviewReminderStore {
+  const reminder: ReviewReminder = {
+    reminderId,
+    bundleId,
+    bundleVersion,
+    reminderType,
+    dueAt,
+    sentAt: null,
+  };
+  const newStore = new Map(store);
+  newStore.set(reminderId, reminder);
+  return newStore;
+}
+
+/**
+ * Return all review reminders, sorted by due date.
+ */
+export function getReviewReminders(store: ReviewReminderStore): readonly ReviewReminder[] {
+  return [...store.values()].sort(
+    (a, b) => a.dueAt.localeCompare(b.dueAt),
+  );
+}
+
+/**
+ * Return all reminders due as of the given time (dueAt <= asOf).
+ */
+export function getDueReminders(store: ReviewReminderStore, asOf: string): readonly ReviewReminder[] {
+  return [...store.values()].filter((reminder) => reminder.dueAt <= asOf);
+}
+
+/**
+ * Mark a reminder as sent.
+ * Returns a new store with the reminder's sentAt updated.
+ * Does not mutate the input store.
+ */
+export function markReminderSent(store: ReviewReminderStore, reminderId: string, sentAt: string): ReviewReminderStore {
+  const existing = store.get(reminderId);
+  if (!existing) {
+    throw new Error(`Review reminder not found: ${reminderId}`);
+  }
+  const newStore = new Map(store);
+  newStore.set(reminderId, {
+    ...existing,
+    sentAt,
+  });
+  return newStore;
+}
+
