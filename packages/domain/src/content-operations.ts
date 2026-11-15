@@ -143,3 +143,71 @@ export const ReviewReminderSchema = z
   .strict()
   .readonly();
 export type ReviewReminder = z.infer<typeof ReviewReminderSchema>;
+
+/**
+ * Kill switch store: maps rulesetId to its kill switch state.
+ * A ruleset present in this map is withdrawn and cannot execute.
+ */
+export type KillSwitchStore = ReadonlyMap<string, KillSwitchState>;
+
+/**
+ * Create an empty kill switch store.
+ */
+export function createKillSwitchStore(): KillSwitchStore {
+  return new Map<string, KillSwitchState>();
+}
+
+/**
+ * Engage the kill switch for a ruleset, marking it as withdrawn.
+ * Returns a new store with the kill switch engaged.
+ * Does not mutate the input store.
+ */
+export function engageKillSwitch(
+  store: KillSwitchStore,
+  rulesetId: string,
+  contentHash: string,
+  withdrawnAt: string,
+  withdrawnBy: string,
+  reason: string,
+): KillSwitchStore {
+  const newStore = new Map(store);
+  newStore.set(rulesetId, {
+    rulesetId,
+    contentHash,
+    withdrawnAt,
+    withdrawnBy,
+    reason,
+  });
+  return newStore;
+}
+
+/**
+ * Disengage the kill switch for a ruleset, allowing it to execute again.
+ * Returns a new store with the kill switch disengaged.
+ * Does not mutate the input store.
+ */
+export function disengageKillSwitch(
+  store: KillSwitchStore,
+  rulesetId: string,
+  disengagedBy: string,
+  reason: string,
+): KillSwitchStore {
+  const newStore = new Map(store);
+  newStore.delete(rulesetId);
+  return newStore;
+}
+
+/**
+ * Check whether a ruleset is currently withdrawn by the kill switch.
+ */
+export function isWithdrawn(store: KillSwitchStore, rulesetId: string): boolean {
+  return store.has(rulesetId);
+}
+
+/**
+ * Return all ruleset IDs that are currently withdrawn by the kill switch.
+ */
+export function getWithdrawnRulesets(store: KillSwitchStore): readonly string[] {
+  return [...store.keys()];
+}
+

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  disengageKillSwitch,
+  engageKillSwitch,
+  getWithdrawnRulesets,
+  isWithdrawn,
   KillSwitchStateSchema,
   RollbackRecordSchema,
   ReviewerQueueEntrySchema,
@@ -9,7 +13,6 @@ import {
   type RollbackRecord,
   type ReviewerQueueEntry,
   type ReviewReminder,
-  type ReviewerQueueStatus,
 } from '../../packages/domain/src/content-operations.ts';
 
 describe('content operations schema', () => {
@@ -124,5 +127,38 @@ describe('content operations schema', () => {
     expect(() =>
       ReviewReminderSchema.parse(42),
     ).toThrow();
+  });
+});
+
+describe('kill switch', () => {
+  const emptyStore: Map<string, KillSwitchState> = new Map();
+  const withdrawnAt = '2026-10-31T12:00:00.000Z';
+
+  it('engages kill switch for a ruleset', () => {
+    const store = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    expect(isWithdrawn(store, 'rs-1')).toBe(true);
+  });
+
+  it('disengages kill switch', () => {
+    const engaged = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    expect(isWithdrawn(engaged, 'rs-1')).toBe(true);
+
+    const disengaged = disengageKillSwitch(engaged, 'rs-1', withdrawnAt, 'human-b', 'false alarm');
+    expect(isWithdrawn(disengaged, 'rs-1')).toBe(false);
+  });
+
+  it('does not affect other rulesets', () => {
+    const store = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    expect(isWithdrawn(store, 'rs-2')).toBe(false);
+  });
+
+  it('returns empty array when no rulesets are withdrawn', () => {
+    expect(getWithdrawnRulesets(emptyStore)).toEqual([]);
+  });
+
+  it('returns all withdrawn ruleset IDs', () => {
+    const store = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    const store2 = engageKillSwitch(store, 'rs-2', 'sha256:def', withdrawnAt, 'human-b', 'another issue');
+    expect(getWithdrawnRulesets(store2)).toEqual(['rs-1', 'rs-2']);
   });
 });
