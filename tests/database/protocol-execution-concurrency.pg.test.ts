@@ -1,6 +1,5 @@
 // Opt-in, disposable numeric-loopback PostgreSQL only. No hosted targets.
 // The optional pg driver is supplied in an ignored scratch environment.
-import { createRequire } from 'node:module';
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {refusalReason} from '../helpers/local-postgres-target';
 type PgClient = import('pg').Client;
@@ -75,7 +74,7 @@ suite('real-Postgres two-session op-id blocking (DB-002 local proof)', () => {
     throw new Error('Exact session B was not blocked by exact session A');
   };
   beforeAll(async () => {
-    ({Client} = createRequire(import.meta.url)('pg'));
+    ({Client} = await import('pg'));
     admin = await newClient();
     const chain = await admin.query<{signature: string | null}>("select to_regprocedure('public.start_protocol_execution(uuid,uuid,uuid,timestamp with time zone)')::text as signature");
     expect(chain.rows[0].signature).toBeTruthy();

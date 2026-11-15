@@ -26,8 +26,7 @@ export async function shareExportDownload(download: ExportDownload): Promise<voi
   try {
     if (!await Sharing.isAvailableAsync()) throw new ExportDeliveryError();
     file = new File(Paths.cache, `strandcue-export-${download.jobId}.${download.format}`);
-    // Asynchronous since Expo SDK 58: the share sheet must not open before the file is on disk.
-    await file.write(serialize(download));
+    file.write(serialize(download));
     await Sharing.shareAsync(file.uri, {
       dialogTitle: 'Save or share your StrandCue export',
       mimeType: download.format === 'json' ? 'application/json' : 'text/csv',
