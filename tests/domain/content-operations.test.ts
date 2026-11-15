@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  addToReviewerQueue,
   disengageKillSwitch,
   engageKillSwitch,
+  getPendingReviews,
   getRollbackRecords,
   getRollbackRecordsForRuleset,
+  getReviewerQueue,
+  getReviewsByReviewer,
   getWithdrawnRulesets,
   isWithdrawn,
   KillSwitchStateSchema,
+  reviewQueueEntry,
   RollbackRecordSchema,
   ReviewerQueueEntrySchema,
   ReviewReminderSchema,
@@ -211,5 +216,91 @@ describe('rollback', () => {
 
     const rs3Records = getRollbackRecordsForRuleset(store, 'rs-3');
     expect(rs3Records).toHaveLength(0);
+  });
+});
+
+describe('reviewer queue', () => {
+  const emptyStore: Map<string, ReviewerQueueEntry> = new Map();
+
+  const entry: ReviewerQueueEntry = {
+    entryId: 'entry-1',
+    bundleId: 'bundle-1',
+    bundleVersion: '2',
+    authoredBy: 'human-a',
+    reviewedBy: null,
+    status: 'pending',
+    submittedAt: '2026-10-31T12:00:00.000Z',
+    reviewedAt: null,
+    rationale: null,
+  };
+
+  const reviewedAt = '2026-10-31T13:00:00.000Z';
+
+  it('adds an entry to the reviewer queue', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const queue = getReviewerQueue(store);
+    expect(queue).toHaveLength(1);
+    expect(queue[0].entryId).toBe('entry-1');
+    expect(queue[0].status).toBe('pending');
+  });
+
+  it('approves a pending review entry', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const reviewed = reviewQueueEntry(store, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
+    const q = getReviewerQueue(reviewed);
+    expect(q[0].status).toBe('approved');
+    expect(q[0].reviewedBy).toBe('human-b');
+    expect(q[0].reviewedAt).not.toBeNull();
+    expect(q[0].rationale).toBe('looks good');
+  });
+
+  it('rejects a pending review entry', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const reviewed = reviewQueueEntry(store, 'entry-1', 'human-b', reviewedAt, 'rejected', 'insufficient evidence');
+    const q = getReviewerQueue(reviewed);
+    expect(q[0].status).toBe('rejected');
+    expect(q[0].reviewedBy).toBe('human-b');
+    expect(q[0].rationale).toBe('insufficient evidence');
+  });
+
+  it('rejects self-review (author == reviewer)', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    expect(() =>
+      reviewQueueEntry(store, 'entry-1', 'human-a', reviewedAt, 'approved', 'self review'),
+    ).toThrow();
+  });
+
+  it('rejects reviewing an already-reviewed entry', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const reviewed = reviewQueueEntry(store, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
+    expect(() =>
+      reviewQueueEntry(reviewed, 'entry-1', 'human-b', reviewedAt, 'rejected', 'changed mind'),
+    ).toThrow();
+  });
+
+  it('returns pending reviews only', () => {
+    const store1 = addToReviewerQueue(emptyStore, entry);
+    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', 'approved', 'looks good');
+    const store3 = addToReviewerQueue(store2, {
+      ...entry,
+      entryId: 'entry-2',
+      authoredBy: 'human-c',
+    });
+    const pending = getPendingReviews(store3);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].entryId).toBe('entry-2');
+  });
+
+  it('returns reviews by a specific reviewer', () => {
+    const store1 = addToReviewerQueue(emptyStore, entry);
+    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', 'approved', 'looks good');
+    const store3 = addToReviewerQueue(store2, {
+      ...entry,
+      entryId: 'entry-2',
+      authoredBy: 'human-c',
+    });
+    const store4 = reviewQueueEntry(store3, 'entry-2', 'human-b', 'rejected', 'not good');
+    const byHumanB = getReviewsByReviewer(store4, 'human-b');
+    expect(byHumanB).toHaveLength(2);
   });
 });

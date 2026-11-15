@@ -208,6 +208,93 @@ export const ReviewReminderSchema = z
 export type ReviewReminder = z.infer<typeof ReviewReminderSchema>;
 
 /**
+ * Reviewer queue store: maps entryId to its review queue entry.
+ */
+export type ReviewerQueueStore = ReadonlyMap<string, ReviewerQueueEntry>;
+
+/**
+ * Create an empty reviewer queue store.
+ */
+export function createReviewerQueueStore(): ReviewerQueueStore {
+  return new Map<string, ReviewerQueueEntry>();
+}
+
+/**
+ * Add an entry to the reviewer queue.
+ * Returns a new store with the entry added.
+ * Does not mutate the input store.
+ */
+export function addToReviewerQueue(
+  store: ReviewerQueueStore,
+  entry: ReviewerQueueEntry,
+): ReviewerQueueStore {
+  const newStore = new Map(store);
+  newStore.set(entry.entryId, entry);
+  return newStore;
+}
+
+/**
+ * Review a queue entry: approve or reject with a reviewer, rationale, and timestamp.
+ * Returns a new store with the entry updated.
+ * Throws if the entry does not exist, is already reviewed, or if the reviewer
+ * is the same person as the author (EV-05).
+ * Does not mutate the input store.
+ */
+export function reviewQueueEntry(
+  store: ReviewerQueueStore,
+  entryId: string,
+  reviewedBy: string,
+  reviewedAt: string,
+  decision: 'approved' | 'rejected',
+  rationale: string,
+): ReviewerQueueStore {
+  const existing = store.get(entryId);
+  if (!existing) {
+    throw new Error(`Reviewer queue entry not found: ${entryId}`);
+  }
+  if (existing.status !== 'pending') {
+    throw new Error(`Reviewer queue entry already ${existing.status}: ${entryId}`);
+  }
+  if (existing.authoredBy === reviewedBy) {
+    throw new Error(`Author and reviewer must be different people (EV-05): ${entryId}`);
+  }
+  const newStore = new Map(store);
+  newStore.set(entryId, {
+    ...existing,
+    status: decision,
+    reviewedBy,
+    reviewedAt,
+    rationale,
+  });
+  return newStore;
+}
+
+/**
+ * Return all reviewer queue entries.
+ */
+export function getReviewerQueue(store: ReviewerQueueStore): readonly ReviewerQueueEntry[] {
+  return [...store.values()];
+}
+
+/**
+ * Return all pending (unreviewed) queue entries.
+ */
+export function getPendingReviews(store: ReviewerQueueStore): readonly ReviewerQueueEntry[] {
+  return [...store.values()].filter((entry) => entry.status === 'pending');
+}
+
+/**
+ * Return all queue entries reviewed by a specific reviewer.
+ */
+export function getReviewsByReviewer(
+  store: ReviewerQueueStore,
+  reviewerId: string,
+): readonly ReviewerQueueEntry[] {
+  return [...store.values()].filter((entry) => entry.reviewedBy === reviewerId);
+}
+
+
+/**
  * Kill switch store: maps rulesetId to its kill switch state.
  * A ruleset present in this map is withdrawn and cannot execute.
  */
