@@ -57,13 +57,13 @@ export type RollbackRecord = z.infer<typeof RollbackRecordSchema>;
  * Rollback store: maps rulesetId to an array of rollback records for that ruleset.
  * Records are appended in chronological order.
  */
-export type RollbackStore = ReadonlyMap<string, ReadonlyArray<RollbackRecord>>;
+export type RollbackStore = ReadonlyMap<string, readonly RollbackRecord[]>;
 
 /**
  * Create an empty rollback store.
  */
 export function createRollbackStore(): RollbackStore {
-  return new Map<string, ReadonlyArray<RollbackRecord>>();
+  return new Map<string, readonly RollbackRecord[]>();
 }
 
 /**

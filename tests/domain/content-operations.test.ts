@@ -23,6 +23,7 @@ import {
   scheduleReviewReminder,
   type KillSwitchState,
   type RollbackRecord,
+  type RollbackStore,
   type ReviewerQueueEntry,
   type ReviewReminder,
 } from '../../packages/domain/src/content-operations.ts';
@@ -155,7 +156,7 @@ describe('kill switch', () => {
     const engaged = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
     expect(isWithdrawn(engaged, 'rs-1')).toBe(true);
 
-    const disengaged = disengageKillSwitch(engaged, 'rs-1', withdrawnAt, 'human-b', 'false alarm');
+    const disengaged = disengageKillSwitch(engaged, 'rs-1', 'human-b', 'false alarm');
     expect(isWithdrawn(disengaged, 'rs-1')).toBe(false);
   });
 
@@ -179,7 +180,7 @@ describe('rollback', () => {
   const rolledBackAt = '2026-10-31T13:00:00.000Z';
 
   it('records a rollback from one ruleset hash to another', () => {
-    const store: Map<string, RollbackRecord> = new Map();
+    const store: Map<string, RollbackRecord[]> = new Map();
     const result = rollbackToPriorHash(
       store,
       'rs-1',
@@ -199,12 +200,12 @@ describe('rollback', () => {
   });
 
   it('returns empty array when no rollbacks have been recorded', () => {
-    const store: Map<string, RollbackRecord> = new Map();
+    const store: Map<string, RollbackRecord[]> = new Map();
     expect(getRollbackRecords(store)).toEqual([]);
   });
 
   it('returns rollback records for a specific ruleset', () => {
-    let store: Map<string, RollbackRecord> = new Map();
+    let store: RollbackStore = new Map();
     store = rollbackToPriorHash(store, 'rs-1', 'sha256:a', 'sha256:b', rolledBackAt, 'human-a', 'issue 1');
     store = rollbackToPriorHash(store, 'rs-2', 'sha256:c', 'sha256:d', rolledBackAt, 'human-b', 'issue 2');
     store = rollbackToPriorHash(store, 'rs-1', 'sha256:e', 'sha256:f', rolledBackAt, 'human-a', 'issue 3');
@@ -311,15 +312,6 @@ describe('reviewer queue', () => {
 
 describe('review reminders', () => {
   const emptyStore: Map<string, ReviewReminder> = new Map();
-
-  const reminder: ReviewReminder = {
-    reminderId: 'reminder-1',
-    bundleId: 'bundle-1',
-    bundleVersion: '2',
-    reminderType: '180-day-review',
-    dueAt: '2026-10-31T12:00:00.000Z',
-    sentAt: null,
-  };
 
   it('schedules a review reminder', () => {
     const store = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
