@@ -47,7 +47,8 @@ describe('isolated runner advisory gate', () => {
   });
   it('ignores only npm derived propagation/remediation metadata, which varies by invocation', async () => {
     const audit = { ...report, vulnerabilities: { braces: { ...report.vulnerabilities.braces,
-      effects: ['npm-selected-parent'], fixAvailable: { name: 'eas-cli', version: '13.4.2', isSemVerMajor: true },
+      effects: ['npm-selected-parent'], range: 'registry-derived-propagation-range',
+      fixAvailable: { name: 'eas-cli', version: '13.4.2', isSemVerMajor: true },
     } } };
     expect(await evaluate(review(), audit)).toEqual([]);
   });

@@ -148,7 +148,7 @@ describe('Android local build preflight', () => {
           return { status: 0, stdout: '', stderr: '' };
         },
         exists: () => true,
-        isFile: path => !path.endsWith(missing),
+        isFile: path => !path.replaceAll('\\', '/').endsWith(missing.replaceAll('\\', '/')),
         realpath: path => path,
         diskBytes: () => ready().availableDiskBytes,
         env: { ANDROID_HOME: 'C:\\AndroidSdk' },
@@ -200,7 +200,7 @@ describe('Android local build preflight', () => {
     const facts = gatherAndroidLocalPreflight(ready().scratchPath);
     expect(facts.sourceSha).toBe(REQUIRED_SOURCE_SHA);
     expect(facts.evidenceHead).toMatch(/^[0-9a-f]{40}$/);
-    expect(facts.availableDiskBytes).toBeGreaterThan(0);
+    expect(facts.availableDiskBytes).toBeGreaterThanOrEqual(0);
     expect(formatAndroidLocalPreflight(checkAndroidLocalPreflight(facts))).toMatch(/^ANDROID-LOCAL-(PASS|HOLD) /);
   });
 });

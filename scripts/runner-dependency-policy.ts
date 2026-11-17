@@ -47,12 +47,11 @@ function validDate(value: string): boolean {
 }
 
 function auditGraph(report: z.infer<typeof reportSchema>) {
-  // npm nondeterministically chooses one propagation parent for `effects` and
-  // the corresponding `fixAvailable` suggestion. Neither describes an installed
-  // edge: the lock binds the dependency tree and `via` binds audit propagation.
+  // npm nondeterministically chooses propagation metadata (`effects`, aggregate
+  // `range`, and `fixAvailable`). None describes an installed edge: the lock
+  // binds the dependency tree and `via` binds audit propagation.
   return Object.fromEntries(Object.entries(report.vulnerabilities).map(([key, node]) => [key, {
     name: node.name, severity: node.severity, via: node.via, nodes: node.nodes,
-    ...(node.range === undefined ? {} : { range: node.range }),
   }]));
 }
 
