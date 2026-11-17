@@ -562,6 +562,7 @@ begin
           'stepId', stored_step ->> 'stepId',
           'position', stored_step -> 'position',
           'planned', stored_step -> 'planned',
+          'waitStartedAt', stored_step -> 'waitStartedAt',
           'state', expected_state,
           'confirmedAt', case when kind = 'complete-step' then to_jsonb(p_at) else 'null'::jsonb end,
           'deviation', new_deviation);

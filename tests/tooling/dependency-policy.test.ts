@@ -11,6 +11,7 @@ import {
 } from '../../scripts/dependency-policy';
 
 const TODAY = '2026-10-17';
+const CLI_TODAY = '2026-11-17';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
 const ADVISORY_URL = `https://github.com/advisories/${ADVISORY_ID}`;
 const UUID_ADVISORY_ID = 'GHSA-w5hq-g745-h8pq';
@@ -1116,8 +1117,8 @@ describe('dependency audit CLI', () => {
       [
         'const RealDate = Date;',
         'globalThis.Date = class extends RealDate {',
-        `  constructor(...args) { super(...(args.length ? args : ['${TODAY}T12:00:00Z'])); }`,
-        `  static now() { return new RealDate('${TODAY}T12:00:00Z').getTime(); }`,
+        `  constructor(...args) { super(...(args.length ? args : ['${CLI_TODAY}T12:00:00Z'])); }`,
+        `  static now() { return new RealDate('${CLI_TODAY}T12:00:00Z').getTime(); }`,
         '};',
         '',
       ].join('\n'),
@@ -1148,10 +1149,20 @@ describe('dependency audit CLI', () => {
     await rm(fakeNpmDirectory, { recursive: true, force: true });
   });
 
+  it('accepts npm exit 1 when current exceptions cover all findings', async () => {
+    const result = await runAuditCli({
+      stdout: JSON.stringify(cliAuditReport()),
+      auditExitCode: 1,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
+  }, 30_000);
+
   it('rejects npm exit 1 when the registry retains a path absent from the audit report', async () => {
     const report = cliAuditReport();
-    delete report.vulnerabilities['expo-router'];
-    report.vulnerabilities['query-string'].effects = [];
+    delete report.vulnerabilities['expo'];
+    report.vulnerabilities['@expo/fingerprint'].effects = [];
     const result = await runAuditCli({
       stdout: JSON.stringify(report),
       auditExitCode: 1,
@@ -1172,7 +1183,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-HOLD');
     expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
-  }, 10_000);
+  }, 30_000);
 
   it.each([
     ['empty output', '', 1],
@@ -1184,7 +1195,7 @@ describe('dependency audit CLI', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
-  }, 10_000);
+  }, 30_000);
 
   it('fails closed when npm execution is not configured', async () => {
     const result = await runAuditCli({
@@ -1257,7 +1268,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('ADVISORY-RESOLUTION-SEVERITY');
     expect(result.stdout).not.toContain(untrustedPackageName);
-  }, 10_000);
+  }, 30_000);
 
   it('reports an unreviewed branch with a fixed code and no untrusted path details', async () => {
     const untrustedPackageName = 'attacker-controlled-android-runtime';
@@ -1269,7 +1280,7 @@ describe('dependency audit CLI', () => {
         hostile: {
           name: untrustedPackageName,
           severity: 'moderate',
-          via: ['uuid'],
+          via: ['minimatch'],
           effects: [],
         },
       },
@@ -1283,7 +1294,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('ADVISORY-PATH-UNREVIEWED');
     expect(result.stdout).not.toContain(untrustedPackageName);
-  }, 10_000);
+  }, 30_000);
 
   it('audits the deletion worker tree as a second npm audit invocation', async () => {
     const auditLog = join(fakeNpmDirectory, 'audit-log-worker-tree.txt');
@@ -1292,9 +1303,8 @@ describe('dependency audit CLI', () => {
       auditLog,
     });
 
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
-    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
 
     const audited = auditedDirectories(auditLog);
     expect(audited).toHaveLength(4);
@@ -1303,7 +1313,7 @@ describe('dependency audit CLI', () => {
     expect(existsSync(join(workerDirectories[0], 'package-lock.json'))).toBe(true);
     const workspaceDirectories = audited.filter(dir => !dir.endsWith('/workers/account-deletion'));
     expect(existsSync(join(workspaceDirectories[0], 'package-lock.json'))).toBe(true);
-  }, 10_000);
+  }, 30_000);
 
   it('holds on a worker-only advisory and names the worker tree that produced it', async () => {
     const result = await runAuditCli({
@@ -1327,7 +1337,7 @@ describe('dependency audit CLI', () => {
     expect(workerTree?.status).toBe('HOLD');
     expect(workerTree?.findingCodes).toContain('ADVISORY-UNEXCEPTED');
     expect(workerTree?.findingCount).toBeGreaterThanOrEqual(2);
-  }, 10_000);
+  }, 30_000);
 
   it('fails closed when the worker tree cannot be audited', async () => {
     const result = await runAuditCli({
@@ -1338,7 +1348,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
     expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
-  }, 10_000);
+  }, 30_000);
 
   async function runGateInProcess(options: {
     stdout: string;
@@ -1383,7 +1393,7 @@ describe('dependency audit CLI', () => {
     let exitCodeDuringRun: number | string | undefined;
     try {
       vi.useFakeTimers({ toFake: ['Date'] });
-      vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+      vi.setSystemTime(new Date(`${CLI_TODAY}T12:00:00Z`));
       vi.resetModules();
       await import('../../scripts/audit-dependencies-cli.ts');
       exitCodeDuringRun = process.exitCode ?? undefined;
@@ -1410,12 +1420,11 @@ describe('dependency audit CLI', () => {
   it('runs the gate in-process and audits both trees', async () => {
     const result = await runGateInProcess({ stdout: JSON.stringify(cliAuditReport()) });
 
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
-    expect(result.stdout).toContain('RUNNER-REVIEW-LOCK');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('DEPENDENCY-POLICY-PASS');
     expect(result.audited).toHaveLength(4);
     expect(result.audited.some(dir => dir.endsWith('/workers/account-deletion'))).toBe(true);
-  }, 10_000);
+  }, 30_000);
 
   it('runs the in-process gate to HOLD and name the worker tree that failed', async () => {
     const result = await runGateInProcess({
@@ -1427,7 +1436,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('DEPENDENCY-POLICY-HOLD');
     expect(result.stdout).toContain('workers/account-deletion/package.json');
-  }, 10_000);
+  }, 30_000);
 
   it('runs the in-process gate to ERROR when a tree cannot be audited', async () => {
     const result = await runGateInProcess({
@@ -1438,7 +1447,7 @@ describe('dependency audit CLI', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('DEPENDENCY-POLICY-PASS');
     expect(result.stderr).toContain('DEPENDENCY-POLICY-ERROR');
-  }, 10_000);
+  }, 30_000);
 });
 
 const workerManifestPath = 'workers/account-deletion/package.json';

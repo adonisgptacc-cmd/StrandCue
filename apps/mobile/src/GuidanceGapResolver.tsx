@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ComponentRef } from 'react';
 import { AccessibilityInfo, Platform, Pressable, Text, View } from 'react-native';
 
 import {
@@ -66,7 +66,7 @@ export function GuidanceGapResolver({
   heading = RESOLVER_HEADING,
   role = 'attention',
 }: GuidanceGapResolverProps) {
-  const headingRef = useRef<Text | null>(null);
+  const headingRef = useRef<ComponentRef<typeof Text> | null>(null);
   const actionRefs = useRef<Record<string, unknown>>({});
   const signature = items.map(item => item.key).join('|');
   const announcement = resolverAnnouncement(items, role);

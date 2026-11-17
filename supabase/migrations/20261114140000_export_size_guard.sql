@@ -47,7 +47,7 @@ end $$;
 
 -- 5. Create new request_export with size check
 create or replace function strandcue_private.request_export(p_operation_id uuid, p_format text)
-returns jsonb language plpgsql security definer set search_path = '' as $$
+returns jsonb language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare
   v_uid uuid := strandcue_private.request_uid();
   v_result jsonb;

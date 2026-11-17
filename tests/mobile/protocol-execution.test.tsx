@@ -150,6 +150,7 @@ function pendingStep(stepId: string, position: number, action: string) {
     },
     state: 'pending',
     confirmedAt: null,
+    waitStartedAt: null,
     deviation: null,
   };
 }

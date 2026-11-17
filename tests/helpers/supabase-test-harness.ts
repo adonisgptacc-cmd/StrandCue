@@ -239,9 +239,7 @@ async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: 
   const body = init?.body ? JSON.parse(init.body as string) : {};
   
   // Get the authorization header to extract JWT
-  const authHeader = init?.headers && typeof init.headers === 'object' && 'authorization' in init.headers
-    ? (init.headers as Record<string, string>)['authorization']
-    : (init?.headers?.get?.('authorization') || '');
+  const authHeader = new Headers(init?.headers).get('authorization') ?? '';
   
   let userId: string | null = null;
   let claims: Record<string, unknown> = { role };
@@ -303,7 +301,7 @@ async function handleRpcEndpoint(pg: PGlite, role: string, method: string, url: 
     
     const paramValues = paramEntries.map(([, value]) => value);
     
-    const result = await pg.query(
+    const result = await pg.query<{ result: unknown }>(
       `select public.${rpcName}(${params}) result`,
       paramValues
     );
@@ -350,7 +348,7 @@ async function handleTableEndpoint(pg: PGlite, role: string, method: string, url
   const queryParams = new URLSearchParams(pathParts[1] || '');
   
   // Get auth context
-  const authHeader = init?.headers?.get?.('authorization') || '';
+  const authHeader = new Headers(init?.headers).get('authorization') ?? '';
   let userId: string | null = null;
   let claims: Record<string, unknown> = { role };
   

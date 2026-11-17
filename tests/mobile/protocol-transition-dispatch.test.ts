@@ -82,6 +82,7 @@ function startedExecution(): ProtocolExecution {
         },
         state: 'pending',
         confirmedAt: null,
+        waitStartedAt: null,
         deviation: null,
       },
     ],

@@ -145,6 +145,7 @@ function executionSnapshot(overrides: Record<string, unknown> = {}) {
     },
     state: 'pending',
     confirmedAt: null,
+    waitStartedAt: null,
     deviation: null,
   });
   return {
@@ -340,6 +341,7 @@ describe('fix E: active-execution recovery after process death', () => {
       },
       state: 'confirmed',
       confirmedAt: T0,
+      waitStartedAt: null,
       deviation: null,
     });
     const snapshot = executionSnapshot({
@@ -363,6 +365,7 @@ describe('fix E: active-execution recovery after process death', () => {
           },
           state: 'pending',
           confirmedAt: null,
+          waitStartedAt: null,
           deviation: null,
         },
       ],

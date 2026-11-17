@@ -124,6 +124,11 @@ begin
     'operationId', p_operation_id, 'executionId', p_execution_id,
     'expectedRevision', p_expected_revision, 'command', p_command,
     'at', p_at);
+  -- Operation reservation (DB-002): transaction-scoped advisory lock on
+  -- (owner, operation) BEFORE the replay SELECT.
+  perform pg_advisory_xact_lock(
+    hashtext('protocol-execution-op'),
+    hashtext(uid::text || ':' || p_operation_id::text));
   select * into existing_op from strandcue_private.protocol_execution_operations
     where user_id = uid and operation_id = p_operation_id;
   if found then
@@ -297,6 +302,7 @@ begin
           'stepId', stored_step ->> 'stepId',
           'position', stored_step -> 'position',
           'planned', stored_step -> 'planned',
+          'waitStartedAt', stored_step -> 'waitStartedAt',
           'state', expected_state,
           'confirmedAt', case when kind = 'complete-step' then to_jsonb(p_at) else 'null'::jsonb end,
           'deviation', new_deviation);
@@ -326,7 +332,8 @@ begin
       'finishedAt', case when kind in ('abandon', 'complete')
         then to_jsonb(p_at) else (existing.execution -> 'finishedAt') end,
       'closeReason', case when kind = 'abandon'
-        then to_jsonb(reason) else (existing.execution -> 'closeReason') end);
+        then to_jsonb(reason) when kind = 'complete'
+        then 'null'::jsonb else (existing.execution -> 'closeReason') end);
   end if;
 
   -- Lost-update guard: the revision predicate makes the write conditional, so
@@ -344,6 +351,10 @@ begin
   select coalesce(max(sequence), 0) + 1 into next_sequence
     from public.protocol_execution_events
     where user_id = uid and execution_id = p_execution_id;
+  -- Per-execution event bound (DB-001): fail if the next event would exceed 500.
+  if next_sequence > 500 then
+    raise exception 'too-many-events' using errcode = '22023';
+  end if;
   insert into public.protocol_execution_events(user_id, execution_id, sequence, kind, command, revision)
   values (uid, p_execution_id, next_sequence, 'command', p_command, existing.revision);
 

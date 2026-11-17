@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ComponentRef } from 'react';
 import { AccessibilityInfo, findNodeHandle, Text, View } from 'react-native';
 
 import type { HeatCoachReceipt, HeatCoachReviewedCopy } from './heat-coach-api';
@@ -28,7 +28,7 @@ export interface HeatCoachDecisionProps {
 
 /** Renders only exact publication copy and neutral local status labels. */
 export function HeatCoachDecision({ receipt, reviewedCopy, onUsePlan, onOpenDestination }: HeatCoachDecisionProps) {
-  const heading = useRef<Text>(null);
+  const heading = useRef<ComponentRef<typeof Text> | null>(null);
   const valid = !receipt.stale && reviewedCopy !== null
     && reviewedCopy.assessmentId === receipt.assessmentId
     && reviewedCopy.publicationId === receipt.publicationId
@@ -52,8 +52,8 @@ export function HeatCoachDecision({ receipt, reviewedCopy, onUsePlan, onOpenDest
     : state === 'appropriate' ? 'Use this heat option' : 'Use this plan';
   const title = receipt.stale ? 'Assessment needs refreshing' : TITLES[state];
   useEffect(() => {
-    const target = findNodeHandle(heading.current);
-    if (target !== null) AccessibilityInfo.setAccessibilityFocus(target);
+    const target = findNodeHandle(heading.current ?? undefined);
+    if (target != null) AccessibilityInfo.setAccessibilityFocus(target);
     AccessibilityInfo.announceForAccessibility(title);
   }, [title, receipt.assessmentId]);
   return <View style={styles.card}>

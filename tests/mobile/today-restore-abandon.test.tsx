@@ -149,6 +149,7 @@ function executionSnapshot(overrides: Record<string, unknown> = {}) {
     },
     state: 'pending',
     confirmedAt: null,
+    waitStartedAt: null,
     deviation: null,
   });
   return {

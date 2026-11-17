@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState, type ComponentRef, type RefObject } from 'react';
 import { type Text } from 'react-native';
 import * as Crypto from 'expo-crypto';
 
@@ -71,7 +71,7 @@ export interface ProtocolExecutionController {
   readonly ownerMatches: boolean;
   /** False while the loaded execution belongs to a previous run (post-swap window before the reload effect). */
   readonly runAgrees: boolean;
-  readonly stepsHeadingRef: RefObject<Text | null>;
+  readonly stepsHeadingRef: RefObject<ComponentRef<typeof Text> | null>;
   readonly setReason: (value: string) => void;
   readonly setDetail: (value: string) => void;
   readonly handleReload: () => Promise<void>;
@@ -163,7 +163,7 @@ export function useProtocolExecutionController(
   const ownerToken = useRef(0);
   const mounted = useRef(true);
   const decisionRef = useRef(decision);
-  const stepsRef = useRef<Text | null>(null);
+  const stepsRef = useRef<ComponentRef<typeof Text> | null>(null);
   const dispatcherRef = useRef<ProtocolTransitionDispatcher | null>(null);
   if (dispatcherRef.current === null) {
     dispatcherRef.current = createProtocolTransitionDispatcher({

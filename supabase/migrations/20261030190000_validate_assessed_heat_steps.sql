@@ -336,7 +336,7 @@ begin
     v_steps := v_steps || jsonb_build_object(
       'stepId',v_step->>'stepId','position',(v_step->>'position')::integer,
       'planned',v_planned,
-      'state','pending','confirmedAt',null,'deviation',null);
+      'state','pending','confirmedAt',null,'waitStartedAt',null,'deviation',null);
   end loop;
   return jsonb_build_object('executionId',p_execution_id::text,
     'recommendationRunId',p_run_id::text,'startedAt',v_started,'updatedAt',v_started,

@@ -438,6 +438,13 @@ begin
     ) then
       raise exception 'invalid-heat-binding' using errcode = '22023';
     end if;
+    if assessment.status = 'no_heat' and not strandcue_private.heat_bound_products_valid(
+      owner_id, assessment.input, run.decision) then
+      raise exception 'invalid-heat-binding' using errcode = '22023';
+    end if;
+    if not strandcue_private.assessed_heat_decision_valid(owner_id, run.decision) then
+      raise exception 'stale-heat-binding' using errcode = '22023';
+    end if;
   end if;
 
   -- Copy decision_hash from source run

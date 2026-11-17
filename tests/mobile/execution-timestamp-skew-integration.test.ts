@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { applyExecutionCommand } from '../../packages/domain/src/protocol-execution'
-import type { ProtocolExecution, ExecutionCommand } from '../../packages/domain/src/protocol-execution'
+import type { ProtocolExecution } from '../../packages/domain/src/protocol-execution'
 
 /** Simple ISO timestamp function matching the app's `nowIso` pattern. */
 function nowIso(): string {

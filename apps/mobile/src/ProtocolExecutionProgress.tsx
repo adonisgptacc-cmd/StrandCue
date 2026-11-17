@@ -1,5 +1,5 @@
-import type { ReactNode, RefObject } from 'react';
-import { Text, View, type Text as TextType } from 'react-native';
+import type { ComponentRef, ReactNode, RefObject } from 'react';
+import { Text, View } from 'react-native';
 
 import type { ProtocolExecution as ProtocolExecutionRecord } from '../../../packages/domain/src/index';
 import {
@@ -41,7 +41,7 @@ export interface ExecutionProgressProps {
   readonly terminal: boolean;
   /** While a save failed, step actions hide until the retry resolves. */
   readonly actionsHidden: boolean;
-  readonly stepsHeadingRef: RefObject<TextType | null>;
+  readonly stepsHeadingRef: RefObject<ComponentRef<typeof Text> | null>;
   readonly onArmStep: (flow: ArmedFlow) => void;
   /** The armed step-flow form, rendered between planned steps and actuals. */
   readonly stepFormSlot?: ReactNode;

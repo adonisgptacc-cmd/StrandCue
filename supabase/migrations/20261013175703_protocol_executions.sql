@@ -183,6 +183,7 @@ begin
         'reasons', coalesce(step -> 'reasons', '[]'::jsonb)),
       'state', 'pending',
       'confirmedAt', null,
+      'waitStartedAt', null,
       'deviation', null);
   end loop;
   return jsonb_build_object(

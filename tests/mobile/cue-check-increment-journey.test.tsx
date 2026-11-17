@@ -75,6 +75,7 @@ const confirmedStep = (stepId: string, position: number, action: string) => ({
   planned: { stepId, position, action, productId: null, productVersionId: null, toolId: null, toolVersionId: null, waitSeconds: null, rinse: null, reasons: ['test reason'] },
   state: 'confirmed',
   confirmedAt: T1,
+  waitStartedAt: null,
   deviation: null,
 });
 

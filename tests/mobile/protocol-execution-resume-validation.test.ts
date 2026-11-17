@@ -48,6 +48,7 @@ function pendingStep(stepId: string, position: number) {
     },
     state: 'pending',
     confirmedAt: null,
+    waitStartedAt: null,
     deviation: null,
   };
 }
