@@ -49,6 +49,21 @@ describe('CI workflow contracts', () => {
     expect(verify).toMatch(/on:\s*\n\s*pull_request:/);
   });
 
+  it('checks website routes against a disposable local Wrangler preview', async () => {
+    const verify = await workflow('verify.yml');
+    const quality = jobBlocks(verify).find(job => job.startsWith('  test:'));
+    expect(quality).toBeDefined();
+    expect(quality).toContain('./node_modules/.bin/wrangler dev --config website/wrangler.jsonc --ip 127.0.0.1 --port 8787');
+    expect(quality).toContain('STRANDCUE_WEBSITE_ORIGIN: http://127.0.0.1:8787');
+    expect(quality).toContain('npm run check:website');
+    expect(quality).toContain('curl --silent --fail --max-time 2');
+    expect(quality).toContain('trap \'kill "$preview_pid" 2>/dev/null || true\' EXIT');
+    expect(quality).toContain('if [ "$ready" -ne 1 ]');
+    expect(quality).not.toContain('check:website-transport');
+    const manifest = JSON.parse(await readFile('package.json', 'utf8'));
+    expect(manifest.scripts['verify:release-preflight']).toContain('check:website-transport');
+  });
+
   it('keeps the network-dependent audit out of the deterministic gate', async () => {
     const verify = await workflow('verify.yml');
     const jobs = jobBlocks(verify);

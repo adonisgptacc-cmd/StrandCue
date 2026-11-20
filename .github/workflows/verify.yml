@@ -28,6 +28,29 @@ jobs:
       - run: npm run audit:control-plane
       - run: npm run check:expo
       - run: npm run export:web
+      - name: Check website routes in a local preview
+        env:
+          STRANDCUE_WEBSITE_ORIGIN: http://127.0.0.1:8787
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/wrangler dev --config website/wrangler.jsonc --ip 127.0.0.1 --port 8787 > "$RUNNER_TEMP/strandcue-website-preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if curl --silent --fail --max-time 2 --output /dev/null "$STRANDCUE_WEBSITE_ORIGIN/"; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$preview_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'Local website preview did not become ready.'
+            tail -n 40 "$RUNNER_TEMP/strandcue-website-preview.log"
+            exit 1
+          fi
+          npm run check:website
   dependency-audit:
     name: dependency-audit
     runs-on: ubuntu-latest
