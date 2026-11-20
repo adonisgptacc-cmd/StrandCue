@@ -110,6 +110,23 @@ describe('CI workflow contracts', () => {
     expect(verify).not.toContain('secrets.STRANDCUE_SUPABASE');
   });
 
+  it('runs every real PostgreSQL concurrency suite without silent skips', async () => {
+    const verify = await workflow('verify.yml');
+    const api = jobBlocks(verify).find(job => job.startsWith('  supabase-api:'));
+    expect(api).toBeDefined();
+    expect(api).toContain("dsn=\"$(jq -er '.DB_URL | select(type == \"string\" and length > 0)' <<< \"$status\")\"");
+    expect(api).toContain('export STRANDCUE_PG_DSN="$dsn"');
+    expect(api).toContain('::add-mask::$STRANDCUE_PG_DSN');
+    expect(api).toContain('tests/database/*concurrency.pg.test.ts');
+    expect(api).toContain('tests/database/engine-ruleset-successor-publication.pg.test.ts');
+    expect(api).toContain('numPendingTests');
+    expect(api).toContain('numTodoTests');
+    expect(api).toContain('numPassedTests');
+    expect(api).toContain('suites.length !== expected.size');
+    expect(api).toContain('suite.assertionResults?.some(assertion => assertion.status === "passed")');
+    expect(api).toContain('supabase stop --no-backup');
+  });
+
   it('requires a manual protected release build without automatic publishing', async () => {
     const android = await workflow('android-build.yml');
     expect(android).toMatch(/on:\s*\n\s*workflow_dispatch:/);
