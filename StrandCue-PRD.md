@@ -1,5 +1,7 @@
 # StrandCue — Product Requirements Document
 
+> **Historical source — not current product authority.** This PRD is preserved as design evidence. The approved product authority is the [canonical product specification](docs/superpowers/specs/2026-10-10-canonical-product-spec.md) (v1.0, 10 October 2026). Earlier pointers below to PRD v2 and the Phase 1 specification as current work are superseded.
+
 > **SUPERSEDED — historical version 1.0.** Use [StrandCue PRD v2](StrandCue-PRD-v2.md) and [Phase 1 Build Specification](docs/PHASE_1.md) for current work. The MVP phase assignments below are obsolete; they do not authorise building recommendations, Today’s Protocol or Heat Coach in Phase 1.
 
 Version 1.0 • 6 September 2026 • Developer handoff baseline

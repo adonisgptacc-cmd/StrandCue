@@ -1,0 +1,512 @@
+{
+  "tree": "tools/eas-runner/package.json",
+  "lockSha256": "546c8fb284172f47ae7bb3955272e33ddb1e092d591ccbd085da78e91cec6f8f",
+  "reviewedOn": "2026-11-17",
+  "recheckOn": "2026-11-24",
+  "expiresOn": "2026-11-24",
+  "owner": "StrandCue maintainer",
+  "audit": {
+    "auditReportVersion": 2,
+    "vulnerabilities": {
+      "@expo/bunyan": {
+        "name": "@expo/bunyan",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "uuid"
+        ],
+        "effects": [
+          "@expo/rudder-sdk-node"
+        ],
+        "range": ">=3.0.0",
+        "nodes": [
+          "node_modules/@expo/bunyan"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "@expo/config": {
+        "name": "@expo/config",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "@expo/config-plugins",
+          "glob",
+          "sucrase"
+        ],
+        "effects": [
+          "@expo/prebuild-config"
+        ],
+        "range": "9.1.0-canary-20240628-1ba8152 - 57.0.10 || 58.0.0-canary-20260806-8c2d007 - 58.0.10",
+        "nodes": [
+          "node_modules/@expo/config",
+          "node_modules/@expo/prebuild-config/node_modules/@expo/config"
+        ],
+        "fixAvailable": true
+      },
+      "@expo/config-plugins": {
+        "name": "@expo/config-plugins",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "glob",
+          "xcode"
+        ],
+        "effects": [
+          "@expo/config",
+          "@expo/prebuild-config",
+          "eas-cli"
+        ],
+        "range": "<=57.0.11 || 58.0.0-canary-20260806-8c2d007 - 58.0.11",
+        "nodes": [
+          "node_modules/@expo/config-plugins",
+          "node_modules/@expo/prebuild-config/node_modules/@expo/config-plugins"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "@expo/prebuild-config": {
+        "name": "@expo/prebuild-config",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "@expo/config",
+          "@expo/config-plugins"
+        ],
+        "effects": [],
+        "range": "7.0.9-canary-20240719-83ee47b - 7.0.9-canary-20240814-ce0f7d5 || 7.1.0-canary-20240904-69100c1 - 57.0.19 || 58.0.0-canary-20260806-8c2d007 - 58.0.18",
+        "nodes": [
+          "node_modules/@expo/prebuild-config"
+        ],
+        "fixAvailable": true
+      },
+      "@expo/rudder-sdk-node": {
+        "name": "@expo/rudder-sdk-node",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "@expo/bunyan",
+          "uuid"
+        ],
+        "effects": [
+          "eas-cli"
+        ],
+        "range": "*",
+        "nodes": [
+          "node_modules/@expo/rudder-sdk-node"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "@oclif/core": {
+        "name": "@oclif/core",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "minimatch"
+        ],
+        "effects": [
+          "@oclif/plugin-autocomplete",
+          "eas-cli"
+        ],
+        "range": "3.22.0 - 5.1.11",
+        "nodes": [
+          "node_modules/@oclif/core"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "@oclif/plugin-autocomplete": {
+        "name": "@oclif/plugin-autocomplete",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "@oclif/core"
+        ],
+        "effects": [],
+        "range": "3.0.13 - 3.3.0",
+        "nodes": [
+          "node_modules/@oclif/plugin-autocomplete"
+        ],
+        "fixAvailable": true
+      },
+      "diff": {
+        "name": "diff",
+        "severity": "low",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1112706,
+            "name": "diff",
+            "dependency": "diff",
+            "title": "jsdiff has a Denial of Service vulnerability in parsePatch and applyPatch",
+            "url": "https://github.com/advisories/GHSA-73rr-hh4g-fpgx",
+            "severity": "low",
+            "cwe": [
+              "CWE-400",
+              "CWE-1333"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": ">=6.0.0 <8.0.3"
+          }
+        ],
+        "effects": [
+          "eas-cli"
+        ],
+        "range": "6.0.0 - 8.0.2",
+        "nodes": [
+          "node_modules/diff"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "eas-cli": {
+        "name": "eas-cli",
+        "severity": "moderate",
+        "isDirect": true,
+        "via": [
+          "@expo/config",
+          "@expo/config-plugins",
+          "@expo/prebuild-config",
+          "@expo/rudder-sdk-node",
+          "@oclif/core",
+          "@oclif/plugin-autocomplete",
+          "diff",
+          "ts-deepmerge"
+        ],
+        "effects": [],
+        "range": ">=0.24.0",
+        "nodes": [
+          "node_modules/eas-cli"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "glob": {
+        "name": "glob",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1244013,
+            "name": "glob",
+            "dependency": "glob",
+            "title": "Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal",
+            "url": "https://github.com/advisories/GHSA-3g3m-2fjr-6pw4",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-400"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": ">=9.0.0 <=14.0.1"
+          },
+          "minimatch"
+        ],
+        "effects": [
+          "@expo/config",
+          "@expo/config-plugins",
+          "sucrase"
+        ],
+        "range": "9.0.0 - 14.0.1",
+        "nodes": [
+          "node_modules/@expo/prebuild-config/node_modules/glob",
+          "node_modules/glob",
+          "node_modules/sucrase/node_modules/glob"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "minimatch": {
+        "name": "minimatch",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1244623,
+            "name": "minimatch",
+            "dependency": "minimatch",
+            "title": "minimatch has potential denial of service via globparts amplification",
+            "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-405"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": ">=7.0.0 <11.0.1"
+          }
+        ],
+        "effects": [
+          "@oclif/core",
+          "glob"
+        ],
+        "range": "7.0.0 - 11.0.0",
+        "nodes": [
+          "node_modules/@expo/prebuild-config/node_modules/minimatch",
+          "node_modules/@oclif/core/node_modules/minimatch",
+          "node_modules/glob/node_modules/minimatch",
+          "node_modules/sucrase/node_modules/minimatch"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "sucrase": {
+        "name": "sucrase",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "glob"
+        ],
+        "effects": [
+          "@expo/config"
+        ],
+        "range": "3.35.0",
+        "nodes": [
+          "node_modules/sucrase"
+        ],
+        "fixAvailable": true
+      },
+      "ts-deepmerge": {
+        "name": "ts-deepmerge",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1121318,
+            "name": "ts-deepmerge",
+            "dependency": "ts-deepmerge",
+            "title": "ts-deepmerge: Prototype Method Override leads to DoS",
+            "url": "https://github.com/advisories/GHSA-87mf-gv2c-c62c",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-248"
+            ],
+            "cvss": {
+              "score": 5.3,
+              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+            },
+            "range": "<8.0.0"
+          }
+        ],
+        "effects": [
+          "eas-cli"
+        ],
+        "range": "<8.0.0",
+        "nodes": [
+          "node_modules/ts-deepmerge"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "uuid": {
+        "name": "uuid",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1119441,
+            "name": "uuid",
+            "dependency": "uuid",
+            "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+            "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+            "severity": "moderate",
+            "cwe": [
+              "CWE-787",
+              "CWE-1285"
+            ],
+            "cvss": {
+              "score": 7.5,
+              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+            },
+            "range": "<11.1.1"
+          }
+        ],
+        "effects": [
+          "@expo/bunyan",
+          "@expo/rudder-sdk-node",
+          "xcode"
+        ],
+        "range": "<11.1.1",
+        "nodes": [
+          "node_modules/@expo/bunyan/node_modules/uuid",
+          "node_modules/@expo/rudder-sdk-node/node_modules/uuid",
+          "node_modules/xcode/node_modules/uuid"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      },
+      "xcode": {
+        "name": "xcode",
+        "severity": "moderate",
+        "isDirect": false,
+        "via": [
+          "uuid"
+        ],
+        "effects": [
+          "@expo/config-plugins"
+        ],
+        "range": "0.9.2 - 3.0.2-nightly.20251125002453809.sha.e6b981ec",
+        "nodes": [
+          "node_modules/xcode"
+        ],
+        "fixAvailable": {
+          "name": "eas-cli",
+          "version": "13.4.2",
+          "isSemVerMajor": true
+        }
+      }
+    },
+    "metadata": {
+      "vulnerabilities": {
+        "info": 0,
+        "low": 1,
+        "moderate": 14,
+        "high": 0,
+        "critical": 0,
+        "total": 15
+      },
+      "dependencies": {
+        "prod": 502,
+        "dev": 0,
+        "optional": 19,
+        "peer": 6,
+        "peerOptional": 0,
+        "total": 526
+      }
+    }
+  },
+  "advisories": [
+    {
+      "advisoryId": "GHSA-73rr-hh4g-fpgx",
+      "package": "diff",
+      "severity": "low",
+      "versions": [
+        "node_modules/diff@7.0.0"
+      ],
+      "paths": [
+        "runner > eas-cli@27.10.0 > diff@7.0.0"
+      ],
+      "reachability": "The advisory affects parsePatch/applyPatch on crafted patch input. EAS includes diff, but no untrusted patch ingestion is established for the reviewed build command; CLI exposure remains possible.",
+      "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
+      "upstream": "Patched in diff 8.0.3.",
+      "compatibility": "EAS pins diff 7.0.0; the patched 8.x major needs upstream API validation.",
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+    },
+    {
+      "advisoryId": "GHSA-3g3m-2fjr-6pw4",
+      "package": "glob",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/@expo/prebuild-config/node_modules/glob@10.5.0",
+        "node_modules/glob@13.0.7",
+        "node_modules/sucrase/node_modules/glob@10.5.0"
+      ],
+      "paths": [
+        "runner > eas-cli@27.10.0 > @expo/config@55.0.10 > glob@13.0.7",
+        "runner > eas-cli@27.10.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > glob@10.5.0",
+        "runner > eas-cli@27.10.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > sucrase@3.35.0 > glob@10.5.0"
+      ],
+      "reachability": "Glob traverses build repository files. Aborted traversals may continue after a timeout. Exposure to attacker-controlled patterns is uncertain; do not treat the path as unreachable.",
+      "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
+      "upstream": "Patched in glob 14.0.2.",
+      "compatibility": "Parents request glob ^10.4.2 or ^13.0.0; 14.x lies outside those contracts.",
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+    },
+    {
+      "advisoryId": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/@expo/prebuild-config/node_modules/minimatch@9.0.9",
+        "node_modules/@oclif/core/node_modules/minimatch@10.2.6",
+        "node_modules/glob/node_modules/minimatch@10.2.6",
+        "node_modules/sucrase/node_modules/minimatch@9.0.9"
+      ],
+      "paths": [
+        "runner > eas-cli@27.10.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > glob@10.5.0 > minimatch@9.0.9",
+        "runner > eas-cli@27.10.0 > @oclif/core@4.14.0 > minimatch@10.2.6",
+        "runner > eas-cli@27.10.0 > @expo/config@55.0.10 > glob@13.0.7 > minimatch@10.2.6",
+        "runner > eas-cli@27.10.0 > @expo/prebuild-config@9.0.12 > sucrase@3.35.0 > glob@10.5.0 > minimatch@9.0.9"
+      ],
+      "reachability": "Glob pattern amplification requires attacker-controlled patterns and optimizationLevel >= 2. No such reviewed call is established, but build configuration can affect traversal, so reachability remains uncertain.",
+      "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
+      "upstream": "Patched in minimatch 11.0.1.",
+      "compatibility": "Parents request minimatch ^9.0.4 or ^10.2.x; 11.x lies outside those contracts.",
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+    },
+    {
+      "advisoryId": "GHSA-87mf-gv2c-c62c",
+      "package": "ts-deepmerge",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/ts-deepmerge@6.2.0"
+      ],
+      "paths": [
+        "runner > eas-cli@27.10.0 > ts-deepmerge@6.2.0"
+      ],
+      "reachability": "EAS merges build configuration; hostile object property names can override inherited methods. The reviewed build uses trusted repository configuration, but CLI exposure remains possible.",
+      "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
+      "upstream": "Patched in ts-deepmerge 8.0.0.",
+      "compatibility": "EAS pins 6.2.0; 8.x is a major API change requiring upstream validation.",
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+    },
+    {
+      "advisoryId": "GHSA-w5hq-g745-h8pq",
+      "package": "uuid",
+      "severity": "moderate",
+      "versions": [
+        "node_modules/@expo/bunyan/node_modules/uuid@8.3.2",
+        "node_modules/@expo/rudder-sdk-node/node_modules/uuid@8.3.2",
+        "node_modules/xcode/node_modules/uuid@7.0.3"
+      ],
+      "paths": [
+        "runner > eas-cli@27.10.0 > @expo/rudder-sdk-node@1.1.1 > @expo/bunyan@4.0.1 > uuid@8.3.2",
+        "runner > eas-cli@27.10.0 > @expo/rudder-sdk-node@1.1.1 > uuid@8.3.2",
+        "runner > eas-cli@27.10.0 > @expo/config-plugins@55.0.7 > xcode@3.0.1 > uuid@7.0.3"
+      ],
+      "reachability": "Advisory concerns uuid v3/v5/v6 with a caller-supplied output buffer. Prior review found xcode/Rudder v4 and Bunyan v1 without a buffer; no matching call is established. iOS tooling is outside the Android release command.",
+      "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
+      "upstream": "Patched in uuid 11.1.1.",
+      "compatibility": "xcode and Expo tooling require 7.x/8.x; 11.x lies outside their contracts.",
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+    }
+  ]
+}

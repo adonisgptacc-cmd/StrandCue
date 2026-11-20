@@ -1,142 +1,134 @@
 [
   {
-    "advisoryId": "GHSA-vcc3-ghjq-m6fr",
+    "advisoryId": "GHSA-g3hv-75wg-m249",
     "packages": [
       {
-        "path": ["decode-uri-component"],
-        "surfaces": ["android", "production", "web"]
+        "path": [
+          "@expo/fingerprint",
+          "minimatch"
+        ],
+        "surfaces": [
+          "android",
+          "production",
+          "web"
+        ]
       },
       {
-        "path": ["query-string", "decode-uri-component"],
-        "surfaces": ["android", "production", "web"]
+        "path": [
+          "@typescript-eslint/eslint-plugin",
+          "@typescript-eslint/type-utils",
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
       },
       {
-        "path": ["expo-router", "query-string", "decode-uri-component"],
-        "surfaces": ["android", "production", "web"]
+        "path": [
+          "@typescript-eslint/eslint-plugin",
+          "@typescript-eslint/type-utils",
+          "@typescript-eslint/utils",
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "@typescript-eslint/eslint-plugin",
+          "@typescript-eslint/utils",
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "@typescript-eslint/parser",
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "@typescript-eslint/type-utils",
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "@typescript-eslint/type-utils",
+          "@typescript-eslint/utils",
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "@typescript-eslint/utils",
+          "@typescript-eslint/typescript-estree",
+          "minimatch"
+        ],
+        "surfaces": [
+          "development"
+        ]
+      },
+      {
+        "path": [
+          "expo",
+          "@expo/fingerprint",
+          "minimatch"
+        ],
+        "surfaces": [
+          "android",
+          "production",
+          "web"
+        ]
+      },
+      {
+        "path": [
+          "minimatch"
+        ],
+        "surfaces": [
+          "android",
+          "development",
+          "production",
+          "web"
+        ]
       }
     ],
     "severity": "moderate",
     "reachable": "uncertain",
-    "assessment": "expo-router reaches decode-uri-component through query-string, and route or callback parsing may process attacker-controlled encoded input in production.",
-    "mitigation": "Strict callback and route allowlisting reduces exposure but is only a partial mitigation and does not fix the vulnerable decoder.",
+    "assessment": "minimatch 10.2.6 is installed through Expo fingerprinting and TypeScript ESLint tooling. The advisory requires an attacker-controlled glob pattern with optimizationLevel >= 2. Reviewed local call sites use default options or dot matching; no such attacker-controlled pattern was found. Expo is classified on the Android, production, and web surfaces because it is a runtime dependency; actual fingerprint use appears to be build tooling. Exposure remains uncertain.",
+    "mitigation": "Build and lint patterns remain repository-controlled; CI has bounded jobs. These controls limit exposure but do not fix the vulnerable package.",
     "owner": "StrandCue maintainer",
-    "approvedOn": "2026-09-13",
-    "reviewOn": "2026-09-27",
-    "expiresOn": "2026-10-13",
-    "upgradePath": "Upgrade expo-router or query-string to a compatible release that removes the affected decode-uri-component version, then remove this exception."
-  },
-  {
-    "advisoryId": "GHSA-w5hq-g745-h8pq",
-    "packages": [
-      {
-        "path": ["uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["ios-build-tooling"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/inline-modules", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/cli", "@expo/prebuild-config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/local-build-cache-provider", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      },
-      {
-        "path": ["expo", "@expo/metro-config", "@expo/config", "@expo/config-plugins", "xcode", "uuid"],
-        "surfaces": ["android", "ios-build-tooling", "production", "web"]
-      }
-    ],
-    "severity": "moderate",
-    "reachable": "no",
-    "assessment": "npm audit emits the affected uuid leaf path plus derived paths that enter it through Expo's xcode configuration tooling. Ten signatures rooted at the direct Expo application dependency are conservatively classified across Android, web, production, and iOS build tooling; the remaining fifteen signatures are iOS build tooling only. The affected UUID call remains in iOS configuration code rather than the Android or web application runtime.",
-    "mitigation": "Phase 1 excludes the affected iOS configuration path; this scope boundary limits current reachability but is not a dependency fix.",
-    "owner": "StrandCue maintainer",
-    "approvedOn": "2026-09-13",
-    "reviewOn": "2026-09-27",
-    "expiresOn": "2026-10-13",
-    "upgradePath": "Upgrade Expo's xcode tooling to a compatible release using a fixed uuid version, then remove this exception."
+    "approvedOn": "2026-11-17",
+    "reviewOn": "2026-11-21",
+    "expiresOn": "2026-11-24",
+    "upgradePath": "Update Expo fingerprinting and TypeScript ESLint dependencies to versions compatible with minimatch 11.0.1 or later, then remove this exception. Recheck by 2026-11-21."
   }
 ]

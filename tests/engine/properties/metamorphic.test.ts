@@ -1,0 +1,424 @@
+import { describe, expect, it } from 'vitest';
+import { ENGINE_EVALUATOR_VERSION } from '../../../packages/engine/src/index.js';
+import { canonicalRulesetContentHash } from '../../../packages/engine/src/canonical-json.js';
+import { evaluateDecision } from '../../../packages/engine/src/pipeline/index.js';
+import type { CompiledRule, EngineDecision, EngineInput } from '../../../packages/engine/src/index.js';
+import { ReplayCaseSchema, replayDecisions } from '../../../packages/engine/src/replay/index.js';
+import {
+  buildInput,
+  capability,
+  exclude,
+  fact,
+  include,
+  rule,
+  seededRandom,
+  seededShuffle,
+} from '../fixtures/synthetic.js';
+
+/**
+ * Metamorphic and withdrawal properties.
+ *
+ * These tests state relations between two runs rather than one expected
+ * result, so they keep holding when the reviewed content of a ruleset
+ * changes.
+ */
+
+/**
+ * How permissive an outcome is. Tightening a restriction may move an outcome
+ * down this order, never up it.
+ */
+const PERMISSIVENESS = { decided: 3, needs_input: 2, no_protocol: 1, blocked: 0 } as const;
+
+const permissivenessOf = (decision: EngineDecision): number => PERMISSIVENESS[decision.status];
+
+const actionIds = (decision: EngineDecision): readonly string[] =>
+  decision.steps.map((step) => step.actionId);
+
+const ruleset = (
+  rules: CompiledRule[],
+  successorReview?: EngineInput['ruleset']['successorReview'],
+): EngineInput['ruleset'] => ({
+  ref: {
+    rulesetId: 'synthetic-ruleset-metamorphic',
+    contentHash: canonicalRulesetContentHash({ capabilities: [], rules, ...(successorReview === undefined ? {} : { successorReview }) }),
+    schemaVersion: '1.1.0',
+    evaluatorVersion: ENGINE_EVALUATOR_VERSION,
+  },
+  capabilities: [],
+  rules,
+  ...(successorReview === undefined ? {} : { successorReview }),
+});
+
+const baseRules = (): CompiledRule[] => [
+  rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+  rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
+];
+
+describe('metamorphic properties', () => {
+  it('never reintroduces a hard-excluded candidate because its ranking measures are favorable', () => {
+    const decision = evaluateDecision(buildInput({
+      rules: [
+        rule('r-include-excluded', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-excluded', goalSuitability: 100,
+          heatExposureOrdinal: 0, distinctRequiredProductCount: 0,
+        }]),
+        rule('r-include-eligible', 'load_verified_facts', [{
+          kind: 'include_candidate', candidateId: 'cand-eligible', goalSuitability: 1,
+          heatExposureOrdinal: 9, distinctRequiredProductCount: 9,
+        }]),
+        rule('r-hard-exclude', 'filter_candidates', [exclude('cand-excluded')], { severity: 'hard' }),
+      ],
+    }));
+
+    expect(actionIds(decision)).toEqual(['cand-eligible']);
+    expect(decision.omissions.map((omission) => omission.candidateId)).toContain('cand-excluded');
+  });
+
+  it('cannot loosen a decision when a restriction is tightened', () => {
+    const base = buildInput({ rules: baseRules() });
+    const before = evaluateDecision(base);
+
+    const tightened = buildInput({
+      rules: [...baseRules(), rule('r-exclude-base', 'filter_candidates', [exclude('cand-base')])],
+    });
+    const after = evaluateDecision(tightened);
+
+    expect(before.status).toBe('decided');
+    expect(actionIds(after).every((actionId) => actionIds(before).includes(actionId))).toBe(true);
+    expect(actionIds(after)).not.toContain('cand-base');
+    expect(permissivenessOf(after)).toBeLessThanOrEqual(permissivenessOf(before));
+    expect(after.omissions.map((omission) => omission.candidateId)).toContain('cand-base');
+  });
+
+  it('cannot loosen a decision when a hard block is added', () => {
+    const base = buildInput({ rules: baseRules() });
+    const before = evaluateDecision(base);
+
+    const blocked = buildInput({
+      rules: [...baseRules(), rule('r-block', 'apply_safety_restrictions', [{ kind: 'block', reasonCode: 'synthetic_blocked' }])],
+    });
+    const after = evaluateDecision(blocked);
+
+    expect(before.status).toBe('decided');
+    expect(after.status).toBe('blocked');
+    expect(after.steps).toEqual([]);
+    expect(permissivenessOf(after)).toBeLessThan(permissivenessOf(before));
+  });
+
+  it('keeps the same outcome when a rule is reordered', () => {
+    const base = buildInput({ rules: baseRules() });
+    const before = evaluateDecision(base);
+
+    const random = seededRandom(99);
+    const reordered = buildInput({
+      rules: seededShuffle(baseRules(), random),
+    });
+
+    const reorderedDecision = evaluateDecision(reordered);
+    expect(reorderedDecision.audit.ruleset.contentHash).not.toBe(before.audit.ruleset.contentHash);
+    expect({ ...reorderedDecision, audit: { ...reorderedDecision.audit, ruleset: { ...reorderedDecision.audit.ruleset, contentHash: before.audit.ruleset.contentHash } } }).toEqual(before);
+  });
+});
+
+describe('withdrawal properties', () => {
+  it('does not run a hard rule whose reviewed capability has expired', () => {
+    const expiringCapability = capability('cap-synthetic', { expiresAt: '2026-10-15T00:00:00.000Z' });
+    const input = buildInput({
+      shelf: ['prod-synthetic'],
+      capabilities: [expiringCapability],
+      rules: [
+        rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+        rule('r-include-bound', 'load_verified_facts', [include('cand-bound')], {
+          capabilityIds: ['cap-synthetic'],
+          claimIds: ['claim-cap-synthetic', 'claim-r-include-bound'],
+          evidenceIds: ['ev-cap-synthetic', 'ev-r-include-bound'],
+        }),
+      ],
+    });
+
+    const decision = evaluateDecision(input);
+
+    expect(decision.status).toBe('blocked');
+    expect(decision.omissions.map((omission) => omission.reasonCode)).toContain('capability_unavailable');
+    expect(decision.steps).toEqual([]);
+  });
+
+  it('does not run a rule whose reviewed capability has expired', () => {
+    const boundRules = (): CompiledRule[] => [
+      rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+      rule('r-include-bound', 'load_verified_facts', [include('cand-bound')]),
+      rule('r-exclude-bound', 'filter_candidates', [exclude('cand-bound')], {
+        severity: 'caution',
+        capabilityIds: ['cap-synthetic'],
+        claimIds: ['claim-cap-synthetic', 'claim-r-exclude-bound'],
+        evidenceIds: ['ev-cap-synthetic', 'ev-r-exclude-bound'],
+      }),
+    ];
+
+    // While the reviewed capability is current the bound rule runs.
+    const withCurrentReview = evaluateDecision(buildInput({
+      shelf: ['prod-synthetic'],
+      capabilities: [capability('cap-synthetic')],
+      rules: boundRules(),
+    }));
+
+    expect(withCurrentReview.status).toBe('decided');
+    expect(withCurrentReview.omissions.map((omission) => omission.candidateId)).toContain('cand-bound');
+    expect(actionIds(withCurrentReview)).not.toContain('cand-bound');
+
+    // Once the review has expired the bound rule is inert and never runs.
+    const withExpiredReview = evaluateDecision(buildInput({
+      shelf: ['prod-synthetic'],
+      capabilities: [capability('cap-synthetic', { expiresAt: '2026-10-15T00:00:00.000Z' })],
+      rules: boundRules(),
+    }));
+
+    expect(withExpiredReview.status).toBe('decided');
+    expect(withExpiredReview.omissions.map((omission) => omission.candidateId)).not.toContain('cand-bound');
+    expect(actionIds(withExpiredReview)).toContain('cand-bound');
+  });
+
+  it('keeps a withdrawn rule out of new decisions while the old decision stays replayable', () => {
+    const published = buildInput({
+      rules: [
+        ...baseRules(),
+        rule('r-exclude-heat', 'filter_candidates', [exclude('cand-heat')]),
+      ],
+    });
+    const historicalDecision = evaluateDecision(published);
+    expect(actionIds(historicalDecision)).not.toContain('cand-heat');
+
+    const replayCase = ReplayCaseSchema.parse({
+      caseId: 'case-withdrawn',
+      input: published,
+      decision: historicalDecision,
+    });
+
+    // The restrictive rule is withdrawn, but the unchanged inclusion is not
+    // treated as successor approval.
+    const withdrawn = ruleset(baseRules(), {
+      parentRulesetHash: published.ruleset.ref.contentHash,
+      withdrawals: [{ ruleId: 'r-exclude-heat', version: '1', affectedActionId: 'cand-heat' }],
+      authorizations: [],
+    });
+    const newDecision = evaluateDecision({
+      ...published,
+      priorRuleset: published.ruleset,
+      priorRulesetRef: published.ruleset.ref,
+      ruleset: withdrawn,
+    });
+
+    expect(newDecision.status).toBe('decided');
+    expect(actionIds(newDecision)).not.toContain('cand-heat');
+    expect(newDecision.omissions.map((omission) => omission.candidateId)).not.toContain('cand-heat');
+
+    // The historical decision is still exactly reproducible from its own
+    // pinned ruleset.
+    const report = replayDecisions([replayCase], withdrawn);
+    expect(report.cases[0].pinnedReplayReproduced).toBe(true);
+    expect(report.cases[0].pinnedRulesetHash).toBe(published.ruleset.ref.contentHash);
+    expect(report.cases[0].candidateRulesetHash).toBe(withdrawn.ref.contentHash);
+  });
+
+  it('requires a parent-bound, independently reviewed successor rule to permit a withdrawn action', () => {
+    const restricted = [
+      rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+      rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
+      rule('r-exclude-heat', 'filter_candidates', [exclude('cand-heat')]),
+    ];
+    const before = evaluateDecision(buildInput({ rules: restricted }));
+
+    expect(before.status).toBe('decided');
+    expect(actionIds(before)).not.toContain('cand-heat');
+    expect(before.omissions.map((omission) => omission.candidateId)).toContain('cand-heat');
+
+    // The exclusion is withdrawn, but the successor rule still permits the
+    // action and attributes it to its own reviewed claim and evidence.
+    const parentRuleset = buildInput({ rules: restricted }).ruleset;
+    const successorRule = rule('r-successor-heat', 'load_verified_facts', [include('cand-heat')], {
+      version: '2',
+      successorOf: {
+        parentRulesetHash: parentRuleset.ref.contentHash,
+        withdrawnRuleId: 'r-exclude-heat',
+        withdrawnRuleVersion: '1',
+      },
+    });
+    const successorReview = {
+      parentRulesetHash: parentRuleset.ref.contentHash,
+      withdrawals: [{ ruleId: 'r-exclude-heat', version: '1', affectedActionId: 'cand-heat' }],
+      authorizations: [{
+        withdrawnRuleId: 'r-exclude-heat',
+        withdrawnRuleVersion: '1',
+        affectedActionId: 'cand-heat',
+        successorRuleId: 'r-successor-heat',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    const withSuccessor = [
+      rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+      successorRule,
+    ];
+    const successorRuleset = ruleset(withSuccessor, successorReview);
+    const successorInput = {
+      ...buildInput({ rules: withSuccessor }),
+      priorRuleset: parentRuleset,
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: successorRuleset,
+    };
+    const after = evaluateDecision(successorInput);
+
+    expect(after.status).toBe('decided');
+    expect(actionIds(after)).toContain('cand-heat');
+    const permittedStep = after.steps.find((step) => step.actionId === 'cand-heat');
+    expect(permittedStep?.ruleIds).toContain('r-successor-heat');
+    expect(permittedStep?.claimIds.length).toBeGreaterThan(0);
+    expect(permittedStep?.evidenceIds.length).toBeGreaterThan(0);
+
+    expect(() => evaluateDecision({
+      ...buildInput({ rules: withSuccessor }),
+      priorRulesetRef: { ...parentRuleset.ref, contentHash: `sha256:${'0'.repeat(64)}` },
+      ruleset: successorRuleset,
+    })).toThrow(/parent ruleset/i);
+
+    const selfReviewed = {
+      ...successorReview,
+      authorizations: [{ ...successorReview.authorizations[0]!, reviewerId: '11111111-1111-4111-8111-111111111111' }],
+    };
+    expect(() => evaluateDecision({
+      ...buildInput({ rules: withSuccessor }),
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: ruleset(withSuccessor, selfReviewed),
+    })).toThrow(/independent reviewer/i);
+
+    const tamperedAuthorization = evaluateDecision({
+      ...successorInput,
+      ruleset: { ...successorRuleset, successorReview: {
+        ...successorReview,
+        authorizations: [{ ...successorReview.authorizations[0]!, reviewRef: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }],
+      } },
+    });
+    expect(tamperedAuthorization.status).toBe('blocked');
+    expect(tamperedAuthorization.omissions.map((omission) => omission.reasonCode)).toContain('ruleset_content_hash_mismatch');
+
+    const futureReviewed = {
+      ...successorReview,
+      authorizations: [{ ...successorReview.authorizations[0]!, reviewedAt: '2026-12-01T00:00:00.000Z' }],
+    };
+    const futureReviewDecision = evaluateDecision({
+      ...successorInput,
+      ruleset: ruleset(withSuccessor, futureReviewed),
+    });
+    expect(actionIds(futureReviewDecision)).not.toContain('cand-heat');
+
+    // Without the successor rule the action is not permitted at all: it is
+    // neither executed nor silently reported as omitted.
+    const withoutSuccessor = [rule('r-include-base', 'load_verified_facts', [include('cand-base')])];
+    const withheld = evaluateDecision(buildInput({ rules: withoutSuccessor }));
+
+    expect(withheld.status).toBe('decided');
+    expect(actionIds(withheld)).not.toContain('cand-heat');
+    expect(withheld.omissions.map((omission) => omission.candidateId)).not.toContain('cand-heat');
+    expect(withheld.alternatives.map((alternative) => alternative.alternativeId)).not.toContain('cand-heat');
+  });
+
+  it('rejects a successor withdrawal that names no matching rule in the parent ruleset', () => {
+    const parentRuleset = buildInput({ rules: [
+      rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+      rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
+    ] }).ruleset;
+    const fabricatedWithdrawal = {
+      parentRulesetHash: parentRuleset.ref.contentHash,
+      withdrawals: [{ ruleId: 'r-never-existed', version: '9', affectedActionId: 'cand-heat' }],
+      authorizations: [{
+        withdrawnRuleId: 'r-never-existed',
+        withdrawnRuleVersion: '9',
+        affectedActionId: 'cand-heat',
+        successorRuleId: 'r-successor-heat',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    const successorRule = rule('r-successor-heat', 'load_verified_facts', [include('cand-heat')], {
+      version: '2',
+      successorOf: {
+        parentRulesetHash: parentRuleset.ref.contentHash,
+        withdrawnRuleId: 'r-never-existed',
+        withdrawnRuleVersion: '9',
+      },
+    });
+    const nextRules = [rule('r-include-base', 'load_verified_facts', [include('cand-base')]), successorRule];
+    const successorRuleset = ruleset(nextRules, fabricatedWithdrawal);
+
+    expect(() => evaluateDecision({
+      ...buildInput({ rules: nextRules }),
+      priorRuleset: parentRuleset,
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: successorRuleset,
+    })).toThrow(/withdrawn rule|parent ruleset/i);
+  });
+
+  it('fails closed when a candidate has multiple withdrawals but only one is authorized', () => {
+    const parentRuleset = buildInput({ rules: [
+      rule('r-include-base', 'load_verified_facts', [include('cand-base')]),
+      rule('r-include-heat', 'load_verified_facts', [include('cand-heat')]),
+      rule('r-exclude-heat-first', 'filter_candidates', [exclude('cand-heat')]),
+      rule('r-exclude-heat-second', 'filter_candidates', [exclude('cand-heat')]),
+    ] }).ruleset;
+    const successorRule = rule('r-successor-heat', 'load_verified_facts', [include('cand-heat')], {
+      version: '2',
+      successorOf: {
+        parentRulesetHash: parentRuleset.ref.contentHash,
+        withdrawnRuleId: 'r-exclude-heat-first',
+        withdrawnRuleVersion: '1',
+      },
+    });
+    const successorReview = {
+      parentRulesetHash: parentRuleset.ref.contentHash,
+      withdrawals: [
+        { ruleId: 'r-exclude-heat-first', version: '1', affectedActionId: 'cand-heat' },
+        { ruleId: 'r-exclude-heat-second', version: '1', affectedActionId: 'cand-heat' },
+      ],
+      authorizations: [{
+        withdrawnRuleId: 'r-exclude-heat-first',
+        withdrawnRuleVersion: '1',
+        affectedActionId: 'cand-heat',
+        successorRuleId: 'r-successor-heat',
+        successorRuleVersion: '2',
+        authorId: '11111111-1111-4111-8111-111111111111',
+        reviewerId: '22222222-2222-4222-8222-222222222222',
+        reviewedAt: '2026-10-31T12:00:00.000Z',
+        reviewRef: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }],
+    };
+    const nextRules = [rule('r-include-base', 'load_verified_facts', [include('cand-base')]), successorRule];
+    const successorRuleset = ruleset(nextRules, successorReview);
+    const decision = evaluateDecision({
+      ...buildInput({ rules: nextRules }),
+      priorRuleset: parentRuleset,
+      priorRulesetRef: parentRuleset.ref,
+      ruleset: successorRuleset,
+    });
+
+    expect(actionIds(decision)).not.toContain('cand-heat');
+  });
+
+  it('does not let a later revision rewrite a stored decision', () => {
+    const published = buildInput({ rules: baseRules() });
+    const stored = evaluateDecision(published);
+
+    const later = buildInput({
+      facts: [fact('f-ready', true), fact('f-new', 'later')],
+      rules: baseRules(),
+    });
+    evaluateDecision(later);
+
+    expect(evaluateDecision(published)).toEqual(stored);
+  });
+});

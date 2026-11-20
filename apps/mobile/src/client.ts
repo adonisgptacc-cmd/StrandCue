@@ -18,6 +18,10 @@ const backend: SecureBackend = Platform.OS === 'web' ? {
 export const secureStorage = createChunkStorage(backend, Crypto.randomUUID);
 export const config = publicConfig(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '', process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '');
 export const supabase = config ? createClient(config.url, config.key, {
-  auth: { flowType: 'pkce', storage: secureStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+  auth: {
+    flowType: 'pkce', storage: secureStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false,
+    experimental: {appendPkceFlowIdToRedirects: true},
+  },
 }) : null;
 export const RECOVERY_KEY = 'strandcue-recovery-pending';
+export const RECOVERY_ACTIVE_KEY = 'strandcue-recovery-active-v3';

@@ -12,4 +12,24 @@ supabase/.temp/
 supabase/.branches/
 test-results/
 playwright-report/
+/test-result*.txt
 *.tsbuildinfo
+backups/
+*.apk
+
+# Expo native projects are generated from app.json and plugins.
+/apps/mobile/android/
+/apps/mobile/ios/
+# Local output and private build credentials (retain the files on disk).
+/*.png
+/*.jpg
+/*.jpeg
+/*.log
+/*.aab
+/*.zip
+/*backup*/
+/apps/mobile/google-play-service-account.json
+*.jks
+*.keystore
+.stryker-tmp/
+/reports/mutation/

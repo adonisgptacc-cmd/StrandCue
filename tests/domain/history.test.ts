@@ -32,6 +32,42 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('stored history the write path would refuse', () => {
+  it('projects a revision dated in the future instead of refusing the record', () => {
+    // A trusted writer can store a date the write path refuses. The owner
+    // must still be able to open their record and see what it holds.
+    const passportId = crypto.randomUUID();
+    const revisions = [
+      {
+        id: crypto.randomUUID(),
+        passportId,
+        sequence: 1,
+        baseRevision: 0,
+        kind: 'baseline' as const,
+        effectiveDate: { precision: 'day' as const, value: '2026-01-01' },
+        recordedAt: '2026-01-01T00:00:00.000Z',
+        source: 'user-reported' as const,
+        patch: { naturalPattern: 'curly', strandDiameter: 'fine', density: 'medium', concerns: ['dryness'], goals: ['shine'], budgetPreference: 'best-value' },
+      },
+      {
+        id: crypto.randomUUID(),
+        passportId,
+        sequence: 2,
+        baseRevision: 1,
+        kind: 'change' as const,
+        effectiveDate: { precision: 'year' as const, value: '2027' },
+        recordedAt: '2026-10-01T00:00:00.000Z',
+        source: 'user-reported' as const,
+        patch: { notes: 'a future entry' },
+      },
+    ];
+    const projection = projectHistory(revisions as never, { asOf: '2026-09-01' });
+    // The future entry is not part of the current state, and the record still
+    // opens.
+    expect(projection.values.notes).toBeUndefined();
+    expect(projection.values.naturalPattern).toBe('curly');
+  });
+});
 describe('projectHistory', () => {
   it('composes field patches by effective time rather than entry time', () => {
     const projection = projectHistory(

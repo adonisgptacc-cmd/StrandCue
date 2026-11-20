@@ -1,0 +1,82 @@
+{
+  "status": "draft_research_human_review_required",
+  "observedAt": "2026-10-24",
+  "market": "ZA",
+  "records": [
+    {
+      "researchId": "ZA-MASK-PHOTO-20261024-GARNIER-BANANA-400ML-Z70034167-4",
+      "recordId": "b3c658ec-fdaf-5ab2-b220-85d76fd4b0b5",
+      "intakeDisposition": "quarantined_out_of_scope",
+      "reason": "The basic_wash catalogue intake schema accepts only shampoo and conditioner; mask support requires a reviewed category extension.",
+      "brand": "Garnier Ultimate Blends",
+      "frontLabelName": "Nourishing Banana Hair Food + Vitamins C, E, F Multi-Use Mask",
+      "variant": "Dry hair; new formula",
+      "sizeOrPack": "400 ml",
+      "categoryCandidate": "multi_use_mask",
+      "gtin": "3600542231572",
+      "gtinCheck": "valid_ean13_check_digit",
+      "formulaIdentifier": "Z70034167/4",
+      "formulaIdentifierStatus": "visual_transcription_requires_human_confirmation",
+      "batchMarking": "287604",
+      "batchMarkingStatus": "visual_transcription_requires_human_confirmation",
+      "directions": [
+        "CONDITIONER: apply on wet hair and rinse off.",
+        "MASK: apply on wet hair, leave 3 min & rinse out thoroughly.",
+        "LEAVE IN: on wet or dry hair, apply a little amount on lengths & tips."
+      ],
+      "directionsStatus": "verbatim_visual_transcription_requires_human_confirmation",
+      "ingredients": "Aqua / Water, Cetearyl Alcohol, Stearamidopropyl Dimethylamine, Isopropyl Myristate, Cetyl Esters, Helianthus Annuus Seed Oil / Sunflower Seed Oil, Musa Paradisiaca Fruit Juice / Banana Fruit Juice, Glycine Soja Oil / Soybean Oil, Butyrospermum Parkii Butter / Shea Butter, Glycerin, Glyceryl Linoleate, Glyceryl Linolenate, Glyceryl Oleate, Ascorbyl Glucoside, Caprylyl Glycol, Citric Acid, Lactic Acid, Tartaric Acid, Tocopherol, Potassium Sorbate, Sodium Benzoate, Salicylic Acid, Caramel, Linalool, Eugenol, Coumarin, Benzyl Alcohol, Parfum / Fragrance.",
+      "ingredientsStatus": "visual_transcription_requires_human_confirmation",
+      "labelImageRefs": [
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/mask-400ml-front.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/mask-400ml-front-claims.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/mask-400ml-front-natural-origin.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/mask-400ml-back-formula-and-directions-01.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/mask-400ml-back-directions-and-ingredients.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/mask-400ml-barcode-and-formula-facts.jpeg"
+      ],
+      "possession": "unknown",
+      "publicationStatus": "draft",
+      "capabilities": [],
+      "limitations": "Physical packaging supports identity and label transcription only. Marketing claims are not efficacy evidence."
+    },
+    {
+      "researchId": "ZA-CONDITIONER-PHOTO-20261024-GARNIER-BANANA-350ML-Z79329-2",
+      "recordId": "b995c7fe-b1bd-50c1-b8f7-7f66b6ef378e",
+      "intakeDisposition": "draft_candidate_added_to_basic_wash_intake",
+      "brand": "Garnier Ultimate Blends",
+      "frontLabelName": "Banana Hair Food Nourishing Conditioner",
+      "variant": "Dry hair; F.I.L. Z79329/2",
+      "sizeOrPack": "350 ml",
+      "categoryCandidate": "conditioner",
+      "gtin": "3600542342896",
+      "gtinCheck": "valid_ean13_check_digit",
+      "formulaIdentifier": "Z79329/2",
+      "formulaIdentifierStatus": "visual_transcription_requires_human_confirmation",
+      "batchMarking": "267306",
+      "batchMarkingStatus": "visual_transcription_requires_human_confirmation",
+      "directions": [
+        "How to use: Squeeze, lather, rinse thoroughly."
+      ],
+      "directionsStatus": "verbatim_visual_transcription_requires_human_confirmation_and_possible_label_anomaly",
+      "ingredients": "Aqua / Water, Cetearyl Alcohol, Glycerin, Isopropyl Myristate, Stearamidopropyl Dimethylamine, Musa Paradisiaca Fruit Juice / Banana Fruit Juice, Glycine Soja Oil / Soybean Oil, Helianthus Annuus Seed Oil / Sunflower Seed Oil, Cocos Nucifera Oil / Coconut Oil, Sodium Hydroxide, Coco-Caprylate / Caprate, Hydroxypropyl Guar Hydroxypropyltrimonium Chloride, Caprylyl Glycol, Citric Acid, Lactic Acid, Tartaric Acid, Cetyl Esters, Potassium Sorbate, Sodium Benzoate, Salicylic Acid, Linalool, Benzyl Alcohol, Parfum / Fragrance.",
+      "ingredientsStatus": "visual_transcription_requires_human_confirmation",
+      "possibleReformulation": {
+        "status": "unresolved",
+        "existingDraftFormulaIdentifier": "C239429/2",
+        "photographedFormulaIdentifier": "Z79329/2",
+        "requiredAction": "Keep as a separate version; compare the package with the official ZA page and obtain human identity review."
+      },
+      "labelImageRefs": [
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/conditioner-350ml-front.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/conditioner-350ml-side-formula-facts.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/conditioner-350ml-barcode-and-manufacturer.jpeg",
+        "docs/product/research/physical-labels/2026-10-24-garnier-banana/conditioner-350ml-back-directions-and-ingredients.jpeg"
+      ],
+      "possession": "unknown",
+      "publicationStatus": "draft",
+      "capabilities": [],
+      "limitations": "Physical packaging supports identity and label transcription only. Marketing claims are not efficacy evidence."
+    }
+  ]
+}

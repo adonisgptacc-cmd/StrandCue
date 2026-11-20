@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "zod": "4.5.4"
+    "@strandcue/engine": "0.1.0",
+    "zod": "4.6.7"
   }
 }

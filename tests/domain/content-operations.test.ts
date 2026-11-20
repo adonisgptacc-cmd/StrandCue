@@ -1,0 +1,361 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  addToReviewerQueue,
+  disengageKillSwitch,
+  engageKillSwitch,
+  getPendingReviews,
+  getRollbackRecords,
+  getRollbackRecordsForRuleset,
+  getReviewerQueue,
+  getReviewReminders,
+  getDueReminders,
+  getReviewsByReviewer,
+  getWithdrawnRulesets,
+  isWithdrawn,
+  KillSwitchStateSchema,
+  markReminderSent,
+  reviewQueueEntry,
+  RollbackRecordSchema,
+  ReviewerQueueEntrySchema,
+  ReviewReminderSchema,
+  rollbackToPriorHash,
+  scheduleReviewReminder,
+  type KillSwitchState,
+  type RollbackRecord,
+  type RollbackStore,
+  type ReviewerQueueEntry,
+  type ReviewReminder,
+} from '../../packages/domain/src/content-operations.ts';
+
+describe('content operations schema', () => {
+  it('pins the kill switch state schema', () => {
+    const valid: KillSwitchState = {
+      rulesetId: 'rs-1',
+      contentHash: 'sha256:abc123',
+      withdrawnAt: '2026-10-31T12:00:00.000Z',
+      withdrawnBy: 'human-a',
+      reason: 'safety concern',
+    };
+    expect(KillSwitchStateSchema.safeParse(valid).success).toBe(true);
+
+    expect(KillSwitchStateSchema.safeParse({ ...valid, rulesetId: '' }).success).toBe(false);
+    expect(KillSwitchStateSchema.safeParse({ ...valid, withdrawnBy: '' }).success).toBe(false);
+    expect(KillSwitchStateSchema.safeParse({ ...valid, reason: '' }).success).toBe(false);
+  });
+
+  it('pins the rollback record schema', () => {
+    const valid: RollbackRecord = {
+      rulesetId: 'rs-1',
+      fromContentHash: 'sha256:old',
+      toContentHash: 'sha256:new',
+      rolledBackAt: '2026-10-31T12:00:00.000Z',
+      rolledBackBy: 'human-b',
+      reason: 'regression detected',
+    };
+    expect(RollbackRecordSchema.safeParse(valid).success).toBe(true);
+
+    expect(RollbackRecordSchema.safeParse({ ...valid, fromContentHash: '' }).success).toBe(false);
+    expect(RollbackRecordSchema.safeParse({ ...valid, toContentHash: '' }).success).toBe(false);
+  });
+
+  it('pins the reviewer queue entry schema', () => {
+    const valid: ReviewerQueueEntry = {
+      entryId: 'entry-1',
+      bundleId: 'bundle-1',
+      bundleVersion: '2',
+      authoredBy: 'human-a',
+      reviewedBy: null,
+      status: 'pending',
+      submittedAt: '2026-10-31T12:00:00.000Z',
+      reviewedAt: null,
+      rationale: null,
+    };
+    expect(ReviewerQueueEntrySchema.safeParse(valid).success).toBe(true);
+
+    // Approved entry must have reviewer, reviewedAt, rationale
+    const approved: ReviewerQueueEntry = {
+      ...valid,
+      status: 'approved',
+      reviewedBy: 'human-b',
+      reviewedAt: '2026-10-31T13:00:00.000Z',
+      rationale: 'looks good',
+    };
+    expect(ReviewerQueueEntrySchema.safeParse(approved).success).toBe(true);
+
+    // Rejected entry must have reviewer, reviewedAt, rationale
+    const rejected: ReviewerQueueEntry = {
+      ...valid,
+      status: 'rejected',
+      reviewedBy: 'human-b',
+      reviewedAt: '2026-10-31T13:00:00.000Z',
+      rationale: 'insufficient evidence',
+    };
+    expect(ReviewerQueueEntrySchema.safeParse(rejected).success).toBe(true);
+
+    // Pending entry must not have reviewer fields
+    const pending: ReviewerQueueEntry = {
+      ...valid,
+      status: 'pending',
+    };
+    expect(ReviewerQueueEntrySchema.safeParse(pending).success).toBe(true);
+
+    expect(ReviewerQueueEntrySchema.safeParse({ ...valid, entryId: '' }).success).toBe(false);
+    expect(ReviewerQueueEntrySchema.safeParse({ ...valid, authoredBy: '' }).success).toBe(false);
+  });
+
+  it('pins the reviewer queue status vocabulary', () => {
+    expect(['pending', 'approved', 'rejected'] as const).toEqual([
+      'pending',
+      'approved',
+      'rejected',
+    ]);
+  });
+
+  it('pins the review reminder schema', () => {
+    const valid: ReviewReminder = {
+      reminderId: 'reminder-1',
+      bundleId: 'bundle-1',
+      bundleVersion: '2',
+      reminderType: '180-day-review',
+      dueAt: '2026-10-31T12:00:00.000Z',
+      sentAt: null,
+    };
+    expect(ReviewReminderSchema.safeParse(valid).success).toBe(true);
+
+    expect(ReviewReminderSchema.safeParse({ ...valid, reminderType: '' }).success).toBe(false);
+    expect(ReviewReminderSchema.safeParse({ ...valid, dueAt: '' }).success).toBe(false);
+  });
+
+  it('rejects invalid types', () => {
+    expect(() =>
+      KillSwitchStateSchema.parse('not an object'),
+    ).toThrow();
+    expect(() =>
+      RollbackRecordSchema.parse(null),
+    ).toThrow();
+    expect(() =>
+      ReviewerQueueEntrySchema.parse(undefined),
+    ).toThrow();
+    expect(() =>
+      ReviewReminderSchema.parse(42),
+    ).toThrow();
+  });
+});
+
+describe('kill switch', () => {
+  const emptyStore: Map<string, KillSwitchState> = new Map();
+  const withdrawnAt = '2026-10-31T12:00:00.000Z';
+
+  it('engages kill switch for a ruleset', () => {
+    const store = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    expect(isWithdrawn(store, 'rs-1')).toBe(true);
+  });
+
+  it('disengages kill switch', () => {
+    const engaged = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    expect(isWithdrawn(engaged, 'rs-1')).toBe(true);
+
+    const disengaged = disengageKillSwitch(engaged, 'rs-1', 'human-b', 'false alarm');
+    expect(isWithdrawn(disengaged, 'rs-1')).toBe(false);
+  });
+
+  it('does not affect other rulesets', () => {
+    const store = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    expect(isWithdrawn(store, 'rs-2')).toBe(false);
+  });
+
+  it('returns empty array when no rulesets are withdrawn', () => {
+    expect(getWithdrawnRulesets(emptyStore)).toEqual([]);
+  });
+
+  it('returns all withdrawn ruleset IDs', () => {
+    const store = engageKillSwitch(emptyStore, 'rs-1', 'sha256:abc', withdrawnAt, 'human-a', 'safety concern');
+    const store2 = engageKillSwitch(store, 'rs-2', 'sha256:def', withdrawnAt, 'human-b', 'another issue');
+    expect(getWithdrawnRulesets(store2)).toEqual(['rs-1', 'rs-2']);
+  });
+});
+
+describe('rollback', () => {
+  const rolledBackAt = '2026-10-31T13:00:00.000Z';
+
+  it('records a rollback from one ruleset hash to another', () => {
+    const store: Map<string, RollbackRecord[]> = new Map();
+    const result = rollbackToPriorHash(
+      store,
+      'rs-1',
+      'sha256:current',
+      'sha256:prior',
+      rolledBackAt,
+      'human-b',
+      'regression detected',
+    );
+    const records = getRollbackRecords(result);
+    expect(records).toHaveLength(1);
+    expect(records[0].rulesetId).toBe('rs-1');
+    expect(records[0].fromContentHash).toBe('sha256:current');
+    expect(records[0].toContentHash).toBe('sha256:prior');
+    expect(records[0].rolledBackBy).toBe('human-b');
+    expect(records[0].reason).toBe('regression detected');
+  });
+
+  it('returns empty array when no rollbacks have been recorded', () => {
+    const store: Map<string, RollbackRecord[]> = new Map();
+    expect(getRollbackRecords(store)).toEqual([]);
+  });
+
+  it('returns rollback records for a specific ruleset', () => {
+    let store: RollbackStore = new Map();
+    store = rollbackToPriorHash(store, 'rs-1', 'sha256:a', 'sha256:b', rolledBackAt, 'human-a', 'issue 1');
+    store = rollbackToPriorHash(store, 'rs-2', 'sha256:c', 'sha256:d', rolledBackAt, 'human-b', 'issue 2');
+    store = rollbackToPriorHash(store, 'rs-1', 'sha256:e', 'sha256:f', rolledBackAt, 'human-a', 'issue 3');
+
+    const rs1Records = getRollbackRecordsForRuleset(store, 'rs-1');
+    expect(rs1Records).toHaveLength(2);
+    expect(rs1Records[0].fromContentHash).toBe('sha256:a');
+    expect(rs1Records[1].fromContentHash).toBe('sha256:e');
+
+    const rs2Records = getRollbackRecordsForRuleset(store, 'rs-2');
+    expect(rs2Records).toHaveLength(1);
+    expect(rs2Records[0].fromContentHash).toBe('sha256:c');
+
+    const rs3Records = getRollbackRecordsForRuleset(store, 'rs-3');
+    expect(rs3Records).toHaveLength(0);
+  });
+});
+
+describe('reviewer queue', () => {
+  const emptyStore: Map<string, ReviewerQueueEntry> = new Map();
+
+  const entry: ReviewerQueueEntry = {
+    entryId: 'entry-1',
+    bundleId: 'bundle-1',
+    bundleVersion: '2',
+    authoredBy: 'human-a',
+    reviewedBy: null,
+    status: 'pending',
+    submittedAt: '2026-10-31T12:00:00.000Z',
+    reviewedAt: null,
+    rationale: null,
+  };
+
+  const reviewedAt = '2026-10-31T13:00:00.000Z';
+
+  it('adds an entry to the reviewer queue', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const queue = getReviewerQueue(store);
+    expect(queue).toHaveLength(1);
+    expect(queue[0].entryId).toBe('entry-1');
+    expect(queue[0].status).toBe('pending');
+  });
+
+  it('approves a pending review entry', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const reviewed = reviewQueueEntry(store, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
+    const q = getReviewerQueue(reviewed);
+    expect(q[0].status).toBe('approved');
+    expect(q[0].reviewedBy).toBe('human-b');
+    expect(q[0].reviewedAt).not.toBeNull();
+    expect(q[0].rationale).toBe('looks good');
+  });
+
+  it('rejects a pending review entry', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const reviewed = reviewQueueEntry(store, 'entry-1', 'human-b', reviewedAt, 'rejected', 'insufficient evidence');
+    const q = getReviewerQueue(reviewed);
+    expect(q[0].status).toBe('rejected');
+    expect(q[0].reviewedBy).toBe('human-b');
+    expect(q[0].rationale).toBe('insufficient evidence');
+  });
+
+  it('rejects self-review (author == reviewer)', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    expect(() =>
+      reviewQueueEntry(store, 'entry-1', 'human-a', reviewedAt, 'approved', 'self review'),
+    ).toThrow();
+  });
+
+  it('rejects reviewing an already-reviewed entry', () => {
+    const store = addToReviewerQueue(emptyStore, entry);
+    const reviewed = reviewQueueEntry(store, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
+    expect(() =>
+      reviewQueueEntry(reviewed, 'entry-1', 'human-b', reviewedAt, 'rejected', 'changed mind'),
+    ).toThrow();
+  });
+
+  it('returns pending reviews only', () => {
+    const store1 = addToReviewerQueue(emptyStore, entry);
+    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
+    const store3 = addToReviewerQueue(store2, {
+      ...entry,
+      entryId: 'entry-2',
+      authoredBy: 'human-c',
+    });
+    const pending = getPendingReviews(store3);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].entryId).toBe('entry-2');
+  });
+
+  it('returns reviews by a specific reviewer', () => {
+    const store1 = addToReviewerQueue(emptyStore, entry);
+    const store2 = reviewQueueEntry(store1, 'entry-1', 'human-b', reviewedAt, 'approved', 'looks good');
+    const store3 = addToReviewerQueue(store2, {
+      ...entry,
+      entryId: 'entry-2',
+      authoredBy: 'human-c',
+    });
+    const store4 = reviewQueueEntry(store3, 'entry-2', 'human-b', reviewedAt, 'rejected', 'not good');
+    const byHumanB = getReviewsByReviewer(store4, 'human-b');
+    expect(byHumanB).toHaveLength(2);
+  });
+});
+
+describe('review reminders', () => {
+  const emptyStore: Map<string, ReviewReminder> = new Map();
+
+  it('schedules a review reminder', () => {
+    const store = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const reminders = getReviewReminders(store);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0].reminderId).toBe('reminder-1');
+    expect(reminders[0].sentAt).toBeNull();
+  });
+
+  it('returns empty array when no reminders exist', () => {
+    expect(getReviewReminders(emptyStore)).toEqual([]);
+  });
+
+  it('returns due reminders as of a given time', () => {
+    const store1 = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const store2 = scheduleReviewReminder(store1, 'reminder-2', 'bundle-2', '2', '180-day-review', '2026-11-01T12:00:00.000Z');
+    const store3 = scheduleReviewReminder(store2, 'reminder-3', 'bundle-3', '2', '180-day-review', '2026-12-01T12:00:00.000Z');
+
+    const due = getDueReminders(store3, '2026-11-15T12:00:00.000Z');
+    expect(due).toHaveLength(2);
+    expect(due[0].reminderId).toBe('reminder-1');
+    expect(due[1].reminderId).toBe('reminder-2');
+  });
+
+  it('returns no reminders when none are due yet', () => {
+    const store = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-12-01T12:00:00.000Z');
+    const due = getDueReminders(store, '2026-10-31T12:00:00.000Z');
+    expect(due).toHaveLength(0);
+  });
+
+  it('marks a reminder as sent', () => {
+    const store = scheduleReviewReminder(emptyStore, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const updated = markReminderSent(store, 'reminder-1', '2026-10-31T13:00:00.000Z');
+    const reminders = getReviewReminders(updated);
+    expect(reminders[0].sentAt).toBe('2026-10-31T13:00:00.000Z');
+  });
+
+  it('returns all reminders sorted by due date', () => {
+    const store1 = scheduleReviewReminder(emptyStore, 'reminder-3', 'bundle-1', '2', '180-day-review', '2026-12-01T12:00:00.000Z');
+    const store2 = scheduleReviewReminder(store1, 'reminder-1', 'bundle-1', '2', '180-day-review', '2026-10-31T12:00:00.000Z');
+    const store3 = scheduleReviewReminder(store2, 'reminder-2', 'bundle-1', '2', '180-day-review', '2026-11-01T12:00:00.000Z');
+    const reminders = getReviewReminders(store3);
+    expect(reminders[0].reminderId).toBe('reminder-1');
+    expect(reminders[1].reminderId).toBe('reminder-2');
+    expect(reminders[2].reminderId).toBe('reminder-3');
+  });
+});

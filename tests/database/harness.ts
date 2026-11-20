@@ -16,6 +16,7 @@ export async function database(migrationDirectory = 'supabase/migrations') {
   await db.exec(`
     create role anon nologin;
     create role authenticated nologin;
+    create role service_role nologin;
     create schema auth;
     create table auth.users(id uuid primary key, email_confirmed_at timestamptz);
     create function auth.uid() returns uuid language sql stable as $$

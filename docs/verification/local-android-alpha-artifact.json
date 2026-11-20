@@ -1,0 +1,12 @@
+{
+  "sourceCommit": "d8c2818a7fac0e996910a5a33d6784875800993b",
+  "inputApkSha256": "466330d1578e8019cb6e312b2653e750a550338d6c2637d5cda076555236b1ae",
+  "signedArtifact": "C:\\scb\\artifacts\\strandcue-d8c2818-arm64-alpha-signed.apk",
+  "signedApkSha256": "b16ccedf1591eb1819106aaf91170be83de280f26be9b274ec148493c37d12b3",
+  "packageName": "za.co.strandcue.app",
+  "versionName": "0.1.0",
+  "abi": ["arm64-v8a"],
+  "signerCount": 1,
+  "certificateSha256": "b930b12ee536b12f2b9c562f2baf69aca8449bc21dea95386cc46986dd551fbe",
+  "artifactVerification": "PASS"
+}

@@ -3,7 +3,10 @@ import { PassportRevisionSchema, type HistoryProjection } from '../../../package
 import { supabase } from './client';
 
 export type PassportRecord = { passportId: string; revision: number; projection: HistoryProjection; revisions: z.output<typeof PassportRevisionSchema>[] };
-const recordSchema = z.object({passportId: z.string().uuid(), revision: z.number().int().nonnegative(), projection: z.object({
+/** The shape a stored Passport record has to have. Exported so the
+ * boundary that used to lock an owner out of their own record is tested
+ * directly, not through a hand-built object. */
+export const recordSchema = z.object({passportId: z.string().uuid(), revision: z.number().int().nonnegative(), projection: z.object({
   asOf: z.string(), values: z.record(z.string(), z.unknown()), ambiguousFields: z.record(z.string(), z.unknown()),
   appliedRevisionIds: z.array(z.string()), supersededRevisionIds: z.array(z.string()),
 }), revisions: z.array(PassportRevisionSchema)});

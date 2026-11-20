@@ -10,13 +10,82 @@ permissions:
 
 jobs:
   test:
+    name: quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run verify
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:coverage
+      - run: npm run audit:control-plane
+      - run: npm run check:expo
+      - run: npm run export:web
+  dependency-audit:
+    name: dependency-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run audit:dependencies
+
+  supabase-api:
+    name: supabase-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
+        with:
+          version: 2.117.0
+      - name: Replay migrations in a disposable local stack
+        run: |
+          supabase start > "$RUNNER_TEMP/supabase-start.log" 2>&1 || {
+            echo 'Local Supabase startup failed; inspect the disposable runner services without publishing credential-bearing CLI output.'
+            exit 1
+          }
+          supabase db reset --local
+      - name: Test real Auth and PostgREST ownership boundaries
+        env:
+          STRANDCUE_SUPABASE_API_TEST: '1'
+        run: |
+          set -euo pipefail
+          status="$(supabase status -o json)"
+          export STRANDCUE_SUPABASE_URL="$(jq -r '.API_URL' <<< "$status")"
+          export STRANDCUE_SUPABASE_PUBLISHABLE_KEY="$(jq -r '.ANON_KEY' <<< "$status")"
+          export STRANDCUE_SUPABASE_SECRET_KEY="$(jq -r '.SERVICE_ROLE_KEY' <<< "$status")"
+          echo "::add-mask::$STRANDCUE_SUPABASE_SECRET_KEY"
+          npm test -- --run tests/database/supabase-api.test.ts
+      - name: Stop disposable services
+        if: always()
+        run: supabase stop --no-backup
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan committed content and history for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "sourceDirectory": "user-supplied Downloads folder (local, not copied)",
+  "createdOn": "2026-10-30",
+  "purpose": "unverified discovery only",
+  "files": [
+    {
+      "file": "hair_product_catalog_sa_afrobotanics.csv",
+      "kind": "product_csv",
+      "sha256": "9f891a384acb07ffb7821c563081c66b65edfdfc3489f82fb8e7ddf49917d3c8",
+      "rowCount": 41,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "hair_product_catalog_sa_beautyapi.csv",
+      "kind": "product_csv",
+      "sha256": "389410d844ea3813dfb7ee0387e5c542644aabf5b3003a0155abe3836f7457d4",
+      "rowCount": 1000,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "hair_product_catalog_sa_cultbeauty.csv",
+      "kind": "product_csv",
+      "sha256": "a7da35a6a3acb5a6b46d1bfe9353588c8ea988e1f926e73a63c4accd71262449",
+      "rowCount": 743,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "hair_product_catalog_sa_kaggle_sephora.csv",
+      "kind": "product_csv",
+      "sha256": "c2ef6046e75ab94c1346d68c9a90f4baf1315c14dbc91c094aa398ffd4cec718",
+      "rowCount": 1472,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "hair_product_catalog_sa_lookfantastic.csv",
+      "kind": "product_csv",
+      "sha256": "d63991ec873125d9fd5d481ac71f778301f7481c3381448ae4f73f07667615bc",
+      "rowCount": 973,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "hair_product_catalog_sa_masodi.csv",
+      "kind": "product_csv",
+      "sha256": "5b1f1165dac326c065da6d05dd57df9330041890d91984762c5fc19ddbd12079",
+      "rowCount": 28,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "hair_product_catalog_sa_nativechild.csv",
+      "kind": "product_csv",
+      "sha256": "e258c0034298e08353968f4a25ee95cdf0ef688de9955ae3217ff143ff779aa4",
+      "rowCount": 55,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "hair_product_catalog_sa_shampoo_github.csv",
+      "kind": "product_csv",
+      "sha256": "7b6b7e6ceb81e49cc0a431860c464e199361e80ad06476df4010f500450c8947",
+      "rowCount": 21,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "ingredient_reference.csv",
+      "kind": "ingredient_reference_csv",
+      "sha256": "cc05abf2f48e83a7566923ead1548ebee3b7953fb5f33f9cc747e993169ba6dc",
+      "rowCount": 1020,
+      "status": "unverified_reference"
+    },
+    {
+      "file": "README_R3.md",
+      "kind": "supplier_readme",
+      "sha256": "ebbb8fe83341de4d106de8191978a6ef281d776ccd8bed13cb4fc5c5ecfda6d2",
+      "status": "untrusted_source_notes"
+    },
+    {
+      "file": "Hair_Care_Apparatuses_CROSSCUT_LLLT_and_AfroPicks.xlsx",
+      "kind": "apparatus_workbook",
+      "sha256": "854e2f1a26b10f068c2b66a990816e665463c4508235fd45223c690c45490da5",
+      "sheetLeadCounts": {
+        "2. LLLT Devices Globally": 18,
+        "3. Afro Picks & Traditional": 25
+      },
+      "rowCount": 43,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "Hair_Care_Apparatuses_GLOBAL_Catalogue.xlsx",
+      "kind": "apparatus_workbook",
+      "sha256": "8ea387d75ec014e084fdd9d2265ff0a4b2413e53beead66240adbbe68de3110f",
+      "sheetLeadCounts": {
+        "2. Consumer Tools (Global)": 55,
+        "3. Salon Equipment (Global)": 17,
+        "4. Traditional (Global)": 21,
+        "5. Medical (Global)": 17
+      },
+      "rowCount": 110,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "Hair_Care_Apparatuses_Product_Catalogue.xlsx",
+      "kind": "apparatus_workbook",
+      "sha256": "c467ed0eb220ab6fb69a0d6bc8f5ab3e2a8abf6d933ec05dbb481fe59675f284",
+      "sheetLeadCounts": {
+        "2. Consumer Tools": 24,
+        "3. Salon Equipment": 15,
+        "4. Traditional & Cultural": 15,
+        "5. Medical & Treatment": 15
+      },
+      "rowCount": 69,
+      "status": "unverified_discovery"
+    },
+    {
+      "file": "Hair_Care_Apparatuses_Africa_South_Africa_Deep_Dive.docx",
+      "kind": "apparatus_narrative",
+      "sha256": "b56fcd7b9b3901d90781d838c1f394156dd70f2cf951d49ca6fa765f13b6dc6d",
+      "paragraphCount": 132,
+      "tableCount": 10,
+      "status": "unverified_context"
+    }
+  ]
+}
