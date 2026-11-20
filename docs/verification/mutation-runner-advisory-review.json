@@ -1,9 +1,9 @@
 {
   "tree": "tools/mutation-runner/package.json",
   "lockSha256": "d7b659c13704640f3a0df7d7d3a9fe6a63707c35bf3248a64e75b8d6591d6b5f",
-  "reviewedOn": "2026-11-17",
-  "recheckOn": "2026-11-24",
-  "expiresOn": "2026-11-24",
+  "reviewedOn": "2026-11-20",
+  "recheckOn": "2026-11-23",
+  "expiresOn": "2026-11-27",
   "owner": "StrandCue maintainer",
   "audit": {
     "auditReportVersion": 2,
@@ -100,11 +100,11 @@
       "paths": [
         "@stryker-mutator/core > minimatch"
       ],
-      "reachability": "uncertain: Stryker can evaluate glob patterns against repository files; no attacker-controlled pattern or optimizationLevel >= 2 use was identified in the inspected mutation workflow.",
+      "reachability": "An attacker-controlled pattern at optimization level 2 or higher could interrupt mutation testing. The optional workflow takes its pattern from the repository-controlled stryker.conf.json. No attacker-controlled pattern or affected call was identified in the inspected workflow.",
       "exposure": "Optional local and CI mutation testing tool; outside the Android and web application runtime.",
       "upstream": "@stryker-mutator/core 10.1.1 requires minimatch ~10.2.4; the patched minimatch 11.0.1 is outside that range and npm reports no compatible fix.",
       "compatibility": "Avoid a forced major override until Stryker compatibility and mutation execution are validated.",
-      "controls": "Mutation workflow uses repository-controlled configuration and files, has no production request input, and this review expires after seven days. Recheck upstream or validate an upgrade before expiry."
+      "controls": "The mutation workflow uses repository-controlled configuration and files and has a 120-minute job timeout. Recheck upstream on 2026-11-23 and validate any upgrade before the 2026-11-27 expiry."
     }
   ]
 }

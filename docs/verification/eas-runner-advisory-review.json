@@ -1,9 +1,9 @@
 {
   "tree": "tools/eas-runner/package.json",
   "lockSha256": "546c8fb284172f47ae7bb3955272e33ddb1e092d591ccbd085da78e91cec6f8f",
-  "reviewedOn": "2026-11-17",
-  "recheckOn": "2026-11-24",
-  "expiresOn": "2026-11-24",
+  "reviewedOn": "2026-11-20",
+  "recheckOn": "2026-11-23",
+  "expiresOn": "2026-11-27",
   "owner": "StrandCue maintainer",
   "audit": {
     "auditReportVersion": 2,
@@ -424,11 +424,11 @@
       "paths": [
         "runner > eas-cli@27.10.0 > diff@7.0.0"
       ],
-      "reachability": "The advisory affects parsePatch/applyPatch on crafted patch input. EAS includes diff, but no untrusted patch ingestion is established for the reviewed build command; CLI exposure remains possible.",
+      "reachability": "Untrusted patches could cause denial of service in parsePatch or applyPatch. The inspected EAS fingerprint wrapper calls diffLines, and no vulnerable patch call was identified in the inspected CLI code.",
       "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
       "upstream": "Patched in diff 8.0.3.",
       "compatibility": "EAS pins diff 7.0.0; the patched 8.x major needs upstream API validation.",
-      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck upstream on 2026-11-23 before the 2026-11-27 expiry."
     },
     {
       "advisoryId": "GHSA-3g3m-2fjr-6pw4",
@@ -444,11 +444,11 @@
         "runner > eas-cli@27.10.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > glob@10.5.0",
         "runner > eas-cli@27.10.0 > @expo/prebuild-config@9.0.12 > @expo/config@11.0.13 > sucrase@3.35.0 > glob@10.5.0"
       ],
-      "reachability": "Glob traverses build repository files. Aborted traversals may continue after a timeout. Exposure to attacker-controlled patterns is uncertain; do not treat the path as unreachable.",
+      "reachability": "Traversal may continue after cancellation and consume resources. The two inspected Expo Config call sites use fixed Gradle and Xcode project patterns. Broader exposure depends on runner callers and traversal inputs.",
       "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
       "upstream": "Patched in glob 14.0.2.",
-      "compatibility": "Parents request glob ^10.4.2 or ^13.0.0; 14.x lies outside those contracts.",
-      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+      "compatibility": "The parent ranges ^13.0.0, ^10.4.2, and ^10.3.10 exclude the patched release.",
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck upstream on 2026-11-23 before the 2026-11-27 expiry."
     },
     {
       "advisoryId": "GHSA-g3hv-75wg-m249",
@@ -466,11 +466,11 @@
         "runner > eas-cli@27.10.0 > @expo/config@55.0.10 > glob@13.0.7 > minimatch@10.2.6",
         "runner > eas-cli@27.10.0 > @expo/prebuild-config@9.0.12 > sucrase@3.35.0 > glob@10.5.0 > minimatch@9.0.9"
       ],
-      "reachability": "Glob pattern amplification requires attacker-controlled patterns and optimizationLevel >= 2. No such reviewed call is established, but build configuration can affect traversal, so reachability remains uncertain.",
+      "reachability": "The three audited glob installs use optimization level 2. The two inspected Expo Config calls use fixed patterns. Reachability in the wider CLI depends on whether a caller accepts attacker-controlled patterns.",
       "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
       "upstream": "Patched in minimatch 11.0.1.",
       "compatibility": "Parents request minimatch ^9.0.4 or ^10.2.x; 11.x lies outside those contracts.",
-      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck upstream on 2026-11-23 before the 2026-11-27 expiry."
     },
     {
       "advisoryId": "GHSA-87mf-gv2c-c62c",
@@ -482,11 +482,11 @@
       "paths": [
         "runner > eas-cli@27.10.0 > ts-deepmerge@6.2.0"
       ],
-      "reachability": "EAS merges build configuration; hostile object property names can override inherited methods. The reviewed build uses trusted repository configuration, but CLI exposure remains possible.",
+      "reachability": "Hostile merge input could cause denial of service. The inspected import is in the project:new helper, outside the signed Android build workflow's normal entry point.",
       "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
       "upstream": "Patched in ts-deepmerge 8.0.0.",
       "compatibility": "EAS pins 6.2.0; 8.x is a major API change requiring upstream validation.",
-      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck upstream on 2026-11-23 before the 2026-11-27 expiry."
     },
     {
       "advisoryId": "GHSA-w5hq-g745-h8pq",
@@ -502,11 +502,11 @@
         "runner > eas-cli@27.10.0 > @expo/rudder-sdk-node@1.1.1 > uuid@8.3.2",
         "runner > eas-cli@27.10.0 > @expo/config-plugins@55.0.7 > xcode@3.0.1 > uuid@7.0.3"
       ],
-      "reachability": "Advisory concerns uuid v3/v5/v6 with a caller-supplied output buffer. Prior review found xcode/Rudder v4 and Bunyan v1 without a buffer; no matching call is established. iOS tooling is outside the Android release command.",
+      "reachability": "Missing bounds checks affect UUID v3, v5, and v6 with a caller-supplied output buffer. Inspected Bunyan calls v1 and Rudder and Xcode call v4, all without a supplied buffer. Xcode is iOS tooling.",
       "exposure": "Isolated EAS CI executable only, not bundled into Android or web app runtime. Manual Android build has EXPO_TOKEN and remote credential access; a CLI compromise could affect that build.",
       "upstream": "Patched in uuid 11.1.1.",
       "compatibility": "xcode and Expo tooling require 7.x/8.x; 11.x lies outside their contracts.",
-      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck by 2026-11-24."
+      "controls": "Manual workflow_dispatch with fixed Android profile allowlist, android-release environment, trusted repository configuration, npm ci --ignore-scripts, and 60-minute job timeout. Avoid untrusted build configs and glob/patch inputs; exact lock and full audit graph are bound to this review. Recheck upstream on 2026-11-23 before the 2026-11-27 expiry."
     }
   ]
 }
