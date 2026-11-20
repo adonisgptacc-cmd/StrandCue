@@ -15,90 +15,6 @@
       },
       {
         "path": [
-          "@typescript-eslint/eslint-plugin",
-          "@typescript-eslint/type-utils",
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
-          "@typescript-eslint/eslint-plugin",
-          "@typescript-eslint/type-utils",
-          "@typescript-eslint/utils",
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
-          "@typescript-eslint/eslint-plugin",
-          "@typescript-eslint/utils",
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
-          "@typescript-eslint/parser",
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
-          "@typescript-eslint/type-utils",
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
-          "@typescript-eslint/type-utils",
-          "@typescript-eslint/utils",
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
-          "@typescript-eslint/utils",
-          "@typescript-eslint/typescript-estree",
-          "minimatch"
-        ],
-        "surfaces": [
-          "development"
-        ]
-      },
-      {
-        "path": [
           "expo",
           "@expo/fingerprint",
           "minimatch"
@@ -115,7 +31,6 @@
         ],
         "surfaces": [
           "android",
-          "development",
           "production",
           "web"
         ]
@@ -123,12 +38,12 @@
     ],
     "severity": "moderate",
     "reachable": "uncertain",
-    "assessment": "minimatch 10.2.6 is installed through Expo fingerprinting and TypeScript ESLint tooling. The advisory requires an attacker-controlled glob pattern with optimizationLevel >= 2. Reviewed local call sites use default options or dot matching; no such attacker-controlled pattern was found. Expo is classified on the Android, production, and web surfaces because it is a runtime dependency; actual fingerprint use appears to be build tooling. Exposure remains uncertain.",
-    "mitigation": "Build and lint patterns remain repository-controlled; CI has bounded jobs. These controls limit exposure but do not fix the vulnerable package.",
+    "assessment": "minimatch 10.2.6 remains installed through Expo fingerprinting. The advisory requires an attacker-controlled glob pattern with optimizationLevel >= 2. The reviewed fingerprint matcher uses dot matching and the default optimization level. Expo is classified on the Android, production, and web surfaces because it is a runtime dependency. Fingerprinting appears to be build tooling. Exposure remains uncertain.",
+    "mitigation": "Build patterns remain repository-controlled and CI has bounded jobs. The vulnerable package remains installed.",
     "owner": "StrandCue maintainer",
-    "approvedOn": "2026-11-17",
-    "reviewOn": "2026-11-21",
-    "expiresOn": "2026-11-24",
-    "upgradePath": "Update Expo fingerprinting and TypeScript ESLint dependencies to versions compatible with minimatch 11.0.1 or later, then remove this exception. Recheck by 2026-11-21."
+    "approvedOn": "2026-11-20",
+    "reviewOn": "2026-11-23",
+    "expiresOn": "2026-11-27",
+    "upgradePath": "Update Expo fingerprinting to a version compatible with minimatch 11.0.1 or later, then remove this exception. Recheck by 2026-11-23."
   }
 ]

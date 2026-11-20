@@ -11,7 +11,7 @@ import {
 } from '../../scripts/dependency-policy';
 
 const TODAY = '2026-10-17';
-const CLI_TODAY = '2026-11-17';
+const CLI_TODAY = '2026-11-20';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
 const ADVISORY_URL = `https://github.com/advisories/${ADVISORY_ID}`;
 const UUID_ADVISORY_ID = 'GHSA-w5hq-g745-h8pq';
@@ -949,7 +949,7 @@ describe('dependency advisory policy', () => {
     expect(exceptions).toEqual(exceptionsBefore);
   });
 
-  it('flags stale exceptions whose advisory no longer exists', () => {
+  it('clears the stale-exception hold when a removed advisory is removed from the registry', () => {
     const cleanReport = { auditReportVersion: 2, vulnerabilities: {} };
 
     expect(auditDependencyPolicy(cleanReport, [currentException()], TODAY)).toContainEqual(
@@ -958,6 +958,7 @@ describe('dependency advisory policy', () => {
         message: expect.stringContaining(ADVISORY_ID),
       }),
     );
+    expect(auditDependencyPolicy(cleanReport, [], TODAY)).toEqual([]);
   });
 
   it('flags stale package paths within an otherwise observed advisory exception', () => {
