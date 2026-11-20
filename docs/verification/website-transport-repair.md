@@ -22,3 +22,9 @@ Reviewed 2026-11-20 against the Cloudflare dashboard and public responses.
 3. Run `npm run check:website` and `npm run check:website-transport` from an external network and record the observed headers and status codes. Check certificate validity and the site content.
 
 These are production Cloudflare settings. The plan/design approval is not authorization to change them; obtain explicit approval for the two named settings after this baseline is reviewed.
+
+## Applied and verified
+
+The maintainer approved both production changes on 2026-11-20. **Always Use HTTPS** is now on. Cloudflare's built-in HSTS form offered a one-month minimum, so it was left unsaved. Instead, an active Response Header Transform Rule named **Staged HSTS for StrandCue website** matches `https://strandcue.co.za/*` and sets `Strict-Transport-Security: max-age=86400`. It does not include subdomains or preload.
+
+After deployment, HTTP `/` and `/privacy` returned 301 redirects to the same HTTPS host and paths. `npm run check:website` passed all public routes and the branded 404. `npm run check:website-transport` passed all three checks, including the exact one-day HSTS value. To roll back the header, disable the named response rule in Cloudflare Rules; browsers that already received it may retain the policy for up to one day. To roll back the redirect, turn off **Always Use HTTPS** under SSL/TLS → Edge Certificates.
