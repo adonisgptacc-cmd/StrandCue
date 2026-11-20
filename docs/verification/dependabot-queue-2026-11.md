@@ -22,6 +22,8 @@ Checks are ordered **quality / dependency-audit / supabase-api / secret-scan**. 
 
 ## Update notes
 
+- After this snapshot, PR #14 was merged as `bc6d0edee6d1430dca79c246a39b07876e0073d0`. Twelve PRs (#15–26) remain open. The merge changed three workflow files, not dependency manifests or lockfiles; the other dispositions still require a fresh check before merge. The local repair branch was rebased onto this main commit.
+
 - Run `npm ci` and `npm run check` in `workers/account-deletion` for #19, #20 and #22. Verify omits that worker command, which covers boundary checks, typechecking and a Wrangler dry run. Recheck each worker PR after the preceding one lands because they share a manifest and lockfile.
 - Keep #15 and #24 separate. The action that installs the CLI and the npm CLI dependency have separate versions and verification paths.
 - Re-fetch `main` and the PR head before merging. Re-review the diff and affected checks after the base advances, confirm all four required jobs on the final head and obtain authorized approval after its last push. Record the resulting commit and installed version on `main`. Close #23 as superseded only after confirming the paired upgrade in the merged lockfile.
