@@ -116,6 +116,10 @@ describe('CI workflow contracts', () => {
     expect(api).toBeDefined();
     expect(api).toContain("dsn=\"$(jq -er '.DB_URL | select(type == \"string\" and length > 0)' <<< \"$status\")\"");
     expect(api).toContain('export STRANDCUE_PG_DSN="$dsn"');
+    expect(api).toContain('url.username = "supabase_admin"');
+    expect(api).toContain('!["127.0.0.1", "localhost"].includes(url.hostname)');
+    expect(api).toContain('|| url.search');
+    expect(api).toContain('Local PostgreSQL proof requires a disposable superuser connection.');
     expect(api).toContain('::add-mask::$STRANDCUE_PG_DSN');
     expect(api).toContain('tests/database/*concurrency.pg.test.ts');
     expect(api).toContain('tests/database/engine-ruleset-successor-publication.pg.test.ts');

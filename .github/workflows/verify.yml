@@ -101,8 +101,42 @@ jobs:
           set -euo pipefail
           status="$(supabase status -o json)"
           dsn="$(jq -er '.DB_URL | select(type == "string" and length > 0)' <<< "$status")"
+          dsn="$(printf '%s' "$dsn" | node -e '
+            let raw = "";
+            process.stdin.on("data", chunk => { raw += chunk; });
+            process.stdin.on("end", () => {
+              let url;
+              try { url = new URL(raw); } catch {
+                console.error("Local PostgreSQL proof received an invalid database URL.");
+                process.exitCode = 1;
+                return;
+              }
+              if (!["postgres:", "postgresql:"].includes(url.protocol) || url.search
+                || !["127.0.0.1", "localhost"].includes(url.hostname)) {
+                console.error("Local PostgreSQL proof requires a loopback database.");
+                process.exitCode = 1;
+                return;
+              }
+              url.username = "supabase_admin";
+              process.stdout.write(url.toString());
+            });
+          ')"
           export STRANDCUE_PG_DSN="$dsn"
           echo "::add-mask::$STRANDCUE_PG_DSN"
+          node -e '
+            const { Client } = require("pg");
+            (async () => {
+              const client = new Client({ connectionString: process.env.STRANDCUE_PG_DSN });
+              try {
+                await client.connect();
+                const result = await client.query("select rolsuper from pg_roles where rolname=current_user");
+                if (result.rows[0]?.rolsuper !== true) throw new Error("not superuser");
+              } finally { await client.end(); }
+            })().catch(() => {
+              console.error("Local PostgreSQL proof requires a disposable superuser connection.");
+              process.exitCode = 1;
+            });
+          '
           suite_paths=(tests/database/*concurrency.pg.test.ts tests/database/engine-ruleset-successor-publication.pg.test.ts)
           npm test -- --run "${suite_paths[@]}" \
             --reporter=default --reporter=json \
