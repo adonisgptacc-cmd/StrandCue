@@ -11,7 +11,7 @@ import {
 } from '../../scripts/dependency-policy';
 
 const TODAY = '2026-10-17';
-const CLI_TODAY = '2026-11-20';
+const CLI_TODAY = '2026-11-21';
 const ADVISORY_ID = 'GHSA-vcc3-ghjq-m6fr';
 const ADVISORY_URL = `https://github.com/advisories/${ADVISORY_ID}`;
 const UUID_ADVISORY_ID = 'GHSA-w5hq-g745-h8pq';
