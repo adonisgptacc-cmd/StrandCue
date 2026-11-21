@@ -58,7 +58,7 @@ export default defineConfig({
     testTimeout: 30_000,
     coverage: {
       provider: 'v8',
-      include: ['packages/domain/src/**/*.ts', engineSource, 'scripts/validate-guidance-research.ts', 'scripts/catalogue-compiler.ts', 'scripts/compile-catalogue-intake.ts', ...criticalModules],
+      include: ['packages/domain/src/**/*.ts', engineSource, 'apps/mobile/src/**/*.{ts,tsx}', 'scripts/validate-guidance-research.ts', 'scripts/catalogue-compiler.ts', 'scripts/compile-catalogue-intake.ts', ...criticalModules],
       thresholds: {
         ...floor,
         ...Object.fromEntries(criticalModules.map(path => [path, { ...floor, perFile: true }])),

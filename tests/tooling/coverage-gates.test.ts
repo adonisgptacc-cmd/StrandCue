@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import config from '../../vitest.config';
 
 describe('critical module coverage gates', () => {
+  it('includes future mobile source modules in the overall coverage floor', () => {
+    expect(config.test?.coverage?.include).toContain('apps/mobile/src/**/*.{ts,tsx}');
+    expect(config.test?.coverage?.thresholds).toMatchObject({
+      statements: 80, branches: 80, functions: 80, lines: 80,
+    });
+  });
+
   const critical = [
     'apps/mobile/src/auth.tsx', 'apps/mobile/src/contracts.ts',
     'apps/mobile/src/guidance/**/*.ts', 'apps/mobile/src/useProtocolExecutionController.ts',

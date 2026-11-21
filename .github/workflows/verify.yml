@@ -28,6 +28,29 @@ jobs:
       - run: npm run audit:control-plane
       - run: npm run check:expo
       - run: npm run export:web
+      - name: Check website routes in a local preview
+        env:
+          STRANDCUE_WEBSITE_ORIGIN: http://127.0.0.1:8787
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/wrangler dev --config website/wrangler.jsonc --ip 127.0.0.1 --port 8787 > "$RUNNER_TEMP/strandcue-website-preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if curl --silent --fail --max-time 2 --output /dev/null "$STRANDCUE_WEBSITE_ORIGIN/"; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$preview_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'Local website preview did not become ready.'
+            tail -n 40 "$RUNNER_TEMP/strandcue-website-preview.log"
+            exit 1
+          fi
+          npm run check:website
   dependency-audit:
     name: dependency-audit
     runs-on: ubuntu-latest
@@ -73,6 +96,68 @@ jobs:
           export STRANDCUE_SUPABASE_SECRET_KEY="$(jq -r '.SERVICE_ROLE_KEY' <<< "$status")"
           echo "::add-mask::$STRANDCUE_SUPABASE_SECRET_KEY"
           npm test -- --run tests/database/supabase-api.test.ts
+      - name: Prove real PostgreSQL concurrency on the disposable stack
+        run: |
+          set -euo pipefail
+          status="$(supabase status -o json)"
+          dsn="$(jq -er '.DB_URL | select(type == "string" and length > 0)' <<< "$status")"
+          dsn="$(printf '%s' "$dsn" | node -e '
+            let raw = "";
+            process.stdin.on("data", chunk => { raw += chunk; });
+            process.stdin.on("end", () => {
+              let url;
+              try { url = new URL(raw); } catch {
+                console.error("Local PostgreSQL proof received an invalid database URL.");
+                process.exitCode = 1;
+                return;
+              }
+              if (!["postgres:", "postgresql:"].includes(url.protocol) || url.search
+                || !["127.0.0.1", "localhost"].includes(url.hostname)) {
+                console.error("Local PostgreSQL proof requires a loopback database.");
+                process.exitCode = 1;
+                return;
+              }
+              url.username = "supabase_admin";
+              process.stdout.write(url.toString());
+            });
+          ')"
+          export STRANDCUE_PG_DSN="$dsn"
+          echo "::add-mask::$STRANDCUE_PG_DSN"
+          node -e '
+            const { Client } = require("pg");
+            (async () => {
+              const client = new Client({ connectionString: process.env.STRANDCUE_PG_DSN });
+              try {
+                await client.connect();
+                const result = await client.query("select rolsuper from pg_roles where rolname=current_user");
+                if (result.rows[0]?.rolsuper !== true) throw new Error("not superuser");
+              } finally { await client.end(); }
+            })().catch(() => {
+              console.error("Local PostgreSQL proof requires a disposable superuser connection.");
+              process.exitCode = 1;
+            });
+          '
+          suite_paths=(tests/database/*concurrency.pg.test.ts tests/database/engine-ruleset-successor-publication.pg.test.ts)
+          npm test -- --run "${suite_paths[@]}" \
+            --reporter=default --reporter=json \
+            --outputFile.json="$RUNNER_TEMP/strandcue-pg-results.json"
+          node -e '
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const suites = result.testResults ?? [];
+            const expected = new Set(process.argv.slice(2).map(value => path.resolve(value)));
+            const observed = new Set(suites.map(suite => path.resolve(suite.name)));
+            if (expected.size === 0 || suites.length !== expected.size || result.numPassedTests === 0
+              || result.numPendingTests !== 0 || result.numTodoTests !== 0
+              || [...expected].some(value => !observed.has(value))
+              || suites.some(suite => suite.status !== "passed"
+                || !suite.assertionResults?.some(assertion => assertion.status === "passed"))) {
+              console.error("Real PostgreSQL concurrency proof was skipped or incomplete.");
+              process.exit(1);
+            }
+            console.log(`Real PostgreSQL concurrency proof passed: ${suites.length} suites, ${result.numPassedTests} tests.`);
+          ' "$RUNNER_TEMP/strandcue-pg-results.json" "${suite_paths[@]}"
       - name: Stop disposable services
         if: always()
         run: supabase stop --no-backup

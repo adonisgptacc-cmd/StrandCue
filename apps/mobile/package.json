@@ -15,7 +15,7 @@
     "submit:android:internal": "eas submit --platform android --profile production"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.116.0",
+    "@supabase/supabase-js": "2.119.0",
     "expo": "58.0.25",
     "expo-constants": "58.0.16",
     "expo-crypto": "58.0.8",
