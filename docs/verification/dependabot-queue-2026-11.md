@@ -27,3 +27,19 @@ Checks are ordered **quality / dependency-audit / supabase-api / secret-scan**. 
 - Run `npm ci` and `npm run check` in `workers/account-deletion` for #19, #20 and #22. Verify omits that worker command, which covers boundary checks, typechecking and a Wrangler dry run. Recheck each worker PR after the preceding one lands because they share a manifest and lockfile.
 - Keep #15 and #24 separate. The action that installs the CLI and the npm CLI dependency have separate versions and verification paths.
 - Re-fetch `main` and the PR head before merging. Re-review the diff and affected checks after the base advances, confirm all four required jobs on the final head and obtain authorized approval after its last push. Record the resulting commit and installed version on `main`. Close #23 as superseded only after confirming the paired upgrade in the merged lockfile.
+
+## Final reconciliation on 2026-11-21
+
+This section supersedes the November 20 snapshot above. At `main` commit `38088f4`, the post-merge [verify run](https://github.com/adonisgptacc-cmd/StrandCue/actions/runs/44935589328) passed quality, dependency-audit, supabase-api, and secret-scan. The Supabase API job now runs CLI 3.2.0 and proves migration replay, Auth/PostgREST ownership, and real PostgreSQL concurrency. The same four checks remain required with strict freshness; linear history, admin enforcement, and conversation resolution remain on. The solo-workflow last-push approval toggle was disabled with owner approval.
+
+| Original PR | Final disposition |
+| --- | --- |
+| #14–20 | Merged individually into `main` after required checks. #18's failed Supabase runner job passed on rerun before merge. |
+| #21 | Closed after replacement [#30](https://github.com/adonisgptacc-cmd/StrandCue/pull/30) merged Expo 58.0.26, Router 58.0.32, and File System 58.0.14 with corrected lock and evidence. |
+| #22 | Merged as `fd77e35` after Node 24 worker `npm run check` and four refreshed GitHub checks passed. |
+| #23 | Closed after [#27](https://github.com/adonisgptacc-cmd/StrandCue/pull/27) merged paired parser and plugin 8.73.0; both versions were verified in `main`'s lockfile. |
+| #24 | Closed after replacement [#31](https://github.com/adonisgptacc-cmd/StrandCue/pull/31) merged Supabase CLI 3.2.0 and verified that exact CLI in the hosted API job. |
+| #25 | Closed after replacement [#28](https://github.com/adonisgptacc-cmd/StrandCue/pull/28) merged mobile Supabase client 2.119.0 with exact lock agreement and refreshed evidence. |
+| #26 | **Open and held.** Expo 58.0.26's installed compatibility mapping specifies Reanimated 4.7.1, while #26 requests 4.7.2. Its latest [quality run](https://github.com/adonisgptacc-cmd/StrandCue/actions/runs/44935793762) failed on the installed-dependency mismatch and a separate lock declaration mismatch (`^4.7.2` versus `4.7.2`). Do not merge until an Expo-compatible version is available and both checks pass. |
+
+The repository has seven open Dependabot alerts (six medium, one low; no high or critical) as of this reconciliation. Those alerts still describe installed packages and were not dismissed. The reviewed dependency exceptions require recheck on 2026-11-23 and expire on 2026-11-27.
