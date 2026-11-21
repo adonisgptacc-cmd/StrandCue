@@ -7,11 +7,11 @@
     "claim": "Installed mobile dependencies agree with the locked versions and installed Expo 58 SDK mapping. Expo install --check and web export passed; no device or native compatibility claim.",
     "evidence": {
       "kind": "installed-expo-sdk",
-      "expoVersion": "58.0.25",
-      "manifestSha256": "2d4ea8dad682cb41efa97fa987ff86cc43e524b41062efb4bd8f8372f0964f99",
-      "lockSha256": "a17ccc3c57141b880981b4e83279debdc1d93ada4b787b571d358fcf42f454b6",
-      "bundledSha256": "5167339fa4e919d0c8675c7bee4492d6289c6356e0609428b07ddee3f7f909eb",
-      "installedSha256": "030525a35892cde28d245308a06a5068bf32e27b3f8857254a9bfebc16c031fc"
+      "expoVersion": "58.0.26",
+      "manifestSha256": "de06f347e796105fca7b931ba8df4e55fb99237aa919867f291aeb8dbdf5b428",
+      "lockSha256": "041304cb351d2ac05041e325f07f811f21c702bdb39638386d9ab349abedc982",
+      "bundledSha256": "d59e10fa356b16f3fcc740e8f21b0fba7f6783bc8e6297f490ea40a740c07f86",
+      "installedSha256": "5ac0cc5b7464d8088e2ac7ca34932dd539103057f664ef5d097d884cf5e21fa4"
     }
   },
   {
