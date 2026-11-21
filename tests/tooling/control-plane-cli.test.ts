@@ -29,9 +29,10 @@ async function runGate(mode: 'pass' | 'date-only' | 'missing') {
 
 describe('control-plane CLI evidence gate', () => {
   it('passes only after checking the installed SDK against the recorded claim', async () => {
+    const installedEvidence = collectExpoSdkEvidence(fileURLToPath(new URL('../../', import.meta.url)));
     const result = await runGate('pass');
     expect(result.code).toBe(0);
-    expect(JSON.parse(result.out)).toMatchObject({ findings: [], status: 'METADATA-PASS', expoEvidence: { expoVersion: '58.0.25' } });
+    expect(JSON.parse(result.out)).toMatchObject({ findings: [], status: 'METADATA-PASS', expoEvidence: installedEvidence });
   });
   it('holds a fresh claim lacking installation evidence', async () => {
     const result = await runGate('date-only');
