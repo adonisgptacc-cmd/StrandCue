@@ -20,8 +20,8 @@
     "preverify": "npm run check:runtime",
     "test": "vitest run",
     "test:website": "vitest run tests/website",
-    "website:dev": "npx --yes wrangler@4.148.0 dev --config website/wrangler.jsonc",
-    "website:deploy": "npx --yes wrangler@4.148.0 deploy --config website/wrangler.jsonc",
+    "website:dev": "wrangler dev --config website/wrangler.jsonc",
+    "website:deploy": "wrangler deploy --config website/wrangler.jsonc",
     "check:website": "node scripts/check-website.ts",
     "check:website-transport": "node scripts/check-website-transport.ts",
     "test:coverage": "vitest run --coverage",
@@ -36,7 +36,7 @@
     "verify:offline": "npm run check:runtime && npm run typecheck && npm run lint && npm run test:coverage && npm run audit:control-plane && npm run export:web",
     "verify": "npm run verify:offline && npm run check:expo && npm run audit:dependencies",
     "check:release-links": "node scripts/check-release-links.ts",
-    "verify:release-preflight": "npm run verify && npm run check:release-links",
+    "verify:release-preflight": "npm run verify && npm run check:release-links && npm run check:website-transport",
     "mobile": "npm run start --workspace @strandcue/mobile"
   },
   "devDependencies": {
@@ -59,7 +59,8 @@
     "react-test-renderer": "19.3.0",
     "supabase": "2.117.0",
     "typescript": "~6.0.3",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "wrangler": "4.166.0"
   },
   "dependencies": {
     "zod": "4.6.7"

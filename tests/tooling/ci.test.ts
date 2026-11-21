@@ -49,6 +49,21 @@ describe('CI workflow contracts', () => {
     expect(verify).toMatch(/on:\s*\n\s*pull_request:/);
   });
 
+  it('checks website routes against a disposable local Wrangler preview', async () => {
+    const verify = await workflow('verify.yml');
+    const quality = jobBlocks(verify).find(job => job.startsWith('  test:'));
+    expect(quality).toBeDefined();
+    expect(quality).toContain('./node_modules/.bin/wrangler dev --config website/wrangler.jsonc --ip 127.0.0.1 --port 8787');
+    expect(quality).toContain('STRANDCUE_WEBSITE_ORIGIN: http://127.0.0.1:8787');
+    expect(quality).toContain('npm run check:website');
+    expect(quality).toContain('curl --silent --fail --max-time 2');
+    expect(quality).toContain('trap \'kill "$preview_pid" 2>/dev/null || true\' EXIT');
+    expect(quality).toContain('if [ "$ready" -ne 1 ]');
+    expect(quality).not.toContain('check:website-transport');
+    const manifest = JSON.parse(await readFile('package.json', 'utf8'));
+    expect(manifest.scripts['verify:release-preflight']).toContain('check:website-transport');
+  });
+
   it('keeps the network-dependent audit out of the deterministic gate', async () => {
     const verify = await workflow('verify.yml');
     const jobs = jobBlocks(verify);
@@ -93,6 +108,27 @@ describe('CI workflow contracts', () => {
     expect(verify).toContain('tests/database/supabase-api.test.ts');
     expect(verify).toContain('supabase stop --no-backup');
     expect(verify).not.toContain('secrets.STRANDCUE_SUPABASE');
+  });
+
+  it('runs every real PostgreSQL concurrency suite without silent skips', async () => {
+    const verify = await workflow('verify.yml');
+    const api = jobBlocks(verify).find(job => job.startsWith('  supabase-api:'));
+    expect(api).toBeDefined();
+    expect(api).toContain("dsn=\"$(jq -er '.DB_URL | select(type == \"string\" and length > 0)' <<< \"$status\")\"");
+    expect(api).toContain('export STRANDCUE_PG_DSN="$dsn"');
+    expect(api).toContain('url.username = "supabase_admin"');
+    expect(api).toContain('!["127.0.0.1", "localhost"].includes(url.hostname)');
+    expect(api).toContain('|| url.search');
+    expect(api).toContain('Local PostgreSQL proof requires a disposable superuser connection.');
+    expect(api).toContain('::add-mask::$STRANDCUE_PG_DSN');
+    expect(api).toContain('tests/database/*concurrency.pg.test.ts');
+    expect(api).toContain('tests/database/engine-ruleset-successor-publication.pg.test.ts');
+    expect(api).toContain('numPendingTests');
+    expect(api).toContain('numTodoTests');
+    expect(api).toContain('numPassedTests');
+    expect(api).toContain('suites.length !== expected.size');
+    expect(api).toContain('suite.assertionResults?.some(assertion => assertion.status === "passed")');
+    expect(api).toContain('supabase stop --no-backup');
   });
 
   it('requires a manual protected release build without automatic publishing', async () => {
