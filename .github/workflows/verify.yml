@@ -77,7 +77,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
         with:
-          version: 2.117.0
+          version: 3.2.0
       - name: Replay migrations in a disposable local stack
         run: |
           supabase start > "$RUNNER_TEMP/supabase-start.log" 2>&1 || {

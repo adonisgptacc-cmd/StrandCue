@@ -110,6 +110,14 @@ describe('CI workflow contracts', () => {
     expect(verify).not.toContain('secrets.STRANDCUE_SUPABASE');
   });
 
+  it('pins the Supabase API CLI to the exact root dependency version', async () => {
+    const verify = await workflow('verify.yml');
+    const api = jobBlocks(verify).find(job => job.startsWith('  supabase-api:'));
+    const manifest = JSON.parse(await readFile('package.json', 'utf8'));
+    const setupVersion = api?.match(/^\s*- uses: supabase\/setup-cli@[a-f0-9]{40}[^\r\n]*\r?\n\s+with:\r?\n\s+version:\s*([^\s#]+)/m)?.[1];
+    expect(setupVersion).toBe(manifest.devDependencies.supabase);
+  });
+
   it('runs every real PostgreSQL concurrency suite without silent skips', async () => {
     const verify = await workflow('verify.yml');
     const api = jobBlocks(verify).find(job => job.startsWith('  supabase-api:'));
