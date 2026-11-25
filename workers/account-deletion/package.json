@@ -10,12 +10,12 @@
     "deploy": "wrangler deploy --config wrangler.jsonc"
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.119.0"
+    "@supabase/supabase-js": "2.119.2"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
     "typescript": "~7.0.2",
-    "wrangler": "4.164.0"
+    "wrangler": "4.166.0"
   },
   "overrides": {
     "sharp": "0.35.5"
